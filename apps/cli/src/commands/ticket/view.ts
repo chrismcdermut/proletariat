@@ -1,13 +1,10 @@
-import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
+import { Args } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketView extends PMOCommand {
@@ -20,14 +17,6 @@ export default class TicketView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   static args = {
@@ -64,29 +53,20 @@ export default class TicketView extends PMOCommand {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to view:', ticketChoices),
-          createMetadata('ticket view', flags)
-        );
-        return;
-      }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
+      // Use helper for ticket selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select ticket to view:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket view ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket view' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      ticketId = selected;
     }
 
     // Get ticket
@@ -95,12 +75,45 @@ export default class TicketView extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    const board = await this.storage.getBoard(ticket.projectId!);
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: ticket.id,
+          title: ticket.title,
+          description: ticket.description,
+          priority: ticket.priority,
+          category: ticket.category,
+          statusName: ticket.statusName,
+          statusCategory: ticket.statusCategory,
+          projectId: ticket.projectId,
+          assignee: ticket.assignee,
+          owner: ticket.owner,
+          branch: ticket.branch,
+          epicId: ticket.epicId,
+          position: ticket.position,
+          subtasks: ticket.subtasks,
+          labels: ticket.labels,
+          metadata: ticket.metadata,
+          blockedBy: ticket.blockedBy,
+          acceptanceCriteria: ticket.acceptanceCriteria,
+          specId: ticket.specId,
+          createdAt: ticket.createdAt?.toISOString(),
+          updatedAt: ticket.updatedAt?.toISOString(),
+        },
+      }, null, 2));
+      return;
+    }
+
+    // Get project board (may be null if project was deleted/orphaned)
+    const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+    const projectName = board?.name || ticket.projectId || 'Unknown';
 
     // Display ticket details
     this.log(`\n${styles.header('📄 Ticket')} ${styles.emphasis(ticket.id)}\n`);
     this.log(`${styles.header('Title:')}       ${ticket.title}`);
-    this.log(`${styles.header('Project:')}     ${board.name}`);
+    this.log(`${styles.header('Project:')}     ${projectName}`);
     this.log(`${styles.header('Status:')}      ${ticket.statusName}`);
     this.log(`${styles.header('Priority:')}    ${ticket.priority || 'none'}`);
     this.log(`${styles.header('Category:')}    ${ticket.category || 'none'}`);

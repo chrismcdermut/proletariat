@@ -32,6 +32,7 @@ export interface Project {
   description?: string
   status: ProjectStatus       // @deprecated - use phaseId instead
   phaseId?: string            // Reference to ProjectPhase
+  workflowId?: string         // Reference to Workflow (shared workflow for board columns/statuses)
   isArchived: boolean         // Soft-delete flag (hidden from default views)
   targetDate?: Date           // Optional end date for time-bounded projects
   initiativeId?: string
@@ -77,19 +78,25 @@ export type TicketStatus = string
 // =============================================================================
 
 /**
- * Standardized priority values: P0 (critical) through P3 (low).
+ * Priority is now a string to support user-defined priority scales.
+ * The workspace's priority scale is stored in pmo_settings.
+ * Use getWorkspacePriorities() from utils.ts to get the current scale.
  */
-export type Priority = 'P0' | 'P1' | 'P2' | 'P3'
+export type Priority = string
 
 /**
- * Valid priority values as a const array for validation and CLI options.
+ * Default priority values as a const array.
+ * @deprecated Use getWorkspacePriorities() from utils.ts instead for runtime priority resolution.
+ * This constant is kept for backwards compatibility and as the default when no workspace scale is set.
  */
-export const PRIORITIES: readonly Priority[] = ['P0', 'P1', 'P2', 'P3'] as const
+export const PRIORITIES: readonly string[] = ['P0', 'P1', 'P2', 'P3'] as const
 
 /**
- * Priority display names for UI presentation.
+ * Default priority display names for UI presentation.
+ * @deprecated Priority labels are derived from the workspace priority scale.
+ * For user-defined priorities, the label IS the priority value.
  */
-export const PRIORITY_LABELS: Record<Priority, string> = {
+export const PRIORITY_LABELS: Record<string, string> = {
   P0: 'P0 - Critical',
   P1: 'P1 - High',
   P2: 'P2 - Medium',
@@ -109,6 +116,55 @@ export const LEGACY_PRIORITY_MAP: Record<LegacyPriority, Priority> = {
   HIGH: 'P1',
   MEDIUM: 'P2',
   LOW: 'P3',
+}
+
+/**
+ * Ticket categories for classification.
+ */
+export const TICKET_CATEGORIES = [
+  'feature',
+  'bug',
+  'refactor',
+  'docs',
+  'test',
+  'chore',
+  'performance',
+  'ci',
+  'build',
+  'security',
+  'database',
+  'release',
+  'adhoc',
+] as const
+
+export type TicketCategory = typeof TICKET_CATEGORIES[number]
+
+/**
+ * Category types (ticket vs status).
+ */
+export type CategoryType = 'ticket' | 'status'
+
+/**
+ * Category record for ticket or status classification.
+ */
+export interface Category {
+  id: string
+  name: string
+  type: CategoryType
+  description?: string
+  color?: string
+  position: number
+  isBuiltin: boolean
+  createdAt: Date
+}
+
+/**
+ * Filter options for listing categories.
+ */
+export interface CategoryFilter {
+  type?: CategoryType
+  isBuiltin?: boolean
+  search?: string
 }
 
 /**
@@ -157,9 +213,10 @@ export function normalizePriority(value: string | undefined | null): Priority | 
  * Fixed state categories - the semantic buckets that statuses belong to.
  * These cannot be added, removed, or reordered.
  *
- * Order: backlog < unstarted < started < completed < canceled
+ * Order: triage < backlog < unstarted < started < completed < canceled
  */
 export type StateCategory =
+  | 'triage'      // Inbox - needs review before entering workflow
   | 'backlog'     // Not yet scheduled for work
   | 'unstarted'   // Scheduled but work hasn't begun
   | 'started'     // Work is actively in progress
@@ -170,6 +227,7 @@ export type StateCategory =
  * State category order for sorting columns/statuses
  */
 export const STATE_CATEGORY_ORDER: readonly StateCategory[] = [
+  'triage',
   'backlog',
   'unstarted',
   'started',
@@ -178,19 +236,50 @@ export const STATE_CATEGORY_ORDER: readonly StateCategory[] = [
 ] as const
 
 /**
- * Customizable status within a project.
+ * Shared workflow definition.
+ * Projects reference workflows via workflowId.
+ * Updating a workflow affects all projects using it.
+ */
+export interface Workflow {
+  id: string
+  name: string              // Display name, unique
+  description?: string      // Description of this workflow
+  isBuiltin: boolean        // System-provided vs user-created
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Status within a shared workflow.
  * Each status belongs to exactly one StateCategory.
- * Status names must be unique within a project.
+ * Status names must be unique within a workflow.
+ * These are the board columns - workflows define the columns for all projects using them.
  */
 export interface WorkflowStatus {
   id: string
-  projectId: string
-  name: string              // Display name, unique within project
+  workflowId: string        // Reference to parent Workflow
+  name: string              // Display name, unique within workflow
   category: StateCategory   // Which category this belongs to
-  position: number          // Order within category (0-indexed)
+  position: number          // Order within workflow (0-indexed, defines column order)
   color?: string            // Hex color for UI
   description?: string      // Tooltip/help text
   isDefault?: boolean       // Default status for new tickets
+  createdAt: Date
+}
+
+/**
+ * @deprecated Legacy per-project status - use WorkflowStatus instead.
+ * Kept for backward compatibility during migration.
+ */
+export interface LegacyWorkflowStatus {
+  id: string
+  projectId: string
+  name: string
+  category: StateCategory
+  position: number
+  color?: string
+  description?: string
+  isDefault?: boolean
   createdAt: Date
 }
 
@@ -266,6 +355,85 @@ export interface PhaseTemplatePhase {
   color?: string
   description?: string
   isDefault?: boolean
+}
+
+// =============================================================================
+// Label Types
+// =============================================================================
+
+/**
+ * Label group - groups related labels and optionally enforces mutual exclusivity.
+ * Example: "Function" group (ship/grow/support/bizops/strategy) is exclusive.
+ */
+export interface LabelGroup {
+  id: string
+  name: string
+  description?: string
+  isExclusive: boolean       // Only one label from this group per ticket
+  isRequired: boolean        // Must have one label from this group
+  position: number
+  createdAt: Date
+}
+
+/**
+ * Label - a tag that can be applied to tickets.
+ * Labels can optionally belong to a group.
+ */
+export interface Label {
+  id: string
+  name: string
+  color?: string
+  description?: string
+  groupId?: string           // Reference to LabelGroup
+  groupName?: string         // Resolved group name (for display)
+  position: number
+  isBuiltin: boolean
+  createdAt: Date
+}
+
+/**
+ * Filter options for listing labels.
+ */
+export interface LabelFilter {
+  groupId?: string
+  search?: string
+  isBuiltin?: boolean
+}
+
+/**
+ * Filter options for listing label groups.
+ */
+export interface LabelGroupFilter {
+  search?: string
+}
+
+// =============================================================================
+// Roadmap Types
+// =============================================================================
+
+/**
+ * Roadmap - a curated collection of projects for documentation/visualization.
+ * Roadmaps group projects in a specific order for generating roadmap documents.
+ * Projects can appear in multiple roadmaps (e.g., "Public Roadmap" vs "Internal Roadmap").
+ */
+export interface Roadmap {
+  id: string
+  name: string
+  description?: string
+  isDefault: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * RoadmapProject - association between a roadmap and a project with ordering.
+ * Projects can be in multiple roadmaps with different positions.
+ */
+export interface RoadmapProject {
+  roadmapId: string
+  projectId: string
+  position: number
+  createdAt: Date
 }
 
 // =============================================================================
@@ -644,6 +812,8 @@ export interface TicketFilter {
   column?: string
   projectId?: string          // Filter to a specific project
   allProjects?: boolean       // If true, list tickets across all projects (ignores current project scope)
+  label?: string              // Filter by label name
+  labelGroup?: string         // Filter by label group name
 }
 
 export interface SpecFilter {
@@ -659,8 +829,14 @@ export interface EpicFilter {
 }
 
 export interface StatusFilter {
-  projectId?: string
+  workflowId?: string         // Filter by workflow (new)
+  projectId?: string          // @deprecated - use workflowId instead
   category?: StateCategory
+  search?: string
+}
+
+export interface WorkflowFilter {
+  isBuiltin?: boolean
   search?: string
 }
 
@@ -693,6 +869,11 @@ export interface ProjectFilter {
 
 export interface BoardViewFilter {
   projectId?: string
+  isDefault?: boolean
+  search?: string
+}
+
+export interface RoadmapFilter {
   isDefault?: boolean
   search?: string
 }
@@ -761,6 +942,7 @@ export interface PMOStorage {
   getTicket(id: string): Promise<Ticket | null>
   updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket>
   moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket>
+  reorderTicket(id: string, opts: { position?: number; afterTicketId?: string }): Promise<Ticket>
   moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket>
   deleteTicket(id: string): Promise<void>
   listTickets(projectId: string | undefined, filter?: TicketFilter): Promise<Ticket[]>
@@ -801,21 +983,25 @@ export interface PMOStorage {
   linkTicketToEpic(ticketId: string, epicId: string): Promise<void>
   unlinkTicketFromEpic(ticketId: string): Promise<void>
 
-  // Workflow Status Operations
-  listStatuses(projectId: string): Promise<WorkflowStatus[]>
+  // Workflow Operations (shared workflow definitions)
+  listWorkflows(filter?: WorkflowFilter): Promise<Workflow[]>
+  getWorkflow(id: string): Promise<Workflow | null>
+  createWorkflow(workflow: Partial<Workflow>): Promise<Workflow>
+  updateWorkflow(id: string, changes: Partial<Workflow>): Promise<Workflow>
+  deleteWorkflow(id: string): Promise<void>
+  getProjectWorkflow(projectId: string): Promise<Workflow | null>
+
+  // Workflow Status Operations (statuses within workflows = board columns)
+  listStatuses(workflowId: string): Promise<WorkflowStatus[]>
   getStatus(id: string): Promise<WorkflowStatus | null>
-  createStatus(projectId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
+  createStatus(workflowId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
   updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus>
   deleteStatus(id: string): Promise<void>
   reorderStatus(id: string, newPosition: number): Promise<WorkflowStatus>
-  getDefaultStatus(projectId: string): Promise<WorkflowStatus | null>
+  getDefaultStatus(workflowId: string): Promise<WorkflowStatus | null>
 
-  // Workflow Template Operations
-  listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]>
-  getTemplate(id: string): Promise<WorkflowTemplate | null>
-  applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]>
-  saveTemplate(name: string, projectId: string, description?: string): Promise<WorkflowTemplate>
-  deleteTemplate(id: string): Promise<void>
+  // Note: Workflow templates have been removed. Use workflow commands directly
+  // (prlt workflow list, prlt workflow create, prlt workflow switch)
 
   // Ticket Template Operations
   listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]>
@@ -866,6 +1052,22 @@ export interface PMOStorage {
   deleteBoardView(id: string): Promise<void>
   getDefaultBoardView(projectId: string): Promise<BoardView | null>
   getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board>
+
+  // Roadmap Operations
+  listRoadmaps(filter?: RoadmapFilter): Promise<Roadmap[]>
+  getRoadmap(id: string): Promise<Roadmap | null>
+  createRoadmap(roadmap: Partial<Roadmap> & { name: string }): Promise<Roadmap>
+  updateRoadmap(id: string, changes: Partial<Roadmap>): Promise<Roadmap>
+  deleteRoadmap(id: string): Promise<void>
+  getDefaultRoadmap(): Promise<Roadmap | null>
+  setDefaultRoadmap(id: string): Promise<Roadmap>
+
+  // Roadmap Project Operations (managing projects within a roadmap)
+  listRoadmapProjects(roadmapId: string): Promise<Project[]>
+  addProjectToRoadmap(roadmapId: string, projectId: string, position?: number): Promise<RoadmapProject>
+  removeProjectFromRoadmap(roadmapId: string, projectId: string): Promise<void>
+  reorderRoadmapProject(roadmapId: string, projectId: string, newPosition: number): Promise<RoadmapProject>
+  getRoadmapsForProject(projectId: string): Promise<Roadmap[]>
 
   // Sync Operations
   pull(): Promise<SyncResult>

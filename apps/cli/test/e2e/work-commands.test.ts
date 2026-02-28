@@ -5,6 +5,18 @@ import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { exec } from './test-helpers.js';
 
+/** Database row type for agent_work queries */
+interface AgentWorkRow {
+  ticket_id: string;
+  agent_name: string;
+  executor: string;
+  environment: string;
+  display_mode: string;
+  sandboxed: number;
+  status: string;
+  branch?: string;
+}
+
 /**
  * End-to-end tests for Work Commands
  * Tests actual CLI usage as a user would interact with it
@@ -17,6 +29,7 @@ import { exec } from './test-helpers.js';
  * - Valid ticket/execution state
  * These tests verify database operations directly rather than CLI commands.
  */
+// eslint-disable-next-line mocha/no-skipped-tests
 describe.skip('Work Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
@@ -47,10 +60,10 @@ describe.skip('Work Commands E2E Tests', () => {
 
   /**
    * Spec: execute-commands.md > prlt work ready
-   * "Moves ticket to Done column (Linear-style: review is implicit via PR)"
+   * "Moves ticket to Review column"
    */
   describe('prlt work ready', () => {
-    it('should move ticket to Done column', () => {
+    it('should move ticket to Review column', () => {
       // Create ticket in In Progress column
       const ticketId = createTicket(db, 'Ready test', 'in-progress');
 
@@ -59,7 +72,7 @@ describe.skip('Work Commands E2E Tests', () => {
       expect(output).to.contain('ready');
       expect(output).to.contain(ticketId);
 
-      // Verify ticket moved to Done (Linear-style: review is implicit via PR)
+      // Verify ticket moved to Review column
       const ticket = db.prepare(`
         SELECT c.name as column_name
         FROM pmo_board_tickets bt
@@ -67,7 +80,7 @@ describe.skip('Work Commands E2E Tests', () => {
         WHERE bt.ticket_id = ?
       `).get(ticketId) as { column_name: string };
 
-      expect(ticket.column_name).to.equal('Done');
+      expect(ticket.column_name).to.equal('Review');
     });
 
     it('should mark running execution as completed', () => {
@@ -254,15 +267,16 @@ describe.skip('Work Commands E2E Tests', () => {
 
       const execution = db.prepare(`
         SELECT * FROM agent_work WHERE ticket_id = ?
-      `).get(ticketId) as any;
+      `).get(ticketId) as AgentWorkRow | undefined;
 
-      expect(execution.ticket_id).to.equal(ticketId);
-      expect(execution.agent_name).to.equal('agent-1');
-      expect(execution.executor).to.equal('claude-code');
-      expect(execution.environment).to.equal('host');
-      expect(execution.display_mode).to.equal('terminal');
-      expect(execution.sandboxed).to.equal(1);
-      expect(execution.status).to.equal('running');
+      expect(execution).to.exist;
+      expect(execution!.ticket_id).to.equal(ticketId);
+      expect(execution!.agent_name).to.equal('agent-1');
+      expect(execution!.executor).to.equal('claude-code');
+      expect(execution!.environment).to.equal('host');
+      expect(execution!.display_mode).to.equal('terminal');
+      expect(execution!.sandboxed).to.equal(1);
+      expect(execution!.status).to.equal('running');
     });
 
     it('should record environment and display_mode separately', () => {
@@ -480,12 +494,13 @@ function setupTestDatabase(db: Database.Database) {
     VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
   `).run();
 
-  // Linear-style columns: Backlog, Planned, In Progress, Done
+  // Linear-style columns: Backlog, Planned, In Progress, Review, Done
   const columns = [
     { id: 'backlog', name: 'Backlog', position: 0 },
     { id: 'planned', name: 'Planned', position: 1 },
     { id: 'in-progress', name: 'In Progress', position: 2 },
-    { id: 'done', name: 'Done', position: 3 },
+    { id: 'review', name: 'Review', position: 3 },
+    { id: 'done', name: 'Done', position: 4 },
   ];
 
   for (const col of columns) {
@@ -522,12 +537,13 @@ function createTicket(db: Database.Database, title: string, columnOrStatus: stri
   ticketCounter++;
   const ticketId = `TKT-${String(ticketCounter).padStart(3, '0')}`;
 
-  // Map input to actual column ID (columns: backlog, planned, in-progress, done)
+  // Map input to actual column ID (columns: backlog, planned, in-progress, review, done)
   const toColumnId: Record<string, string> = {
     'backlog': 'backlog',
     'planned': 'planned',
     'in-progress': 'in-progress',
-    'in-review': 'in-progress',  // in-review uses in-progress column
+    'in-review': 'review',
+    'review': 'review',
     'done': 'done',
   };
 

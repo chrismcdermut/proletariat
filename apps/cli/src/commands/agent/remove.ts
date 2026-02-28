@@ -3,7 +3,8 @@ import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
 import {
   getWorkspaceInfo,
-  removeAgentsFromWorkspace
+  removeAgentsFromWorkspace,
+  formatAgentList
 } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
@@ -15,7 +16,7 @@ import {
 } from '../../lib/prompt-json.js';
 
 export default class Remove extends PMOCommand {
-  static description = 'Remove a specific agent from the workspace';
+  static description = 'Remove an agent from the workspace';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> camry',
@@ -31,12 +32,9 @@ export default class Remove extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Skip confirmation prompt (for non-interactive use)',
       default: false,
     }),
   };
@@ -76,11 +74,23 @@ export default class Remove extends PMOCommand {
 
     // Interactive mode if no agent specified
     if (!agentName) {
-      // Build choices once, use for both JSON and interactive modes
-      const agentChoices = [
-        ...workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name })),
-        { name: 'Cancel', value: 'cancel' },
-      ];
+      // Group agents by type
+      const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
+      const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
+
+      // Build choices with command field for JSON mode
+      const agentChoices: Array<{ name: string; value: string; command?: string }> = [];
+
+      for (const agent of staffAgents) {
+        agentChoices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent remove ${agent.name} --machine` });
+      }
+
+      for (const agent of tempAgents) {
+        agentChoices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent remove ${agent.name} --machine` });
+      }
+
+      agentChoices.push({ name: 'Cancel', value: 'cancel' });
+
       const selectMessage = 'Select agent to remove:';
 
       // In JSON mode, output agent selection prompt
@@ -92,7 +102,7 @@ export default class Remove extends PMOCommand {
         return;
       }
 
-      const { selected } = await inquirer.prompt([
+      const { selected } = await this.prompt<{ selected: string }>([
         {
           type: 'list',
           name: 'selected',
@@ -103,7 +113,7 @@ export default class Remove extends PMOCommand {
             { name: '❌ ' + agentChoices[agentChoices.length - 1].name, value: agentChoices[agentChoices.length - 1].value }
           ]
         }
-      ]);
+      ], null);
 
       if (selected === 'cancel') {
         this.log(colors.textMuted('Operation cancelled.'));
@@ -114,46 +124,49 @@ export default class Remove extends PMOCommand {
     }
 
     // Validate agent exists
-    const agent = workspaceInfo.agents.find((a: any) => a.name === agentName);
+    const agent = workspaceInfo.agents.find((a) => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a: any) => a.name).join(', ')}`);
+      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available: ${formatAgentList(workspaceInfo.agents)}`);
     }
 
     const agentsToRemove = [agentName!];
 
-    // Build choices once, use for both JSON and interactive modes
-    const confirmChoices = [
-      { name: 'No, cancel', value: 'false' },
-      { name: 'Yes, remove agent', value: 'true' },
-    ];
-    const confirmMessage = `Are you sure you want to remove agent "${agentName!}"? This will delete its worktree.`;
+    // Skip confirmation if --force flag is passed
+    if (!flags.force) {
+      // Build choices once, use for both JSON and interactive modes
+      const confirmChoices = [
+        { name: 'No, cancel', value: 'false' },
+        { name: 'Yes, remove agent', value: 'true' },
+      ];
+      const confirmMessage = `Are you sure you want to remove agent "${agentName!}"? This will delete its worktree.`;
 
-    // Confirm removal
-    // In JSON mode, output confirmation prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
-        createMetadata('agent remove', flags)
-      );
-      return;
-    }
-
-    const { confirm } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'confirm',
-        message: confirmMessage,
-        choices: [
-          { name: '❌ ' + confirmChoices[0].name, value: false },
-          { name: '⚠️  ' + confirmChoices[1].name, value: true }
-        ],
-        default: 0 // Default to "No, cancel"
+      // Confirm removal
+      // In JSON mode, output confirmation prompt
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
+          createMetadata('agent remove', flags)
+        );
+        return;
       }
-    ]);
 
-    if (!confirm) {
-      this.log(colors.textMuted('Removal cancelled.'));
-      return;
+      const { confirm } = await this.prompt<{ confirm: boolean }>([
+        {
+          type: 'list',
+          name: 'confirm',
+          message: confirmMessage,
+          choices: [
+            { name: '❌ ' + confirmChoices[0].name, value: false },
+            { name: '⚠️  ' + confirmChoices[1].name, value: true }
+          ],
+          default: 0 // Default to "No, cancel"
+        }
+      ], null);
+
+      if (!confirm) {
+        this.log(colors.textMuted('Removal cancelled.'));
+        return;
+      }
     }
 
     // Remove agents
@@ -162,11 +175,11 @@ export default class Remove extends PMOCommand {
     const { removed, failed } = await removeAgentsFromWorkspace(workspaceInfo, agentsToRemove);
 
     // Show results for each agent
-    for (const agentName of agentsToRemove) {
-      if (removed.includes(agentName)) {
-        this.log(format.success(`Agent ${agentName} removed`));
-      } else if (failed.includes(agentName)) {
-        this.log(format.error(`Failed to remove agent ${agentName}`));
+    for (const name of agentsToRemove) {
+      if (removed.includes(name)) {
+        this.log(format.success(`Agent ${name} removed`));
+      } else if (failed.includes(name)) {
+        this.log(format.error(`Failed to remove agent ${name}`));
       }
     }
 

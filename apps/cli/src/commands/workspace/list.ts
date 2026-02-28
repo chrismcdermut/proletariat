@@ -1,13 +1,14 @@
-import { Command, Flags } from '@oclif/core';
+import { Command } from '@oclif/core';
 import chalk from 'chalk';
 import { findAllHQs, findHQRootWithSource, isValidHQ } from '../../lib/workspace.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 import {
   getRegisteredWorkspaces,
   getActiveWorkspace,
-  RegisteredWorkspace,
 } from '../../lib/machine-config.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 interface WorkspaceInfo {
   name: string;
@@ -28,10 +29,7 @@ export default class WorkspaceList extends Command {
   ];
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output as JSON for machine-readable format',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {
@@ -110,7 +108,7 @@ export default class WorkspaceList extends Command {
     }
 
     // JSON output
-    if (flags.json) {
+    if (shouldOutputJson(flags)) {
       const output = {
         workspaces: workspaces.map((w) => ({
           name: w.name,

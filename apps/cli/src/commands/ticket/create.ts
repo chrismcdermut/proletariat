@@ -1,17 +1,21 @@
 import { Flags } from '@oclif/core';
+import * as fs from 'node:fs';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+// Note: inquirer import kept for inquirer.Separator usage in interactive mode
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
-import { TicketTemplate, PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
+import { TicketTemplate } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
-  outputSuccessAsJson,
+  outputDryRunSuccessAsJson,
+  outputDryRunErrorsAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
+import { multiLineInput } from '../../lib/multiline-input.js';
 
 export default class TicketCreate extends PMOCommand {
   static description = 'Create a new ticket on the PMO board';
@@ -19,25 +23,20 @@ export default class TicketCreate extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --title "Fix login bug" --column Backlog',
-    '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p HIGH',
+    '<%= config.bin %> <%= command.id %> -t "Add feature" -c "In Progress" -p P1',
     '<%= config.bin %> <%= command.id %> --project mobile-app -t "New feature"',
     '<%= config.bin %> <%= command.id %> --epic EPIC-001 -t "Implement auth flow"',
+    '<%= config.bin %> <%= command.id %> --title "My ticket" --description-file ./ticket-desc.md',
+    '<%= config.bin %> <%= command.id %> --title "My ticket" --description-file -  # Read from stdin',
     '<%= config.bin %> <%= command.id %> --json  # Output column choices as JSON',
+    '<%= config.bin %> <%= command.id %> --title "Test" -P PROJ-001 --dry-run --json  # Validate without creating',
   ];
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     title: Flags.string({
       char: 't',
-      description: 'Ticket title',
+      description: 'Ticket title [required for non-interactive]',
     }),
     column: Flags.string({
       char: 'c',
@@ -45,8 +44,7 @@ export default class TicketCreate extends PMOCommand {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'Ticket priority',
-      options: [...PRIORITIES],
+      description: 'Ticket priority (uses workspace priority scale)',
     }),
     category: Flags.string({
       description: 'Ticket category (e.g., bug, feature, refactor)',
@@ -54,6 +52,11 @@ export default class TicketCreate extends PMOCommand {
     description: Flags.string({
       char: 'd',
       description: 'Ticket description',
+    }),
+    'description-file': Flags.string({
+      char: 'D',
+      description: 'Path to a markdown file for the ticket description (use - for stdin)',
+      exclusive: ['description'],
     }),
     id: Flags.string({
       description: 'Custom ticket ID (auto-generated if not provided)',
@@ -73,15 +76,26 @@ export default class TicketCreate extends PMOCommand {
     }),
     labels: Flags.string({
       char: 'l',
+      aliases: ['label'],
       description: 'Labels (comma-separated)',
+    }),
+    'dry-run': Flags.boolean({
+      description: 'Validate inputs without creating ticket (use with --json for structured output)',
+      default: false,
     }),
   };
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
 
-    // Get project and board info
-    const projectId = await this.requireProject();
+    // Get project and board info (pass JSON mode config for AI agents)
+    const projectId = await this.requireProject({
+      jsonMode: {
+        flags,
+        commandName: 'ticket create',
+        baseCommand: 'prlt ticket create',
+      },
+    });
     const board = await this.storage.getBoard(projectId);
     const columns = board.columns.map(c => c.name);
     const projectName = await this.getProjectName(projectId);
@@ -98,14 +112,24 @@ export default class TicketCreate extends PMOCommand {
       this.error(message);
     };
 
-    // In JSON mode without required data, output column selection prompt
-    if (jsonMode && !flags.title && !flags.column) {
-      const columnChoices = columns.map(c => ({ name: c, value: c }));
-      outputPromptAsJson(
-        buildPromptConfig('list', 'column', 'Select column to place the ticket in:', columnChoices),
-        createMetadata('ticket create', flags)
-      );
-      return;
+    // Read description from file if --description-file is provided
+    if (flags['description-file']) {
+      const filePath = flags['description-file'];
+      try {
+        if (filePath === '-') {
+          // Guard: prevent hanging when no input is piped
+          if (process.stdin.isTTY) {
+            return handleError('DESCRIPTION_FILE_ERROR', 'Cannot read from stdin: no input piped. Use --description-file <path> with a file path instead, or pipe content via: echo "desc" | prlt ticket create --description-file -');
+          }
+          // Read from stdin
+          flags.description = fs.readFileSync(0, 'utf-8');
+        } else {
+          flags.description = fs.readFileSync(filePath, 'utf-8');
+        }
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        return handleError('DESCRIPTION_FILE_ERROR', `Failed to read description file "${filePath}": ${errMsg}`);
+      }
     }
 
     // Validate epic if provided
@@ -127,7 +151,7 @@ export default class TicketCreate extends PMOCommand {
 
     // Parse labels from flag
     const labelsFromFlag = flags.labels
-      ? flags.labels.split(',').map(l => l.trim()).filter(l => l)
+      ? flags.labels.split(',').map(l => l.trim()).filter(Boolean)
       : undefined;
 
     // Get ticket data (interactive or from flags)
@@ -142,27 +166,128 @@ export default class TicketCreate extends PMOCommand {
       labels?: string[];
     };
 
-    if (flags.interactive || !flags.title) {
-      ticketData = await this.promptTicketData(flags, this.storage, template, columns);
-    } else {
-      if (!flags.title && !template?.titlePattern) {
+    // Use FlagResolver to handle both JSON mode and interactive prompts
+    // This unifies the two code paths into one pattern
+    if (!flags.interactive) {
+      // In JSON mode, default column to first backlog status if not provided
+      // This prevents prompting for column in non-interactive mode
+      if (jsonMode && !flags.column) {
+        // Prefer "Backlog" column, fall back to first column
+        const backlogColumn = columns.find(c => c.toLowerCase() === 'backlog') || columns[0];
+        flags.column = backlogColumn;
+      }
+
+      const resolver = new FlagResolver<typeof flags>({
+        commandName: 'ticket create',
+        baseCommand: 'prlt ticket create',
+        jsonMode,
+        flags,
+        context: { projectId },
+      });
+
+      // Column selection - prompted first if missing
+      resolver.addPrompt({
+        flagName: 'column',
+        type: 'list',
+        message: 'Select column to place the ticket in:',
+        choices: () => columns.map(c => ({ name: c, value: c })),
+        when: (ctx) => !ctx.flags.column,
+      });
+
+      // Title input - prompted after column is set
+      resolver.addPrompt({
+        flagName: 'title',
+        type: 'input',
+        message: 'Enter ticket title:',
+        when: (ctx) => !ctx.flags.title && ctx.flags.column !== undefined,
+        validate: (value) => (value as string).trim() ? true : 'Title cannot be empty',
+        context: (ctx) => ({
+          hint: `Provide title with: ${ctx.baseCommand}${ctx.projectId ? ` -P ${ctx.projectId}` : ''} --column "${ctx.flags.column}" --title "Your title here"`,
+          requiredFields: ['--title'],
+          optionalFields: ['--priority', '--category', '--description', '--epic', '--labels'],
+          example: `${ctx.baseCommand}${ctx.projectId ? ` -P ${ctx.projectId}` : ''} --column "${ctx.flags.column}" --title "Fix login bug" --priority P1 --category bug`,
+        }),
+      });
+
+      // Resolve missing flags (in JSON mode, outputs prompt and exits; in interactive mode, prompts user)
+      const resolvedFlags = await resolver.resolve();
+
+      // If we get here, we have both column and title
+      if (!resolvedFlags.title && !template?.titlePattern) {
         this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
       }
+
       ticketData = {
-        title: flags.title || template?.titlePattern || '',
-        statusName: flags.column || columns[0],
-        priority: flags.priority || template?.defaultPriority,
-        category: flags.category || template?.defaultCategory,
-        description: flags.description || template?.descriptionTemplate,
-        id: flags.id,
-        epicId: flags.epic,
+        title: resolvedFlags.title || template?.titlePattern || '',
+        statusName: resolvedFlags.column || columns[0],
+        priority: resolvedFlags.priority || template?.defaultPriority,
+        category: resolvedFlags.category || template?.defaultCategory,
+        description: resolvedFlags.description || template?.descriptionTemplate,
+        id: resolvedFlags.id,
+        epicId: resolvedFlags.epic,
         labels: labelsFromFlag || template?.defaultLabels,
       };
+    } else {
+      // Full interactive mode - use the detailed prompts
+      ticketData = await this.promptTicketData(flags, this.storage, template, columns);
     }
 
     // Validate status/column
     if (!columns.includes(ticketData.statusName)) {
+      if (flags['dry-run']) {
+        if (jsonMode) {
+          outputDryRunErrorsAsJson(
+            [{ field: 'column', error: `Invalid column "${ticketData.statusName}". Available: ${columns.join(', ')}` }],
+            createMetadata('ticket create', flags)
+          );
+        }
+        this.error(`Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
+      }
       this.error(`Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
+    }
+
+    // Handle dry-run: show what would be created without actually creating
+    if (flags['dry-run']) {
+      const wouldCreate = {
+        title: ticketData.title,
+        project: projectId,
+        column: ticketData.statusName,
+        ...(ticketData.priority && { priority: ticketData.priority }),
+        ...(ticketData.category && { category: ticketData.category }),
+        ...(ticketData.description && { description: ticketData.description }),
+        ...(ticketData.epicId && { epic: ticketData.epicId }),
+        ...(ticketData.labels && ticketData.labels.length > 0 && { labels: ticketData.labels }),
+      };
+
+      if (jsonMode) {
+        outputDryRunSuccessAsJson('ticket', wouldCreate, createMetadata('ticket create', flags));
+      }
+
+      // Human-readable dry-run output
+      this.log(styles.warning('\n[DRY RUN] Would create ticket:'));
+      this.log(styles.muted(`   Title: ${ticketData.title}`));
+      this.log(styles.muted(`   Project: ${projectName}`));
+      this.log(styles.muted(`   Column: ${ticketData.statusName}`));
+      if (ticketData.priority) {
+        this.log(styles.muted(`   Priority: ${ticketData.priority}`));
+      }
+      if (ticketData.category) {
+        this.log(styles.muted(`   Category: ${ticketData.category}`));
+      }
+      if (ticketData.epicId) {
+        this.log(styles.muted(`   Epic: ${ticketData.epicId}`));
+      }
+      if (ticketData.labels && ticketData.labels.length > 0) {
+        this.log(styles.muted(`   Labels: ${ticketData.labels.join(', ')}`));
+      }
+      if (template) {
+        this.log(styles.muted(`   Template: ${template.name}`));
+        if (template.suggestedSubtasks.length > 0) {
+          this.log(styles.muted(`   Subtasks: ${template.suggestedSubtasks.length} would be created`));
+        }
+      }
+      this.log(styles.muted('\n(No ticket was created)'));
+      return;
     }
 
     const ticket = await this.storage.createTicket(projectId, {
@@ -178,7 +303,9 @@ export default class TicketCreate extends PMOCommand {
 
     // Add subtasks from template if applicable
     if (template && template.suggestedSubtasks.length > 0) {
+      // Sequential subtask creation for consistent ordering
       for (const subtask of template.suggestedSubtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticket.id, subtask.title);
       }
     }
@@ -199,6 +326,28 @@ export default class TicketCreate extends PMOCommand {
         }));
         updateEpicTicketsSection(this.pmoPath, ticketData.epicId, epic.status, ticketInfos, projectId);
       }
+    }
+
+    // JSON output mode - match MCP tool response shape
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: ticket.id,
+          title: ticket.title,
+          priority: ticket.priority,
+          category: ticket.category,
+          statusName: ticket.statusName,
+          statusCategory: ticket.statusCategory,
+          projectId: ticket.projectId,
+          assignee: ticket.assignee,
+          owner: ticket.owner,
+          branch: ticket.branch,
+          epicId: ticket.epicId,
+          position: ticket.position,
+        },
+      }, null, 2));
+      return;
     }
 
     this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(ticket.id)} in project ${styles.emphasis(projectName)}`));
@@ -256,7 +405,7 @@ export default class TicketCreate extends PMOCommand {
     if (!template && !flags.template) {
       const templates = await storage.listTicketTemplates();
       if (templates.length > 0) {
-        const { selectedTemplate } = await inquirer.prompt<{ selectedTemplate: string }>([
+        const { selectedTemplate } = await this.prompt<{ selectedTemplate: string }>([
           {
             type: 'list',
             name: 'selectedTemplate',
@@ -270,7 +419,7 @@ export default class TicketCreate extends PMOCommand {
               })),
             ],
           },
-        ]);
+        ], null);
 
         if (selectedTemplate) {
           template = templates.find(t => t.id === selectedTemplate) || null;
@@ -278,37 +427,46 @@ export default class TicketCreate extends PMOCommand {
       }
     }
 
-    const answers = await inquirer.prompt<{
-      title: string;
-      column: string;
-      priority?: string;
-      categoryChoice: string;
-      customCategory?: string;
-    }>([
+    // Prompt for title
+    const { title: answerTitle } = await this.prompt<{ title: string }>([
       {
         type: 'input',
         name: 'title',
         message: 'Ticket title:',
         default: flags.title || template?.titlePattern,
-        validate: (input: string) => input.length > 0 || 'Title is required',
+        validate: (input: unknown) => (input as string).trim() ? true : 'Title cannot be empty',
       },
+    ], null);
+
+    // Prompt for column
+    const { column: answerColumn } = await this.prompt<{ column: string }>([
       {
         type: 'list',
         name: 'column',
         message: 'Column:',
-        choices: columns,
+        choices: columns.map(c => ({ name: c, value: c })),
         default: flags.column || columns[0],
       },
+    ], null);
+
+    // Prompt for priority (using workspace priority scale)
+    const db = this.storage.getDatabase();
+    const workspacePriorities = getWorkspacePriorities(db);
+    const { priority: answerPriority } = await this.prompt<{ priority?: string }>([
       {
         type: 'list',
         name: 'priority',
         message: 'Priority:',
         choices: [
           { name: 'None', value: undefined },
-          ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
+          ...workspacePriorities.map(p => ({ name: p, value: p })),
         ],
         default: flags.priority || template?.defaultPriority,
       },
+    ], null);
+
+    // Prompt for category
+    const { categoryChoice } = await this.prompt<{ categoryChoice: string }>([
       {
         type: 'list',
         name: 'categoryChoice',
@@ -340,14 +498,21 @@ export default class TicketCreate extends PMOCommand {
         ],
         default: flags.category || template?.defaultCategory || '',
       },
-      {
+    ], null);
+
+    // Custom category prompt if needed
+    let customCategory: string | undefined;
+    if (categoryChoice === '__custom__') {
+      const result = await this.prompt<{ customCategory: string }>([{
         type: 'input',
         name: 'customCategory',
         message: 'Enter custom category:',
-        when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
-        validate: (input: string) => input.length > 0 || 'Category is required when choosing custom',
-      },
-    ]);
+        validate: (input: unknown) => (input as string).trim() ? true : 'Category cannot be empty',
+      }], null);
+      customCategory = result.customCategory;
+    }
+
+    const answers = { title: answerTitle, column: answerColumn, priority: answerPriority, categoryChoice, customCategory };
 
     // Resolve category from choice or custom input
     const category = answers.categoryChoice === '__custom__'
@@ -361,7 +526,7 @@ export default class TicketCreate extends PMOCommand {
 
     // Parse labels from flag or use template defaults
     const labels = flags.labels
-      ? flags.labels.split(',').map(l => l.trim()).filter(l => l)
+      ? flags.labels.split(',').map(l => l.trim()).filter(Boolean)
       : template?.defaultLabels;
 
     return {
@@ -384,47 +549,53 @@ export default class TicketCreate extends PMOCommand {
 
     this.log(styles.muted('\n─── Ticket Description (for agent execution) ───'));
 
-    const descAnswers = await inquirer.prompt<{
-      what: string;
-      doneWhen: string;
-      context: string;
-      notInScope: string;
-    }>([
+    // Prompt for "What" - the main outcome
+    const { what } = await this.prompt<{ what: string }>([
       {
         type: 'input',
         name: 'what',
         message: 'What is the concrete outcome? (one sentence):',
-        validate: (input: string) => input.length > 0 || 'Outcome is required - what does success look like?',
+        validate: (input: unknown) => (input as string).trim() ? true : 'Outcome cannot be empty - what does success look like?',
       },
-      {
-        type: 'editor',
-        name: 'doneWhen',
-        message: 'Done when (acceptance criteria, opens editor):',
-        default: '- [ ] \n- [ ] ',
-        waitForUseInput: false,
-      },
+    ], null);
+
+    // Prompt for acceptance criteria using multiline input
+    const doneWhenResult = await multiLineInput({
+      message: 'Done when (acceptance criteria):',
+      hint: 'Enter each criterion on a new line. Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (doneWhenResult.cancelled) {
+      throw new Error('Ticket creation cancelled');
+    }
+
+    // Continue with remaining prompts
+    const { context } = await this.prompt<{ context: string }>([
       {
         type: 'input',
         name: 'context',
         message: 'Context (files, patterns, hints - optional):',
         default: '',
       },
+    ], null);
+
+    const { notInScope } = await this.prompt<{ notInScope: string }>([
       {
         type: 'input',
         name: 'notInScope',
         message: 'Not in scope (explicit exclusions - optional):',
         default: '',
       },
-    ]);
+    ], null);
 
     // Build structured description
     const parts: string[] = [];
 
-    parts.push(`## What\n${descAnswers.what}`);
+    parts.push(`## What\n${what}`);
 
-    if (descAnswers.doneWhen.trim()) {
+    if (doneWhenResult.value.trim()) {
       // Ensure each line in doneWhen starts with - [ ] if it doesn't already
-      const criteria = descAnswers.doneWhen
+      const criteria = doneWhenResult.value
         .split('\n')
         .map(line => line.trim())
         .filter(line => line.length > 0)
@@ -441,12 +612,12 @@ export default class TicketCreate extends PMOCommand {
       parts.push(`## Done when\n${criteria}`);
     }
 
-    if (descAnswers.context.trim()) {
-      parts.push(`## Context\n${descAnswers.context}`);
+    if (context.trim()) {
+      parts.push(`## Context\n${context}`);
     }
 
-    if (descAnswers.notInScope.trim()) {
-      parts.push(`## Not in scope\n${descAnswers.notInScope}`);
+    if (notInScope.trim()) {
+      parts.push(`## Not in scope\n${notInScope}`);
     }
 
     return parts.join('\n\n');

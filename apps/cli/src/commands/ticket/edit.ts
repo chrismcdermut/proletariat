@@ -1,15 +1,14 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { multiLineInput } from '../../lib/multiline-input.js';
 
 export default class TicketEdit extends PMOCommand {
   static description = 'Edit an existing ticket';
@@ -17,7 +16,7 @@ export default class TicketEdit extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> TICK-001',
     '<%= config.bin %> <%= command.id %> TICK-001 --title "New title"',
-    '<%= config.bin %> <%= command.id %> TICK-001 --priority HIGH --category bug',
+    '<%= config.bin %> <%= command.id %> TICK-001 --priority P1 --category bug',
     '<%= config.bin %> <%= command.id %> TICK-001 --add-subtask "Implement feature" --add-subtask "Write tests"',
     '<%= config.bin %> <%= command.id %> TICK-001 --owner "john" --assignee "agent-1"',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
@@ -42,8 +41,7 @@ export default class TicketEdit extends PMOCommand {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'New ticket priority',
-      options: [...PRIORITIES, 'none'],
+      description: 'New ticket priority (uses workspace priority scale, "none" to clear)',
     }),
     category: Flags.string({
       description: 'New ticket category',
@@ -85,14 +83,6 @@ export default class TicketEdit extends PMOCommand {
       description: 'Interactive mode - prompts for all fields',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -122,29 +112,20 @@ export default class TicketEdit extends PMOCommand {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to edit:', ticketChoices),
-          createMetadata('ticket edit', flags)
-        );
-        return;
-      }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
+      // Use helper for ticket selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select ticket to edit:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket edit ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket edit' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      ticketId = selected;
     }
 
     // Get current ticket
@@ -168,27 +149,53 @@ export default class TicketEdit extends PMOCommand {
       flags['add-label'] || flags['remove-label'] || flags['add-ac'] || flags['clear-ac'];
 
     if (flags.interactive || !hasFlags) {
+      // In JSON mode without flags, output a form prompt instead of interactive prompts
+      if (jsonMode) {
+        const { outputPromptAsJson, buildFormPromptConfig } = await import('../../lib/prompt-json.js');
+        const db = this.storage.getDatabase();
+        const workspacePriorities = getWorkspacePriorities(db);
+        const formConfig = buildFormPromptConfig([
+          { type: 'input', name: 'title', message: 'Title:', default: ticket.title },
+          { type: 'multiline', name: 'description', message: 'Description:', default: ticket.description || '' },
+          { type: 'list', name: 'priority', message: 'Priority:', choices: [
+            { name: 'None', value: '' },
+            ...workspacePriorities.map(p => ({ name: p, value: p })),
+          ], default: ticket.priority || '' },
+          { type: 'input', name: 'category', message: 'Category:', default: ticket.category || '' },
+        ]);
+        formConfig.context = {
+          hint: `Edit ticket with: prlt ticket edit ${ticketId} --title "..." --description "..." --priority P0 --json`,
+          ticketId,
+          currentValues: { title: ticket.title, description: ticket.description, priority: ticket.priority, category: ticket.category },
+        };
+        outputPromptAsJson(formConfig, createMetadata('ticket edit', flags));
+        return; // outputPromptAsJson exits, but TypeScript doesn't know
+      }
+
       // Interactive mode - prompt for all editable fields
-      const board = await this.storage.getBoard(ticket.projectId!);
-      const columns = board.columns.map(col => col.name);
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+      const columns = board ? board.columns.map(col => col.name) : [];
       updates = await this.promptForEdits(ticket, columns);
     } else {
       // Use flag values
       if (flags.title) updates.title = flags.title;
       if (flags.description) updates.description = flags.description;
       if (flags.priority) {
-        updates.priority = flags.priority === 'none' ? undefined : flags.priority;
+        // 'none' clears the priority (sets to null in database), otherwise use the flag value
+        // Type assertion needed because Ticket interface uses string | undefined, but storage accepts null
+        updates.priority = flags.priority === 'none' ? (null as unknown as string | undefined) : flags.priority;
       }
       if (flags.category) updates.category = flags.category;
       if (flags.owner) updates.owner = flags.owner;
       if (flags.assignee) updates.assignee = flags.assignee;
     }
 
-    // Handle subtasks
+    // Handle subtasks - sequential for consistent ordering
     let subtasksChanged = false;
     if (flags['clear-subtasks']) {
       // Clear all subtasks first - get from ticket object
       for (const subtask of ticket.subtasks) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.removeSubtask(ticketId!, subtask.id);
       }
       subtasksChanged = true;
@@ -196,6 +203,7 @@ export default class TicketEdit extends PMOCommand {
 
     if (flags['add-subtask'] && flags['add-subtask'].length > 0) {
       for (const subtaskTitle of flags['add-subtask']) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addSubtask(ticketId!, subtaskTitle);
       }
       subtasksChanged = true;
@@ -227,7 +235,9 @@ export default class TicketEdit extends PMOCommand {
     }
 
     if (flags['add-ac'] && flags['add-ac'].length > 0) {
+      // Sequential for consistent ordering
       for (const criterion of flags['add-ac']) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.addAcceptanceCriterion(ticketId!, criterion);
       }
       acChanged = true;
@@ -250,6 +260,32 @@ export default class TicketEdit extends PMOCommand {
 
     // Auto-export to board.md
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    // JSON output mode - match MCP tool response shape
+    if (jsonMode) {
+      // Re-fetch to get latest state including subtasks/AC changes
+      const finalTicket = (subtasksChanged || acChanged)
+        ? await this.storage.getTicket(ticketId!) ?? updatedTicket
+        : updatedTicket;
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: finalTicket.id,
+          title: finalTicket.title,
+          priority: finalTicket.priority,
+          category: finalTicket.category,
+          statusName: finalTicket.statusName,
+          statusCategory: finalTicket.statusCategory,
+          projectId: finalTicket.projectId,
+          assignee: finalTicket.assignee,
+          owner: finalTicket.owner,
+          branch: finalTicket.branch,
+          epicId: finalTicket.epicId,
+          position: finalTicket.position,
+        },
+      }, null, 2));
+      return;
+    }
 
     // Display updated ticket
     this.log(styles.success(`\n✅ Updated ticket ${styles.emphasis(updatedTicket.id)}`));
@@ -289,37 +325,46 @@ export default class TicketEdit extends PMOCommand {
     priority?: string;
     category?: string;
   }> {
-    const answers = await inquirer.prompt<{
-      title: string;
-      description: string;
-      priority: string;
-      categoryChoice: string;
-      customCategory?: string;
-    }>([
+    // First prompt for title
+    const { title } = await this.prompt<{ title: string }>([
       {
         type: 'input',
         name: 'title',
         message: 'Title:',
         default: ticket.title,
-        validate: (input: string) => input.length > 0 || 'Title is required',
+        validate: (input: unknown) => (input as string).trim() ? true : 'Title cannot be empty',
       },
-      {
-        type: 'editor',
-        name: 'description',
-        message: 'Description (opens $EDITOR for multiline input):',
-        default: ticket.description || '',
-        waitForUseInput: false,
-      },
+    ], null);
+
+    // Prompt for description using inline multiline input
+    const descResult = await multiLineInput({
+      message: 'Description:',
+      default: ticket.description || '',
+      hint: 'Ctrl+D to finish, Ctrl+C to cancel',
+    });
+
+    if (descResult.cancelled) {
+      throw new Error('Edit cancelled');
+    }
+
+    // Continue with remaining prompts - priority first (using workspace scale)
+    const db = this.storage.getDatabase();
+    const workspacePriorities = getWorkspacePriorities(db);
+    const { priority } = await this.prompt<{ priority: string }>([
       {
         type: 'list',
         name: 'priority',
         message: 'Priority:',
         choices: [
           { name: 'None', value: '' },
-          ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
+          ...workspacePriorities.map(p => ({ name: p, value: p })),
         ],
         default: ticket.priority || '',
       },
+    ], null);
+
+    // Then category
+    const { categoryChoice } = await this.prompt<{ categoryChoice: string }>([
       {
         type: 'list',
         name: 'categoryChoice',
@@ -351,14 +396,21 @@ export default class TicketEdit extends PMOCommand {
         ],
         default: ticket.category || '',
       },
-      {
+    ], null);
+
+    // Custom category prompt if needed
+    let customCategory: string | undefined;
+    if (categoryChoice === '__custom__') {
+      const result = await this.prompt<{ customCategory: string }>([{
         type: 'input',
         name: 'customCategory',
         message: 'Enter custom category:',
-        when: (answers: { categoryChoice: string }) => answers.categoryChoice === '__custom__',
-        validate: (input: string) => input.length > 0 || 'Category is required when choosing custom',
-      },
-    ]);
+        validate: (input: unknown) => (input as string).trim() ? true : 'Category cannot be empty',
+      }], null);
+      customCategory = result.customCategory;
+    }
+
+    const answers = { priority, categoryChoice, customCategory };
 
     // Build updates object with only changed fields
     const updates: {
@@ -368,11 +420,12 @@ export default class TicketEdit extends PMOCommand {
       category?: string;
     } = {};
 
-    if (answers.title !== ticket.title) {
-      updates.title = answers.title;
+    if (title !== ticket.title) {
+      updates.title = title;
     }
-    if (answers.description !== (ticket.description || '')) {
-      updates.description = answers.description || undefined;
+    if (descResult.value !== (ticket.description || '')) {
+      // Preserve empty string to allow clearing the description
+      updates.description = descResult.value;
     }
     if (answers.priority !== (ticket.priority || '')) {
       updates.priority = answers.priority || undefined;

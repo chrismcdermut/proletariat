@@ -1,21 +1,38 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
-import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { isDockerRunning } from '../../lib/execution/runners.js'
-import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import {
+  getWorkspaceInfo,
+  getTicketTmuxSession,
+  killTmuxSession
+} from '../../lib/agents/commands.js'
+import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, getExecutorDisplayName } from '../../lib/execution/runners.js'
+import { PermissionMode, ExecutorType } from '../../lib/execution/types.js'
+import { loadExecutionConfig } from '../../lib/execution/config.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputSuccessAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
+  outputConfirmationNeededAsJson,
+  outputExecutionResultAsJson,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
+import {
+  loadDietConfig,
+  formatDietConfig,
+  type DietConfig,
+} from '../../lib/pmo/diet.js'
+import type { Ticket } from '../../lib/pmo/types.js'
+import {
+  LinearClient,
+  LinearMapper,
+  isLinearConfigured,
+  loadLinearConfig,
+} from '../../lib/linear/index.js'
+import type { LinearIssueFilter } from '../../lib/linear/types.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -24,27 +41,30 @@ export default class WorkSpawn extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %>                    # Interactive: All or Many',
-    '<%= config.bin %> <%= command.id %> --all              # All unassigned in selected column',
-    '<%= config.bin %> <%= command.id %> --column Backlog   # All unassigned in Backlog',
+    '<%= config.bin %> <%= command.id %> --all              # All tickets in selected column',
+    '<%= config.bin %> <%= command.id %> --column Backlog   # All tickets in Backlog',
     '<%= config.bin %> <%= command.id %> --many             # Multi-select specific tickets',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002    # Spawn specific tickets by ID',
     '<%= config.bin %> <%= command.id %> --dry-run          # Preview without executing',
     '<%= config.bin %> <%= command.id %> --many --json      # Output ticket choices as JSON (for agents)',
+    '<%= config.bin %> <%= command.id %> TKT-001 --action custom --message "Add unit tests"  # Custom prompt',
+    '<%= config.bin %> <%= command.id %> --count 5 --action implement  # Top 5 by rank',
+    '<%= config.bin %> <%= command.id %> --count 10 --diet --action groom  # Diet-balanced',
+    '<%= config.bin %> <%= command.id %> --count 5 --category ship --action implement  # Filtered by category',
+    '<%= config.bin %> <%= command.id %> --count 5 --priority P0 --action implement  # Filtered by priority',
+    '<%= config.bin %> <%= command.id %> --from-linear                      # Pull Linear issues → PMO → spawn',
+    '<%= config.bin %> <%= command.id %> --from-linear ENG-123 ENG-124      # Pull specific Linear issues → spawn',
+    '<%= config.bin %> <%= command.id %> --from-linear --linear-team ENG    # Pull from specific team',
+    '<%= config.bin %> <%= command.id %> --from-linear --linear-state "In Progress"  # Filter by state',
+    '<%= config.bin %> <%= command.id %> --count 10 --diet --category ship,grow --action groom  # Combined',
+    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 --create-pr  # Create PR when work is ready',
   ]
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     all: Flags.boolean({
       char: 'a',
-      description: 'Spawn all unassigned tickets in a column',
+      description: 'Spawn all tickets tickets in a column',
       default: false,
     }),
     many: Flags.boolean({
@@ -53,7 +73,7 @@ export default class WorkSpawn extends PMOCommand {
     }),
     column: Flags.string({
       char: 'c',
-      description: 'Column name to spawn tickets from (used with --all)',
+      description: 'Column name to spawn tickets from [required for non-interactive with --all]',
     }),
     strategy: Flags.string({
       char: 's',
@@ -65,10 +85,10 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Show what would be spawned without executing',
       default: false,
     }),
-    mode: Flags.string({
-      char: 'm',
-      description: 'Runtime mode for spawned agents',
-      options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer', 'docker', 'vm'],
+    display: Flags.string({
+      char: 'd',
+      description: 'Display mode for spawned agents (foreground not available for batch)',
+      options: ['terminal', 'background'],
     }),
     executor: Flags.string({
       char: 'e',
@@ -107,27 +127,79 @@ export default class WorkSpawn extends PMOCommand {
       default: false,
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready (batch mode only)',
+      description: 'Create PR when work is ready (canonical flag for PR behavior, batch mode only)',
       default: false,
     }),
     'no-pr': Flags.boolean({
-      description: 'Do not create PR when work is ready (batch mode only)',
+      description: '[deprecated: use --create-pr instead] Skip PR creation (batch mode only)',
       default: false,
     }),
     action: Flags.string({
-      description: 'Action to perform (e.g., groom, implement, review). Prompts if not provided.',
+      description: 'Action to perform (e.g., groom, implement, review, custom). Prompts if not provided.',
+    }),
+    message: Flags.string({
+      description: 'Additional instructions for the agent (appended to any action prompt)',
     }),
     session: Flags.string({
       description: 'Session manager inside container (tmux runs agent in tmux inside container)',
       options: ['tmux', 'direct'],
       default: 'tmux',
     }),
+    focus: Flags.boolean({
+      description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
+      default: false,
+    }),
+    clone: Flags.boolean({
+      description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
+      default: false,
+    }),
+    count: Flags.integer({
+      char: 'n',
+      description: 'Number of tickets to spawn (selects top N by rank)',
+      min: 1,
+    }),
+    diet: Flags.boolean({
+      description: 'Apply diet-balanced category weighting when selecting tickets',
+      default: false,
+    }),
+    category: Flags.string({
+      description: 'Filter tickets by category (comma-separated, e.g., ship,grow)',
+    }),
+    priority: Flags.string({
+      description: 'Filter tickets by priority (comma-separated, e.g., P0,P1)',
+    }),
+    epic: Flags.string({
+      description: 'Filter tickets by epic ID',
+    }),
+    status: Flags.string({
+      description: 'Filter tickets by status name (e.g., Backlog, Ready)',
+    }),
+    // Linear integration flags
+    'from-linear': Flags.boolean({
+      description: 'Pull issues from Linear, mirror into PMO, then spawn agents',
+      default: false,
+    }),
+    'linear-team': Flags.string({
+      description: 'Linear team key to pull issues from (e.g., ENG)',
+      dependsOn: ['from-linear'],
+    }),
+    'linear-state': Flags.string({
+      description: 'Filter Linear issues by state name (e.g., "In Progress")',
+      dependsOn: ['from-linear'],
+    }),
+    'linear-label': Flags.string({
+      description: 'Filter Linear issues by label name',
+      dependsOn: ['from-linear'],
+    }),
+    'linear-limit': Flags.integer({
+      description: 'Maximum number of Linear issues to pull',
+      default: 20,
+      dependsOn: ['from-linear'],
+    }),
   }
 
   async execute(): Promise<void> {
     const { flags, argv } = await this.parse(WorkSpawn)
-    // This command requires project context
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -141,8 +213,166 @@ export default class WorkSpawn extends PMOCommand {
       this.error(message)
     }
 
+    // Deprecation guidance for --no-pr
+    if (flags['no-pr']) {
+      this.warn('--no-pr is deprecated. Omit --create-pr instead (PR creation is off by default). --no-pr will continue to work.')
+    }
+
     // Parse ticket IDs from args (everything after flags)
-    const ticketIdArgs = argv as string[]
+    let ticketIdArgs = argv as string[]
+
+    // =========================================================================
+    // --from-linear: Pull Linear issues → mirror into PMO → spawn from PMO
+    // =========================================================================
+    if (flags['from-linear']) {
+      const db = this.storage.getDatabase()
+
+      if (!isLinearConfigured(db)) {
+        return handleError('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear auth" first.')
+      }
+
+      const linearConfig = loadLinearConfig(db)!
+      const linearClient = new LinearClient(linearConfig.apiKey)
+      const mapper = new LinearMapper(db)
+
+      // Determine project first (needed for ticket creation)
+      const linearProjectId = await this.requireProject({
+        jsonMode: jsonMode ? {
+          flags,
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn --from-linear',
+        } : undefined,
+      })
+
+      // Get project workflow statuses for mapping
+      const workflow = await this.storage.getProjectWorkflow(linearProjectId)
+      if (!workflow) {
+        return handleError('NO_WORKFLOW', 'Project has no workflow configured.')
+      }
+      const statuses = await this.storage.listStatuses(workflow.id)
+
+      // Check if args are Linear identifiers (e.g., ENG-123)
+      const linearIdentifiers = ticketIdArgs.filter((id) => /^[A-Z]+-\d+$/i.test(id))
+      const pmoTicketIds: string[] = []
+
+      if (linearIdentifiers.length > 0) {
+        // Fetch and import specific Linear issues
+        if (!jsonMode) {
+          this.log(styles.muted(`Pulling ${linearIdentifiers.length} issue(s) from Linear...`))
+        }
+
+        for (const identifier of linearIdentifiers) {
+          // eslint-disable-next-line no-await-in-loop
+          const issue = await linearClient.getIssueByIdentifier(identifier)
+          if (!issue) {
+            if (!jsonMode) this.warn(`Linear issue not found: ${identifier}`)
+            continue
+          }
+          // eslint-disable-next-line no-await-in-loop
+          const { ticketId, created } = await mapper.importIssue(issue, linearProjectId, this.storage, statuses)
+          pmoTicketIds.push(ticketId)
+          if (!jsonMode) {
+            const action = created ? 'Imported' : 'Already imported'
+            this.log(styles.muted(`  ${action}: ${identifier} → ${ticketId}`))
+          }
+        }
+      } else {
+        // Fetch issues using filters
+        const filter: LinearIssueFilter = {
+          teamKey: flags['linear-team'] ?? linearConfig.defaultTeamKey,
+          stateName: flags['linear-state'],
+          labelName: flags['linear-label'],
+          limit: flags['linear-limit'],
+        }
+
+        if (!jsonMode) {
+          this.log(styles.muted(`Pulling issues from Linear (team: ${filter.teamKey ?? 'all'})...`))
+        }
+
+        const issues = await linearClient.listIssues(filter)
+
+        if (issues.length === 0) {
+          if (jsonMode) {
+            outputSuccessAsJson({
+              imported: 0,
+              spawned: 0,
+              message: 'No matching Linear issues found.',
+            }, createMetadata('work spawn', flags))
+            return
+          }
+          this.log(styles.muted('No matching Linear issues found.'))
+          return
+        }
+
+        if (!jsonMode) {
+          this.log(styles.muted(`Found ${issues.length} issue(s). Importing into PMO...`))
+        }
+
+        const result = await mapper.importIssues(issues, linearProjectId, this.storage, statuses)
+
+        if (!jsonMode) {
+          if (result.imported > 0) this.log(styles.success(`  Imported: ${result.imported}`))
+          if (result.skipped > 0) this.log(styles.muted(`  Already imported: ${result.skipped}`))
+          if (result.errors.length > 0) this.log(styles.error(`  Errors: ${result.errors.length}`))
+        }
+
+        // Collect all PMO ticket IDs (both new and existing)
+        for (const issue of issues) {
+          const existing = mapper.getByLinearId(issue.id)
+          if (existing) {
+            pmoTicketIds.push(existing.pmoTicketId)
+          }
+        }
+      }
+
+      if (pmoTicketIds.length === 0) {
+        return handleError('NO_LINEAR_ISSUES', 'No Linear issues were imported. Nothing to spawn.')
+      }
+
+      if (!jsonMode) {
+        this.log('')
+        this.log(styles.header(`Spawning agents for ${pmoTicketIds.length} imported ticket(s)...`))
+        this.log('')
+      }
+
+      // Replace ticket args with the imported PMO ticket IDs
+      ticketIdArgs = pmoTicketIds
+    }
+
+    // Try to infer project from ticket IDs if provided
+    let projectId: string | undefined
+
+    if (ticketIdArgs.length > 0) {
+      // Look up tickets to get their project IDs
+      const projectIds = new Set<string>()
+      for (const ticketId of ticketIdArgs) {
+        // eslint-disable-next-line no-await-in-loop
+        const ticket = await this.storage.getTicket(ticketId)
+        if (ticket?.projectId) {
+          projectIds.add(ticket.projectId)
+        }
+      }
+
+      if (projectIds.size === 1) {
+        // All tickets from same project - use that project
+        projectId = [...projectIds][0]
+      } else if (projectIds.size > 1) {
+        // Tickets from multiple projects - warn and require prompt
+        this.warn('Tickets are from multiple projects. Please specify --project.')
+      }
+      // If size === 0, tickets not found - will be handled later in validation
+    }
+
+    // Only call requireProject() if we couldn't infer from tickets
+    if (!projectId) {
+      projectId = await this.requireProject({
+        jsonMode: {
+          flags,
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn',
+        },
+      })
+    }
 
     // Note: Docker check is handled by work:start command when spawning each ticket
     // This allows for the interactive devcontainer/host selection with retry loop
@@ -155,10 +385,9 @@ export default class WorkSpawn extends PMOCommand {
       return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.')
     }
 
-    // Open database for execution storage
+    // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
-    const executionStorage = new ExecutionStorage(db)
 
     try {
       // Get board to list available columns
@@ -170,78 +399,67 @@ export default class WorkSpawn extends PMOCommand {
         return handleError('NO_COLUMNS', 'No columns found on the board.')
       }
 
-      // Get all tickets
+      // Get all tickets (no assignee filter - show ALL tickets per ticket requirements)
       const allTickets = await this.storage.listTickets(projectId)
-      const unassignedTickets = allTickets.filter(t => !t.assignee)
 
-      if (unassignedTickets.length === 0) {
+      if (allTickets.length === 0) {
         db.close()
         if (jsonMode) {
           outputErrorAsJson(
-            'NO_UNASSIGNED_TICKETS',
-            'No unassigned tickets to spawn.',
+            'NO_TICKETS',
+            'No tickets found to spawn.',
             createMetadata('work spawn', flags)
           )
           return
         }
-        this.log(styles.muted('No unassigned tickets to spawn.'))
+        this.log(styles.muted('No tickets found to spawn.'))
         return
       }
 
-      // Get available agents
-      const busyAgentNames = new Set<string>()
-      for (const agent of workspaceInfo.agents) {
-        const runningExecutions = executionStorage.getAgentRunningExecutions(agent.name)
-        if (runningExecutions.length > 0) {
-          busyAgentNames.add(agent.name)
-        }
-      }
-      const availableAgents = workspaceInfo.agents.filter(a => !busyAgentNames.has(a.name))
+      // Note: With ephemeral agents, we no longer need to check for available pre-registered agents
+      // Agents are created on-demand when spawning
 
-      // Determine spawn mode: All, Many, or Args (positional ticket IDs)
-      let spawnMode: 'all' | 'many' | 'args' = 'all'
+      // Determine spawn mode: All, Many, Args, or Count
+      let spawnMode: 'all' | 'many' | 'args' | 'count' = 'all'
 
       if (ticketIdArgs.length > 0) {
         // Ticket IDs provided as positional args
         spawnMode = 'args'
+      } else if (flags.count) {
+        // Count-based selection with optional filters
+        spawnMode = 'count'
       } else if (flags.all) {
         spawnMode = 'all'
       } else if (flags.many) {
         spawnMode = 'many'
       } else if (!flags.column) {
-        // In JSON mode without explicit flags, output the mode selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig(
-              'list',
-              'mode',
-              'How would you like to spawn work?',
-              [
-                { name: 'All - Spawn all unassigned tickets in a column', value: 'all' },
-                { name: 'Many - Select specific tickets to spawn', value: 'many' },
-              ]
-            ),
-            createMetadata('work spawn', flags)
-          )
-          db.close()
-          return
-        }
-        // Interactive: ask user
-        const { mode } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'mode',
-            message: 'How would you like to spawn work?',
-            choices: [
-              { name: '📦 All    - Spawn all unassigned tickets in a column', value: 'all' },
-              { name: '✅ Many   - Select specific tickets to spawn', value: 'many' },
-            ],
-          },
-        ])
-        spawnMode = mode
+        // Use FlagResolver for mode selection prompt
+        const modeResolver = new FlagResolver<{ mode?: string }>({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn',
+          jsonMode,
+          flags: {},
+          context: { projectId },
+        })
+
+        modeResolver.addPrompt({
+          flagName: 'mode',
+          type: 'list',
+          message: 'How would you like to spawn work?',
+          choices: () => [
+            { name: jsonMode ? 'Count - Spawn next N tickets (with optional filters)' : '🔢 Count  - Spawn next N tickets (with optional filters)', value: 'count' },
+            { name: jsonMode ? 'All - Spawn all tickets in a column' : '📦 All    - Spawn all tickets tickets in a column', value: 'all' },
+            { name: jsonMode ? 'Many - Select specific tickets to spawn' : '✅ Many   - Select specific tickets to spawn', value: 'many' },
+          ],
+        })
+
+        const resolved = await modeResolver.resolve()
+        // In JSON mode, resolve() exits after outputting prompt, so we never reach here
+        // In interactive mode, we get the selected value
+        spawnMode = resolved.mode as 'all' | 'many' | 'count'
       }
 
-      let ticketsToSpawn: typeof unassignedTickets = []
+      let ticketsToSpawn: typeof allTickets = []
 
       if (spawnMode === 'args') {
         // ARGS MODE: Spawn specific tickets by ID
@@ -262,65 +480,426 @@ export default class WorkSpawn extends PMOCommand {
           return handleError('NO_VALID_TICKETS', 'No valid tickets found from provided IDs.')
         }
 
-        // In JSON mode with explicit tickets, output success
+        // In JSON mode with explicit tickets, check if we should execute or return confirmation
         if (jsonMode) {
-          outputSuccessAsJson(
-            {
-              ticketsSelected: ticketsToSpawn.map(t => ({
+          // Check if all required flags for non-interactive execution are provided
+          const hasAction = !!flags.action
+          const hasDisplay = !!flags.display || flags['run-on-host']
+          const hasPermissions = flags['skip-permissions'] || flags['per-ticket'] // per-ticket mode prompts individually
+          const allFlagsProvided = hasAction && hasDisplay && hasPermissions
+
+          if (allFlagsProvided && flags.yes) {
+            // All flags provided and --yes is set: fall through to execution loop
+            // Don't return here - continue to execution
+          } else if (allFlagsProvided && !flags.yes) {
+            // All flags provided but no --yes: return confirmation_needed with plan
+            const metadata = createMetadata('work spawn', flags)
+            metadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
+
+            // Build the confirm command with --yes
+            const ticketIds = ticketsToSpawn.map(t => t.id).join(' ')
+            let confirmCmd = `prlt work spawn ${ticketIds}`
+            if (flags.action) confirmCmd += ` --action ${flags.action}`
+            if (flags.display) confirmCmd += ` --display ${flags.display}`
+            if (flags['run-on-host']) confirmCmd += ' --run-on-host'
+            if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
+            if (flags.executor) confirmCmd += ` --executor ${flags.executor}`
+            if (flags.session) confirmCmd += ` --session ${flags.session}`
+            if (flags['create-pr']) confirmCmd += ' --create-pr'
+            if (flags['no-pr']) confirmCmd += ' --no-pr'
+            if (flags.clone) confirmCmd += ' --clone'
+            if (flags.focus) confirmCmd += ' --focus'
+            confirmCmd += ' --yes'
+
+            const plan = {
+              tickets: ticketsToSpawn.map(t => ({
                 id: t.id,
                 title: t.title,
                 status: t.statusName,
               })),
+              action: flags.action,
+              display: flags.display || (flags['run-on-host'] ? 'host' : 'devcontainer'),
+              permissions: flags['skip-permissions'] ? 'danger' : 'safe',
               count: ticketsToSpawn.length,
-            },
-            createMetadata('work spawn', flags)
-          )
-          db.close()
-          return
+            }
+
+            db.close()
+            outputConfirmationNeededAsJson(
+              plan,
+              confirmCmd,
+              `Ready to spawn ${ticketsToSpawn.length} agent(s). Run with --yes to execute.`,
+              metadata
+            )
+            return
+          } else {
+            // Missing required flags: return success with tickets selected (legacy behavior)
+            // This allows the calling agent to see what tickets are available
+            outputSuccessAsJson(
+              {
+                ticketsSelected: ticketsToSpawn.map(t => ({
+                  id: t.id,
+                  title: t.title,
+                  status: t.statusName,
+                })),
+                count: ticketsToSpawn.length,
+                missingFlags: {
+                  action: !hasAction,
+                  display: !hasDisplay,
+                  permissions: !hasPermissions,
+                },
+              },
+              createMetadata('work spawn', flags)
+            )
+            db.close()
+            return
+          }
         }
 
         this.log('')
         this.log(styles.header(`🚀 Spawn: ${ticketsToSpawn.length} ticket(s)`))
         this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
 
+      } else if (spawnMode === 'count') {
+        // COUNT MODE: Select top N tickets by rank with optional filters and diet balancing
+        let targetCount = flags.count
+
+        // If count not provided via flag (interactive mode selected 'count'), prompt for it
+        if (!targetCount) {
+          const countResolver = new FlagResolver<{ spawnCount?: number }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+            context: { projectId },
+          })
+
+          countResolver.addPrompt({
+            flagName: 'spawnCount',
+            type: 'input',
+            message: 'How many agents to spawn?',
+            default: '5',
+            validate: (value) => {
+              const num = Number.parseInt(String(value), 10)
+              if (Number.isNaN(num) || num < 1) return 'Please enter a number >= 1'
+              return true
+            },
+            transform: (value) => Number.parseInt(String(value), 10),
+          })
+
+          const countResult = await countResolver.resolve()
+          targetCount = countResult.spawnCount as number
+        }
+
+        // Determine selection strategy
+        let useDiet = flags.diet
+
+        // In interactive mode, prompt for selection strategy if not specified via flags
+        const hasFilterFlags = flags.category || flags.priority || flags.epic || flags.status
+        if (!useDiet && !hasFilterFlags && !flags.count) {
+          // Interactive mode - let user choose strategy
+          const strategyResolver = new FlagResolver<{ strategy?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          strategyResolver.addPrompt({
+            flagName: 'strategy',
+            type: 'list',
+            message: 'Selection strategy:',
+            choices: () => [
+              { name: jsonMode ? 'Top ranked - Select by position order' : '📊 Top ranked      - Select by position order', value: 'top' },
+              { name: jsonMode ? 'Diet-balanced - Balance across category weights' : '⚖️  Diet-balanced   - Balance across category weights', value: 'diet' },
+              { name: jsonMode ? 'Filtered - Pick filters to narrow selection' : '🔍 Filtered        - Pick filters to narrow selection', value: 'filtered' },
+            ],
+          })
+
+          const strategyResult = await strategyResolver.resolve()
+
+          if (strategyResult.strategy === 'diet') {
+            useDiet = true
+          } else if (strategyResult.strategy === 'filtered') {
+            // Prompt for filters interactively
+            const filterResolver = new FlagResolver<{
+              filterCategory?: string
+              filterPriority?: string
+              filterEpic?: string
+              filterStatus?: string
+            }>({
+              commandName: 'work spawn',
+              baseCommand: 'prlt work spawn',
+              jsonMode,
+              flags: {},
+            })
+
+            // Get unique categories from tickets for choices
+            const categories = [...new Set(allTickets.map(t => t.category).filter(Boolean))] as string[]
+            if (categories.length > 0) {
+              filterResolver.addPrompt({
+                flagName: 'filterCategory',
+                type: 'checkbox',
+                message: 'Filter by category (space to toggle, enter to continue):',
+                choices: () => categories.map(c => ({ name: c, value: c })),
+              })
+            }
+
+            // Get unique priorities
+            const priorities = [...new Set(allTickets.map(t => t.priority).filter(Boolean))] as string[]
+            if (priorities.length > 0) {
+              const priorityOrder = ['P0', 'P1', 'P2', 'P3']
+              priorities.sort((a, b) => {
+                const ai = priorityOrder.indexOf(a)
+                const bi = priorityOrder.indexOf(b)
+                return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+              })
+              filterResolver.addPrompt({
+                flagName: 'filterPriority',
+                type: 'checkbox',
+                message: 'Filter by priority (space to toggle, enter to continue):',
+                choices: () => priorities.map(p => ({ name: p, value: p })),
+              })
+            }
+
+            // Get epics for choices
+            const epics = await this.storage.listEpics(projectId)
+            if (epics.length > 0) {
+              filterResolver.addPrompt({
+                flagName: 'filterEpic',
+                type: 'list',
+                message: 'Filter by epic:',
+                choices: () => [
+                  { name: jsonMode ? 'Any epic' : '(any)', value: '' },
+                  ...epics.map(e => ({ name: `${e.id} - ${e.title}`, value: e.id })),
+                ],
+              })
+            }
+
+            // Status filter
+            filterResolver.addPrompt({
+              flagName: 'filterStatus',
+              type: 'list',
+              message: 'Filter by status:',
+              choices: () => [
+                { name: jsonMode ? 'Any status' : '(any)', value: '' },
+                ...columnNames.map(name => {
+                  const count = allTickets.filter(t => t.statusName === name).length
+                  return { name: `${name} (${count})`, value: name }
+                }),
+              ],
+            })
+
+            const filterResult = await filterResolver.resolve()
+            // Apply interactive filter selections to flags for use below
+            if (filterResult.filterCategory && (filterResult.filterCategory as unknown as string[]).length > 0) {
+              flags.category = (filterResult.filterCategory as unknown as string[]).join(',')
+            }
+            if (filterResult.filterPriority && (filterResult.filterPriority as unknown as string[]).length > 0) {
+              flags.priority = (filterResult.filterPriority as unknown as string[]).join(',')
+            }
+            if (filterResult.filterEpic) {
+              flags.epic = filterResult.filterEpic
+            }
+            if (filterResult.filterStatus) {
+              flags.status = filterResult.filterStatus
+            }
+          }
+        }
+
+        // Build candidate pool: start with all tickets, apply filters
+        let candidates = [...allTickets]
+
+        // Apply category filter
+        if (flags.category) {
+          const categoryList = new Set(flags.category.split(',').map(c => c.trim().toLowerCase()))
+          candidates = candidates.filter(t => {
+            const ticketCat = (t.category || '').toLowerCase()
+            return categoryList.has(ticketCat)
+          })
+        }
+
+        // Apply priority filter
+        if (flags.priority) {
+          const priorityList = new Set(flags.priority.split(',').map(p => p.trim().toUpperCase()))
+          candidates = candidates.filter(t => {
+            const ticketPriority = (t.priority || '').toUpperCase()
+            return priorityList.has(ticketPriority)
+          })
+        }
+
+        // Apply epic filter
+        if (flags.epic) {
+          candidates = candidates.filter(t => t.epicId === flags.epic)
+        }
+
+        // Apply status filter
+        if (flags.status) {
+          const statusName = flags.status.toLowerCase()
+          candidates = candidates.filter(t => (t.statusName || '').toLowerCase() === statusName)
+        }
+
+        // Sort by position (rank order)
+        candidates.sort((a, b) => (a.position || 0) - (b.position || 0))
+
+        // Filter out blocked tickets
+        const unblockedCandidates: Ticket[] = []
+        let skippedBlocked = 0
+        for (const ticket of candidates) {
+          // eslint-disable-next-line no-await-in-loop -- Sequential dependency check
+          const blocked = await this.storage.isTicketBlocked(ticket.id)
+          if (blocked) {
+            skippedBlocked++
+          } else {
+            unblockedCandidates.push(ticket)
+          }
+        }
+
+        if (unblockedCandidates.length === 0) {
+          db.close()
+          const msg = `No eligible tickets found${skippedBlocked > 0 ? ` (${skippedBlocked} blocked)` : ''}.`
+          return handleError('NO_ELIGIBLE_TICKETS', msg)
+        }
+
+        // Select tickets using chosen strategy
+        if (useDiet) {
+          // Diet-balanced selection
+          const dietConfig = loadDietConfig(db)
+          ticketsToSpawn = this.selectDietBalanced(unblockedCandidates, targetCount!, dietConfig)
+        } else {
+          // Top ranked (position order) - just take the first N
+          ticketsToSpawn = unblockedCandidates.slice(0, targetCount!)
+        }
+
+        if (ticketsToSpawn.length === 0) {
+          db.close()
+          return handleError('NO_TICKETS_SELECTED', 'No tickets could be selected with the given criteria.')
+        }
+
+        // Show preview
+        this.log('')
+        this.log(styles.header(`🚀 Spawn: ${ticketsToSpawn.length} ticket(s)${useDiet ? ' (diet-balanced)' : ''}`))
+
+        if (useDiet) {
+          const dietConfig = loadDietConfig(db)
+          // Show category breakdown
+          const catCounts = new Map<string, number>()
+          for (const t of ticketsToSpawn) {
+            const cat = t.category || 'uncategorized'
+            catCounts.set(cat, (catCounts.get(cat) || 0) + 1)
+          }
+          const breakdown = [...catCounts.entries()].map(([cat, count]) => `${count}x ${cat}`).join(', ')
+          this.log(styles.muted(`  Diet:      ${formatDietConfig(dietConfig)}`))
+          this.log(styles.muted(`  Breakdown: ${breakdown}`))
+        }
+
+        if (skippedBlocked > 0) {
+          this.log(styles.muted(`  Skipped:   ${skippedBlocked} blocked ticket(s)`))
+        }
+        this.log(styles.muted(`  Tickets:   ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+
+        // Confirmation (unless --yes)
+        if (!flags.yes && !jsonMode) {
+          const confirmResolver = new FlagResolver<{ confirmed?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          confirmResolver.addPrompt({
+            flagName: 'confirmed',
+            type: 'list',
+            message: `Spawn ${ticketsToSpawn.length} ticket(s)?`,
+            choices: () => [
+              { name: 'Yes', value: 'yes' },
+              { name: 'No', value: 'no' },
+            ],
+          })
+
+          const confirmResult = await confirmResolver.resolve()
+          if (confirmResult.confirmed === 'no') {
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+        }
+
+        // In JSON mode without --yes, return confirmation_needed
+        if (jsonMode && !flags.yes) {
+          const metadata = createMetadata('work spawn', flags)
+          metadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
+          const ticketIds = ticketsToSpawn.map(t => t.id).join(' ')
+          let confirmCmd = `prlt work spawn ${ticketIds}`
+          if (flags.action) confirmCmd += ` --action ${flags.action}`
+          if (flags.display) confirmCmd += ` --display ${flags.display}`
+          if (flags['run-on-host']) confirmCmd += ' --run-on-host'
+          if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
+          if (flags.executor) confirmCmd += ` --executor ${flags.executor}`
+          if (flags.session) confirmCmd += ` --session ${flags.session}`
+          if (flags['create-pr']) confirmCmd += ' --create-pr'
+          if (flags['no-pr']) confirmCmd += ' --no-pr'
+          if (flags.clone) confirmCmd += ' --clone'
+          if (flags.focus) confirmCmd += ' --focus'
+          confirmCmd += ' --yes'
+
+          const plan = {
+            tickets: ticketsToSpawn.map(t => ({
+              id: t.id,
+              title: t.title,
+              status: t.statusName,
+              category: t.category,
+              priority: t.priority,
+            })),
+            action: flags.action,
+            count: ticketsToSpawn.length,
+            diet: useDiet,
+            filters: {
+              category: flags.category || null,
+              priority: flags.priority || null,
+              epic: flags.epic || null,
+              status: flags.status || null,
+            },
+          }
+
+          db.close()
+          outputConfirmationNeededAsJson(
+            plan,
+            confirmCmd,
+            `Ready to spawn ${ticketsToSpawn.length} agent(s). Run with --yes to execute.`,
+            metadata
+          )
+          return
+        }
+
       } else if (spawnMode === 'all') {
-        // ALL MODE: Column picker, then spawn all unassigned in that column
+        // ALL MODE: Column picker, then spawn all tickets in that column
         let targetColumn = flags.column
 
         if (!targetColumn) {
-          // Show columns with ticket counts
-          const columnChoices = columnNames.map(name => {
-            const count = unassignedTickets.filter(t => t.statusName === name).length
-            return {
-              name: `${name} (${count} unassigned)`,
-              value: name,
-            }
+          // Use FlagResolver for column selection
+          const columnResolver = new FlagResolver<{ selectedColumn?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn --all',
+            jsonMode,
+            flags: {},
+            context: { projectId },
           })
 
-          // In JSON mode, output the column selection prompt
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig(
-                'list',
-                'selectedColumn',
-                'Select column to spawn all unassigned tickets from:',
-                columnChoices
-              ),
-              createMetadata('work spawn', flags)
-            )
-            db.close()
-            return
-          }
+          columnResolver.addPrompt({
+            flagName: 'selectedColumn',
+            type: 'list',
+            message: 'Select column to spawn all tickets tickets from:',
+            choices: () => columnNames.map(name => {
+              const count = allTickets.filter(t => t.statusName === name).length
+              return {
+                name: `${name} (${count} tickets)`,
+                value: name,
+              }
+            }),
+          })
 
-          const { selectedColumn } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedColumn',
-              message: 'Select column to spawn all unassigned tickets from:',
-              choices: columnChoices,
-            },
-          ])
-          targetColumn = selectedColumn
+          const resolved = await columnResolver.resolve()
+          targetColumn = resolved.selectedColumn
         }
 
         // Verify column exists
@@ -336,19 +915,19 @@ export default class WorkSpawn extends PMOCommand {
           )
         }
 
-        ticketsToSpawn = unassignedTickets.filter(t => t.statusName === matchedColumn)
+        ticketsToSpawn = allTickets.filter(t => t.statusName === matchedColumn)
 
         if (ticketsToSpawn.length === 0) {
           db.close()
           if (jsonMode) {
             outputErrorAsJson(
               'NO_TICKETS_IN_COLUMN',
-              `No unassigned tickets in column "${matchedColumn}".`,
+              `No tickets tickets in column "${matchedColumn}".`,
               createMetadata('work spawn', flags)
             )
             return
           }
-          this.log(styles.muted(`No unassigned tickets in column "${matchedColumn}".`))
+          this.log(styles.muted(`No tickets tickets in column "${matchedColumn}".`))
           return
         }
 
@@ -361,24 +940,30 @@ export default class WorkSpawn extends PMOCommand {
         // In JSON mode with --many, output the ticket selection prompt directly
         // (skip column selection for simplicity - show all tickets)
         if (jsonMode) {
-          // Build choices from all unassigned tickets
-          const ticketChoices = unassignedTickets.map(ticket => {
-            const priority = ticket.priority ? `[${ticket.priority}] ` : ''
-            return {
-              name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
-              value: ticket.id,
-            }
+          // Use FlagResolver for ticket selection in JSON mode
+          const ticketResolver = new FlagResolver<{ selectedTickets?: string[] }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+            context: { projectId },
           })
 
-          outputPromptAsJson(
-            buildPromptConfig(
-              'checkbox',
-              'selectedTickets',
-              'Select tickets to spawn (provide ticket IDs as positional args to execute):',
-              ticketChoices
-            ),
-            createMetadata('work spawn', flags)
-          )
+          ticketResolver.addPrompt({
+            flagName: 'selectedTickets',
+            type: 'checkbox',
+            message: 'Select tickets to spawn (provide ticket IDs as positional args to execute):',
+            choices: () => allTickets.map(ticket => {
+              const priority = ticket.priority ? `[${ticket.priority}] ` : ''
+              return {
+                name: `${priority}${ticket.id} - ${ticket.title} (${ticket.statusName || 'No Status'})`,
+                value: ticket.id,
+              }
+            }),
+          })
+
+          // In JSON mode, this exits after outputting prompt
+          await ticketResolver.resolve()
           db.close()
           return
         }
@@ -388,36 +973,45 @@ export default class WorkSpawn extends PMOCommand {
           { name: '🌐 All columns (select from anywhere)', value: '__ALL__' },
         ]
         for (const name of columnNames) {
-          const count = unassignedTickets.filter(t => t.statusName === name).length
+          const count = allTickets.filter(t => t.statusName === name).length
           columnChoices.push({
-            name: count > 0 ? `${name} (${count} unassigned)` : `${name} (0)`,
+            name: count > 0 ? `${name} (${count} tickets)` : `${name} (0)`,
             value: name,
           })
         }
 
-        const { manyColumn } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'manyColumn',
-            message: 'Select from which column:',
-            choices: columnChoices,
-          },
-        ])
+        // Use FlagResolver for column selection (many mode)
+        const manyColumnResolver = new FlagResolver<{ manyColumn?: string }>({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn --many',
+          jsonMode,
+          flags: {},
+        })
+
+        manyColumnResolver.addPrompt({
+          flagName: 'manyColumn',
+          type: 'list',
+          message: 'Select from which column:',
+          choices: () => columnChoices,
+        })
+
+        const manyColumnResult = await manyColumnResolver.resolve()
+        const manyColumn = manyColumnResult.manyColumn
 
         // Filter tickets based on column selection
         const ticketsForSelection = manyColumn === '__ALL__'
-          ? unassignedTickets
-          : unassignedTickets.filter(t => t.statusName === manyColumn)
+          ? allTickets
+          : allTickets.filter(t => t.statusName === manyColumn)
 
         if (ticketsForSelection.length === 0) {
           db.close()
-          this.log(styles.muted('No unassigned tickets in that column.'))
+          this.log(styles.muted('No tickets tickets in that column.'))
           return
         }
 
         // Group tickets by priority for display
         const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None']
-        const ticketsByPriority = new Map<string, typeof unassignedTickets>()
+        const ticketsByPriority = new Map<string, typeof allTickets>()
         for (const priority of PRIORITY_ORDER) {
           ticketsByPriority.set(priority, [])
         }
@@ -429,37 +1023,44 @@ export default class WorkSpawn extends PMOCommand {
           ticketsByPriority.get(priority)!.push(ticket)
         }
 
-        // Build choices with priority separators
-        const choices: Array<{ name: string; value: string } | inquirer.Separator> = []
+        // Build flat choices for ticket selection
+        const flatChoices: Array<{ name: string; value: string }> = []
         for (const priority of PRIORITY_ORDER) {
           const tickets = ticketsByPriority.get(priority) || []
           if (tickets.length === 0) continue
-          choices.push(new inquirer.Separator(`── ${priority} (${tickets.length}) ──`))
           for (const ticket of tickets) {
             const statusBadge = ticket.statusName ? ` [${ticket.statusName}]` : ''
-            choices.push({
+            flatChoices.push({
               name: `[${priority}] ${ticket.id} - ${ticket.title}${statusBadge}`,
               value: ticket.id,
             })
           }
         }
 
-        const { selectedTicketIds } = await inquirer.prompt([
-          {
-            type: 'checkbox',
-            name: 'selectedTicketIds',
-            message: 'Select tickets to spawn (space to toggle, enter to confirm):',
-            choices,
-            validate: (input: string[]) => {
-              if (input.length === 0) {
-                return 'Please select at least one ticket'
-              }
-              return true
-            },
-          },
-        ])
+        // Use FlagResolver for ticket selection (checkbox)
+        const ticketSelectResolver = new FlagResolver<{ selectedTicketIds?: string[] }>({
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn',
+          jsonMode,
+          flags: {},
+        })
 
-        ticketsToSpawn = unassignedTickets.filter(t => selectedTicketIds.includes(t.id))
+        ticketSelectResolver.addPrompt({
+          flagName: 'selectedTicketIds',
+          type: 'checkbox',
+          message: 'Select tickets to spawn (space to toggle, enter to confirm):',
+          choices: () => flatChoices,
+          validate: (input) => {
+            if ((input as unknown as string[]).length === 0) {
+              return 'Please select at least one ticket'
+            }
+            return true
+          },
+        })
+
+        const ticketSelectResult = await ticketSelectResolver.resolve()
+        const selectedTicketIds = ticketSelectResult.selectedTicketIds || []
+        ticketsToSpawn = allTickets.filter(t => selectedTicketIds.includes(t.id))
 
         this.log('')
         this.log(styles.header(`🚀 Spawn Many: ${ticketsToSpawn.length} tickets`))
@@ -472,145 +1073,111 @@ export default class WorkSpawn extends PMOCommand {
 
       this.log('')
 
-      // Check agent availability
-      if (availableAgents.length === 0) {
-        db.close()
-        this.error(
-          'No available agents. All agents are busy with other work.\n' +
-          'Use "prlt agent add" to add more agents, or wait for current work to complete.'
-        )
+      // Note: With ephemeral agents, we don't need to check availability
+      // Each ticket will get its own ephemeral agent created on-demand
+
+      // Check for tickets with existing tmux sessions (active work)
+      const ticketsWithActiveSessions: Array<{ ticketId: string; sessionName: string; agent: string }> = []
+      const ticketsToProcess: typeof ticketsToSpawn = []
+
+      for (const ticket of ticketsToSpawn) {
+        const session = getTicketTmuxSession(ticket.id)
+        if (session) {
+          ticketsWithActiveSessions.push({
+            ticketId: ticket.id,
+            sessionName: session.sessionName,
+            agent: session.agent
+          })
+        } else {
+          ticketsToProcess.push(ticket)
+        }
       }
 
-      // Warn if more tickets than agents
-      if (ticketsToSpawn.length > availableAgents.length) {
-        this.log(styles.warning(`⚠️  ${ticketsToSpawn.length} tickets selected but only ${availableAgents.length} agents available.`))
-        this.log(styles.muted(`   Only ${availableAgents.length} tickets will be spawned. Add more agents with "prlt agent add".`))
+      // Handle tickets with active sessions
+      const spawnJsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work spawn' } : null
+
+      if (ticketsWithActiveSessions.length > 0 && !jsonMode) {
+        this.log(styles.warning(`Found ${ticketsWithActiveSessions.length} ticket(s) with active tmux sessions:`))
+        for (const { ticketId, agent } of ticketsWithActiveSessions) {
+          this.log(styles.muted(`  ${ticketId} → ${agent}`))
+        }
         this.log('')
 
-        const { proceed } = await inquirer.prompt([
+        const { sessionAction } = await this.prompt<{ sessionAction: string }>([
           {
             type: 'list',
-            name: 'proceed',
-            message: `Spawn ${availableAgents.length} tickets now? (${ticketsToSpawn.length - availableAgents.length} will remain unassigned)`,
+            name: 'sessionAction',
+            message: 'What would you like to do with these tickets?',
             choices: [
-              { name: 'Yes', value: true },
-              { name: 'No', value: false },
+              { name: 'Skip them (only spawn tickets without active sessions)', value: 'skip', command: 'prlt work spawn --json' },
+              { name: 'Kill sessions and respawn with new agents', value: 'kill', command: 'prlt work spawn --json' },
+              { name: 'Cancel', value: 'cancel', command: '' },
             ],
           },
-        ])
+        ], spawnJsonModeConfig)
 
-        if (!proceed) {
+        if (sessionAction === 'cancel') {
           db.close()
           this.log(styles.muted('Cancelled.'))
           return
         }
 
-        // Limit to available agents
-        ticketsToSpawn = ticketsToSpawn.slice(0, availableAgents.length)
-      }
-
-      this.log(styles.muted(`Available agents: ${availableAgents.map(a => a.name).join(', ')}`))
-      this.log(styles.muted(`Tickets to spawn: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
-      this.log('')
-
-      // Confirm before batch spawning (unless --yes flag is set)
-      if (!flags.yes) {
-        const { confirm } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'confirm',
-            message: `Spawn ${ticketsToSpawn.length} tickets using ${availableAgents.length} available agents?`,
-            choices: [
-              { name: 'Yes', value: true },
-              { name: 'No', value: false },
-            ],
-          },
-        ])
-
-        if (!confirm) {
-          db.close()
-          this.log(styles.muted('Cancelled.'))
-          return
-        }
-      }
-
-      // Assign tickets to agents based on strategy
-      const assignments: Array<{ ticket: typeof ticketsToSpawn[0]; agent: typeof availableAgents[0] }> = []
-
-      // Track how many tickets each agent is assigned (for least-busy)
-      const agentLoad = new Map<string, number>()
-      for (const agent of availableAgents) {
-        const runningCount = executionStorage.getAgentRunningExecutions(agent.name).length
-        agentLoad.set(agent.name, runningCount)
-      }
-
-      for (let i = 0; i < ticketsToSpawn.length; i++) {
-        let agent: typeof availableAgents[0]
-
-        switch (flags.strategy) {
-          case 'least-busy': {
-            // Pick the agent with the fewest running executions
-            let minLoad = Infinity
-            let leastBusyAgent = availableAgents[0]
-            for (const a of availableAgents) {
-              const load = agentLoad.get(a.name) || 0
-              if (load < minLoad) {
-                minLoad = load
-                leastBusyAgent = a
-              }
+        if (sessionAction === 'kill') {
+          // Kill existing sessions and add those tickets back to process list
+          for (const { ticketId, sessionName } of ticketsWithActiveSessions) {
+            killTmuxSession(sessionName)
+            const ticket = ticketsToSpawn.find(t => t.id === ticketId)
+            if (ticket) {
+              ticketsToProcess.push(ticket)
             }
-            agent = leastBusyAgent
-            // Increment load for next iteration
-            agentLoad.set(agent.name, (agentLoad.get(agent.name) || 0) + 1)
-            break
           }
-          case 'random': {
-            // Pick a random agent
-            agent = availableAgents[Math.floor(Math.random() * availableAgents.length)]
-            break
-          }
-          case 'round-robin':
-          default: {
-            // Distribute evenly across agents
-            agent = availableAgents[i % availableAgents.length]
-            break
-          }
+          this.log(styles.success(`Killed ${ticketsWithActiveSessions.length} session(s)`))
         }
-
-        assignments.push({ ticket: ticketsToSpawn[i], agent })
       }
 
-      // Show assignment plan
-      this.log(styles.muted(`Strategy: ${flags.strategy}`))
-      this.log(styles.muted('Assignment plan:'))
-      for (const { ticket, agent } of assignments) {
-        this.log(styles.muted(`  ${ticket.id} → ${agent.name}`))
+      // Update ticketsToSpawn to only include tickets we'll process
+      ticketsToSpawn = ticketsToProcess
+
+      if (ticketsToSpawn.length === 0) {
+        db.close()
+        this.log(styles.muted('No tickets to spawn (all have active sessions).'))
+        return
       }
+
+      this.log(styles.muted(`Tickets: ${ticketsToSpawn.map(t => t.id).join(', ')}`))
+      this.log(styles.muted(`Agents:  Ephemeral (unique per ticket)`))
       this.log('')
+
+      // Note: Removed redundant confirmation - user already selected tickets
+      // Use --dry-run to preview without executing
 
       // Dry run - just show what would happen
       if (flags['dry-run']) {
         db.close()
-        this.log(styles.success(`Dry run complete: would spawn ${assignments.length} tickets`))
+        this.log(styles.success(`Dry run complete: would spawn ${ticketsToSpawn.length} tickets with ephemeral agents`))
         return
       }
 
       // Batch mode settings - prompt once for all tickets
-      let batchMode = flags.mode
+      const executionConfig = loadExecutionConfig(db)
+      const effectiveExecutor = (flags.executor as ExecutorType | undefined) || executionConfig.defaultExecutor
+      const executorName = getExecutorDisplayName(effectiveExecutor)
+      let batchDisplay = flags.display
       let batchOutput = flags.output
-      let batchSkipPermissions = flags['skip-permissions']
+      // Track permission mode - default to 'safe', check flag to determine if prompting needed
+      let batchPermissionMode: PermissionMode = flags['skip-permissions'] ? 'danger' : 'safe'
       let batchCreatePr = flags['create-pr']
       let batchNoPr = flags['no-pr']
       let batchRunOnHost = flags['run-on-host']
       let batchAction = flags.action
+      // Track custom message for custom action (needs to be outside the if block)
+      let batchCustomMessage: string | undefined = flags.message
       // Track display mode separately for devcontainer (needs to be outside the if block)
       let batchDisplayMode: string | undefined
 
-      // Check if any agent has devcontainer config
-      const hasDevcontainer = availableAgents.some(agent => {
-        const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
-        return hasDevcontainerConfig(agentDir)
-      })
+      // For ephemeral agents, we'll create devcontainers on-demand
+      // Default to devcontainer support (can be overridden by --run-on-host)
+      const hasDevcontainer = true // Ephemeral agents always get devcontainer config
 
       // Will be populated after action is selected/confirmed
       let selectedActionDetails: Awaited<ReturnType<typeof this.storage.getAction>> | null = null
@@ -630,23 +1197,92 @@ export default class WorkSpawn extends PMOCommand {
               value: a.id,
             }))
 
-          const { selectedAction } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedAction',
-              message: 'What action should agents perform?',
-              choices: actionChoices,
-              default: 'implement',
-            },
-          ])
-          batchAction = selectedAction
+          // Add custom and adhoc options at the end
+          actionChoices.push({
+            name: 'custom       - Enter a custom prompt/instruction',
+            value: '__custom__',
+          })
+          actionChoices.push({
+            name: 'adhoc        - Unstructured exploration/debugging',
+            value: '__adhoc__',
+          })
+
+          // Use FlagResolver for action selection with optional custom input
+          const actionResolver = new FlagResolver<{ selectedAction?: string; customInput?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          actionResolver.addPrompt({
+            flagName: 'selectedAction',
+            type: 'list',
+            message: 'What action should agents perform?',
+            default: 'implement',
+            choices: () => actionChoices,
+          })
+
+          actionResolver.addPrompt({
+            flagName: 'customInput',
+            type: 'input',
+            message: 'Enter custom prompt for the agent:',
+            when: (ctx) => ctx.flags.selectedAction === '__custom__',
+            validate: (value) => (value as string).trim() ? true : 'Prompt cannot be empty',
+          })
+
+          const actionResult = await actionResolver.resolve()
+          const selectedAction = actionResult.selectedAction
+
+          if (selectedAction === '__custom__') {
+            batchAction = 'custom'
+            batchCustomMessage = (actionResult.customInput as string).trim()
+          } else if (selectedAction === '__adhoc__') {
+            batchAction = 'adhoc'
+          } else {
+            batchAction = selectedAction
+          }
+        } else if (flags.action === 'custom') {
+          // Custom action specified via flag - require --message
+          if (!flags.message) {
+            db.close()
+            return handleError('MISSING_MESSAGE', '--action custom requires --message flag with the custom prompt')
+          }
+          batchAction = 'custom'
+          batchCustomMessage = flags.message
         }
 
         // Now fetch action details after selection is made
-        selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+        if (batchAction === 'custom') {
+          // Custom action - user provides their own prompt
+          selectedActionDetails = {
+            id: 'custom',
+            name: 'Custom',
+            description: 'Custom prompt/instruction',
+            prompt: batchCustomMessage || '',
+            modifiesCode: true, // Assume custom prompts may modify code
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
+        } else if (batchAction === 'adhoc') {
+          // Adhoc is a synthetic action, not stored in database
+          selectedActionDetails = {
+            id: 'adhoc',
+            name: 'Ad-hoc',
+            description: 'Unstructured exploration and debugging',
+            prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
+            modifiesCode: false,
+            defaultMoveToCategory: 'started',
+            isBuiltin: false,
+            createdAt: new Date(),
+          }
+        } else {
+          selectedActionDetails = await this.storage.getAction(batchAction || 'implement')
+        }
 
         // Check if any explicit settings were provided via flags
-        const hasExplicitSettings = flags.mode || flags.output || flags['skip-permissions'] ||
+        const hasExplicitSettings = flags.display || flags.output || flags['skip-permissions'] ||
           flags['create-pr'] || flags['no-pr'] || flags['run-on-host']
 
         // Offer to use default settings if no explicit flags provided
@@ -657,29 +1293,38 @@ export default class WorkSpawn extends PMOCommand {
             ? 'devcontainer, terminal, interactive, safe permissions, create PRs'
             : 'devcontainer, terminal, interactive, safe permissions, no PRs'
 
-          const { useDefaults } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'useDefaults',
-              message: `Use default settings for "${actionName}"?`,
-              choices: [
-                { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: true },
-                { name: '✗ No  - Configure each setting', value: false },
-              ],
-              default: true,
-            },
-          ])
+          // Use FlagResolver for defaults choice
+          const defaultsResolver = new FlagResolver<{ useDefaults?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          defaultsResolver.addPrompt({
+            flagName: 'useDefaults',
+            type: 'list',
+            message: `Use default settings for "${actionName}"?`,
+            default: 'yes',
+            choices: () => [
+              { name: `✓ Yes - Use defaults (${defaultsDescription})`, value: 'yes' },
+              { name: '✗ No  - Configure each setting', value: 'no' },
+            ],
+          })
+
+          const defaultsResult = await defaultsResolver.resolve()
+          const useDefaults = defaultsResult.useDefaults === 'yes'
 
           if (useDefaults) {
             // Apply defaults
             if (hasDevcontainer) {
-              batchMode = 'devcontainer'
+              batchDisplay = 'devcontainer'
               batchDisplayMode = 'terminal'
             } else {
-              batchMode = 'terminal'
+              batchDisplay = 'terminal'
             }
             batchOutput = 'interactive'
-            batchSkipPermissions = false
+            batchPermissionMode = 'safe'
             // For non-code-modifying actions, don't create PRs
             if (modifiesCode) {
               batchCreatePr = true
@@ -693,22 +1338,50 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for environment (devcontainer vs host) if devcontainer available and not already set
-        if (hasDevcontainer && !batchRunOnHost && !batchMode) {
+        if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
+          const devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
+
+          const envChoices = [
+            { name: devcontainerLabel, value: 'devcontainer' },
+            { name: '💻 host (runs directly on your machine)', value: 'host' },
+            { name: '✗  cancel', value: 'cancel' },
+          ]
+
+          // In JSON mode, use FlagResolver (outputs prompt and exits)
+          if (jsonMode) {
+            const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+              commandName: 'work spawn',
+              baseCommand: 'prlt work spawn',
+              jsonMode,
+              flags: {},
+            })
+
+            envResolver.addPrompt({
+              flagName: 'selectedEnvironment',
+              type: 'list',
+              message: 'Where should agents run?',
+              default: 'devcontainer',
+              choices: () => envChoices,
+            })
+
+            await envResolver.resolve()
+            // FlagResolver exits in JSON mode, so we never reach here
+            db.close()
+            return
+          }
+
           let environmentSelected = false
           while (!environmentSelected) {
-            const { selectedEnvironment } = await inquirer.prompt([
+            // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
+            const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: string }>([
               {
                 type: 'list',
                 name: 'selectedEnvironment',
                 message: 'Where should agents run?',
-                choices: [
-                  { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-                  { name: '💻 host (runs directly on your machine)', value: 'host' },
-                  { name: '✗  cancel', value: 'cancel' },
-                ],
+                choices: envChoices,
                 default: 'devcontainer',
               },
-            ])
+            ], spawnJsonModeConfig)
 
             if (selectedEnvironment === 'cancel') {
               db.close()
@@ -717,33 +1390,97 @@ export default class WorkSpawn extends PMOCommand {
             }
 
             if (selectedEnvironment === 'devcontainer') {
+              // Dynamically check Docker when selected (user may have started it)
               if (!isDockerRunning()) {
                 this.log('')
+                this.warn('Docker is not running. Please start Docker and try again.')
+                this.log('')
+                continue
+              }
+
+              if (!isDevcontainerCliInstalled()) {
+                this.log('')
                 this.warn(
-                  'Docker is not running.\n' +
-                  'Docker is required for devcontainer execution.\n' +
-                  'Please start Docker Desktop or select "host" to run directly on your machine.'
+                  'devcontainer CLI is not installed.\n' +
+                  'Install with: npm install -g @devcontainers/cli\n' +
+                  'Or select "host" to run directly on your machine.'
                 )
                 this.log('')
                 continue
               }
-              batchMode = 'devcontainer'
+
+              // Check GitHub token is available for git push operations
+              if (!isGitHubTokenAvailable()) {
+                const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
+
+                // Use FlagResolver for token action prompt
+                const tokenResolver = new FlagResolver<{ tokenAction?: string }>({
+                  commandName: 'work spawn',
+                  baseCommand: 'prlt work spawn',
+                  jsonMode,
+                  flags: {},
+                })
+
+                tokenResolver.addPrompt({
+                  flagName: 'tokenAction',
+                  type: 'list',
+                  message: tokenMessage,
+                  default: 'continue',
+                  choices: () => [
+                    { name: 'Yes, continue anyway (git push may fail)', value: 'continue' },
+                    { name: 'No, let me run gh auth login first', value: 'cancel' },
+                    { name: 'Switch to host mode instead', value: 'host' },
+                  ],
+                })
+
+                // In JSON mode, this will output prompt and exit
+                // In interactive mode, show warning first
+                if (!jsonMode) {
+                  this.log('')
+                  this.warn(
+                    'GitHub token not found.\n' +
+                    'Git push operations may fail inside containers.\n' +
+                    'Run `gh auth login` to authenticate, or continue without token.'
+                  )
+                  this.log('')
+                }
+
+                // eslint-disable-next-line no-await-in-loop -- Interactive user prompt in loop
+                const resolved = await tokenResolver.resolve()
+                const tokenAction = resolved.tokenAction
+
+                if (tokenAction === 'cancel') {
+                  db.close()
+                  this.log(styles.muted('Run `gh auth login` and try again.'))
+                  return
+                }
+
+                if (tokenAction === 'host') {
+                  batchRunOnHost = true
+                  environmentSelected = true
+                  continue
+                }
+                // tokenAction === 'continue' - fall through to devcontainer setup
+              }
+
+              batchDisplay = 'devcontainer'
               environmentSelected = true
 
               // For devcontainer, prompt for display mode
               // Simplified: tmux is always used inside container for session persistence
-              const { selectedDisplay } = await inquirer.prompt([
+              // eslint-disable-next-line no-await-in-loop -- Follow-up prompt after selection
+              const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
                 {
                   type: 'list',
                   name: 'selectedDisplay',
                   message: 'How should agent output be displayed?',
                   choices: [
-                    { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                    { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+                    { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal', command: 'prlt work spawn --display terminal --json' },
+                    { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background', command: 'prlt work spawn --display background --json' },
                   ],
                   default: 'terminal',
                 },
-              ])
+              ], spawnJsonModeConfig)
               batchDisplayMode = selectedDisplay
 
               // Always use tmux inside container for session persistence
@@ -756,19 +1493,28 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for display mode if not already set (for host mode without devcontainer)
-        if (!batchMode) {
-          const { selectedMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'selectedMode',
-              message: 'How should agent output be displayed?',
-              choices: [
-                { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-                { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-              ],
-            },
-          ])
-          batchMode = selectedMode
+        if (!batchDisplay) {
+          // Use FlagResolver for display mode
+          const displayResolver = new FlagResolver<{ selectedMode?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          displayResolver.addPrompt({
+            flagName: 'selectedMode',
+            type: 'list',
+            message: 'How should agent output be displayed?',
+            default: 'terminal',
+            choices: () => [
+              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+            ],
+          })
+
+          const displayResult = await displayResolver.resolve()
+          batchDisplay = displayResult.selectedMode
         }
 
         // Default to interactive output mode (streaming UI)
@@ -777,21 +1523,29 @@ export default class WorkSpawn extends PMOCommand {
           batchOutput = 'interactive'
         }
 
-        // Prompt for permissions mode if not provided
-        if (!batchSkipPermissions) {
-          const { permissionMode } = await inquirer.prompt([
-            {
-              type: 'list',
-              name: 'permissionMode',
-              message: 'Permission mode for Claude Code:',
-              choices: [
-                { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-                { name: '⚠️  danger - Skip permission checks', value: 'danger' },
-              ],
-              default: 'safe',
-            },
-          ])
-          batchSkipPermissions = permissionMode === 'danger'
+        // Prompt for permissions mode if not explicitly set via --skip-permissions flag
+        if (!flags['skip-permissions']) {
+          // Use FlagResolver for permission mode
+          const permissionResolver = new FlagResolver<{ permissionMode?: string }>({
+            commandName: 'work spawn',
+            baseCommand: 'prlt work spawn',
+            jsonMode,
+            flags: {},
+          })
+
+          permissionResolver.addPrompt({
+            flagName: 'permissionMode',
+            type: 'list',
+            message: `Permission mode for ${executorName}:`,
+            default: 'danger',
+            choices: () => [
+              { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+            ],
+          })
+
+          const permissionResult = await permissionResolver.resolve()
+          batchPermissionMode = permissionResult.permissionMode as PermissionMode
         }
 
         // Prompt for PR creation if not provided AND action modifies code
@@ -799,20 +1553,34 @@ export default class WorkSpawn extends PMOCommand {
         const actionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!batchCreatePr && !batchNoPr) {
           if (actionModifiesCode) {
-            const { prChoice } = await inquirer.prompt([
-              {
+            // In JSON mode with --yes, default to creating PRs for code-modifying actions
+            if (jsonMode && flags.yes) {
+              batchCreatePr = true
+              batchNoPr = false
+            } else {
+              // Use FlagResolver for PR choice
+              const prResolver = new FlagResolver<{ prChoice?: string }>({
+                commandName: 'work spawn',
+                baseCommand: 'prlt work spawn',
+                jsonMode,
+                flags: {},
+              })
+
+              prResolver.addPrompt({
+                flagName: 'prChoice',
                 type: 'list',
-                name: 'prChoice',
                 message: 'Create pull requests when work is ready?',
-                choices: [
+                default: 'yes',
+                choices: () => [
                   { name: '✓ Yes - Create PR for each ticket', value: 'yes' },
                   { name: '✗ No  - Just move tickets to review', value: 'no' },
                 ],
-                default: 'yes',
-              },
-            ])
-            batchCreatePr = prChoice === 'yes'
-            batchNoPr = prChoice === 'no'
+              })
+
+              const prResult = await prResolver.resolve()
+              batchCreatePr = prResult.prChoice === 'yes'
+              batchNoPr = prResult.prChoice === 'no'
+            }
           } else {
             // Non-code-modifying action - no PR needed
             batchCreatePr = false
@@ -828,62 +1596,223 @@ export default class WorkSpawn extends PMOCommand {
         }
       }
 
-      // Spawn each ticket
+      // Spawn each ticket - work:start will create ephemeral agents on-demand
       let successCount = 0
       let failCount = 0
 
-      for (const { ticket, agent } of assignments) {
-        try {
-          this.log(styles.muted(`Starting ${ticket.id} with ${agent.name}...`))
+      // Track execution results for JSON output
+      const executionResults: Array<{
+        workId: string
+        ticketId: string
+        agent: string
+        sessionId?: string
+        containerId?: string
+        status: string
+      }> = []
 
-          // Note: Ticket assignment now happens in work:start ONLY after successful spawn
+      // Process sequentially for clear logging and resource management
+      for (const ticket of ticketsToSpawn) {
+        try {
+          if (!jsonMode) {
+            this.log(styles.muted(`Starting ${ticket.id} with ephemeral agent...`))
+          }
 
           // Build args for work:start
           // IMPORTANT: Pass --project to avoid re-prompting for project selection
-          // Pass --agent to skip agent selection prompt (we already have the assignment)
-          const startArgs: string[] = [ticket.id, '--project', projectId, '--agent', agent.name]
+          // Pass --ephemeral to signal work:start should create an ephemeral agent
+          const startArgs: string[] = [ticket.id, '--project', projectId, '--ephemeral']
+
+          // Pass clone flag if specified
+          if (flags.clone) startArgs.push('--clone')
+
+          // In JSON mode with --yes, pass --yes to work:start to skip prompts there too
+          if (jsonMode && flags.yes) {
+            startArgs.push('--yes')
+          }
 
           if (flags['per-ticket']) {
-            // Per-ticket mode: only pass mode flag, let start prompt for the rest
-            if (batchMode) startArgs.push('--mode', batchMode)
-            if (batchDisplayMode) startArgs.push('--display', batchDisplayMode)
+            // Per-ticket mode: only pass display flag, let start prompt for the rest
+            // batchDisplayMode is for devcontainer, batchDisplay is for host
+            const displayToUse = batchDisplayMode || batchDisplay
+            if (displayToUse && displayToUse !== 'devcontainer') startArgs.push('--display', displayToUse)
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
+            if (flags.focus) startArgs.push('--focus')
+            // Pass action/prompt - custom action uses --prompt, others use --action
+            if (batchAction === 'custom' && batchCustomMessage) {
+              startArgs.push('--prompt', batchCustomMessage)
+            } else if (batchAction) {
+              startArgs.push('--action', batchAction)
+            }
+            // Pass --message for additional instructions (non-custom actions)
+            if (flags.message && batchAction !== 'custom') {
+              startArgs.push('--message', flags.message)
+            }
           } else {
             // Batch mode: pass all settings to skip prompts
-            if (batchMode) startArgs.push('--mode', batchMode)
-            if (batchDisplayMode) startArgs.push('--display', batchDisplayMode)
+            // batchDisplayMode is for devcontainer, batchDisplay is for host
+            const displayToUse = batchDisplayMode || batchDisplay
+            if (displayToUse && displayToUse !== 'devcontainer') startArgs.push('--display', displayToUse)
             if (flags.executor) startArgs.push('--executor', flags.executor)
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (batchOutput) startArgs.push('--output', batchOutput)
-            if (batchSkipPermissions) startArgs.push('--skip-permissions')
+            // Always pass permission mode to skip the prompt in work:start
+            startArgs.push('--permission-mode', batchPermissionMode)
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
-            // Pass action flag (from prompt or flag)
-            startArgs.push('--action', batchAction || 'implement')
+            // Pass action/prompt - custom action uses --prompt, others use --action
+            if (batchAction === 'custom' && batchCustomMessage) {
+              startArgs.push('--prompt', batchCustomMessage)
+            } else {
+              startArgs.push('--action', batchAction || 'implement')
+            }
+            // Pass --message for additional instructions (non-custom actions)
+            if (flags.message && batchAction !== 'custom') {
+              startArgs.push('--message', flags.message)
+            }
             // Pass session manager (tmux inside container by default)
             if (flags.session) startArgs.push('--session', flags.session)
+            // Pass focus flag (brings terminal to foreground)
+            if (flags.focus) startArgs.push('--focus')
           }
 
+          // eslint-disable-next-line no-await-in-loop
           await this.config.runCommand('work:start', startArgs)
 
           successCount++
+
+          // Track for JSON output
+          executionResults.push({
+            workId: `WORK-${ticket.id}`, // Placeholder - actual work ID comes from work:start
+            ticketId: ticket.id,
+            agent: 'ephemeral', // Ephemeral agent name determined by work:start
+            status: 'running',
+          })
         } catch (error) {
           failCount++
-          this.log(styles.error(`Failed to start ${ticket.id}: ${error instanceof Error ? error.message : error}`))
+          if (!jsonMode) {
+            this.log(styles.error(`Failed to start ${ticket.id}: ${error instanceof Error ? error.message : error}`))
+          }
+
+          // Track failed executions for JSON output
+          executionResults.push({
+            workId: '',
+            ticketId: ticket.id,
+            agent: '',
+            status: 'failed',
+          })
         }
       }
 
-      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => {
+        if (!jsonMode) {
+          this.log(styles.muted(msg))
+        }
+      })
       db.close()
 
-      this.log('')
-      this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
+      // Output results
+      if (jsonMode) {
+        // Output JSON execution results with resolved PR mode
+        const spawnMetadata = createMetadata('work spawn', flags)
+        spawnMetadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
+        outputExecutionResultAsJson(
+          executionResults,
+          successCount,
+          failCount,
+          spawnMetadata
+        )
+      } else {
+        const resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
+        this.log('')
+        this.log(styles.success(`✓ Spawn results: ${successCount} started, ${failCount} failed`))
+        this.log(styles.muted(`   PR mode: ${resolvedPRMode}`))
+      }
     } catch (error) {
       db.close()
       throw error
     }
+  }
+
+  /**
+   * Select tickets using diet-balanced category weighting.
+   * Uses a two-pass algorithm:
+   * Pass 1: Walk candidates in position order, pull if category not over ceiling.
+   * Pass 2: Force-pull from underrepresented categories.
+   */
+  private selectDietBalanced(candidates: Ticket[], targetCount: number, dietConfig: DietConfig): Ticket[] {
+    const selected: Ticket[] = []
+    const selectedIds = new Set<string>()
+
+    // Build category count map (start from zero since we're selecting fresh)
+    const categoryCounts = new Map<string, number>()
+    for (const ratio of dietConfig.ratios) {
+      categoryCounts.set(ratio.category, 0)
+    }
+
+    // Calculate ceiling per category
+    const getCeiling = (category: string): number => {
+      const ratio = dietConfig.ratios.find(r => r.category === category)
+      if (!ratio) return targetCount // No ceiling for uncategorized
+      return Math.ceil(targetCount * ratio.target)
+    }
+
+    // Pass 1: Walk candidates in order, pull if under ceiling
+    const skipped: Ticket[] = []
+    for (const ticket of candidates) {
+      if (selected.length >= targetCount) break
+
+      const cat = (ticket.category || '').toLowerCase()
+      const currentCount = categoryCounts.get(cat) || 0
+      const ceiling = getCeiling(cat)
+
+      if (currentCount < ceiling) {
+        selected.push(ticket)
+        selectedIds.add(ticket.id)
+        categoryCounts.set(cat, currentCount + 1)
+      } else {
+        skipped.push(ticket)
+      }
+    }
+
+    // Pass 2: Force-pull from underrepresented categories
+    if (selected.length < targetCount) {
+      for (const ratio of dietConfig.ratios) {
+        if (selected.length >= targetCount) break
+
+        const currentCount = categoryCounts.get(ratio.category) || 0
+        const targetForCat = Math.ceil(targetCount * ratio.target)
+
+        if (currentCount < targetForCat) {
+          const catTickets = skipped.filter(
+            t => (t.category || '').toLowerCase() === ratio.category && !selectedIds.has(t.id)
+          )
+
+          for (const ticket of catTickets) {
+            if (selected.length >= targetCount) break
+            if ((categoryCounts.get(ratio.category) || 0) >= targetForCat) break
+
+            selected.push(ticket)
+            selectedIds.add(ticket.id)
+            categoryCounts.set(ratio.category, (categoryCounts.get(ratio.category) || 0) + 1)
+          }
+        }
+      }
+    }
+
+    // If still under target, fill from any remaining candidates
+    if (selected.length < targetCount) {
+      for (const ticket of candidates) {
+        if (selected.length >= targetCount) break
+        if (!selectedIds.has(ticket.id)) {
+          selected.push(ticket)
+          selectedIds.add(ticket.id)
+        }
+      }
+    }
+
+    return selected
   }
 }

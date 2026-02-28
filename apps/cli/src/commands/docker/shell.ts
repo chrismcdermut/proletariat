@@ -1,12 +1,14 @@
 import { Args, Command, Flags } from '@oclif/core'
-import { spawn } from 'child_process'
-import * as path from 'path'
+import { spawn } from 'node:child_process'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, isContainerRunning } from '../../lib/docker/resolve.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class DockerShell extends Command {
   static description = 'Open a shell in a running container (by execution ID, agent name, or container ID)'
@@ -18,6 +20,7 @@ export default class DockerShell extends Command {
   ]
 
   static flags = {
+    ...machineOutputFlags,
     shell: Flags.string({
       char: 's',
       description: 'Shell to use',
@@ -42,6 +45,12 @@ export default class DockerShell extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(DockerShell)
+
+    if (shouldOutputJson(flags)) {
+      this.log(JSON.stringify({ type: 'error', error: { code: 'REQUIRES_TTY', message: 'docker shell requires an interactive terminal' } }))
+      this.exit(1)
+      return
+    }
 
     if (!isDockerRunning()) {
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')

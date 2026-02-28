@@ -1,129 +1,122 @@
-import { Args, Flags } from '@oclif/core'
-import inquirer from 'inquirer'
-import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
-import { styles } from '../../../lib/styles.js'
+import { Args } from '@oclif/core';
+import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputSuccessAsJson,
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js'
+} from '../../../lib/prompt-json.js';
 
 export default class TicketLinkDuplicates extends PMOCommand {
-  static description = 'Mark a ticket as duplicate of another'
+  static description = 'Mark a ticket as a duplicate of another';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002  # TKT-001 duplicates TKT-002',
-    '<%= config.bin %> <%= command.id %> TKT-001         # Interactive selection',
-  ]
+    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002',
+    '<%= config.bin %> <%= command.id %> TKT-001',
+    '<%= config.bin %> <%= command.id %> TKT-001 --json',
+  ];
 
   static args = {
-    id: Args.string({
-      description: 'Duplicate ticket ID',
+    ticket: Args.string({
+      description: 'Ticket that is a duplicate',
       required: true,
     }),
     original: Args.string({
-      description: 'Original ticket ID',
+      description: 'Original ticket (that this duplicates)',
       required: false,
     }),
-  }
+  };
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
-  }
+  };
 
   async execute(): Promise<void> {
-    const { args, flags } = await this.parse(TicketLinkDuplicates)
+    const { args, flags } = await this.parse(TicketLinkDuplicates);
+    const jsonMode = shouldOutputJson(flags);
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags)
+    const projectId = await this.requireProject();
 
-    // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
       if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('ticket link duplicates', flags))
-        this.exit(1)
+        outputErrorAsJson(code, message, createMetadata('ticket link duplicates', flags));
+        this.exit(1);
       }
-      this.error(message)
-    }
+      this.error(message);
+    };
 
-    const ticket = await this.storage.getTicket(args.id)
+    // Verify the source ticket exists
+    const ticket = await this.storage.getTicket(args.ticket);
     if (!ticket) {
-      return handleError('TICKET_NOT_FOUND', `Ticket not found: ${args.id}`)
+      return handleError('TICKET_NOT_FOUND', `Ticket not found: ${args.ticket}`);
     }
 
-    let originalId = args.original
-
-    if (!originalId) {
-      const projectId = (flags as { project?: string }).project
-      const allTickets = await this.storage.listTickets(projectId)
-      const otherTickets = allTickets.filter(t => t.id !== args.id)
+    // If original ticket not provided, prompt for selection
+    if (!args.original) {
+      const tickets = await this.storage.listTickets(projectId);
+      const otherTickets = tickets.filter(t => t.id !== args.ticket);
 
       if (otherTickets.length === 0) {
-        if (jsonMode) {
-          outputErrorAsJson('NO_OTHER_TICKETS', 'No other tickets.', createMetadata('ticket link duplicates', flags))
-          return
-        }
-        this.log(styles.muted('\nNo other tickets.'))
-        return
+        return handleError('NO_TICKETS', 'No other tickets to select as original.');
       }
 
-      // In JSON mode, output ticket selection prompt
+      const projectFlag = flags.project ? ` -P ${flags.project}` : '';
+      const choices = otherTickets.map(t => ({
+        name: `${t.id} - ${t.title}`,
+        value: t.id,
+        command: `prlt ticket link duplicates ${args.ticket} ${t.id}${projectFlag} --json`,
+      }));
+      const message = `Select the original ticket that ${args.ticket} duplicates:`;
+
       if (jsonMode) {
-        const ticketChoices = otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        }))
         outputPromptAsJson(
-          buildPromptConfig('list', 'original', `Select the original ticket (${args.id} is a duplicate of):`, ticketChoices),
+          buildPromptConfig('list', 'original', message, choices),
           createMetadata('ticket link duplicates', flags)
-        )
-        return
+        );
+        return;
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
-        message: `Select the original ticket (${args.id} is a duplicate of):`,
-        choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        })),
-      }])
-      originalId = selected
+        message,
+        choices,
+      }], null);
+
+      args.original = selected;
     }
 
-    const originalTicket = await this.storage.getTicket(originalId!)
+    // Verify original ticket exists
+    const originalTicket = await this.storage.getTicket(args.original!);
     if (!originalTicket) {
-      this.error(`Ticket not found: ${originalId}`)
+      return handleError('ORIGINAL_NOT_FOUND', `Original ticket not found: ${args.original}`);
     }
 
+    // Create the duplicates dependency
     try {
-      await this.storage.createTicketDependency(args.id, originalId!, 'duplicates')
-      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+      await this.storage.createTicketDependency(args.ticket, args.original!, 'duplicates');
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
-      this.log(styles.success(`\n✅ ${styles.emphasis(args.id)} duplicates ${styles.emphasis(originalId!)}`))
-      this.log(styles.muted(`   ${ticket.title}`))
-      this.log(styles.muted(`   duplicates: ${originalTicket.title}`))
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('already exists')) {
-          this.error('Dependency already exists')
-        }
-        if (error.message.includes('self-dependency')) {
-          this.error('Cannot create self-dependency')
-        }
+      if (jsonMode) {
+        outputSuccessAsJson({
+          ticketId: args.ticket,
+          originalTicketId: args.original,
+          type: 'duplicates',
+        }, createMetadata('ticket link duplicates', flags));
+        return;
       }
-      throw error
+
+      this.log(styles.success(`\n${args.ticket} marked as duplicate of ${args.original}`));
+      this.log(styles.muted(`  ${ticket.title}`));
+      this.log(styles.muted(`  duplicates: ${originalTicket.title}`));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already exists')) {
+        return handleError('ALREADY_EXISTS', 'Duplicates dependency already exists.');
+      }
+      throw error;
     }
   }
 }

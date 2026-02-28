@@ -1,5 +1,4 @@
 import { Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { EpicStatus } from '../../lib/pmo/types.js';
@@ -7,9 +6,12 @@ import { createEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputDryRunSuccessAsJson,
+  outputDryRunErrorsAsJson,
   createMetadata,
   buildFormPromptConfig,
   FormField,
+  type JsonFlags,
 } from '../../lib/prompt-json.js';
 
 export default class EpicCreate extends PMOCommand {
@@ -20,13 +22,14 @@ export default class EpicCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --title "User Authentication System"',
     '<%= config.bin %> <%= command.id %> -t "API Design" --status draft',
     '<%= config.bin %> <%= command.id %> -t "Implement Auth" --spec SPEC-001',
+    '<%= config.bin %> <%= command.id %> --title "Test" -P PROJ-001 --dry-run --json  # Validate without creating',
   ];
 
   static flags = {
     ...pmoBaseFlags,
     title: Flags.string({
       char: 't',
-      description: 'Epic title',
+      description: 'Epic title [required for non-interactive]',
     }),
     status: Flags.string({
       char: 's',
@@ -41,12 +44,8 @@ export default class EpicCreate extends PMOCommand {
     spec: Flags.string({
       description: 'Link to spec ID (the design spec that describes this epic)',
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
+    'dry-run': Flags.boolean({
+      description: 'Validate inputs without creating epic (use with --json for structured output)',
       default: false,
     }),
   };
@@ -105,7 +104,7 @@ export default class EpicCreate extends PMOCommand {
         );
       }
 
-      epicData = await this.promptEpicData(fields, specChoices.length > 1);
+      epicData = await this.promptEpicData(fields, specChoices.length > 1, jsonMode ? { flags, commandName: 'epic create' } : null);
     } else {
       epicData = {
         title: flags.title,
@@ -119,8 +118,46 @@ export default class EpicCreate extends PMOCommand {
     if (epicData.specId) {
       const spec = await this.storage.getSpec(epicData.specId);
       if (!spec) {
+        if (flags['dry-run']) {
+          if (jsonMode) {
+            outputDryRunErrorsAsJson(
+              [{ field: 'spec', error: `Spec not found: ${epicData.specId}` }],
+              createMetadata('epic create', flags)
+            );
+          }
+        }
         this.error(`Spec not found: ${epicData.specId}`);
       }
+    }
+
+    // Handle dry-run: show what would be created without actually creating
+    if (flags['dry-run']) {
+      const projectName = await this.getProjectName(projectId);
+      const wouldCreate = {
+        title: epicData.title,
+        project: projectId,
+        status: epicData.status,
+        ...(epicData.description && { description: epicData.description }),
+        ...(epicData.specId && { spec: epicData.specId }),
+      };
+
+      if (jsonMode) {
+        outputDryRunSuccessAsJson('epic', wouldCreate, createMetadata('epic create', flags));
+      }
+
+      // Human-readable dry-run output
+      this.log(styles.warning('\n[DRY RUN] Would create epic:'));
+      this.log(styles.muted(`   Title: ${epicData.title}`));
+      this.log(styles.muted(`   Project: ${projectName}`));
+      this.log(styles.muted(`   Status: ${epicData.status}`));
+      if (epicData.description) {
+        this.log(styles.muted(`   Description: ${epicData.description}`));
+      }
+      if (epicData.specId) {
+        this.log(styles.muted(`   Spec: ${epicData.specId}`));
+      }
+      this.log(styles.muted('\n(No epic was created)'));
+      return;
     }
 
     const epic = await this.storage.createEpic(projectId, {
@@ -156,7 +193,8 @@ export default class EpicCreate extends PMOCommand {
 
   private async promptEpicData(
     fields: FormField[],
-    hasSpecs: boolean
+    hasSpecs: boolean,
+    jsonModeConfig: { flags: JsonFlags & Record<string, unknown>; commandName: string } | null
   ): Promise<{
     title: string;
     status: EpicStatus;
@@ -164,18 +202,21 @@ export default class EpicCreate extends PMOCommand {
     specId?: string;
   }> {
     // Build inquirer prompts from fields, adding validators and conditionals
-    const answers = await inquirer.prompt<{
+    const promptFields = fields
+      .filter(field => field.name !== 'specId' || hasSpecs)
+      .map(field => ({
+        ...field,
+        validate: field.name === 'title'
+          ? ((input: unknown) => (input as string).trim() ? true : 'Title cannot be empty')
+          : undefined,
+      }));
+
+    const answers = await this.prompt<{
       title: string;
       status: string;
       description?: string;
       specId?: string;
-    }>(fields.map(field => ({
-      ...field,
-      validate: field.name === 'title'
-        ? ((input: string) => input.length > 0 || 'Title is required')
-        : undefined,
-      when: field.name === 'specId' ? () => hasSpecs : undefined,
-    })));
+    }>(promptFields, jsonModeConfig);
 
     return {
       title: answers.title,

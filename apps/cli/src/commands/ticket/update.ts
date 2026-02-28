@@ -1,24 +1,21 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
-import { PRIORITIES, PRIORITY_LABELS } from '../../lib/pmo/types.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketUpdate extends PMOCommand {
   static description = 'Update priority/category for ticket(s)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001 --priority HIGH',
+    '<%= config.bin %> <%= command.id %> TKT-001 --priority P1',
     '<%= config.bin %> <%= command.id %> TKT-001 --category bug',
     '<%= config.bin %> <%= command.id %> --bulk',
-    '<%= config.bin %> <%= command.id %> --bulk --priority HIGH',
+    '<%= config.bin %> <%= command.id %> --bulk --priority P1',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
@@ -31,18 +28,9 @@ export default class TicketUpdate extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     priority: Flags.string({
       char: 'p',
-      description: 'Set priority (P0, P1, P2, P3)',
-      options: [...PRIORITIES],
+      description: 'Set priority (uses workspace priority scale)',
     }),
     category: Flags.string({
       char: 'c',
@@ -89,29 +77,19 @@ export default class TicketUpdate extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title}  [P:${t.priority || 'none'} C:${t.category || 'none'}]`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to update:', ticketChoices),
-          createMetadata('ticket update', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to update:',
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket update ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket update' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
-        message: 'Select ticket to update:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title}  [P:${t.priority || 'none'} C:${t.category || 'none'}]`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+      ticketId = selected;
     }
 
     // Get ticket
@@ -126,58 +104,61 @@ export default class TicketUpdate extends PMOCommand {
 
     if (!updatePriority && !updateCategory) {
       // Ask what to update
-      const { updateType } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'ticket update' } : null;
+      const { updateType } = await this.prompt<{ updateType: string }>([{
         type: 'list',
         name: 'updateType',
         message: 'What would you like to update?',
         choices: [
-          { name: 'Priority', value: 'priority' },
-          { name: 'Category', value: 'category' },
-          { name: 'Both', value: 'both' },
+          { name: 'Priority', value: 'priority', command: `prlt ticket update ${ticketId} --priority <P0|P1|P2|P3>${projectId ? ` -P ${projectId}` : ''} --json` },
+          { name: 'Category', value: 'category', command: `prlt ticket update ${ticketId} --category <category>${projectId ? ` -P ${projectId}` : ''} --json` },
+          { name: 'Both', value: 'both', command: `prlt ticket update ${ticketId} --priority <P0|P1|P2|P3> --category <category>${projectId ? ` -P ${projectId}` : ''} --json` },
         ],
-      }]);
+      }], jsonModeConfig);
 
       if (updateType === 'priority' || updateType === 'both') {
-        const { priority } = await inquirer.prompt([{
+        const db = this.storage.getDatabase();
+        const workspacePriorities = getWorkspacePriorities(db);
+        const { priority } = await this.prompt<{ priority: string | null }>([{
           type: 'list',
           name: 'priority',
           message: 'Set priority to:',
           choices: [
-            { name: `(Keep existing: ${ticket.priority || 'none'})`, value: null },
-            ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
-            { name: 'None (clear priority)', value: '' },
+            { name: `(Keep existing: ${ticket.priority || 'none'})`, value: null, command: '' },
+            ...workspacePriorities.map(p => ({ name: p, value: p, command: `prlt ticket update ${ticketId} --priority ${p}${projectId ? ` -P ${projectId}` : ''} --json` })),
+            { name: 'None (clear priority)', value: '', command: `prlt ticket update ${ticketId} --priority none${projectId ? ` -P ${projectId}` : ''} --json` },
           ],
-        }]);
+        }], jsonModeConfig);
         if (priority !== null) {
           updatePriority = priority;
         }
       }
 
       if (updateType === 'category' || updateType === 'both') {
-        const { categoryChoice } = await inquirer.prompt([{
+        const { categoryChoice } = await this.prompt<{ categoryChoice: string | null }>([{
           type: 'list',
           name: 'categoryChoice',
           message: 'Set category to:',
           choices: [
-            { name: `(Keep existing: ${ticket.category || 'none'})`, value: null },
-            { name: 'feature', value: 'feature' },
-            { name: 'bug', value: 'bug' },
-            { name: 'refactor', value: 'refactor' },
-            { name: 'docs', value: 'docs' },
-            { name: 'test', value: 'test' },
-            { name: 'chore', value: 'chore' },
-            { name: 'None (clear category)', value: '' },
-            { name: 'Custom...', value: '__custom__' },
+            { name: `(Keep existing: ${ticket.category || 'none'})`, value: null, command: '' },
+            { name: 'feature', value: 'feature', command: `prlt ticket update ${ticketId} --category feature${projectId ? ` -P ${projectId}` : ''} --json` },
+            { name: 'bug', value: 'bug', command: `prlt ticket update ${ticketId} --category bug${projectId ? ` -P ${projectId}` : ''} --json` },
+            { name: 'refactor', value: 'refactor', command: `prlt ticket update ${ticketId} --category refactor${projectId ? ` -P ${projectId}` : ''} --json` },
+            { name: 'docs', value: 'docs', command: `prlt ticket update ${ticketId} --category docs${projectId ? ` -P ${projectId}` : ''} --json` },
+            { name: 'test', value: 'test', command: `prlt ticket update ${ticketId} --category test${projectId ? ` -P ${projectId}` : ''} --json` },
+            { name: 'chore', value: 'chore', command: `prlt ticket update ${ticketId} --category chore${projectId ? ` -P ${projectId}` : ''} --json` },
+            { name: 'None (clear category)', value: '', command: `prlt ticket update ${ticketId} --category none${projectId ? ` -P ${projectId}` : ''} --json` },
+            { name: 'Custom...', value: '__custom__', command: `prlt ticket update ${ticketId} --category <category>${projectId ? ` -P ${projectId}` : ''} --json` },
           ],
-        }]);
+        }], jsonModeConfig);
 
         if (categoryChoice === '__custom__') {
-          const { customCategory } = await inquirer.prompt([{
+          const { customCategory } = await this.prompt<{ customCategory: string }>([{
             type: 'input',
             name: 'customCategory',
             message: 'Enter custom category:',
-            validate: (input: string) => input.length > 0 || 'Category is required',
-          }]);
+            validate: (input: unknown) => (input as string).length > 0 || 'Category is required',
+          }], jsonModeConfig);
           updateCategory = customCategory;
         } else if (categoryChoice !== null) {
           updateCategory = categoryChoice;
@@ -216,12 +197,14 @@ export default class TicketUpdate extends PMOCommand {
 
   private async executeBulk(
     allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
-    flags: { priority?: string; category?: string; force: boolean }
+    flags: { priority?: string; category?: string; force: boolean; json?: boolean }
   ): Promise<void> {
+    const jsonMode = shouldOutputJson(flags);
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket update' } : null;
     this.log(styles.emphasis('✏️  Update Multiple Tickets\n'));
 
     // Select tickets to update
-    const { selectedTickets } = await inquirer.prompt([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to update:',
@@ -229,7 +212,7 @@ export default class TicketUpdate extends PMOCommand {
         name: `${t.id} - ${t.title}  [P:${t.priority || 'none'} C:${t.category || 'none'}]`,
         value: t.id,
       })),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -242,58 +225,60 @@ export default class TicketUpdate extends PMOCommand {
 
     if (!updatePriority && !updateCategory) {
       // Ask what to update
-      const { updateType } = await inquirer.prompt([{
+      const { updateType } = await this.prompt<{ updateType: string }>([{
         type: 'list',
         name: 'updateType',
         message: 'What would you like to update?',
         choices: [
-          { name: 'Priority', value: 'priority' },
-          { name: 'Category', value: 'category' },
-          { name: 'Both', value: 'both' },
+          { name: 'Priority', value: 'priority', command: 'prlt ticket update --bulk --priority <P0|P1|P2|P3> --json' },
+          { name: 'Category', value: 'category', command: 'prlt ticket update --bulk --category <category> --json' },
+          { name: 'Both', value: 'both', command: 'prlt ticket update --bulk --priority <P0|P1|P2|P3> --category <category> --json' },
         ],
-      }]);
+      }], jsonModeConfig);
 
       if (updateType === 'priority' || updateType === 'both') {
-        const { priority } = await inquirer.prompt([{
+        const db = this.storage.getDatabase();
+        const bulkWorkspacePriorities = getWorkspacePriorities(db);
+        const { priority } = await this.prompt<{ priority: string | null }>([{
           type: 'list',
           name: 'priority',
           message: 'Set priority to:',
           choices: [
-            { name: '(Keep existing)', value: null },
-            ...PRIORITIES.map(p => ({ name: PRIORITY_LABELS[p], value: p })),
-            { name: 'None (clear priority)', value: '' },
+            { name: '(Keep existing)', value: null, command: '' },
+            ...bulkWorkspacePriorities.map(p => ({ name: p, value: p, command: `prlt ticket update --bulk --priority ${p} --json` })),
+            { name: 'None (clear priority)', value: '', command: 'prlt ticket update --bulk --priority none --json' },
           ],
-        }]);
+        }], jsonModeConfig);
         if (priority !== null) {
           updatePriority = priority;
         }
       }
 
       if (updateType === 'category' || updateType === 'both') {
-        const { categoryChoice } = await inquirer.prompt([{
+        const { categoryChoice } = await this.prompt<{ categoryChoice: string | null }>([{
           type: 'list',
           name: 'categoryChoice',
           message: 'Set category to:',
           choices: [
-            { name: '(Keep existing)', value: null },
-            { name: 'feature', value: 'feature' },
-            { name: 'bug', value: 'bug' },
-            { name: 'refactor', value: 'refactor' },
-            { name: 'docs', value: 'docs' },
-            { name: 'test', value: 'test' },
-            { name: 'chore', value: 'chore' },
-            { name: 'None (clear category)', value: '' },
-            { name: 'Custom...', value: '__custom__' },
+            { name: '(Keep existing)', value: null, command: '' },
+            { name: 'feature', value: 'feature', command: 'prlt ticket update --bulk --category feature --json' },
+            { name: 'bug', value: 'bug', command: 'prlt ticket update --bulk --category bug --json' },
+            { name: 'refactor', value: 'refactor', command: 'prlt ticket update --bulk --category refactor --json' },
+            { name: 'docs', value: 'docs', command: 'prlt ticket update --bulk --category docs --json' },
+            { name: 'test', value: 'test', command: 'prlt ticket update --bulk --category test --json' },
+            { name: 'chore', value: 'chore', command: 'prlt ticket update --bulk --category chore --json' },
+            { name: 'None (clear category)', value: '', command: 'prlt ticket update --bulk --category none --json' },
+            { name: 'Custom...', value: '__custom__', command: 'prlt ticket update --bulk --category <category> --json' },
           ],
-        }]);
+        }], jsonModeConfig);
 
         if (categoryChoice === '__custom__') {
-          const { customCategory } = await inquirer.prompt([{
+          const { customCategory } = await this.prompt<{ customCategory: string }>([{
             type: 'input',
             name: 'customCategory',
             message: 'Enter custom category:',
-            validate: (input: string) => input.length > 0 || 'Category is required',
-          }]);
+            validate: (input: unknown) => (input as string).length > 0 || 'Category is required',
+          }], jsonModeConfig);
           updateCategory = customCategory;
         } else if (categoryChoice !== null) {
           updateCategory = categoryChoice;
@@ -323,16 +308,16 @@ export default class TicketUpdate extends PMOCommand {
       }
       this.log('');
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, update tickets', value: true }
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, update tickets', value: true, command: 'prlt ticket update --bulk --force --json' }
         ],
         default: 0
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Operation cancelled.'));
@@ -346,6 +331,7 @@ export default class TicketUpdate extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
         const changes: { priority?: string; category?: string } = {};
@@ -356,6 +342,7 @@ export default class TicketUpdate extends PMOCommand {
           changes.category = updateCategory || undefined;
         }
 
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.updateTicket(ticketId, changes);
 
         const updates: string[] = [];

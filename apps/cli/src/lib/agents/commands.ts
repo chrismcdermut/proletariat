@@ -12,11 +12,80 @@ import {
   getAgentWorktrees,
   addAgentsToDatabase,
   removeAgentsFromDatabase,
+  addEphemeralAgentToDatabase,
+  tryAddEphemeralAgentToDatabase,
+  getEphemeralAgentNames,
+  getActiveTheme,
+  markAgentCleaned,
+  discoverAgentsOnDisk,
   Agent,
-  Repository
+  Repository,
+  MountMode as DBMountMode
 } from '../database/index.js';
-import { DEFAULT_AGENTS_DIR, isValidAgentName, getSuggestedAgentNames } from '../themes.js';
+import {
+  isValidAgentName,
+  getSuggestedAgentNames,
+  generateEphemeralAgentName,
+  GenerateEphemeralNameOptions,
+  getThemePersistentDir,
+  getThemeEphemeralDir,
+  extractBaseName,
+  getAgentBaseName,
+} from '../themes.js';
+import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { getGitIdentity } from '../pr/index.js';
 import { getPMOContext } from '../pmo/index.js';
+
+/**
+ * Resolve the directory for an agent, cascading through resolution strategies.
+ * Handles both staff (persistent) and temp (ephemeral) agents.
+ *
+ * Resolution order:
+ * 1. Check agent's worktree_path from DB (most reliable)
+ * 2. Check ephemeral directory if agent type is ephemeral
+ * 3. Check both directories on disk as fallback
+ * 4. Fall back to staff path (caller handles missing dir error)
+ */
+export function resolveAgentDir(workspaceInfo: WorkspaceInfo, agentName: string): string {
+  const agent = workspaceInfo.agents.find(a => a.name === agentName)
+
+  // 1. Check DB worktree_path (most reliable - set during agent creation)
+  if (agent?.worktree_path) {
+    const fullWorktreePath = path.join(workspaceInfo.path, agent.worktree_path)
+    // worktree_path may point to repo subdir (e.g. agents/staff/altman/proletariat)
+    // Go up to the agent dir level
+    const agentDir = path.dirname(fullWorktreePath)
+    if (fs.existsSync(agentDir)) return agentDir
+  }
+
+  // 2. Check ephemeral directory if agent type is ephemeral
+  if (agent?.type === 'ephemeral') {
+    const ephemeralDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName)
+    if (fs.existsSync(ephemeralDir)) return ephemeralDir
+  }
+
+  // 3. Check both directories on disk (handles DB inconsistencies)
+  const tempDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName)
+  if (fs.existsSync(tempDir)) return tempDir
+
+  const staffDir = path.join(workspaceInfo.agentsPath, agentName)
+  if (fs.existsSync(staffDir)) return staffDir
+
+  // 4. Fall back to staff path - caller will handle the missing dir error
+  return staffDir
+}
+
+/**
+ * Format a list of agents for display in error messages.
+ * Truncates long lists to avoid overwhelming output.
+ */
+export function formatAgentList(agents: { name: string }[], maxShow = 10): string {
+  const names = agents.map(a => a.name);
+  if (names.length <= maxShow) {
+    return names.join(', ');
+  }
+  return `${names.slice(0, maxShow).join(', ')} ...and ${names.length - maxShow} more. Run 'prlt agent list' to see all.`;
+}
 
 export interface AgentStatus {
   name: string;
@@ -35,29 +104,45 @@ export interface WorkspaceInfo {
   agents: Agent[];
   repositories: Repository[];
   agentsPath: string;
+  /** Active theme ID (if any) */
+  activeThemeId: string | null;
+  /** Directory name for persistent agents (e.g., 'staff', 'garage', 'portfolio') */
+  persistentAgentsDir: string;
+  /** Directory name for ephemeral agents (e.g., 'temp', 'pit', 'incubator') */
+  ephemeralAgentsDir: string;
 }
 
 /**
  * Find workspace root and return workspace information.
  *
  * Search priority:
- * 1. PRLT_HQ_PATH environment variable (used in devcontainers where HQ is mounted at /hq)
+ * 1. PRLT_HQ_PATH environment variable (ONLY when DEVCONTAINER=true or PRLT_TEST_ENV=true)
  * 2. Current directory tree for HQ with workspace.db
+ *
+ * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
+ * working in different workspaces simultaneously.
  */
 export function getWorkspaceInfo(): WorkspaceInfo {
-  // Check PRLT_HQ_PATH environment variable first (used in devcontainers)
+  // Check PRLT_HQ_PATH environment variable (only in devcontainers or test environments)
   const hqPath = process.env.PRLT_HQ_PATH;
-  if (hqPath) {
+  const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
+
+  if (hqPath && allowEnvHqPath) {
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
     if (fs.existsSync(dbPath)) {
       try {
         const config = getWorkspaceConfig(hqPath);
         if (config) {
+          // Discover agents on disk and sync with database
+          discoverAgentsOnDisk(hqPath);
           const agents = getWorkspaceAgents(hqPath);
           const repositories = getWorkspaceRepositories(hqPath);
+          const activeTheme = getActiveTheme(hqPath);
+          const persistentAgentsDir = getThemePersistentDir(activeTheme?.id);
+          const ephemeralAgentsDir = getThemeEphemeralDir(activeTheme?.id);
 
           const agentsPath = config.type === 'hq'
-            ? path.join(hqPath, 'agents', DEFAULT_AGENTS_DIR)
+            ? path.join(hqPath, 'agents', persistentAgentsDir)
             : hqPath;
 
           return {
@@ -67,7 +152,10 @@ export function getWorkspaceInfo(): WorkspaceInfo {
             hasPMO: config.has_pmo,
             agents,
             repositories,
-            agentsPath
+            agentsPath,
+            activeThemeId: activeTheme?.id ?? null,
+            persistentAgentsDir,
+            ephemeralAgentsDir,
           };
         }
       } catch {
@@ -85,11 +173,16 @@ export function getWorkspaceInfo(): WorkspaceInfo {
       try {
         const config = getWorkspaceConfig(currentDir);
         if (config) {
+          // Discover agents on disk and sync with database
+          discoverAgentsOnDisk(currentDir);
           const agents = getWorkspaceAgents(currentDir);
           const repositories = getWorkspaceRepositories(currentDir);
+          const activeTheme = getActiveTheme(currentDir);
+          const persistentAgentsDir = getThemePersistentDir(activeTheme?.id);
+          const ephemeralAgentsDir = getThemeEphemeralDir(activeTheme?.id);
 
           const agentsPath = config.type === 'hq'
-            ? path.join(currentDir, 'agents', DEFAULT_AGENTS_DIR)
+            ? path.join(currentDir, 'agents', persistentAgentsDir)
             : currentDir;
 
           return {
@@ -99,7 +192,10 @@ export function getWorkspaceInfo(): WorkspaceInfo {
             hasPMO: config.has_pmo,
             agents,
             repositories,
-            agentsPath
+            agentsPath,
+            activeThemeId: activeTheme?.id ?? null,
+            persistentAgentsDir,
+            ephemeralAgentsDir,
           };
         }
       } catch {
@@ -181,15 +277,8 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
   // Get worktrees from database to find actual agent location
   const worktrees = getAgentWorktrees(workspaceInfo.path, agentName);
 
-  // Derive agent directory from worktree path, or fall back to default
-  let agentDir = path.join(workspaceInfo.agentsPath, agentName);
-  if (worktrees.length > 0) {
-    // worktree_path is like "agents/staff/altman/proletariat-altman"
-    // Agent dir is the parent: "agents/staff/altman"
-    const worktreePath = worktrees[0].worktree_path;
-    const agentDirRelative = path.dirname(worktreePath);
-    agentDir = path.join(workspaceInfo.path, agentDirRelative);
-  }
+  // Resolve agent directory (handles both staff and temp agents)
+  const agentDir = resolveAgentDir(workspaceInfo, agentName);
 
   const dirExists = fs.existsSync(agentDir);
 
@@ -265,13 +354,13 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
     try {
       const ticketsFile = path.join(workspaceInfo.path, 'pmo', 'tickets.json');
       if (fs.existsSync(ticketsFile)) {
-        const tickets = JSON.parse(fs.readFileSync(ticketsFile, 'utf-8'));
+        const tickets = JSON.parse(fs.readFileSync(ticketsFile, 'utf-8')) as Array<{ id: string; assignee?: string; status?: string }>;
         status.assignedTickets = tickets
-          .filter((t: any) => t.assignee === agentName && t.status !== 'done')
-          .map((t: any) => t.id);
+          .filter((t) => t.assignee === agentName && t.status !== 'done')
+          .map((t) => t.id);
         status.completedTickets = tickets
-          .filter((t: any) => t.assignee === agentName && t.status === 'done')
-          .map((t: any) => t.id);
+          .filter((t) => t.assignee === agentName && t.status === 'done')
+          .map((t) => t.id);
       }
     } catch {
       // Ignore ticket loading errors
@@ -306,9 +395,13 @@ export function validateAgentNames(agentNames: string[]): { valid: string[]; inv
   return { valid, invalid };
 }
 
+// Re-export MountMode from database for external use
+export type MountMode = DBMountMode;
+
 export interface AddAgentOptions {
   skipDevcontainer?: boolean;  // Skip devcontainer creation (default: false)
   themeId?: string;            // Theme ID if agent came from a theme
+  mountMode?: DBMountMode;     // 'worktree' = git worktree (default), 'clone' = independent clone
 }
 
 /**
@@ -326,15 +419,15 @@ export async function addAgentsToWorkspace(workspaceInfo: WorkspaceInfo, agentNa
     return [];
   }
 
-  // Create worktrees
+  // Create worktrees/clones
   if (workspaceInfo.type === 'hq') {
     await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, workspaceInfo.path, options);
   } else {
     await createAgentWorktrees(workspaceInfo.agentsPath, newAgents, undefined, options);
   }
 
-  // Add to database (with optional theme ID)
-  addAgentsToDatabase(workspaceInfo.path, newAgents, options?.themeId);
+  // Add to database (with optional theme ID and mount mode)
+  addAgentsToDatabase(workspaceInfo.path, newAgents, options?.themeId, options?.mountMode || 'clone');
 
   return newAgents;
 }
@@ -348,7 +441,7 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
 
   for (const agentName of agentNames) {
     try {
-      const agentDir = path.join(workspaceInfo.agentsPath, agentName);
+      const agentDir = resolveAgentDir(workspaceInfo, agentName);
 
       // Stop and remove Docker container if it exists
       try {
@@ -421,10 +514,12 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
     // Clear ticket assignees for removed agents
     try {
       const { storage } = await getPMOContext();
+      // eslint-disable-next-line unicorn/no-useless-undefined
       const allTickets = await storage.listTickets(undefined);
       for (const ticket of allTickets) {
         if (ticket.assignee && removed.includes(ticket.assignee)) {
           // Pass null to clear the assignee in the database
+          // eslint-disable-next-line no-await-in-loop -- Sequential updates for cleanup
           await storage.updateTicket(ticket.id, { assignee: null as unknown as string });
         }
       }
@@ -435,4 +530,811 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
   }
 
   return { removed, failed };
+}
+
+export interface EphemeralAgentOptions {
+  themeId?: string;        // Theme to pick base name from
+  skipDevcontainer?: boolean;  // Skip devcontainer creation
+  /**
+   * Optional logger for conflict messages (e.g., when a tmux session or directory already exists)
+   */
+  log?: (message: string) => void;
+  /** Mount mode: 'worktree' = git worktree (default), 'clone' = independent clone */
+  mountMode?: DBMountMode;
+}
+
+export interface EphemeralAgentResult {
+  name: string;           // Generated name like "bold-bezos-1"
+  baseName: string;       // Theme name like "bezos"
+  worktreePath: string;   // Full path to agent worktree
+  agent: Agent;           // Database record
+}
+
+/**
+ * Maximum number of retries when a name collision is detected at the DB level.
+ * Each retry generates a fresh name to avoid repeated collisions.
+ */
+const EPHEMERAL_CREATE_MAX_RETRIES = 5;
+
+/**
+ * Create an ephemeral agent on-demand for a spawn operation.
+ * Creates worktree in agents/temp/{name}/
+ *
+ * Concurrency-safe: if the generated name collides at the DB level
+ * (e.g. a parallel process inserted the same name first), we clean up
+ * the on-disk artifacts, regenerate a name, and retry up to
+ * EPHEMERAL_CREATE_MAX_RETRIES times.
+ */
+export async function createEphemeralAgent(
+  workspaceInfo: WorkspaceInfo,
+  options?: EphemeralAgentOptions
+): Promise<EphemeralAgentResult> {
+  const log = options?.log;
+
+  // Get theme: use provided themeId, or fall back to workspace's active theme
+  let themeId = options?.themeId;
+  if (!themeId) {
+    themeId = workspaceInfo.activeThemeId ?? undefined;
+  }
+
+  // Use theme-specific ephemeral directory
+  const ephemeralDir = themeId ? getThemeEphemeralDir(themeId) : workspaceInfo.ephemeralAgentsDir;
+  const tempAgentsBasePath = path.join(workspaceInfo.path, 'agents', ephemeralDir);
+
+  // Extract base names currently in use by active agents
+  // This helps the generator prefer fresh base names
+  const inUseBaseNames = new Set(
+    workspaceInfo.agents.map(agent => getAgentBaseName(agent).toLowerCase())
+  );
+
+  const reposPath = path.join(workspaceInfo.path, 'repos');
+  const mountMode = options?.mountMode || 'worktree';
+
+  for (let attempt = 0; attempt <= EPHEMERAL_CREATE_MAX_RETRIES; attempt++) {
+    // Re-read existing names on every attempt so we see names that were
+    // inserted by concurrent processes since our last try
+    const existingNames = new Set([
+      ...Array.from(getEphemeralAgentNames(workspaceInfo.path)),
+      ...workspaceInfo.agents.map(a => a.name.toLowerCase())
+    ]);
+
+    // Create a conflict checker for external resources (tmux sessions, directories)
+    const checkExternalConflict = (candidateName: string): { conflict: boolean; reason?: string } => {
+      if (tmuxSessionExists(candidateName)) {
+        return { conflict: true, reason: `tmux session "${candidateName}" already exists` };
+      }
+      const candidateDir = path.join(tempAgentsBasePath, candidateName);
+      if (fs.existsSync(candidateDir)) {
+        return { conflict: true, reason: `directory "${candidateDir}" already exists` };
+      }
+      return { conflict: false };
+    };
+
+    const onConflictSkipped = (name: string, reason: string) => {
+      log?.(`⚠️  Skipping name "${name}": ${reason}`);
+    };
+
+    const nameOptions: GenerateEphemeralNameOptions = {
+      themeId,
+      checkExternalConflict,
+      onConflictSkipped,
+      inUseBaseNames
+    };
+    const agentName = generateEphemeralAgentName(existingNames, nameOptions);
+    const baseName = extractBaseName(agentName);
+
+    // Create temp agents directory if it doesn't exist
+    if (!fs.existsSync(tempAgentsBasePath)) {
+      fs.mkdirSync(tempAgentsBasePath, { recursive: true });
+    }
+
+    const agentDir = path.join(tempAgentsBasePath, agentName);
+
+    // Create agent directory
+    if (!fs.existsSync(agentDir)) {
+      fs.mkdirSync(agentDir, { recursive: true });
+    }
+
+    // Create worktrees/clones for each repository
+    if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
+      for (const repo of workspaceInfo.repositories) {
+        const sourceRepoPath = path.join(reposPath, repo.name);
+        const targetPath = path.join(agentDir, repo.name);
+
+        if (fs.existsSync(sourceRepoPath) && !fs.existsSync(targetPath)) {
+          if (mountMode === 'clone') {
+            // CLONE MODE: Create independent git clone
+            try {
+              const remoteUrl = execSync('git remote get-url origin', {
+                cwd: sourceRepoPath,
+                encoding: 'utf-8',
+                stdio: ['pipe', 'pipe', 'pipe']
+              }).trim();
+
+              if (remoteUrl) {
+                execSync(`git clone "${remoteUrl}" "${targetPath}"`, {
+                  stdio: 'pipe'
+                });
+              }
+            } catch {
+              if (!fs.existsSync(targetPath)) {
+                fs.mkdirSync(targetPath, { recursive: true });
+              }
+            }
+          } else {
+            // WORKTREE MODE: Create git worktree
+            try {
+              execSync(`git worktree add --detach "${targetPath}"`, {
+                cwd: sourceRepoPath,
+                stdio: 'pipe'
+              });
+            } catch {
+              if (!fs.existsSync(targetPath)) {
+                fs.mkdirSync(targetPath, { recursive: true });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Create devcontainer config if not skipped (uses shared devcontainer generator)
+    if (!options?.skipDevcontainer) {
+      const devcontainerDir = path.join(agentDir, '.devcontainer');
+      if (!fs.existsSync(devcontainerDir)) {
+        const gitIdentity = getGitIdentity();
+        createDevcontainerConfig({
+          agentName,
+          agentDir,
+          repoWorktrees: mountMode === 'worktree' ? workspaceInfo.repositories.map(r => r.name) : undefined,
+          mountMode,
+          gitUserName: gitIdentity.name || undefined,
+          gitUserEmail: gitIdentity.email || undefined,
+        });
+      }
+    }
+
+    // Attempt atomic DB insertion — returns null on name collision
+    const agent = tryAddEphemeralAgentToDatabase(
+      workspaceInfo.path,
+      agentName,
+      baseName,
+      options?.themeId,
+      mountMode
+    );
+
+    if (agent) {
+      return {
+        name: agentName,
+        baseName,
+        worktreePath: agentDir,
+        agent
+      };
+    }
+
+    // Name collision at DB level — clean up on-disk artifacts and retry
+    log?.(`⚠️  Name collision for "${agentName}" (attempt ${attempt + 1}/${EPHEMERAL_CREATE_MAX_RETRIES + 1}), retrying with a new name...`);
+    cleanupFailedEphemeralAgent(agentDir, workspaceInfo, mountMode);
+  }
+
+  // All retries exhausted
+  throw new Error(
+    `Failed to create ephemeral agent after ${EPHEMERAL_CREATE_MAX_RETRIES + 1} attempts due to concurrent name collisions. ` +
+    `This can happen when many ephemeral agents are being created simultaneously. ` +
+    `Suggested remediation: wait a moment and retry, or specify a unique agent name with --agent.`
+  );
+}
+
+/**
+ * Clean up on-disk artifacts (directories, worktrees) for a failed ephemeral
+ * agent creation attempt. Used when a DB name collision forces a retry.
+ */
+function cleanupFailedEphemeralAgent(
+  agentDir: string,
+  workspaceInfo: WorkspaceInfo,
+  mountMode: string
+): void {
+  if (!fs.existsSync(agentDir)) return;
+
+  // Remove git worktrees first (if in worktree mode)
+  if (mountMode === 'worktree') {
+    const reposPath = path.join(workspaceInfo.path, 'repos');
+    if (fs.existsSync(reposPath)) {
+      for (const repo of workspaceInfo.repositories) {
+        const sourceRepoPath = path.join(reposPath, repo.name);
+        const worktreePath = path.join(agentDir, repo.name);
+        if (fs.existsSync(sourceRepoPath) && fs.existsSync(worktreePath)) {
+          try {
+            execSync(`git worktree remove "${worktreePath}" --force`, {
+              cwd: sourceRepoPath,
+              stdio: 'pipe'
+            });
+          } catch {
+            // Ignore — rmSync below will clean up the directory
+          }
+        }
+      }
+    }
+  }
+
+  // Remove the agent directory
+  try {
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup
+  }
+}
+
+/**
+ * Check if a tmux session exists for a given name
+ */
+export function tmuxSessionExists(sessionName: string): boolean {
+  try {
+    execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get list of active tmux sessions that match our pattern
+ * Pattern: {ticketId}-{action}-{agent}
+ */
+export function getActiveTmuxSessions(): Array<{ name: string; ticketId: string; agent: string }> {
+  try {
+    const output = execSync('tmux list-sessions -F "#{session_name}"', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    return output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(name => {
+        // Parse session name: {ticketId}-{action}-{agent}
+        const parts = name.split('-');
+        if (parts.length >= 3) {
+          // TKT-123-implement-bold-bezos-1 -> ticketId: TKT-123, agent: bold-bezos-1
+          const ticketId = parts.slice(0, 2).join('-');
+          const agent = parts.slice(3).join('-');
+          return { name, ticketId, agent };
+        }
+        return { name, ticketId: '', agent: '' };
+      })
+      .filter(s => s.ticketId.startsWith('TKT-'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check if there's an active tmux session for a specific ticket
+ */
+export function getTicketTmuxSession(ticketId: string): { sessionName: string; agent: string } | null {
+  const sessions = getActiveTmuxSessions();
+  const session = sessions.find(s => s.ticketId === ticketId);
+  if (session) {
+    return { sessionName: session.name, agent: session.agent };
+  }
+  return null;
+}
+
+/**
+ * Kill a tmux session by name
+ */
+export function killTmuxSession(sessionName: string): boolean {
+  try {
+    execSync(`tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// =============================================================================
+// Agent Cleanup Functions
+// =============================================================================
+
+export interface CleanupOptions {
+  /** Logger for status messages */
+  log?: (message: string) => void;
+  /** If true, only show what would be cleaned without doing it */
+  dryRun?: boolean;
+  /** If true, skip git safety checks and force cleanup */
+  force?: boolean;
+  /** If true, push unpushed commits before cleanup */
+  pushFirst?: boolean;
+}
+
+export interface WorktreeGitStatus {
+  worktreePath: string;
+  repoName: string;
+  branch: string;
+  hasUncommittedChanges: boolean;
+  uncommittedFiles: string[];
+  hasUnpushedCommits: boolean;
+  unpushedCount: number;
+}
+
+export interface AgentGitStatus {
+  agentName: string;
+  worktrees: WorktreeGitStatus[];
+  hasUnsavedWork: boolean;
+}
+
+export interface CleanupResult {
+  agent: string;
+  success: boolean;
+  tmuxSessionsKilled: string[];
+  containersRemoved: string[];
+  directoriesRemoved: string[];
+  errors: string[];
+  /** Git status if cleanup was blocked due to unsaved work */
+  gitStatus?: AgentGitStatus;
+  /** Whether cleanup was blocked due to unsaved work */
+  blockedByGit?: boolean;
+}
+
+/**
+ * Get tmux sessions associated with an agent
+ */
+export function getAgentTmuxSessions(agentName: string): string[] {
+  const sessions = getActiveTmuxSessions();
+  return sessions
+    .filter(s => s.agent === agentName)
+    .map(s => s.name);
+}
+
+export interface ExistingWorktreeInfo {
+  agentName: string;
+  agentDir: string;
+  worktreePath: string;
+  branch: string;
+}
+
+/**
+ * Find an existing worktree that has a specific branch checked out.
+ * Used to detect dead agents whose worktrees still hold a branch,
+ * allowing worktree reuse instead of creating a fresh agent.
+ *
+ * Returns null if no worktree has the branch, or if the agent is still alive.
+ */
+export function findWorktreeForBranch(
+  workspaceInfo: WorkspaceInfo,
+  branch: string
+): ExistingWorktreeInfo | null {
+  for (const repo of workspaceInfo.repositories) {
+    const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+    if (!fs.existsSync(sourceRepoPath)) continue;
+
+    try {
+      const output = execSync('git worktree list --porcelain', {
+        cwd: sourceRepoPath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      const blocks = output.split('\n\n').filter(Boolean);
+
+      for (const block of blocks) {
+        const lines = block.split('\n');
+        const worktreeLine = lines.find(l => l.startsWith('worktree '));
+        const branchLine = lines.find(l => l.startsWith('branch '));
+        const isPrunable = lines.some(l => l.startsWith('prunable'));
+
+        if (!worktreeLine || !branchLine || isPrunable) continue;
+
+        const worktreeFullPath = worktreeLine.replace('worktree ', '');
+        const branchRef = branchLine.replace('branch refs/heads/', '');
+
+        if (branchRef !== branch) continue;
+
+        // Found a worktree with this branch — confirm it's inside agents/
+        const relativePath = path.relative(workspaceInfo.path, worktreeFullPath);
+        if (!relativePath.startsWith('agents/')) continue;
+
+        // Extract agent name: agents/{subdir}/{agentName}/{repoName}
+        const parts = relativePath.split(path.sep);
+        if (parts.length < 4) continue;
+
+        const agentName = parts[parts.length - 2];
+        const agentDir = path.dirname(worktreeFullPath);
+
+        // Confirm agent has no active tmux sessions (it's dead)
+        const agentSessions = getAgentTmuxSessions(agentName);
+        if (agentSessions.length > 0) continue;
+
+        return {
+          agentName,
+          agentDir,
+          worktreePath: worktreeFullPath,
+          branch: branchRef,
+        };
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get docker containers associated with an agent directory
+ */
+function getAgentContainers(agentDir: string): string[] {
+  try {
+    const output = execSync(
+      `docker ps -aq --filter "label=devcontainer.local_folder=${agentDir}"`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    return output.trim().split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check git status for all worktrees in an agent directory.
+ * Returns info about uncommitted changes and unpushed commits.
+ */
+export function getAgentGitStatus(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string
+): AgentGitStatus {
+  const agent = workspaceInfo.agents.find(a => a.name === agentName);
+  const agentDir = agent?.type === 'ephemeral'
+    ? path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName)
+    : path.join(workspaceInfo.path, 'agents', workspaceInfo.persistentAgentsDir, agentName);
+
+  const result: AgentGitStatus = {
+    agentName,
+    worktrees: [],
+    hasUnsavedWork: false
+  };
+
+  // Check each repository worktree
+  for (const repo of workspaceInfo.repositories) {
+    const worktreePath = path.join(agentDir, repo.name);
+
+    if (!fs.existsSync(worktreePath)) {
+      continue;
+    }
+
+    const status: WorktreeGitStatus = {
+      worktreePath,
+      repoName: repo.name,
+      branch: '',
+      hasUncommittedChanges: false,
+      uncommittedFiles: [],
+      hasUnpushedCommits: false,
+      unpushedCount: 0
+    };
+
+    try {
+      // Get current branch
+      status.branch = execSync('git rev-parse --abbrev-ref HEAD', {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
+
+      // Check for uncommitted changes (staged + unstaged + untracked)
+      const gitStatus = execSync('git status --porcelain', {
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      }).trim();
+
+      if (gitStatus) {
+        status.hasUncommittedChanges = true;
+        status.uncommittedFiles = gitStatus.split('\n').filter(line => line.trim());
+        result.hasUnsavedWork = true;
+      }
+
+      // Check for unpushed commits
+      try {
+        const unpushed = execSync(`git log @{u}..HEAD --oneline 2>/dev/null || echo ""`, {
+          cwd: worktreePath,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        }).trim();
+
+        if (unpushed) {
+          status.hasUnpushedCommits = true;
+          status.unpushedCount = unpushed.split('\n').filter(line => line.trim()).length;
+          result.hasUnsavedWork = true;
+        }
+      } catch {
+        // No upstream tracking branch - check if there are any commits at all
+        try {
+          const hasCommits = execSync('git log --oneline -1', {
+            cwd: worktreePath,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          }).trim();
+          if (hasCommits) {
+            // Has commits but no upstream - consider as unpushed
+            status.hasUnpushedCommits = true;
+            status.unpushedCount = 1; // At least one
+            result.hasUnsavedWork = true;
+          }
+        } catch {
+          // No commits at all
+        }
+      }
+    } catch {
+      // Git commands failed - worktree might be corrupted
+    }
+
+    result.worktrees.push(status);
+  }
+
+  return result;
+}
+
+/**
+ * Commit and push all work in an agent's worktrees.
+ * - Stages all uncommitted changes (git add -A)
+ * - Commits with a WIP message if there are staged changes
+ * - Pushes all commits to remote
+ * Returns true if all operations succeeded.
+ */
+export function pushAgentWork(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string,
+  log?: (message: string) => void
+): boolean {
+  const gitStatus = getAgentGitStatus(workspaceInfo, agentName);
+  let allSuccess = true;
+
+  for (const worktree of gitStatus.worktrees) {
+    const { worktreePath, repoName, hasUncommittedChanges, uncommittedFiles, hasUnpushedCommits, unpushedCount, branch } = worktree;
+
+    // First, commit any uncommitted changes
+    if (hasUncommittedChanges) {
+      try {
+        log?.(`Committing ${uncommittedFiles.length} file(s) in ${repoName}...`);
+
+        // Stage all changes
+        execSync('git add -A', {
+          cwd: worktreePath,
+          stdio: 'pipe'
+        });
+
+        // Commit with WIP message
+        const commitMessage = `WIP: Auto-commit before cleanup\n\nAgent: ${agentName}\nFiles: ${uncommittedFiles.length}`;
+        execSync(`git commit -m "${commitMessage.replace(/"/g, '\\"')}"`, {
+          cwd: worktreePath,
+          stdio: 'pipe'
+        });
+
+        log?.(`✓ Committed changes in ${repoName}`);
+      } catch (error) {
+        log?.(`✗ Failed to commit ${repoName}: ${error}`);
+        allSuccess = false;
+        continue; // Skip push if commit failed
+      }
+    }
+
+    // Then push (either existing unpushed commits or the one we just made)
+    if (hasUnpushedCommits || hasUncommittedChanges) {
+      try {
+        const commitCount = hasUncommittedChanges ? (unpushedCount + 1) : unpushedCount;
+        log?.(`Pushing ${commitCount} commit(s) from ${repoName} on ${branch}...`);
+
+        // Set upstream if needed and push
+        execSync(`git push -u origin ${branch}`, {
+          cwd: worktreePath,
+          stdio: 'pipe'
+        });
+
+        log?.(`✓ Pushed ${repoName}`);
+      } catch (error) {
+        log?.(`✗ Failed to push ${repoName}: ${error}`);
+        allSuccess = false;
+      }
+    }
+  }
+
+  return allSuccess;
+}
+
+/**
+ * Clean up a single agent - removes resources but keeps DB record (marked as cleaned)
+ */
+export async function cleanupAgent(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string,
+  options?: CleanupOptions
+): Promise<CleanupResult> {
+  const log = options?.log ?? (() => {});
+  const dryRun = options?.dryRun ?? false;
+  const force = options?.force ?? false;
+  const pushFirst = options?.pushFirst ?? false;
+
+  const result: CleanupResult = {
+    agent: agentName,
+    success: true,
+    tmuxSessionsKilled: [],
+    containersRemoved: [],
+    directoriesRemoved: [],
+    errors: []
+  };
+
+  // Find the agent
+  const agent = workspaceInfo.agents.find(a => a.name === agentName);
+  if (!agent) {
+    result.success = false;
+    result.errors.push(`Agent "${agentName}" not found`);
+    return result;
+  }
+
+  // Check for unsaved work (uncommitted changes or unpushed commits)
+  if (!force) {
+    const gitStatus = getAgentGitStatus(workspaceInfo, agentName);
+
+    if (gitStatus.hasUnsavedWork) {
+      // If pushFirst is set, try to push before cleanup
+      if (pushFirst) {
+        log('Pushing unpushed work before cleanup...');
+        const pushed = pushAgentWork(workspaceInfo, agentName, log);
+        if (!pushed) {
+          result.success = false;
+          result.blockedByGit = true;
+          result.gitStatus = gitStatus;
+          result.errors.push('Failed to push some work. Use --force to cleanup anyway.');
+          return result;
+        }
+        // Re-check git status after push
+        const newStatus = getAgentGitStatus(workspaceInfo, agentName);
+        if (newStatus.hasUnsavedWork) {
+          result.success = false;
+          result.blockedByGit = true;
+          result.gitStatus = newStatus;
+          result.errors.push('Agent still has uncommitted changes after push. Commit changes or use --force.');
+          return result;
+        }
+      } else {
+        // Block cleanup - has unsaved work
+        result.success = false;
+        result.blockedByGit = true;
+        result.gitStatus = gitStatus;
+
+        const issues: string[] = [];
+        for (const wt of gitStatus.worktrees) {
+          if (wt.hasUncommittedChanges) {
+            issues.push(`${wt.repoName}: ${wt.uncommittedFiles.length} uncommitted files`);
+          }
+          if (wt.hasUnpushedCommits) {
+            issues.push(`${wt.repoName}: ${wt.unpushedCount} unpushed commits on ${wt.branch}`);
+          }
+        }
+        result.errors.push(`Agent has unsaved work: ${issues.join(', ')}. Use --push to push first or --force to cleanup anyway.`);
+        return result;
+      }
+    }
+  }
+
+  // Determine agent directory
+  const agentDir = agent.type === 'ephemeral'
+    ? path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName)
+    : path.join(workspaceInfo.path, 'agents', workspaceInfo.persistentAgentsDir, agentName);
+
+  // 1. Kill tmux sessions for this agent
+  const tmuxSessions = getAgentTmuxSessions(agentName);
+  for (const session of tmuxSessions) {
+    if (dryRun) {
+      log(`[dry-run] Would kill tmux session: ${session}`);
+    } else {
+      log(`Killing tmux session: ${session}`);
+      if (killTmuxSession(session)) {
+        result.tmuxSessionsKilled.push(session);
+      } else {
+        result.errors.push(`Failed to kill tmux session: ${session}`);
+      }
+    }
+  }
+
+  // 2. Stop and remove docker containers
+  const containers = getAgentContainers(agentDir);
+  for (const containerId of containers) {
+    if (dryRun) {
+      log(`[dry-run] Would remove container: ${containerId}`);
+    } else {
+      log(`Removing container: ${containerId}`);
+      try {
+        execSync(`docker rm -f ${containerId}`, { stdio: 'pipe' });
+        result.containersRemoved.push(containerId);
+      } catch (error) {
+        result.errors.push(`Failed to remove container ${containerId}: ${error}`);
+      }
+    }
+  }
+
+  // 3. Remove git worktrees for each repository
+  for (const repo of workspaceInfo.repositories) {
+    const worktreePath = path.join(agentDir, repo.name);
+    const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+
+    if (fs.existsSync(worktreePath) && fs.existsSync(sourceRepoPath)) {
+      if (dryRun) {
+        log(`[dry-run] Would remove worktree: ${worktreePath}`);
+      } else {
+        log(`Removing worktree: ${worktreePath}`);
+        try {
+          execSync(`git worktree remove "${worktreePath}" --force`, {
+            cwd: sourceRepoPath,
+            stdio: 'pipe'
+          });
+        } catch {
+          // If git worktree remove fails, we'll still try to remove the directory
+        }
+      }
+    }
+  }
+
+  // 4. Remove agent directory
+  if (fs.existsSync(agentDir)) {
+    if (dryRun) {
+      log(`[dry-run] Would remove directory: ${agentDir}`);
+      result.directoriesRemoved.push(agentDir);
+    } else {
+      log(`Removing directory: ${agentDir}`);
+      try {
+        fs.rmSync(agentDir, { recursive: true, force: true });
+        result.directoriesRemoved.push(agentDir);
+      } catch (error) {
+        result.errors.push(`Failed to remove directory ${agentDir}: ${error}`);
+        result.success = false;
+      }
+    }
+  }
+
+  // 5. Prune worktrees
+  if (!dryRun) {
+    for (const repo of workspaceInfo.repositories) {
+      const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+      if (fs.existsSync(sourceRepoPath)) {
+        try {
+          execSync('git worktree prune', { cwd: sourceRepoPath, stdio: 'pipe' });
+        } catch {
+          // Ignore prune errors
+        }
+      }
+    }
+  }
+
+  // 6. Mark agent as cleaned in database (not delete)
+  if (!dryRun && result.success) {
+    log(`Marking agent "${agentName}" as cleaned`);
+    markAgentCleaned(workspaceInfo.path, agentName);
+  }
+
+  return result;
+}
+
+/**
+ * Get agents that can be cleaned up (active ephemeral agents with no running work)
+ */
+export function getCleanableAgents(
+  workspaceInfo: WorkspaceInfo,
+  checkRunning: boolean = true
+): Agent[] {
+  // Get active ephemeral agents
+  const ephemeralAgents = workspaceInfo.agents.filter(
+    a => a.type === 'ephemeral' && a.status === 'active'
+  );
+
+  if (!checkRunning) {
+    return ephemeralAgents;
+  }
+
+  // Filter out agents with active tmux sessions
+  return ephemeralAgents.filter(agent => {
+    const sessions = getAgentTmuxSessions(agent.name);
+    return sessions.length === 0;
+  });
 }

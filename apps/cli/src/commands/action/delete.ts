@@ -1,14 +1,12 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class ActionDelete extends PMOCommand {
   static description = 'Delete a work action';
@@ -30,14 +28,6 @@ export default class ActionDelete extends PMOCommand {
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation',
-      default: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
       default: false,
     }),
   };
@@ -72,29 +62,30 @@ export default class ActionDelete extends PMOCommand {
     }
 
     if (!flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', `Delete action "${action.name}"?`, confirmChoices),
-          createMetadata('action delete', flags)
-        );
-        return;
-      }
+      // Use FlagResolver for confirmation prompt - works in both JSON and interactive modes
+      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        commandName: 'action delete',
+        baseCommand: `prlt action delete ${args.id}`,
+        jsonMode,
+        flags: {},
+      });
 
-      const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-        {
-          type: 'confirm',
-          name: 'confirm',
-          message: `Delete action "${action.name}"?`,
-          default: false,
-        },
-      ]);
+      resolver.addPrompt({
+        flagName: 'confirmed',
+        type: 'list',
+        message: `Delete action "${action.name}"?`,
+        choices: () => [
+          { name: 'No', value: false },
+          { name: 'Yes', value: true },
+        ],
+        getCommand: (value) => value
+          ? `prlt action delete ${args.id} --force --json`
+          : '',
+      });
 
-      if (!confirm) {
+      const resolved = await resolver.resolve();
+
+      if (!resolved.confirmed) {
         this.log(styles.muted('Cancelled'));
         return;
       }

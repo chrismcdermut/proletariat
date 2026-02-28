@@ -1,14 +1,11 @@
-import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
+import { Args } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 // Progress bar helper
@@ -35,14 +32,6 @@ export default class EpicView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -77,25 +66,18 @@ export default class EpicView extends PMOCommand {
         return;
       }
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        const epicChoices = epics.map(e => ({ name: `${e.id} ${e.title} (${e.status})`, value: e.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select epic to view:', epicChoices),
-          createMetadata('epic view', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select epic to view:',
+        items: epics,
+        getName: (e) => `${e.id} ${e.title} (${e.status})`,
+        getValue: (e) => e.id,
+        getCommand: (e) => `prlt epic view ${e.id} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'epic view' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: 'Select epic to view:',
-        choices: epics.map(e => ({
-          name: `${e.id} ${e.title} (${e.status})`,
-          value: e.id,
-        })),
-      }]);
       epicId = selected;
     }
 
@@ -116,6 +98,34 @@ export default class EpicView extends PMOCommand {
     }
 
     const projectName = await this.getProjectName(projectId);
+
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        epic: {
+          id: epic.id,
+          title: epic.title,
+          status: epic.status,
+          description: epic.description,
+          projectId,
+          specId: epic.specId,
+          createdAt: epic.createdAt.toISOString(),
+          updatedAt: epic.updatedAt?.toISOString(),
+          ticketCount: tickets.length,
+          doneCount: doneTickets,
+          progress: percent,
+          tickets: tickets.map((t: Ticket) => ({
+            id: t.id,
+            title: t.title,
+            statusName: t.statusName,
+            statusCategory: t.statusCategory,
+            priority: t.priority,
+          })),
+        },
+      }, null, 2));
+      return;
+    }
 
     this.log(`\n🎯 Epic: ${styles.emphasis(epic.id)} - ${epic.title}`);
     this.log('═'.repeat(55));

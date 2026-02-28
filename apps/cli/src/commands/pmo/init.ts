@@ -1,10 +1,10 @@
-import { Command, Flags } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
-import Database from 'better-sqlite3';
+import { PromptCommand } from '../../lib/prompt-command.js';
+import { checkPMOExists, getPMOSetting, dropPMOTables } from '../../lib/database/index.js';
 import {
   SQLiteStorage,
   getColumnsForTemplate,
@@ -15,6 +15,8 @@ import {
   promptForCustomColumns,
   determinePMOPath,
   PMOLocation,
+  getPickerTemplates,
+  machineOutputFlags,
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
@@ -23,17 +25,18 @@ import {
   outputPromptAsJson,
   createMetadata,
   buildPromptConfig,
-  buildFormPromptConfig,
-  FormField,
 } from '../../lib/prompt-json.js';
 
-export default class PMOInit extends Command {
-  static description = 'Initialize PMO (Project Management Office) in current directory or HQ';
+// Build template options dynamically from shared definitions (picker templates + custom)
+const PICKER_TEMPLATE_IDS = [...getPickerTemplates().map(t => t.id), 'custom'];
+
+export default class PMOInit extends PromptCommand {
+  static description = 'Initialize PMO (Project Management Org) in current directory or HQ';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --location repo:proletariat --template founder',
-    '<%= config.bin %> <%= command.id %> --location separate --template scrum',
+    '<%= config.bin %> <%= command.id %> --location repo:proletariat --template 5-tool',
+    '<%= config.bin %> <%= command.id %> --location separate --template linear',
   ];
 
   static flags = {
@@ -44,19 +47,21 @@ export default class PMOInit extends Command {
     template: Flags.string({
       char: 't',
       description: 'Board template',
-      options: ['kanban', 'scrum', 'founder', 'custom'],
+      options: PICKER_TEMPLATE_IDS,
     }),
     name: Flags.string({
       char: 'n',
       description: 'Board name',
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
+    ...machineOutputFlags,
+    action: Flags.string({
+      description: 'Action for existing PMO (cancel or reinitialize)',
+      options: ['cancel', 'reinitialize'],
+      hidden: true,
     }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
+    confirmation: Flags.string({
+      description: 'Confirmation text for destructive operations',
+      hidden: true,
     }),
   };
 
@@ -76,20 +81,10 @@ export default class PMOInit extends Command {
       const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
       if (fs.existsSync(dbPath)) {
         try {
-          const db = new Database(dbPath);
-          const result = db.prepare(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
-          ).get();
-
-          if (result !== undefined) {
-            existingPMO = true;
-            // Get counts
-            const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number };
-            const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
-            projectCount = projectCountResult.count;
-            ticketCount = ticketCountResult.count;
-          }
-          db.close();
+          const pmoStatus = checkPMOExists(dbPath);
+          existingPMO = pmoStatus.exists;
+          projectCount = pmoStatus.projectCount;
+          ticketCount = pmoStatus.ticketCount;
         } catch (error) {
           // Log error for debugging
           console.error('PMO check error:', error);
@@ -122,29 +117,58 @@ export default class PMOInit extends Command {
     let location: PMOLocation;
     if (flags.location) {
       location = flags.location as PMOLocation;
+    } else if (jsonMode) {
+      location = 'separate';
     } else {
       location = await promptForPMOLocation(hqRoot);
     }
 
     // Get board template using shared prompt (or from flag)
+    // If DB exists, query it for templates (source of truth)
     let template: string;
     if (flags.template) {
       template = flags.template;
+    } else if (jsonMode) {
+      template = 'kanban';
     } else {
-      template = await promptForBoardTemplate();
+      let storage: SQLiteStorage | undefined;
+      if (hqRoot) {
+        const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
+        if (fs.existsSync(dbPath)) {
+          try {
+            storage = new SQLiteStorage(dbPath);
+          } catch {
+            // Ignore - will fall back to builtin templates
+          }
+        }
+      }
+      template = await promptForBoardTemplate(storage);
+      if (storage) {
+        await storage.close();
+      }
     }
 
     // Get columns for template
     let columns = getColumnsForTemplate(template);
-    if (template === 'custom') {
+    if (template === 'custom' && !jsonMode) {
       columns = await promptForCustomColumns();
+    } else if (template === 'custom' && jsonMode) {
+      // Custom column prompts not supported in JSON mode — use default columns
+      this.log(JSON.stringify({ warning: 'Custom columns not supported in JSON mode, using default columns. Use a named template (e.g. --template kanban) for predictable results.' }));
     }
 
     // Get board name using shared prompt (or from flag)
     // Default to {hqname}-kanban pattern
     const hqName = hqRoot ? path.basename(hqRoot).replace(/-hq$/, '') : undefined;
-    const defaultBoardName = hqName ? `${hqName}-kanban` : undefined;
-    const boardName = flags.name || await promptForBoardName(defaultBoardName);
+    const defaultBoardName = hqName ? `${hqName}-kanban` : 'Project Board';
+    let boardName: string;
+    if (flags.name) {
+      boardName = flags.name;
+    } else if (jsonMode) {
+      boardName = defaultBoardName;
+    } else {
+      boardName = await promptForBoardName(defaultBoardName);
+    }
 
     // For standalone PMO (no HQ), we need to create mini-HQ structure first
     const isStandalone = !hqRoot;
@@ -210,6 +234,23 @@ export default class PMOInit extends Command {
   }
 
   private findHQRoot(): string | null {
+    // Support PRLT_HQ_PATH override (for devcontainers and tests)
+    const hqPathEnv = process.env.PRLT_HQ_PATH;
+    const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
+    if (hqPathEnv && allowEnvHqPath) {
+      const configPath = path.join(hqPathEnv, '.proletariat', 'config.json');
+      if (fs.existsSync(configPath)) {
+        try {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (config.type === 'hq') {
+            return hqPathEnv;
+          }
+        } catch {
+          // Fall through to directory walk
+        }
+      }
+    }
+
     let currentDir = process.cwd();
 
     while (currentDir !== '/') {
@@ -235,60 +276,88 @@ export default class PMOInit extends Command {
     const dbPath = path.join(hqRoot, '.proletariat', 'workspace.db');
     let pmoPath = path.join(hqRoot, 'pmo'); // Default fallback
 
-    try {
-      const db = new Database(dbPath);
-      const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
-      if (result) {
-        pmoPath = result.value;
-      }
-      db.close();
-    } catch {
-      // Use default if table doesn't exist
+    const savedPmoPath = getPMOSetting(dbPath, 'pmo_path');
+    if (savedPmoPath) {
+      pmoPath = savedPmoPath;
     }
 
     // Define choices once, use for both JSON and interactive modes
     const actionChoices = [
-      { name: 'Cancel (keep existing PMO)', value: 'cancel' },
-      { name: 'Reinitialize (DELETES all data)', value: 'reinitialize' },
+      {
+        name: 'Cancel (keep existing PMO)',
+        value: 'cancel',
+        command: 'prlt pmo init --action cancel --json',
+      },
+      {
+        name: 'Reinitialize (DELETES all data)',
+        value: 'reinitialize',
+        command: 'prlt pmo init --action reinitialize --json',
+      },
     ];
     const message = `PMO already exists at ${pmoPath} (${projectCount} projects, ${ticketCount} tickets). What would you like to do?`;
 
-    // In JSON mode, output reinitialize prompt and exit
-    if (jsonMode) {
+    // Determine action: from flag, JSON mode, or interactive prompt
+    let action: string;
+    if (flags.action) {
+      action = flags.action as string;
+    } else if (jsonMode) {
       outputPromptAsJson(
         buildPromptConfig('list', 'action', message, actionChoices),
         createMetadata('pmo init', flags)
       );
+      return null; // unreachable - outputPromptAsJson calls process.exit
+    } else {
+      this.log(chalk.yellow('\n⚠️  PMO already exists'));
+      this.log(chalk.gray(`   Location: ${pmoPath}`));
+      this.log(chalk.gray(`   Projects: ${projectCount}`));
+      this.log(chalk.gray(`   Tickets: ${ticketCount}\n`));
+
+      const result = await this.prompt<{ action: string }>([{
+        type: 'list',
+        name: 'action',
+        message: 'What would you like to do?',
+        choices: actionChoices,
+        default: 'cancel',
+      }], null);
+      action = result.action;
     }
-
-    this.log(chalk.yellow('\n⚠️  PMO already exists'));
-    this.log(chalk.gray(`   Location: ${pmoPath}`));
-    this.log(chalk.gray(`   Projects: ${projectCount}`));
-    this.log(chalk.gray(`   Tickets: ${ticketCount}\n`));
-
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
-      message: 'What would you like to do?',
-      choices: actionChoices,
-      default: 'cancel',
-    }]);
 
     if (action === 'cancel') {
       return false;
     }
 
-    // Show warning and require typed confirmation
-    this.log(chalk.red('\n⚠️  WARNING: This will permanently delete:'));
-    this.log(chalk.red('   • All tickets and boards'));
-    this.log(chalk.red('   • All specs and documentation'));
-    this.log(chalk.red('   • Database tables (pmo_*)\n'));
+    // Determine confirmation: from flag, JSON mode, or interactive prompt
+    let confirmation: string;
+    if (flags.confirmation) {
+      confirmation = flags.confirmation as string;
+    } else if (jsonMode) {
+      outputPromptAsJson(
+        {
+          type: 'input',
+          name: 'confirmation',
+          message: 'Type "delete pmo" to confirm:',
+          context: {
+            hint: 'Pass --confirmation "delete pmo" to confirm reinitialize',
+            example: 'prlt pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "my-board" --json',
+          },
+        },
+        createMetadata('pmo init', flags)
+      );
+      return null; // unreachable - outputPromptAsJson calls process.exit
+    } else {
+      // Show warning and require typed confirmation
+      this.log(chalk.red('\n⚠️  WARNING: This will permanently delete:'));
+      this.log(chalk.red('   • All tickets and boards'));
+      this.log(chalk.red('   • All specs and documentation'));
+      this.log(chalk.red('   • Database tables (pmo_*)\n'));
 
-    const { confirmation } = await inquirer.prompt([{
-      type: 'input',
-      name: 'confirmation',
-      message: 'Type "delete pmo" to confirm:',
-    }]);
+      const result = await this.prompt<{ confirmation: string }>([{
+        type: 'input',
+        name: 'confirmation',
+        message: 'Type "delete pmo" to confirm:',
+      }], null);
+      confirmation = result.confirmation;
+    }
 
     if (confirmation !== 'delete pmo') {
       this.log(chalk.yellow('\nCancelled. Confirmation text did not match.'));
@@ -306,16 +375,10 @@ export default class PMOInit extends Command {
     let pmoPath = path.join(hqRoot, 'pmo'); // Default fallback
 
     if (fs.existsSync(dbPath)) {
-      const db = new Database(dbPath);
-
       // Get PMO path from database before deleting
-      try {
-        const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
-        if (result) {
-          pmoPath = result.value;
-        }
-      } catch {
-        // Ignore - table might not exist, use default
+      const savedPmoPath = getPMOSetting(dbPath, 'pmo_path');
+      if (savedPmoPath) {
+        pmoPath = savedPmoPath;
       }
 
       // Drop all pmo_* tables
@@ -323,15 +386,7 @@ export default class PMOInit extends Command {
                       'pmo_columns', 'pmo_specs', 'pmo_epics', 'pmo_projects',
                       'pmo_initiatives', 'pmo_ticket_assignments', 'pmo_cache_metadata', 'pmo_settings'];
 
-      for (const table of tables) {
-        try {
-          db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
-        } catch {
-          // Ignore errors - table might not exist
-        }
-      }
-
-      db.close();
+      dropPMOTables(dbPath, tables);
       this.log(chalk.green('  ✓ Dropped database tables'));
     }
 

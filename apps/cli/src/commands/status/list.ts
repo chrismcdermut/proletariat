@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER, WorkflowStatus } from '../../lib/pmo/types.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class StatusList extends PMOCommand {
   static description = 'List all workflow statuses for a project';
@@ -19,20 +20,37 @@ export default class StatusList extends PMOCommand {
       description: 'Filter by category',
       options: ['backlog', 'unstarted', 'started', 'completed', 'canceled'],
     }),
-    json: Flags.boolean({
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(StatusList);
-    // This command requires project context
-    const projectId = await this.requireProject();
 
-    const statuses = await this.storage.listStatuses(projectId);
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
 
-    if (flags.json) {
+    // This command requires project context - get projectId (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'status list',
+        baseCommand: 'prlt status list',
+      } : undefined,
+    });
+
+    // Get the project's workflow ID
+    const project = await this.storage.getProject(projectId);
+    if (!project?.workflowId) {
+      this.error(`Project "${projectId}" has no workflow assigned.`);
+    }
+
+    const allStatuses = await this.storage.listStatuses(project.workflowId);
+
+    // Apply category filter if specified
+    const statuses = flags.category
+      ? allStatuses.filter(s => s.category === flags.category)
+      : allStatuses;
+
+    if (jsonMode) {
       this.log(JSON.stringify(statuses, null, 2));
       return;
     }
@@ -51,6 +69,7 @@ export default class StatusList extends PMOCommand {
     this.log('═'.repeat(60));
 
     const categoryEmoji: Record<StateCategory, string> = {
+      triage: '📬',
       backlog: '📥',
       unstarted: '📋',
       started: '🚀',
@@ -58,17 +77,7 @@ export default class StatusList extends PMOCommand {
       canceled: '🚫',
     };
 
-    const categoryColors: Record<StateCategory, string> = {
-      backlog: '#9CA3AF',  // gray
-      unstarted: '#60A5FA', // blue
-      started: '#FBBF24',   // yellow
-      completed: '#34D399', // green
-      canceled: '#F87171',  // red
-    };
-
     for (const category of STATE_CATEGORY_ORDER) {
-      if (flags.category && flags.category !== category) continue;
-
       const categoryStatuses = grouped.get(category);
       if (!categoryStatuses || categoryStatuses.length === 0) continue;
 

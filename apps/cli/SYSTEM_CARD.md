@@ -16,14 +16,13 @@ Multi-agent development orchestration system for managing distributed AI-powered
 
 ### 2. Agent Management
 
-- **Dual Command Structure**: `prlt agent` (individual) and `prlt agents` (bulk)
-- **Individual Operations**: Focus on single agent workflows (status, visit, remove)
-- **Bulk Operations**: Multi-agent management with checkbox selection
+- **Staff Agents**: Persistent named agents via `prlt agent staff add/list/remove`
+- **Ephemeral Agents**: On-demand agents via `prlt agent temp list/cleanup`
 - **Git Worktree Integration**: Each agent has isolated workspace with proper cleanup
 - **Interactive Menus**: Arrow-key navigation with cancel options
 - **Status Tracking**: Repository states, commits, activity, and ticket assignments
 - **Navigation Support**: Directory switching and path calculation
-- **Theme Integration**: Billionaires, cars, companies, or custom agent names
+- **Theme Integration**: Billionaires, cars, companies, or custom agent names via `prlt agent themes`
 
 ### 3. Ticket Management (PMO)
 
@@ -52,49 +51,52 @@ This is the authoritative list of commands that MUST exist in the CLI.
 | `prlt help [command]` | ✓  | ✓  | ✓  | -  | Show help for commands      | oclif built-in                                       |
 | `prlt --version`      | -  | -  | -  | -  | Show CLI version            | -                                                    |
 
-#### Agent Commands (Individual Operations)
+#### Agent Commands
 
-| Command                      | 📝 | ✅ | 🧪 | 👤 | Description                   | Spec                                                 |
-| ---------------------------- | -- | -- | -- | -- | ----------------------------- | ---------------------------------------------------- |
-| `prlt agent`                 | ✓  | ✓  | -  | -  | Interactive individual menu   | [agents.md](../../specs/domain/agents.md)            |
-| `prlt agent status [name]`   | ✓  | ✓  | -  | -  | Show detailed agent status    | [agents.md](../../specs/domain/agents.md)            |
-| `prlt agent visit [name]`    | ✓  | ✓  | -  | -  | Navigate to agent directory   | [agents.md](../../specs/domain/agents.md)            |
-| `prlt agent add`             | ✓  | ✓  | -  | -  | Add agent (redirects to bulk) | [agents.md](../../specs/domain/agents.md)            |
-| `prlt agent remove [name]`   | ✓  | ✓  | -  | -  | Remove specific agent         | [agents.md](../../specs/domain/agents.md)            |
-| `prlt agent login [name]`    | ✓  | ✓  | -  | -  | Auth Claude in devcontainer   | [agents.md](../../specs/domain/agents.md)            |
-| `prlt agent grant`           | ✓  | -  | -  | -  | Grant repo access to agents   | [agents.md](../../specs/domain/agents.md)            |
-| `prlt agent revoke`          | ✓  | -  | -  | -  | Revoke repo access            | [agents.md](../../specs/domain/agents.md)            |
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                   | Spec                                                 |
+| ------------------------------- | -- | -- | -- | -- | ----------------------------- | ---------------------------------------------------- |
+| `prlt agent`                    | ✓  | ✓  | -  | -  | Interactive agent menu        | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent list`               | ✓  | ✓  | -  | -  | List all agents               | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent status [name]`      | ✓  | ✓  | -  | -  | Show detailed agent status    | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent visit [name]`       | ✓  | ✓  | -  | -  | Navigate to agent directory   | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent shell [name]`       | ✓  | ✓  | -  | -  | Shell into agent workspace    | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent login [name]`       | ✓  | ✓  | -  | -  | Auth Claude in container      | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent rebuild [name]`     | ✓  | ✓  | -  | -  | Rebuild agent workspace       | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent restart [name]`     | ✓  | ✓  | -  | -  | Restart agent                 | [agents.md](../../specs/domain/agents.md)            |
 
-#### Agents Commands (Bulk Operations)
+#### Agent Staff Commands
 
-| Command              | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec                                      |
-| -------------------- | -- | -- | -- | -- | -------------------------------- | ----------------------------------------- |
-| `prlt agents`        | ✓  | ✓  | -  | -  | Interactive bulk operations menu | [agents.md](../../specs/domain/agents.md) |
-| `prlt agents list`   | ✓  | ✓  | -  | -  | List all agents with overview    | [agents.md](../../specs/domain/agents.md) |
-| `prlt agents status` | ✓  | ✓  | -  | -  | Status overview for all agents   | [agents.md](../../specs/domain/agents.md) |
-| `prlt agents add`    | ✓  | ✓  | -  | -  | Add multiple agents (bulk, creates devcontainer by default) | [agents.md](../../specs/domain/agents.md) |
-| `prlt agents remove` | ✓  | ✓  | -  | -  | Remove multiple agents (bulk)    | [agents.md](../../specs/domain/agents.md) |
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                   | Spec                                                 |
+| ------------------------------- | -- | -- | -- | -- | ----------------------------- | ---------------------------------------------------- |
+| `prlt agent staff add <names>`  | ✓  | ✓  | -  | -  | Add named (staff) agents      | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent staff list`         | ✓  | ✓  | -  | -  | List staff agents             | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent staff remove`       | ✓  | ✓  | -  | -  | Remove staff agent            | [agents.md](../../specs/domain/agents.md)            |
 
-**Agent Options:**
-- `--no-container`: Skip devcontainer setup (not recommended for autonomous agents)
+#### Agent Temp Commands
 
-#### Repo Commands (Individual Operations)
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                   | Spec                                                 |
+| ------------------------------- | -- | -- | -- | -- | ----------------------------- | ---------------------------------------------------- |
+| `prlt agent temp list`          | ✓  | ✓  | -  | -  | List ephemeral agents         | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent temp cleanup`       | ✓  | ✓  | -  | -  | Remove ephemeral agents       | [agents.md](../../specs/domain/agents.md)            |
+
+#### Agent Theme Commands
+
+| Command                               | 📝 | ✅ | 🧪 | 👤 | Description                   | Spec                                                 |
+| ------------------------------------- | -- | -- | -- | -- | ----------------------------- | ---------------------------------------------------- |
+| `prlt agent themes list`              | ✓  | ✓  | -  | -  | List available themes         | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent themes set <name>`        | ✓  | ✓  | -  | -  | Set active theme              | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent themes create <name>`     | ✓  | ✓  | -  | -  | Create custom theme           | [agents.md](../../specs/domain/agents.md)            |
+| `prlt agent themes add-names`         | ✓  | ✓  | -  | -  | Add names to theme            | [agents.md](../../specs/domain/agents.md)            |
+
+#### Repo Commands
 
 | Command                | 📝 | ✅ | 🧪 | 👤 | Description                     | Spec |
 | ---------------------- | -- | -- | -- | -- | ------------------------------- | ---- |
-| `prlt repo`            | ✓  | ✓  | -  | -  | Interactive individual menu     | -    |
-| `prlt repo add`        | ✓  | ✓  | -  | -  | Add single repository           | -    |
-| `prlt repo remove`     | ✓  | ✓  | -  | -  | Remove single repository        | -    |
+| `prlt repo`            | ✓  | ✓  | -  | -  | Interactive repo menu           | -    |
+| `prlt repo add <url>`  | ✓  | ✓  | -  | -  | Add repository                  | -    |
+| `prlt repo list`       | ✓  | ✓  | -  | -  | List repositories               | -    |
 | `prlt repo view`       | ✓  | ✓  | -  | -  | View repository details         | -    |
-
-#### Repos Commands (Bulk Operations)
-
-| Command             | 📝 | ✅ | 🧪 | 👤 | Description                        | Spec |
-| ------------------- | -- | -- | -- | -- | ---------------------------------- | ---- |
-| `prlt repos`        | ✓  | ✓  | -  | -  | Interactive bulk operations menu   | -    |
-| `prlt repos list`   | ✓  | ✓  | -  | -  | List all repositories              | -    |
-| `prlt repos add`    | ✓  | ✓  | -  | -  | Add multiple repositories (bulk)   | -    |
-| `prlt repos remove` | ✓  | ✓  | -  | -  | Remove multiple repositories (bulk)| -    |
+| `prlt repo remove`     | ✓  | ✓  | -  | -  | Remove repository               | -    |
 
 #### PMO Commands
 
@@ -175,18 +177,19 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket spec --bulk`      | ✓  | ✓  | -  | -  | Assign spec to multiple tickets       | [tickets.md](../../specs/domain/tickets.md)     |
 | `prlt ticket project --bulk`   | ✓  | ✓  | -  | -  | Move multiple tickets to project      | [tickets.md](../../specs/domain/tickets.md)     |
 
-#### Work Commands (Ownership, Assignment & Execution)
+#### Work Commands (Spawning & Execution)
 
-**Note**: The `work` namespace handles the execution/implementation of tickets - who is responsible, who does the work, and how work runs.
+**Note**: The `work` namespace handles spawning agents on tickets and tracking work state.
 
 | Command                           | 📝 | ✅ | 🧪 | 👤 | Description                        | Spec                                        |
 | --------------------------------- | -- | -- | -- | -- | ---------------------------------- | ------------------------------------------- |
-| `prlt work start [id]`            | ✓  | ✓  | -  | -  | Start agent working on ticket      | [work.md](../../specs/domain/work.md)       |
+| `prlt work start [id]`            | ✓  | ✓  | -  | -  | Spawn agent to work on ticket      | [work.md](../../specs/domain/work.md)       |
+| `prlt work spawn`                 | ✓  | ✓  | -  | -  | Batch spawn multiple tickets       | [work.md](../../specs/domain/work.md)       |
+| `prlt work spawn-all`             | ✓  | ✓  | -  | -  | Spawn all planned tickets          | [work.md](../../specs/domain/work.md)       |
 | `prlt work ready [id]`            | ✓  | ✓  | -  | -  | Mark work as ready for review      | [work.md](../../specs/domain/work.md)       |
 | `prlt work complete [id]`         | ✓  | ✓  | -  | -  | Mark work as complete (Done)       | [work.md](../../specs/domain/work.md)       |
-| `prlt work claim [id]`            | ✓  | ✓  | -  | -  | Claim work for yourself or agent   | [work.md](../../specs/domain/work.md)       |
-| `prlt work assign [id] [agent]`   | ✓  | ✓  | -  | -  | Assign work to human/agent         | [work.md](../../specs/domain/work.md)       |
-| `prlt work own [id]`              | ✓  | ✓  | -  | -  | Take accountability for work       | [work.md](../../specs/domain/work.md)       |
+| `prlt work revise [id]`           | ✓  | ✓  | -  | -  | Request revision                   | [work.md](../../specs/domain/work.md)       |
+| `prlt work watch`                 | ✓  | ✓  | -  | -  | Watch work progress                | [work.md](../../specs/domain/work.md)       |
 
 #### Execution Commands (Agent Runtime Management)
 
@@ -200,29 +203,26 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 
 **Execution Environment** (where agent runs):
 
-| Environment    | Description                              |
-| -------------- | ---------------------------------------- |
-| `devcontainer` | VS Code devcontainer (recommended)       |
-| `host`         | Directly on host machine                 |
-| `docker`       | Raw Docker container                     |
-| `vm`           | Remote VM via SSH                        |
+| Environment    | Flag               | Description                              |
+| -------------- | ------------------ | ---------------------------------------- |
+| `docker`       | `--mode docker`    | Docker container (isolated, recommended) |
+| `host`         | `--run-on-host`    | Directly on host machine (fast)          |
 
 **Display Mode** (how output is shown):
 
-| Mode           | Description                              |
-| -------------- | ---------------------------------------- |
-| `terminal`     | New terminal window (macOS)              |
-| `foreground`   | Subprocess in current terminal           |
-| `background`   | Detached process, logs to file           |
-| `tmux`         | New tmux pane/window                     |
+| Mode           | Flag                       | Description                              |
+| -------------- | -------------------------- | ---------------------------------------- |
+| `terminal`     | `--display terminal`       | New terminal tab                         |
+| `background`   | `--display background`     | Detached, reattach later                 |
+
+All sessions run on tmux under the hood for persistence.
 
 **Permission Mode**:
-- `safe` (sandboxed=true): Requires approval for dangerous operations (recommended)
-- `danger` (sandboxed=false): Skip permission checks (--dangerously-skip-permissions)
 
-**Execute Options:**
-- `--run-on-host`: Bypass devcontainer and run directly on host machine
-- `--vm-host <host>`: Specify VM hostname for vm mode
+| Mode   | Flag                   | Description                                          |
+| ------ | ---------------------- | ---------------------------------------------------- |
+| Safe   | (default)              | Agent prompts for permissions                        |
+| YOLO   | `--skip-permissions`   | No prompts, full access. Use with Docker for safety. |
 
 **Agent Selection:**
 - Available agents shown first, busy agents disabled with current ticket info
@@ -248,24 +248,113 @@ See [devcontainer.md](../../specs/infrastructure/devcontainer.md) for sandboxed 
 | Extended Types | `sec`, `db`, `rel` |
 | 5Tool Founder | `ship`, `grow`, `cx`, `strat`, `ops` |
 
-#### Database Commands
+#### GitHub Commands
 
-| Command                 | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
-| ----------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
-| `prlt db`               | ✓  | -  | -  | -  | Interactive database menu        | -    |
-| `prlt db tables`        | ✓  | -  | -  | -  | List all tables with row counts  | -    |
-| `prlt db schema [table]`| ✓  | -  | -  | -  | Show table structure             | -    |
-| `prlt db query <sql>`   | ✓  | -  | -  | -  | Run SQL query (read-only default)| -    |
-| `prlt db stats`         | ✓  | -  | -  | -  | Database size and health info    | -    |
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt gh`                       | ✓  | ✓  | -  | -  | Interactive GitHub menu          | -    |
+| `prlt gh login`                 | ✓  | ✓  | -  | -  | Login to GitHub                  | -    |
+| `prlt gh status`                | ✓  | ✓  | -  | -  | Check auth status                | -    |
+| `prlt gh token`                 | ✓  | ✓  | -  | -  | Get GitHub token                 | -    |
 
-#### Config Commands
+#### Pull Request Commands
 
-| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                     | Spec |
-| ------------------------------- | -- | -- | -- | -- | ------------------------------- | ---- |
-| `prlt config get <key>`         | ✓  | -  | -  | -  | Get a configuration value       | -    |
-| `prlt config set <key> <value>` | ✓  | -  | -  | -  | Set a configuration value       | -    |
-| `prlt config list`              | ✓  | -  | -  | -  | List all configuration settings | -    |
-| `prlt config reset <key>`       | ✓  | -  | -  | -  | Reset a setting to default      | -    |
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt pr`                       | ✓  | ✓  | -  | -  | Interactive PR menu              | -    |
+| `prlt pr create`                | ✓  | ✓  | -  | -  | Create pull request              | -    |
+| `prlt pr status [id]`           | ✓  | ✓  | -  | -  | Check PR status                  | -    |
+| `prlt pr link [id] [url]`       | ✓  | ✓  | -  | -  | Link PR to ticket                | -    |
+
+#### Docker Commands
+
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt docker`                   | ✓  | ✓  | -  | -  | Interactive Docker menu          | -    |
+| `prlt docker list`              | ✓  | ✓  | -  | -  | List containers                  | -    |
+| `prlt docker status`            | ✓  | ✓  | -  | -  | Check Docker status              | -    |
+| `prlt docker start [name]`      | ✓  | ✓  | -  | -  | Start container                  | -    |
+| `prlt docker stop [name]`       | ✓  | ✓  | -  | -  | Stop container                   | -    |
+| `prlt docker restart [name]`    | ✓  | ✓  | -  | -  | Restart container                | -    |
+| `prlt docker logs [name]`       | ✓  | ✓  | -  | -  | View container logs              | -    |
+| `prlt docker shell [name]`      | ✓  | ✓  | -  | -  | Shell into container             | -    |
+| `prlt docker sync [name]`       | ✓  | ✓  | -  | -  | Sync container files             | -    |
+| `prlt docker clean`             | ✓  | ✓  | -  | -  | Remove stopped containers        | -    |
+| `prlt docker prune`             | ✓  | ✓  | -  | -  | Remove unused resources          | -    |
+
+#### Action Commands
+
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt action`                   | ✓  | ✓  | -  | -  | Interactive action menu          | -    |
+| `prlt action create`            | ✓  | ✓  | -  | -  | Create action template           | -    |
+| `prlt action list`              | ✓  | ✓  | -  | -  | List actions                     | -    |
+| `prlt action show [id]`         | ✓  | ✓  | -  | -  | Show action details              | -    |
+| `prlt action run [id]`          | ✓  | ✓  | -  | -  | Run action                       | -    |
+| `prlt action update [id]`       | ✓  | ✓  | -  | -  | Update action                    | -    |
+| `prlt action delete [id]`       | ✓  | ✓  | -  | -  | Delete action                    | -    |
+
+#### Workflow Commands
+
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt workflow`                 | ✓  | ✓  | -  | -  | Interactive workflow menu        | -    |
+| `prlt workflow list`            | ✓  | ✓  | -  | -  | List workflows                   | -    |
+| `prlt workflow create`          | ✓  | ✓  | -  | -  | Create workflow                  | -    |
+| `prlt workflow view [id]`       | ✓  | ✓  | -  | -  | View workflow details            | -    |
+| `prlt workflow switch [id]`     | ✓  | ✓  | -  | -  | Switch active workflow           | -    |
+| `prlt workflow delete [id]`     | ✓  | ✓  | -  | -  | Delete workflow                  | -    |
+
+#### Status Commands
+
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt status`                   | ✓  | ✓  | -  | -  | Interactive status menu          | -    |
+| `prlt status list`              | ✓  | ✓  | -  | -  | List workflow statuses           | -    |
+| `prlt status create`            | ✓  | ✓  | -  | -  | Create custom status             | -    |
+| `prlt status update [id]`       | ✓  | ✓  | -  | -  | Update status                    | -    |
+| `prlt status move [id]`         | ✓  | ✓  | -  | -  | Reorder status                   | -    |
+| `prlt status delete [id]`       | ✓  | ✓  | -  | -  | Delete status                    | -    |
+
+#### Phase Commands
+
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt phase list`               | ✓  | ✓  | -  | -  | List phases                      | -    |
+| `prlt phase create`             | ✓  | ✓  | -  | -  | Create phase                     | -    |
+| `prlt phase update [id]`        | ✓  | ✓  | -  | -  | Update phase                     | -    |
+| `prlt phase move [id]`          | ✓  | ✓  | -  | -  | Reorder phase                    | -    |
+| `prlt phase delete [id]`        | ✓  | ✓  | -  | -  | Delete phase                     | -    |
+
+#### Template Commands
+
+| Command                             | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ----------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt template`                     | ✓  | ✓  | -  | -  | Interactive template menu        | -    |
+| `prlt template list`                | ✓  | ✓  | -  | -  | List templates                   | -    |
+| `prlt template delete [id]`         | ✓  | ✓  | -  | -  | Delete template                  | -    |
+| `prlt template ticket list`         | ✓  | ✓  | -  | -  | List ticket templates            | -    |
+| `prlt template ticket save`         | ✓  | ✓  | -  | -  | Save ticket as template          | -    |
+| `prlt template ticket apply`        | ✓  | ✓  | -  | -  | Apply ticket template            | -    |
+| `prlt template phase list`          | ✓  | ✓  | -  | -  | List phase templates             | -    |
+| `prlt template phase apply`         | ✓  | ✓  | -  | -  | Apply phase template             | -    |
+
+#### Session Commands
+
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt session`                  | ✓  | ✓  | -  | -  | Interactive session menu         | -    |
+| `prlt session list`             | ✓  | ✓  | -  | -  | List active tmux sessions        | -    |
+| `prlt session attach [name]`    | ✓  | ✓  | -  | -  | Attach to tmux session           | -    |
+
+#### Workspace Commands
+
+| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
+| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
+| `prlt workspace list`           | ✓  | ✓  | -  | -  | List workspaces                  | -    |
+| `prlt workspace add`            | ✓  | ✓  | -  | -  | Add workspace                    | -    |
+| `prlt workspace use [name]`     | ✓  | ✓  | -  | -  | Switch workspace                 | -    |
+| `prlt workspace remove`         | ✓  | ✓  | -  | -  | Remove workspace                 | -    |
 
 #### Maintenance Commands
 
@@ -506,87 +595,104 @@ Column names are matched case-insensitively with fallback to partial matching. T
 ```
 apps/cli/
 ├── src/commands/       # Oclif commands (single source of truth)
-│   ├── init.ts
+│   ├── init.ts         # Initialize HQ workspace
+│   ├── commit.ts       # Conventional commit
+│   ├── whoami.ts       # Show current context
 │   ├── agent/
-│   │   ├── add.ts
+│   │   ├── index.ts    # Interactive menu
 │   │   ├── list.ts
-│   │   └── remove.ts
-│   ├── agents/         # Bulk agent operations
-│   │   ├── index.ts
-│   │   ├── list.ts
-│   │   ├── add.ts
-│   │   └── remove.ts
+│   │   ├── status.ts
+│   │   ├── shell.ts
+│   │   ├── visit.ts
+│   │   ├── login.ts
+│   │   ├── rebuild.ts
+│   │   ├── restart.ts
+│   │   ├── staff/      # Named agent operations
+│   │   │   ├── add.ts
+│   │   │   ├── list.ts
+│   │   │   └── remove.ts
+│   │   ├── temp/       # Ephemeral agent operations
+│   │   │   ├── list.ts
+│   │   │   └── cleanup.ts
+│   │   └── themes/     # Theme management
+│   │       ├── list.ts
+│   │       ├── set.ts
+│   │       ├── create.ts
+│   │       └── add-names.ts
 │   ├── repo/
 │   │   ├── index.ts
 │   │   ├── add.ts
-│   │   ├── remove.ts
-│   │   └── view.ts
-│   ├── repos/          # Bulk repo operations
-│   │   ├── index.ts
 │   │   ├── list.ts
-│   │   ├── add.ts
+│   │   ├── view.ts
 │   │   └── remove.ts
-│   ├── pmo/
-│   │   ├── init.ts
-│   │   └── board.ts
 │   ├── ticket/
+│   │   ├── index.ts
 │   │   ├── create.ts
 │   │   ├── list.ts
 │   │   ├── view.ts
-│   │   ├── move.ts
-│   │   ├── delete.ts
-│   │   ├── status.ts
-│   │   └── link.ts
-│   ├── tickets/        # Bulk ticket operations
-│   │   ├── index.ts
-│   │   ├── list.ts
+│   │   ├── edit.ts
 │   │   ├── move.ts
 │   │   ├── delete.ts
 │   │   ├── complete.ts
-│   │   ├── reassign.ts
-│   │   ├── link.ts
-│   │   └── update.ts
+│   │   ├── bulk.ts
+│   │   └── link/
+│   │       ├── block.ts
+│   │       ├── relates.ts
+│   │       └── remove.ts
 │   ├── work/           # Work execution commands
-│   │   ├── start.ts    # Start agent on ticket
-│   │   ├── ready.ts    # Mark ready for review
-│   │   ├── complete.ts # Mark work done
-│   │   ├── claim.ts    # Claim work
-│   │   ├── assign.ts   # Assign work
-│   │   └── own.ts      # Take ownership
-│   ├── spec/
-│   │   ├── index.ts
-│   │   ├── create.ts
-│   │   ├── list.ts
-│   │   └── view.ts
-│   ├── epic/           # Epic commands
-│   │   ├── index.ts
-│   │   ├── create.ts
-│   │   ├── list.ts
-│   │   ├── view.ts
-│   │   ├── archive.ts
-│   │   ├── activate.ts
-│   │   ├── move.ts
-│   │   ├── progress.ts
-│   │   └── link.ts
-│   ├── branch/         # Branch commands
-│   │   ├── index.ts
-│   │   ├── create.ts
-│   │   ├── list.ts
-│   │   └── validate.ts
-│   ├── execution/      # Execution commands
-│   │   ├── index.ts
+│   │   ├── start.ts    # Spawn agent on ticket
+│   │   ├── spawn.ts    # Batch spawn
+│   │   ├── spawn-all.ts
+│   │   ├── ready.ts
+│   │   ├── complete.ts
+│   │   ├── revise.ts
+│   │   └── watch.ts
+│   ├── execution/
 │   │   ├── list.ts
 │   │   ├── logs.ts
 │   │   └── stop.ts
-│   └── db/             # Database inspection commands (not yet implemented)
-│       ├── index.ts
-│       ├── tables.ts
-│       ├── schema.ts
-│       ├── query.ts
-│       └── stats.ts
+│   ├── spec/
+│   │   ├── create.ts, list.ts, view.ts, plan.ts, ticket.ts
+│   │   └── link/
+│   ├── epic/
+│   │   ├── create.ts, list.ts, view.ts, move.ts, ...
+│   │   └── link/
+│   ├── project/
+│   │   ├── create.ts, list.ts, view.ts, archive.ts, ...
+│   ├── board/
+│   │   ├── index.ts, watch.ts
+│   ├── branch/
+│   │   ├── create.ts, list.ts, validate.ts
+│   ├── action/
+│   │   ├── create.ts, list.ts, show.ts, run.ts, ...
+│   ├── workflow/
+│   │   ├── create.ts, list.ts, view.ts, switch.ts, ...
+│   ├── status/
+│   │   ├── create.ts, list.ts, update.ts, move.ts, ...
+│   ├── phase/
+│   │   ├── create.ts, list.ts, update.ts, move.ts, ...
+│   │   └── template/
+│   ├── template/
+│   │   ├── list.ts, delete.ts
+│   │   ├── ticket/
+│   │   └── phase/
+│   ├── session/
+│   │   ├── list.ts, attach.ts
+│   ├── workspace/
+│   │   ├── list.ts, add.ts, use.ts, remove.ts
+│   ├── docker/
+│   │   ├── list.ts, status.ts, start.ts, stop.ts, ...
+│   ├── gh/
+│   │   ├── login.ts, status.ts, token.ts
+│   ├── pr/
+│   │   ├── create.ts, status.ts, link.ts
+│   ├── pmo/
+│   │   └── init.ts
+│   └── autocomplete/
+│       └── setup.ts
 ├── test/              # Integration tests
 ├── README.md          # User documentation
-└── SYSTEM.md          # This file - system context
+└── SYSTEM_CARD.md     # This file - system specification
 ```
 
 ### Documentation Strategy
@@ -601,10 +707,10 @@ apps/cli/
 Detailed specifications for each domain are in the `specs/domain/` directory at the repo root.
 
 ### Domain Specs
-- [agents.md](../../specs/domain/agents.md) - `prlt agent`, `prlt agents`
+- [agents.md](../../specs/domain/agents.md) - `prlt agent`, `prlt agent staff`, `prlt agent temp`, `prlt agent themes`
 - [projects.md](../../specs/domain/projects.md) - `prlt project`
 - [board.md](../../specs/domain/board.md) - `prlt board`
-- [tickets.md](../../specs/domain/tickets.md) - `prlt ticket`, `prlt ticket --bulk` (CRUD operations)
+- [tickets.md](../../specs/domain/tickets.md) - `prlt ticket` (CRUD and bulk operations)
 - [specs.md](../../specs/domain/specs.md) - `prlt spec` (static documentation)
 - [epics.md](../../specs/domain/epics.md) - `prlt epic` (work containers)
 - [work.md](../../specs/domain/work.md) - `prlt work` (ownership, assignment, execution), `prlt execution` (runtime management)

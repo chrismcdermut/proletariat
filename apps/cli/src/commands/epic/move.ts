@@ -1,15 +1,12 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { EpicStatus, Ticket } from '../../lib/pmo/types.js';
 import { moveEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 const STATUS_CHOICES = [
@@ -42,14 +39,6 @@ export default class EpicMove extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip validation checks',
@@ -95,24 +84,17 @@ export default class EpicMove extends PMOCommand {
         return {
           name: `${e.id} ${e.title} (${e.status}) [${done}/${tickets.length} complete]`,
           value: e.id,
+          command: `prlt epic move ${e.id} --json`,
         };
       }));
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select epic to move:', choices),
-          createMetadata('epic move', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic move' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select epic to move:',
         choices,
-      }]);
+      }], jsonModeConfig);
       epicId = selected;
     }
 
@@ -123,23 +105,18 @@ export default class EpicMove extends PMOCommand {
 
     // If no status provided, prompt for selection
     if (!targetStatus) {
-      const statusChoices = STATUS_CHOICES.filter(c => c.value !== epic.status);
+      const statusChoices = STATUS_CHOICES.filter(c => c.value !== epic.status).map(c => ({
+        ...c,
+        command: `prlt epic move ${epicId} ${c.value} --json`,
+      }));
 
-      // In JSON mode, output status selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'status', 'Move to which status?', statusChoices),
-          createMetadata('epic move', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic move' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Move to which status?',
         choices: statusChoices,
-      }]);
+      }], jsonModeConfig);
       targetStatus = selected as EpicStatus;
     }
 
@@ -155,30 +132,20 @@ export default class EpicMove extends PMOCommand {
 
     // Moving to complete - check ticket completion
     if (targetStatus === 'complete' && !allComplete && !flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirm', `Not all tickets are complete (${doneTickets}/${tickets.length} done). Continue moving to complete anyway?`, confirmChoices),
-          createMetadata('epic move', flags)
-        );
-        return;
+      if (!jsonMode) {
+        this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
       }
 
-      this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
-      const { confirm } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic move' } : null;
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
-        message: 'Continue moving to complete anyway?',
+        message: `Not all tickets are complete (${doneTickets}/${tickets.length} done). Continue moving to complete anyway?`,
         choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
+          { name: 'No', value: false, command: '' },
+          { name: 'Yes', value: true, command: `prlt epic move ${epicId} complete --force --json` },
         ],
-        default: false,
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));
@@ -188,30 +155,20 @@ export default class EpicMove extends PMOCommand {
 
     // Moving to dropped - confirm cancellation
     if (targetStatus === 'dropped' && !flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmDrop', 'This will mark the epic as dropped/cancelled. Continue?', confirmChoices),
-          createMetadata('epic move', flags)
-        );
-        return;
+      if (!jsonMode) {
+        this.log(styles.warning('\n⚠️  This will mark the epic as dropped/cancelled'));
       }
 
-      this.log(styles.warning('\n⚠️  This will mark the epic as dropped/cancelled'));
-      const { confirm } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic move' } : null;
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
-        message: 'Continue?',
+        message: 'This will mark the epic as dropped/cancelled. Continue?',
         choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
+          { name: 'No', value: false, command: '' },
+          { name: 'Yes', value: true, command: `prlt epic move ${epicId} dropped --force --json` },
         ],
-        default: false,
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));

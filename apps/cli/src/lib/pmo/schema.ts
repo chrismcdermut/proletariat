@@ -12,9 +12,8 @@
 export const PMO_TABLES = {
   projects: 'pmo_projects',
   initiatives: 'pmo_initiatives',
-  columns: 'pmo_columns',
   tickets: 'pmo_tickets',
-  board_tickets: 'pmo_board_tickets',
+  categories: 'pmo_categories',
   board_views: 'pmo_board_views',  // Saved board view configurations
   subtasks: 'pmo_subtasks',
   ticket_metadata: 'pmo_ticket_metadata',
@@ -32,13 +31,28 @@ export const PMO_TABLES = {
   settings: 'pmo_settings',
   agent_work: 'agent_work',
   containers: 'containers',  // Docker containers per agent
-  // Workflow tables
-  statuses: 'pmo_statuses',
-  templates: 'pmo_templates',
+  id_sequences: 'id_sequences',  // Sequence counters for ID generation
+  // Workflow tables (consolidated - workflows are the single source of truth for board columns)
+  workflows: 'pmo_workflows',  // Shared workflow definitions
+  workflow_statuses: 'pmo_workflow_statuses',  // Statuses belonging to workflows (= board columns)
+  // templates: 'pmo_templates',  // REMOVED: workflows are now used directly
   phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
   phase_templates: 'pmo_phase_templates',  // Phase configuration templates
   actions: 'pmo_actions',  // Work actions (reusable agent prompts)
   ticket_templates: 'pmo_ticket_templates',  // Ticket templates for quick creation
+  // Roadmap tables (ordered collections of projects for documentation)
+  roadmaps: 'pmo_roadmaps',  // Named roadmap definitions
+  roadmap_projects: 'pmo_roadmap_projects',  // Many-to-many: roadmaps ↔ projects with ordering
+  // Label system tables
+  label_groups: 'pmo_label_groups',
+  labels: 'pmo_labels',
+  ticket_labels: 'pmo_ticket_labels',
+  // Linear integration tables
+  linear_issue_map: 'pmo_linear_issue_map',  // Linear issue ↔ PMO ticket mapping
+  // Legacy tables (deprecated, kept for migration)
+  columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
+  board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
+  statuses: 'pmo_statuses',  // DEPRECATED: use workflow_statuses
 } as const;
 
 // =============================================================================
@@ -54,12 +68,14 @@ export const PMO_TABLE_SCHEMAS = {
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       phase_id TEXT,
+      workflow_id TEXT,
       is_archived INTEGER NOT NULL DEFAULT 0,
       target_date TIMESTAMP,
       initiative_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (phase_id) REFERENCES ${PMO_TABLES.phases}(id) ON DELETE SET NULL
+      FOREIGN KEY (phase_id) REFERENCES ${PMO_TABLES.phases}(id) ON DELETE SET NULL,
+      FOREIGN KEY (workflow_id) REFERENCES ${PMO_TABLES.workflows}(id) ON DELETE SET NULL
     )`,
 
   initiatives: `
@@ -72,6 +88,49 @@ export const PMO_TABLE_SCHEMAS = {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
 
+  // Categories for tickets and status types
+  categories: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.categories} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('ticket', 'status')),
+      description TEXT,
+      color TEXT,
+      position INTEGER NOT NULL DEFAULT 0,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(name, type)
+    )`,
+
+  // Shared workflow definitions - projects reference these via workflow_id
+  workflows: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.workflows} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Statuses belonging to workflows - these ARE the board columns
+  // Each status has a category (backlog, unstarted, started, completed, canceled)
+  workflow_statuses: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.workflow_statuses} (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      color TEXT,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (workflow_id) REFERENCES ${PMO_TABLES.workflows}(id) ON DELETE CASCADE,
+      UNIQUE(workflow_id, name)
+    )`,
+
+  // DEPRECATED: Legacy columns table - use workflow_statuses instead
   columns: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.columns} (
       id TEXT NOT NULL,
@@ -98,6 +157,7 @@ export const PMO_TABLE_SCHEMAS = {
       spec_id TEXT,
       epic_id TEXT,
       labels TEXT NOT NULL DEFAULT '[]',
+      position INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       last_synced_from_spec TIMESTAMP,
@@ -105,9 +165,10 @@ export const PMO_TABLE_SCHEMAS = {
       FOREIGN KEY (project_id) REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
       FOREIGN KEY (spec_id) REFERENCES ${PMO_TABLES.specs}(id) ON DELETE SET NULL,
       FOREIGN KEY (epic_id) REFERENCES ${PMO_TABLES.epics}(id) ON DELETE SET NULL,
-      FOREIGN KEY (status_id) REFERENCES ${PMO_TABLES.statuses}(id) ON DELETE SET NULL
+      FOREIGN KEY (status_id) REFERENCES ${PMO_TABLES.workflow_statuses}(id) ON DELETE SET NULL
     )`,
 
+  // DEPRECATED: Legacy board_tickets table - tickets now use status_id directly
   board_tickets: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.board_tickets} (
       project_id TEXT NOT NULL,
@@ -305,6 +366,7 @@ export const PMO_TABLE_SCHEMAS = {
       started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       completed_at TIMESTAMP,
       exit_code INTEGER,
+      error_message TEXT,
       FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
     )`,
 
@@ -324,7 +386,15 @@ export const PMO_TABLE_SCHEMAS = {
       FOREIGN KEY (current_execution_id) REFERENCES ${PMO_TABLES.agent_work}(id) ON DELETE SET NULL
     )`,
 
-  // Workflow status per project (two-tier: category -> status)
+  // Sequence counters for ID generation (avoids collisions after deletions)
+  id_sequences: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.id_sequences} (
+      table_name TEXT PRIMARY KEY,
+      next_id INTEGER NOT NULL DEFAULT 1
+    )`,
+
+  // DEPRECATED: Legacy per-project statuses - use workflow_statuses instead
+  // Kept for migration from old schema
   statuses: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.statuses} (
       id TEXT PRIMARY KEY,
@@ -340,16 +410,7 @@ export const PMO_TABLE_SCHEMAS = {
       UNIQUE(project_id, name)
     )`,
 
-  // Workflow templates (preset status configurations)
-  templates: `
-    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.templates} (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      statuses TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
+  // REMOVED: pmo_templates - workflows are now used directly (no separate template concept)
 
   // Project lifecycle phases (workspace-scoped, not per-project)
   phases: `
@@ -408,6 +469,76 @@ export const PMO_TABLE_SCHEMAS = {
       suggested_subtasks TEXT NOT NULL DEFAULT '[]',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+
+  // Label groups (workspace-scoped grouping for labels)
+  label_groups: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.label_groups} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_exclusive INTEGER NOT NULL DEFAULT 1,
+      is_required INTEGER NOT NULL DEFAULT 0,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Labels (workspace-scoped, optionally grouped)
+  labels: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.labels} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT,
+      description TEXT,
+      group_id TEXT REFERENCES ${PMO_TABLES.label_groups}(id) ON DELETE SET NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(name, group_id)
+    )`,
+
+  // Junction table: ticket-label associations (replaces JSON labels field)
+  ticket_labels: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_labels} (
+      ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      label_id TEXT NOT NULL REFERENCES ${PMO_TABLES.labels}(id) ON DELETE CASCADE,
+      PRIMARY KEY (ticket_id, label_id)
+    )`,
+
+  // Roadmap definitions (named collections of projects for documentation)
+  roadmaps: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.roadmaps} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+  // Roadmap-to-project associations with ordering
+  roadmap_projects: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.roadmap_projects} (
+      roadmap_id TEXT NOT NULL REFERENCES ${PMO_TABLES.roadmaps}(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES ${PMO_TABLES.projects}(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (roadmap_id, project_id)
+    )`,
+
+  // Linear integration: issue ↔ PMO ticket mapping
+  linear_issue_map: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.linear_issue_map} (
+      pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      linear_issue_id TEXT NOT NULL,
+      linear_identifier TEXT NOT NULL,
+      linear_team_key TEXT NOT NULL,
+      linear_url TEXT NOT NULL,
+      sync_direction TEXT NOT NULL DEFAULT 'inbound',
+      last_synced_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (pmo_ticket_id),
+      UNIQUE (linear_issue_id)
+    )`,
 } as const;
 
 // =============================================================================
@@ -415,7 +546,6 @@ export const PMO_TABLE_SCHEMAS = {
 // =============================================================================
 
 export const PMO_INDEXES = `
-  CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON ${PMO_TABLES.columns}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON ${PMO_TABLES.tickets}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON ${PMO_TABLES.tickets}(status);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_owner ON ${PMO_TABLES.tickets}(owner);
@@ -424,7 +554,8 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON ${PMO_TABLES.tickets}(epic_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_priority ON ${PMO_TABLES.tickets}(priority);
   CREATE INDEX IF NOT EXISTS idx_pmo_tickets_category ON ${PMO_TABLES.tickets}(category);
-  CREATE INDEX IF NOT EXISTS idx_pmo_board_tickets_column ON ${PMO_TABLES.board_tickets}(project_id, column_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON ${PMO_TABLES.tickets}(status_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_position ON ${PMO_TABLES.tickets}(status_id, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_subtasks_ticket ON ${PMO_TABLES.subtasks}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_specs_spec ON ${PMO_TABLES.ticket_specs}(spec_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_assignments_agent ON ${PMO_TABLES.ticket_assignments}(agent_name);
@@ -432,6 +563,10 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_spec ON ${PMO_TABLES.epics}(spec_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_epics_position ON ${PMO_TABLES.epics}(project_id, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_projects_initiative ON ${PMO_TABLES.projects}(initiative_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_status ON ${PMO_TABLES.projects}(status);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_phase ON ${PMO_TABLES.projects}(phase_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_workflow ON ${PMO_TABLES.projects}(workflow_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_projects_archived ON ${PMO_TABLES.projects}(is_archived);
   CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON ${PMO_TABLES.agent_work}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_agent_work_status ON ${PMO_TABLES.agent_work}(status);
   CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
@@ -447,18 +582,30 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_project_specs_project ON ${PMO_TABLES.project_specs}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_paths_ticket ON ${PMO_TABLES.ticket_affected_paths}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_criteria_ticket ON ${PMO_TABLES.ticket_acceptance_criteria}(ticket_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_id ON ${PMO_TABLES.tickets}(status_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_statuses_project ON ${PMO_TABLES.statuses}(project_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_statuses_category ON ${PMO_TABLES.statuses}(project_id, category);
-  CREATE INDEX IF NOT EXISTS idx_pmo_statuses_position ON ${PMO_TABLES.statuses}(project_id, category, position);
-  CREATE INDEX IF NOT EXISTS idx_pmo_projects_status ON ${PMO_TABLES.projects}(status);
-  CREATE INDEX IF NOT EXISTS idx_pmo_projects_phase ON ${PMO_TABLES.projects}(phase_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_projects_archived ON ${PMO_TABLES.projects}(is_archived);
   CREATE INDEX IF NOT EXISTS idx_pmo_phases_category ON ${PMO_TABLES.phases}(category);
   CREATE INDEX IF NOT EXISTS idx_pmo_phases_position ON ${PMO_TABLES.phases}(category, position);
   CREATE INDEX IF NOT EXISTS idx_pmo_board_views_project ON ${PMO_TABLES.board_views}(project_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_board_views_default ON ${PMO_TABLES.board_views}(project_id, is_default);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_templates_builtin ON ${PMO_TABLES.ticket_templates}(is_builtin);
+  CREATE INDEX IF NOT EXISTS idx_pmo_workflow_statuses_workflow ON ${PMO_TABLES.workflow_statuses}(workflow_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_workflow_statuses_category ON ${PMO_TABLES.workflow_statuses}(workflow_id, category);
+  CREATE INDEX IF NOT EXISTS idx_pmo_workflow_statuses_position ON ${PMO_TABLES.workflow_statuses}(workflow_id, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_workflows_builtin ON ${PMO_TABLES.workflows}(is_builtin);
+  CREATE INDEX IF NOT EXISTS idx_pmo_roadmaps_default ON ${PMO_TABLES.roadmaps}(is_default);
+  CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_roadmap ON ${PMO_TABLES.roadmap_projects}(roadmap_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_project ON ${PMO_TABLES.roadmap_projects}(project_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_roadmap_projects_position ON ${PMO_TABLES.roadmap_projects}(roadmap_id, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_categories_type ON ${PMO_TABLES.categories}(type);
+  CREATE INDEX IF NOT EXISTS idx_pmo_categories_position ON ${PMO_TABLES.categories}(type, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_label_groups_position ON ${PMO_TABLES.label_groups}(position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_labels_group ON ${PMO_TABLES.labels}(group_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_labels_position ON ${PMO_TABLES.labels}(group_id, position);
+  CREATE INDEX IF NOT EXISTS idx_pmo_labels_builtin ON ${PMO_TABLES.labels}(is_builtin);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_labels_ticket ON ${PMO_TABLES.ticket_labels}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_ticket_labels_label ON ${PMO_TABLES.ticket_labels}(label_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_linear_id ON ${PMO_TABLES.linear_issue_map}(linear_issue_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_identifier ON ${PMO_TABLES.linear_issue_map}(linear_identifier);
+  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_team ON ${PMO_TABLES.linear_issue_map}(linear_team_key);
 `;
 
 // =============================================================================
@@ -472,18 +619,18 @@ export const PMO_INDEXES = `
 export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.phases,  // Project phases (before projects for FK)
   PMO_TABLE_SCHEMAS.phase_templates,  // Phase templates (for preset phase configurations)
+  PMO_TABLE_SCHEMAS.workflows,  // Shared workflows (before projects for FK)
+  PMO_TABLE_SCHEMAS.workflow_statuses,  // Workflow statuses (= board columns)
   PMO_TABLE_SCHEMAS.projects,
   PMO_TABLE_SCHEMAS.initiatives,
-  PMO_TABLE_SCHEMAS.columns,
-  PMO_TABLE_SCHEMAS.templates,  // Workflow templates (before statuses for seeding)
-  PMO_TABLE_SCHEMAS.statuses,  // Workflow statuses per project
+  PMO_TABLE_SCHEMAS.categories,  // Ticket and status categories
+  // PMO_TABLE_SCHEMAS.templates,  // REMOVED: workflows are now used directly
   PMO_TABLE_SCHEMAS.specs,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.spec_dependencies,  // Spec-to-spec dependencies
   PMO_TABLE_SCHEMAS.epics,  // Must be before tickets (FK reference)
   PMO_TABLE_SCHEMAS.epic_dependencies,  // Epic-to-epic dependencies
   PMO_TABLE_SCHEMAS.project_specs,  // Many-to-many project ↔ spec associations
   PMO_TABLE_SCHEMAS.tickets,
-  PMO_TABLE_SCHEMAS.board_tickets,
   PMO_TABLE_SCHEMAS.board_views,  // Saved board view configurations
   PMO_TABLE_SCHEMAS.subtasks,
   PMO_TABLE_SCHEMAS.ticket_metadata,
@@ -496,8 +643,19 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
   PMO_TABLE_SCHEMAS.containers,  // Docker containers per agent
+  PMO_TABLE_SCHEMAS.id_sequences,  // Sequence counters for ID generation
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
   PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
+  PMO_TABLE_SCHEMAS.label_groups,  // Label groups (before labels for FK)
+  PMO_TABLE_SCHEMAS.labels,  // Labels (before ticket_labels for FK)
+  PMO_TABLE_SCHEMAS.ticket_labels,  // Ticket-label junction table
+  PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
+  PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
+  PMO_TABLE_SCHEMAS.linear_issue_map,  // Linear issue ↔ PMO ticket mapping
+  // Legacy tables (kept for migration, will be dropped after data migrated)
+  PMO_TABLE_SCHEMAS.columns,  // DEPRECATED
+  PMO_TABLE_SCHEMAS.board_tickets,  // DEPRECATED
+  PMO_TABLE_SCHEMAS.statuses,  // DEPRECATED
   PMO_INDEXES,
 ].join(';\n');
 
@@ -520,6 +678,7 @@ export const EXPECTED_TICKET_COLUMNS = [
   'spec_id',
   'epic_id',
   'labels',
+  'position',
   'created_at',
   'updated_at',
   'last_synced_from_spec',

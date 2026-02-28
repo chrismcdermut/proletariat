@@ -4,14 +4,18 @@
  */
 
 import Database from 'better-sqlite3'
+import { DrizzleDB } from '../../database/drizzle.js'
 
 /**
  * Base context passed to all storage modules.
- * Contains the database connection only - project ID is passed explicitly to operations.
+ * Contains both raw SQLite and Drizzle connections for gradual migration.
+ * Project ID is passed explicitly to operations.
  */
 export interface StorageContext {
-  /** Database connection */
+  /** Raw better-sqlite3 database connection (for legacy queries) */
   db: Database.Database
+  /** Drizzle ORM database connection (for type-safe queries) */
+  drizzle: DrizzleDB
   /** Update the board timestamp for a project */
   updateBoardTimestamp: (projectId: string) => void
 }
@@ -63,7 +67,7 @@ export interface SpecRow {
   status: string
   type: string | null
   tags: string | null
-  depends_on: string | null
+  depends_on?: string | null  // Legacy field, no longer used (dependencies via spec_dependencies table)
   problem: string | null
   solution: string | null
   decisions: string | null
@@ -98,11 +102,33 @@ export interface ProjectRow {
   description: string | null
   status: string
   phase_id: string | null
+  workflow_id: string | null
   is_archived: number
   target_date: string | null
   initiative_id: string | null
   created_at: string
   updated_at: string
+}
+
+export interface WorkflowRow {
+  id: string
+  name: string
+  description: string | null
+  is_builtin: number
+  created_at: string
+  updated_at: string
+}
+
+export interface WorkflowStatusRow {
+  id: string
+  workflow_id: string
+  name: string
+  category: string
+  position: number
+  color: string | null
+  description: string | null
+  is_default: number
+  created_at: string
 }
 
 export interface ColumnRow {
@@ -132,14 +158,7 @@ export interface AcceptanceCriterionRow {
   position: number
 }
 
-export interface WorkflowTemplateRow {
-  id: string
-  name: string
-  description: string | null
-  is_builtin: number
-  statuses: string
-  created_at: string
-}
+// REMOVED: WorkflowTemplateRow - workflows are now used directly (no separate template concept)
 
 export interface PhaseRow {
   id: string
@@ -168,6 +187,7 @@ export interface WorkActionRow {
   prompt: string
   end_prompt: string | null
   default_category: string | null
+  modifies_code: number
   is_builtin: number
   position: number
   created_at: string
@@ -202,4 +222,58 @@ export interface TicketTemplateRow {
   suggested_subtasks: string | null
   is_builtin: number
   created_at: string
+}
+
+export interface RoadmapRow {
+  id: string
+  name: string
+  description: string | null
+  is_default: number
+  created_at: string
+  updated_at: string
+}
+
+export interface RoadmapProjectRow {
+  roadmap_id: string
+  project_id: string
+  position: number
+  created_at: string
+}
+
+export interface CategoryRow {
+  id: string
+  name: string
+  type: string
+  description: string | null
+  color: string | null
+  position: number
+  is_builtin: number
+  created_at: string
+}
+
+export interface LabelGroupRow {
+  id: string
+  name: string
+  description: string | null
+  is_exclusive: number
+  is_required: number
+  position: number
+  created_at: string
+}
+
+export interface LabelRow {
+  id: string
+  name: string
+  color: string | null
+  description: string | null
+  group_id: string | null
+  group_name?: string | null
+  position: number
+  is_builtin: number
+  created_at: string
+}
+
+export interface TicketLabelRow {
+  ticket_id: string
+  label_id: string
 }

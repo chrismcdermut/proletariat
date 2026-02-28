@@ -1,14 +1,11 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class EpicTicket extends PMOCommand {
@@ -38,14 +35,6 @@ export default class EpicTicket extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove tickets from this epic instead of adding',
@@ -58,6 +47,14 @@ export default class EpicTicket extends PMOCommand {
     'unlink-spec': Flags.boolean({
       description: 'Remove spec link from epic',
       default: false,
+    }),
+    reconcile: Flags.string({
+      description: 'How to handle spec mismatch: keep (keep ticket spec), epic (use epic spec), skip',
+      options: ['keep', 'epic', 'skip'],
+    }),
+    'inherit-spec': Flags.boolean({
+      description: 'Inherit spec from epic when ticket has no spec',
+      allowNo: true,
     }),
   };
 
@@ -101,11 +98,10 @@ export default class EpicTicket extends PMOCommand {
       return;
     }
 
-    // Get epic_id for each ticket via direct DB query
-    const db = (this.storage as unknown as { db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => void } } }).db;
+    // Helper to get ticket's epic ID from the loaded ticket list
     const getTicketEpicId = (ticketId: string): string | null => {
-      const row = db.prepare(`SELECT epic_id FROM pmo_tickets WHERE id = ?`).get(ticketId) as { epic_id: string | null } | undefined;
-      return row?.epic_id || null;
+      const ticket = allTickets.find((t: Ticket) => t.id === ticketId);
+      return ticket?.epicId ?? null;
     };
 
     let epicId = args.id;
@@ -124,23 +120,16 @@ export default class EpicTicket extends PMOCommand {
       const epicChoices = epics.map(e => ({
         name: `${e.id} ${e.title} (${e.status}) [${ticketCounts.get(e.id) || 0} tickets]`,
         value: e.id,
+        command: `prlt epic ticket ${e.id} --json`,
       }));
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select epic to link tickets to:', epicChoices),
-          createMetadata('epic ticket', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select epic to link tickets to:',
         choices: epicChoices,
-      }]);
+      }], jsonModeConfig);
       epicId = selected;
     }
 
@@ -201,24 +190,17 @@ export default class EpicTicket extends PMOCommand {
           name: `${t.id} - ${t.title} [${epicLabel}]`,
           value: t.id,
           checked: false,
+          command: `prlt epic ticket ${epicId} ${t.id} --json`,
         };
       });
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('checkbox', 'tickets', `Select tickets to ${flags.unlink ? 'unlink from' : 'link to'} ${epicId}:`, choices),
-          createMetadata('epic ticket', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
+      const { selected } = await this.prompt<{ selected: string[] }>([{
         type: 'checkbox',
         name: 'selected',
         message: `Select tickets to ${flags.unlink ? 'unlink from' : 'link to'} ${epicId}:`,
         choices,
-      }]);
+      }], jsonModeConfig);
 
       ticketIds = selected;
     }
@@ -238,6 +220,7 @@ export default class EpicTicket extends PMOCommand {
     let successCount = 0;
     const linkedTickets: string[] = [];
 
+    // Process tickets - may prompt user for spec reconciliation
     for (const ticketId of ticketIds) {
       const ticket = allTickets.find((t: Ticket) => t.id === ticketId)!;
       const currentEpicId = getTicketEpicId(ticketId);
@@ -249,11 +232,7 @@ export default class EpicTicket extends PMOCommand {
           continue;
         }
 
-        db.prepare(`
-          UPDATE pmo_tickets
-          SET epic_id = NULL, updated_at = ?
-          WHERE id = ?
-        `).run(Date.now(), ticketId);
+        await this.storage.unlinkTicketFromEpic(ticketId);
       } else {
         // Link: check if already linked to same epic
         if (currentEpicId === epicId) {
@@ -272,18 +251,33 @@ export default class EpicTicket extends PMOCommand {
         const epicSpecId = epic.specId;
 
         if (ticketSpecId && epicSpecId && ticketSpecId !== epicSpecId) {
-          // Both have specs but they differ - warn user
-          this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
-          const { action } = await inquirer.prompt([{
-            type: 'list',
-            name: 'action',
-            message: `How to reconcile spec for ${ticketId}?`,
-            choices: [
-              { name: `Keep ticket spec (${ticketSpecId})`, value: 'keep_ticket' },
-              { name: `Use epic spec (${epicSpecId})`, value: 'use_epic' },
-              { name: 'Skip this ticket', value: 'skip' },
-            ],
-          }]);
+          // Both have specs but they differ - determine action
+          let action: string;
+
+          // Check if --reconcile flag was provided
+          if (flags.reconcile) {
+            action = flags.reconcile === 'keep' ? 'keep_ticket' : flags.reconcile === 'epic' ? 'use_epic' : 'skip';
+          } else {
+            if (!jsonMode) {
+              this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
+            }
+
+            const specReconcileChoices = [
+              { name: `Keep ticket spec (${ticketSpecId})`, value: 'keep_ticket', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile keep --json` },
+              { name: `Use epic spec (${epicSpecId})`, value: 'use_epic', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile epic --json` },
+              { name: 'Skip this ticket', value: 'skip', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile skip --json` },
+            ];
+
+            const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
+            // eslint-disable-next-line no-await-in-loop
+            const result = await this.prompt<{ action: string }>([{
+              type: 'list',
+              name: 'action',
+              message: `Spec mismatch for ${ticketId}: ticket has "${ticketSpecId}", epic has "${epicSpecId}". How to reconcile?`,
+              choices: specReconcileChoices,
+            }], jsonModeConfig);
+            action = result.action;
+          }
 
           if (action === 'skip') {
             this.log(styles.muted(`  Skipping ${ticketId}`));
@@ -292,37 +286,40 @@ export default class EpicTicket extends PMOCommand {
 
           if (action === 'use_epic') {
             // Update ticket to use epic's spec
-            db.prepare(`
-              UPDATE pmo_tickets
-              SET spec_id = ?, updated_at = ?
-              WHERE id = ?
-            `).run(epicSpecId, Date.now(), ticketId);
+            await this.storage.updateTicket(ticketId, { specId: epicSpecId });
             this.log(styles.muted(`  Updated ${ticketId} to use spec "${epicSpecId}"`));
           }
         } else if (!ticketSpecId && epicSpecId) {
-          // Ticket has no spec but epic does - offer to inherit
-          const { inherit } = await inquirer.prompt([{
-            type: 'confirm',
-            name: 'inherit',
-            message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
-            default: true,
-          }]);
+          // Ticket has no spec but epic does - determine if should inherit
+          let inherit: boolean;
+
+          // Check if --inherit-spec flag was provided
+          if (flags['inherit-spec'] !== undefined) {
+            inherit = flags['inherit-spec'];
+          } else {
+            const inheritChoices = [
+              { name: 'Yes', value: true, command: `prlt epic ticket ${epicId} ${ticketId} --inherit-spec --json` },
+              { name: 'No', value: false, command: `prlt epic ticket ${epicId} ${ticketId} --no-inherit-spec --json` },
+            ];
+
+            const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
+            // eslint-disable-next-line no-await-in-loop
+            const result = await this.prompt<{ inherit: boolean }>([{
+              type: 'list',
+              name: 'inherit',
+              message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
+              choices: inheritChoices,
+            }], jsonModeConfig);
+            inherit = result.inherit;
+          }
 
           if (inherit) {
-            db.prepare(`
-              UPDATE pmo_tickets
-              SET spec_id = ?, updated_at = ?
-              WHERE id = ?
-            `).run(epicSpecId, Date.now(), ticketId);
+            await this.storage.updateTicket(ticketId, { specId: epicSpecId });
             this.log(styles.muted(`  Assigned spec "${epicSpecId}" to ${ticketId}`));
           }
         }
 
-        db.prepare(`
-          UPDATE pmo_tickets
-          SET epic_id = ?, updated_at = ?
-          WHERE id = ?
-        `).run(epicId, Date.now(), ticketId);
+        await this.storage.linkTicketToEpic(ticketId, epicId!);
       }
 
       linkedTickets.push(`${ticketId}: ${ticket.title}`);

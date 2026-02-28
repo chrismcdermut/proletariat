@@ -1,11 +1,14 @@
 import { Command, Flags } from '@oclif/core'
-import { execSync } from 'child_process'
-import * as path from 'path'
+import { execSync } from 'node:child_process'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 interface ContainerInfo {
   id: string
@@ -26,6 +29,7 @@ export default class DockerList extends Command {
   ]
 
   static flags = {
+    ...machineOutputFlags,
     all: Flags.boolean({
       char: 'a',
       description: 'Show all containers (including non-devcontainer)',
@@ -40,9 +44,14 @@ export default class DockerList extends Command {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(DockerList)
+    const jsonMode = shouldOutputJson(flags)
 
     // Check Docker status first
     if (!isDockerRunning()) {
+      if (jsonMode) {
+        this.log(JSON.stringify({ error: 'Docker is not running' }, null, 2))
+        return
+      }
       this.log(`\n${styles.error('Docker is not running')}`)
       this.log(`${styles.muted('Start Docker Desktop or the Docker daemon first.')}\n`)
       return
@@ -78,6 +87,15 @@ export default class DockerList extends Command {
       // Get running docker containers
       const runningContainers = this.getDockerContainers(workspaceInfo.agentsPath, flags.all)
 
+      if (jsonMode) {
+        this.log(JSON.stringify({
+          executions: trackedExecutions,
+          containers: runningContainers,
+        }, null, 2))
+        db.close()
+        return
+      }
+
       this.log(`\n${styles.header('Docker Containers')}`)
       this.log('='.repeat(100))
 
@@ -86,10 +104,10 @@ export default class DockerList extends Command {
       if (activeExecutions.length > 0) {
         this.log(styles.subheader('\nActive Executions:'))
         this.log(styles.muted(
-          padEnd('ID', 15) +
-          padEnd('Agent', 15) +
-          padEnd('Ticket', 12) +
-          padEnd('Status', 12) +
+          visualPadEnd('ID', 15) +
+          visualPadEnd('Agent', 15) +
+          visualPadEnd('Ticket', 12) +
+          visualPadEnd('Status', 12) +
           'Container'
         ))
         this.log('-'.repeat(80))
@@ -106,10 +124,10 @@ export default class DockerList extends Command {
           }
 
           this.log(
-            padEnd(exec.id, 15) +
-            padEnd(exec.agentName, 15) +
-            padEnd(exec.ticketId, 12) +
-            statusColor(padEnd(exec.status, 12)) +
+            visualPadEnd(exec.id, 15) +
+            visualPadEnd(exec.agentName, 15) +
+            visualPadEnd(exec.ticketId, 12) +
+            statusColor(visualPadEnd(exec.status, 12)) +
             containerId + containerStatus
           )
         }
@@ -123,9 +141,9 @@ export default class DockerList extends Command {
       if (filteredContainers.length > 0) {
         this.log(styles.subheader('\nDocker Containers' + (flags.all ? ' (all)' : ' (devcontainers)') + ':'))
         this.log(styles.muted(
-          padEnd('Container ID', 15) +
-          padEnd('Agent', 15) +
-          padEnd('Status', 15) +
+          visualPadEnd('Container ID', 15) +
+          visualPadEnd('Agent', 15) +
+          visualPadEnd('Status', 15) +
           'Uptime'
         ))
         this.log('-'.repeat(70))
@@ -138,9 +156,9 @@ export default class DockerList extends Command {
           const agentName = dbContainer?.agentName || this.extractAgentFromImage(container.image) || container.name
 
           this.log(
-            padEnd(container.id, 15) +
-            padEnd(agentName, 15) +
-            statusColor(padEnd(container.status, 15)) +
+            visualPadEnd(container.id, 15) +
+            visualPadEnd(agentName, 15) +
+            statusColor(visualPadEnd(container.status, 15)) +
             styles.muted(container.uptime)
           )
         }
@@ -173,7 +191,7 @@ export default class DockerList extends Command {
   private getDockerContainers(agentsPath: string, showAll: boolean): ContainerInfo[] {
     try {
       // Get containers - filter by devcontainer label unless --all
-      let cmd = 'docker ps -a --format "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Label \\"devcontainer.local_folder\\"}}"'
+      const cmd = 'docker ps -a --format "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Label \\"devcontainer.local_folder\\"}}"'
 
       const output = execSync(cmd, {
         encoding: 'utf-8',
@@ -218,15 +236,6 @@ export default class DockerList extends Command {
     const match = image.match(/^vsc-([^-]+)-/)
     return match ? match[1] : null
   }
-}
-
-function padEnd(str: string, length: number): string {
-  return str.padEnd(length)
-}
-
-function truncate(str: string, maxLength: number): string {
-  if (str.length <= maxLength) return str
-  return str.substring(0, maxLength - 2) + '..'
 }
 
 function getStatusColor(status: string): (s: string) => string {

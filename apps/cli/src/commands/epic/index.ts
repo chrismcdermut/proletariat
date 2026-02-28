@@ -1,12 +1,6 @@
-import { Flags } from '@oclif/core';
-import inquirer from 'inquirer';
+
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class Epic extends PMOCommand {
   static description = 'Interactive menu for epic operations';
@@ -17,14 +11,6 @@ export default class Epic extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -38,46 +24,34 @@ export default class Epic extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new epic', value: 'create' },
-      { name: 'List all epics', value: 'list' },
-      { name: 'View epic', value: 'view' },
-      { name: 'Show progress', value: 'progress' },
-      { name: 'Assign tickets to epic', value: 'ticket' },
-      { name: 'Assign spec to epic', value: 'spec' },
-      { name: 'Manage dependencies', value: 'link' },
-      { name: 'Archive epic (complete)', value: 'archive' },
-      { name: 'Activate epic', value: 'activate' },
-      { name: 'Reorder epic', value: 'move' },
-      { name: 'Move to different project', value: 'project' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'create', name: 'Create new epic', command: 'prlt epic create --json' },
+      { id: 'list', name: 'List all epics', command: 'prlt epic list --format json' },
+      { id: 'view', name: 'View epic', command: 'prlt epic view --json' },
+      { id: 'progress', name: 'Show progress', command: 'prlt epic progress --json' },
+      { id: 'ticket', name: 'Assign tickets to epic', command: 'prlt epic ticket --json' },
+      { id: 'spec', name: 'Assign spec to epic', command: 'prlt epic spec --json' },
+      { id: 'link', name: 'Manage dependencies', command: 'prlt link list --json' },
+      { id: 'archive', name: 'Archive epic (complete)', command: 'prlt epic archive --json' },
+      { id: 'activate', name: 'Activate epic', command: 'prlt epic activate --json' },
+      { id: 'move', name: 'Reorder epic', command: 'prlt epic move --json' },
+      { id: 'project', name: 'Move to different project', command: 'prlt epic project --json' },
+      { id: 'delete', name: 'Delete epic', command: 'prlt epic delete --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Epic Operations - What would you like to do?';
 
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('epic', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message: '🎯 ' + message,
-      choices: [
-        ...menuChoices.slice(0, 7),
-        new inquirer.Separator(),
-        ...menuChoices.slice(7, 11),
-        new inquirer.Separator(),
-        menuChoices[11],
-      ],
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'epic' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return;
     }
 
@@ -102,7 +76,7 @@ export default class Epic extends PMOCommand {
         await this.config.runCommand('epic:spec', []);
         break;
       case 'link':
-        await this.config.runCommand('epic:link', []);
+        await this.config.runCommand('link', []);
         break;
       case 'archive':
         await this.config.runCommand('epic:archive', []);
@@ -115,6 +89,9 @@ export default class Epic extends PMOCommand {
         break;
       case 'project':
         await this.config.runCommand('epic:project', []);
+        break;
+      case 'delete':
+        await this.config.runCommand('epic:delete', []);
         break;
     }
   }

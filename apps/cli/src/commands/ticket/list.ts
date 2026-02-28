@@ -1,7 +1,7 @@
 import { Command, Flags } from '@oclif/core';
 import { Ticket, pmoBaseFlags, TicketFilter } from '../../lib/pmo/index.js';
-import { PRIORITIES } from '../../lib/pmo/types.js';
-import { getPMOContext, type PMOContext } from '../../lib/pmo/pmo-context.js';
+import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
+import { getPMOContext } from '../../lib/pmo/pmo-context.js';
 import {
   styles,
   formatPriority,
@@ -11,23 +11,33 @@ import {
   divider,
   getPriorityStyle,
 } from '../../lib/styles.js';
+import { isNonTTY } from '../../lib/prompt-json.js';
 
-// Priority order for grouping: P0, P1, P2, P3, None
-const PRIORITY_ORDER = ['P0', 'P1', 'P2', 'P3', 'None'];
+// Priority order for grouping - dynamically resolved from workspace settings
+// Computed at runtime and includes 'None' for unset priorities
+function getPriorityOrder(db: { prepare(sql: string): { get(...params: unknown[]): unknown; run(...params: unknown[]): unknown } }): string[] {
+  const priorities = getWorkspacePriorities(db);
+  return [...priorities, 'None'];
+}
 
 export default class TicketList extends Command {
   static description = 'List tickets from the PMO board';
 
+  /** Dynamic priority order (set from workspace settings in run()) */
+  private priorityOrder: string[] = ['P0', 'P1', 'P2', 'P3', 'None'];
+
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --column Backlog',
-    '<%= config.bin %> <%= command.id %> --priority URGENT',
+    '<%= config.bin %> <%= command.id %> --priority P0',
     '<%= config.bin %> <%= command.id %> --category bug',
     '<%= config.bin %> <%= command.id %> --search "login"',
     '<%= config.bin %> <%= command.id %> --project mobile-app',
     '<%= config.bin %> <%= command.id %> --all',
     '<%= config.bin %> <%= command.id %> --all --group-by priority',
     '<%= config.bin %> <%= command.id %> -g priority',
+    '<%= config.bin %> <%= command.id %> --limit 10',
+    '<%= config.bin %> <%= command.id %> --limit 10 --offset 20',
   ];
 
   static flags = {
@@ -38,8 +48,7 @@ export default class TicketList extends Command {
     }),
     priority: Flags.string({
       char: 'p',
-      description: 'Filter by priority',
-      options: [...PRIORITIES],
+      description: 'Filter by priority (uses workspace priority scale)',
     }),
     category: Flags.string({
       description: 'Filter by category',
@@ -59,27 +68,46 @@ export default class TicketList extends Command {
       description: 'Show tickets across all projects',
       default: false,
     }),
+    label: Flags.string({
+      description: 'Filter by label name',
+    }),
     'group-by': Flags.string({
       char: 'g',
       description: 'Group tickets by field',
       options: ['status', 'priority'],
       default: 'status',
     }),
+    limit: Flags.integer({
+      char: 'l',
+      description: 'Maximum number of tickets to display',
+      min: 1,
+    }),
+    offset: Flags.integer({
+      description: 'Skip first N tickets (for pagination)',
+      min: 0,
+    }),
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(TicketList);
 
+    // Default format to 'json' in non-TTY environments (piped output, CI, agents)
+    if (flags.format === 'table' && isNonTTY()) {
+      flags.format = 'json';
+    }
+
     // When --all is set, we don't need to select a specific project
     // Otherwise, use the normal project selection flow
-    let pmoContext: PMOContext | undefined;
 
     // Get PMO context - no project selection needed
-    pmoContext = await getPMOContext({
+    const pmoContext = await getPMOContext({
       logger: (msg) => this.log(styles.muted(msg)),
     });
 
     try {
+      // Set dynamic priority order from workspace settings
+      this.priorityOrder = getPriorityOrder(pmoContext.storage.getDatabase());
+
       // Build filter
       const filter: TicketFilter = {};
 
@@ -100,10 +128,43 @@ export default class TicketList extends Command {
       if (flags.search) {
         filter.search = flags.search;
       }
+      if (flags.label) {
+        filter.label = flags.label;
+      }
 
       // Determine projectId for the query
       const projectId = flags.all ? undefined : (filter.projectId || undefined);
-      const tickets = await pmoContext.storage.listTickets(projectId, filter);
+
+      // Validate project if specified (not in --all mode)
+      if (flags.project && !flags.all) {
+        const project = await pmoContext.storage.getProject(flags.project);
+        if (!project) {
+          const allProjects = await pmoContext.storage.listProjectSummaries();
+          const validProjectIds = allProjects.map(p => p.id);
+          this.error(`Project "${flags.project}" not found. Valid projects: ${validProjectIds.join(', ')}`);
+        }
+      }
+
+      // Validate column if specified (requires knowing the project)
+      if (flags.column && !flags.all) {
+        // Get the project board to validate the column
+        const targetProjectId = projectId || (await pmoContext.storage.listProjectSummaries())[0]?.id;
+        if (targetProjectId) {
+          const board = await pmoContext.storage.getProjectBoard(targetProjectId);
+          if (board) {
+            const validColumns = board.columns.map(c => c.name);
+            if (!validColumns.includes(flags.column)) {
+              this.error(`Column "${flags.column}" not found. Valid columns: ${validColumns.join(', ')}`);
+            }
+          }
+        }
+      }
+
+      let tickets = await pmoContext.storage.listTickets(projectId, filter);
+
+      // Apply pagination
+      if (flags.offset) tickets = tickets.slice(flags.offset);
+      if (flags.limit) tickets = tickets.slice(0, flags.limit);
 
       if (tickets.length === 0) {
         this.log(styles.warning('No tickets found.'));
@@ -132,7 +193,19 @@ export default class TicketList extends Command {
           this.log(styles.warning('No project found.'));
           return;
         }
-        const board = await pmoContext.storage.getBoard(actualProjectId);
+        const board = await pmoContext.storage.getProjectBoard(actualProjectId);
+        if (!board) {
+          // Project doesn't exist (orphaned tickets) - fall back to cross-project view
+          this.log(styles.warning(`Project "${actualProjectId}" not found. Showing tickets without board layout.`));
+          switch (flags.format) {
+            case 'json':
+              this.log(JSON.stringify(tickets, null, 2));
+              break;
+            default:
+              this.outputCrossProjectTable(tickets, groupBy);
+          }
+          return;
+        }
         const columns = board.columns.map(col => col.name);
 
         switch (flags.format) {
@@ -217,7 +290,7 @@ export default class TicketList extends Command {
   private outputCrossProjectTableByPriority(tickets: Ticket[]): void {
     // Group tickets by priority
     const byPriority: Record<string, Ticket[]> = {};
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       byPriority[priority] = [];
     }
     for (const ticket of tickets) {
@@ -228,7 +301,7 @@ export default class TicketList extends Command {
       byPriority[priority].push(ticket);
     }
 
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       const priorityTickets = byPriority[priority];
 
       // Priority header
@@ -298,7 +371,7 @@ export default class TicketList extends Command {
   private outputCrossProjectCompactByPriority(tickets: Ticket[]): void {
     // Group tickets by priority
     const byPriority: Record<string, Ticket[]> = {};
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       byPriority[priority] = [];
     }
     for (const ticket of tickets) {
@@ -309,7 +382,7 @@ export default class TicketList extends Command {
       byPriority[priority].push(ticket);
     }
 
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       const priorityTickets = byPriority[priority];
       if (priorityTickets.length === 0) continue;
 
@@ -388,7 +461,7 @@ export default class TicketList extends Command {
   private outputTableByPriority(tickets: Ticket[]): void {
     // Group tickets by priority
     const byPriority: Record<string, Ticket[]> = {};
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       byPriority[priority] = [];
     }
     for (const ticket of tickets) {
@@ -400,7 +473,7 @@ export default class TicketList extends Command {
     }
 
     // Display ALL priority groups
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       const priorityTickets = byPriority[priority];
 
       // Priority header with color
@@ -482,7 +555,7 @@ export default class TicketList extends Command {
   private outputCompactByPriority(tickets: Ticket[]): void {
     // Group by priority
     const byPriority: Record<string, Ticket[]> = {};
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       byPriority[priority] = [];
     }
     for (const ticket of tickets) {
@@ -493,7 +566,7 @@ export default class TicketList extends Command {
       byPriority[priority].push(ticket);
     }
 
-    for (const priority of PRIORITY_ORDER) {
+    for (const priority of this.priorityOrder) {
       const priorityTickets = byPriority[priority];
 
       // Show all priority groups

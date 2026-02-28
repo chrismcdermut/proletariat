@@ -5,6 +5,8 @@
  */
 
 import Database from 'better-sqlite3'
+import { execSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { PMO_TABLES } from '../pmo/schema.js'
 import {
   AgentWork,
@@ -38,6 +40,7 @@ interface AgentWorkRow {
   started_at: number
   completed_at: number | null
   exit_code: number | null
+  error_message: string | null
 }
 
 // =============================================================================
@@ -63,19 +66,8 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     startedAt: new Date(row.started_at),
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
     exitCode: row.exit_code ?? undefined,
+    errorMessage: row.error_message || undefined,
   }
-}
-
-// =============================================================================
-// ID Generation
-// =============================================================================
-
-function generateWorkId(db: Database.Database): string {
-  const result = db
-    .prepare(`SELECT COUNT(*) as count FROM ${T.agent_work}`)
-    .get() as { count: number }
-  const num = (result?.count || 0) + 1
-  return `WORK-${String(num).padStart(3, '0')}`
 }
 
 // =============================================================================
@@ -90,7 +82,8 @@ export class ExecutionStorage {
   }
 
   /**
-   * Create a new execution record
+   * Create a new execution record.
+   * Uses UUID-based IDs to guarantee uniqueness without race conditions.
    */
   createExecution(params: {
     ticketId: string
@@ -106,8 +99,11 @@ export class ExecutionStorage {
     host?: string
     logPath?: string
   }): AgentWork {
-    const id = generateWorkId(this.db)
     const now = Date.now()
+
+    // Generate a unique ID using UUID (first 8 chars, uppercase)
+    // Format: WORK-A1B2C3D4 - guaranteed unique, no race conditions
+    const id = `WORK-${randomUUID().substring(0, 8).toUpperCase()}`
 
     this.db.prepare(`
       INSERT INTO ${T.agent_work} (
@@ -148,15 +144,27 @@ export class ExecutionStorage {
   /**
    * Update execution status
    */
-  updateStatus(id: string, status: ExecutionStatus, exitCode?: number): void {
+  updateStatus(id: string, status: ExecutionStatus, exitCode?: number, errorMessage?: string): void {
     const completedAt = ['completed', 'failed', 'stopped'].includes(status) ? Date.now() : null
 
-    if (exitCode !== undefined) {
+    if (exitCode !== undefined && errorMessage) {
+      this.db.prepare(`
+        UPDATE ${T.agent_work}
+        SET status = ?, completed_at = ?, exit_code = ?, error_message = ?
+        WHERE id = ?
+      `).run(status, completedAt, exitCode, errorMessage, id)
+    } else if (exitCode !== undefined) {
       this.db.prepare(`
         UPDATE ${T.agent_work}
         SET status = ?, completed_at = ?, exit_code = ?
         WHERE id = ?
       `).run(status, completedAt, exitCode, id)
+    } else if (errorMessage) {
+      this.db.prepare(`
+        UPDATE ${T.agent_work}
+        SET status = ?, completed_at = ?, error_message = ?
+        WHERE id = ?
+      `).run(status, completedAt, errorMessage, id)
     } else {
       this.db.prepare(`
         UPDATE ${T.agent_work}
@@ -289,6 +297,134 @@ export class ExecutionStorage {
       .get(agentName) as { count: number }
 
     return count.count === 0
+  }
+
+  /**
+   * Clean up stale executions where the tmux session no longer exists.
+   * This fixes the bug where agents appear "busy" after sessions terminate unexpectedly.
+   * Returns the number of stale executions cleaned up.
+   */
+  cleanupStaleExecutions(): number {
+    // Get all "running" or "starting" executions
+    const activeExecutions = this.listExecutions({ status: 'running' })
+      .concat(this.listExecutions({ status: 'starting' }))
+
+    if (activeExecutions.length === 0) {
+      return 0
+    }
+
+    // Get list of actual tmux sessions on host
+    const hostTmuxSessions = this.getHostTmuxSessionNames()
+
+    // Get map of container -> tmux sessions
+    const containerTmuxSessions = this.getContainerTmuxSessionMap()
+
+    let cleanedCount = 0
+
+    for (const exec of activeExecutions) {
+      if (!exec.sessionId) {
+        // Executions without sessionId might be stale from early termination
+        // Check if they're older than 5 minutes and mark as stopped
+        const ageMs = Date.now() - exec.startedAt.getTime()
+        if (ageMs > 5 * 60 * 1000) {
+          this.updateStatus(exec.id, 'stopped')
+          cleanedCount++
+        }
+        continue
+      }
+
+      let sessionExists = false
+
+      if (exec.environment === 'devcontainer' && exec.containerId) {
+        // Check if session exists in container (use prefix matching for ID format differences)
+        const containerSessions = this.findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+        sessionExists = containerSessions.includes(exec.sessionId)
+      } else {
+        // Check if session exists on host
+        sessionExists = hostTmuxSessions.includes(exec.sessionId)
+      }
+
+      if (!sessionExists) {
+        // Session doesn't exist, mark execution as stopped
+        this.updateStatus(exec.id, 'stopped')
+        cleanedCount++
+      }
+    }
+
+    return cleanedCount
+  }
+
+  /**
+   * Find container sessions using prefix matching.
+   * Handles cases where the stored containerId format differs from docker ps output.
+   */
+  private findContainerSessionsByPrefix(
+    containerTmuxSessions: Map<string, string[]>,
+    containerId: string
+  ): string[] {
+    const exact = containerTmuxSessions.get(containerId)
+    if (exact) return exact
+
+    for (const [key, sessions] of containerTmuxSessions) {
+      if (key.startsWith(containerId) || containerId.startsWith(key)) {
+        return sessions
+      }
+    }
+
+    return []
+  }
+
+  /**
+   * Get list of host tmux session names
+   */
+  private getHostTmuxSessionNames(): string[] {
+    try {
+      execSync('which tmux', { stdio: 'pipe' })
+      const output = execSync(
+        'tmux list-sessions -F "#{session_name}"',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+
+      if (!output) return []
+      return output.split('\n')
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Get map of containerId -> tmux session names
+   */
+  private getContainerTmuxSessionMap(): Map<string, string[]> {
+    const sessionMap = new Map<string, string[]>()
+
+    try {
+      const containersOutput = execSync(
+        'docker ps --filter "label=devcontainer.local_folder" --format "{{.ID}}"',
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+
+      if (!containersOutput) return sessionMap
+
+      for (const containerId of containersOutput.split('\n')) {
+        try {
+          const tmuxOutput = execSync(
+            `docker exec ${containerId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
+            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+          ).trim()
+
+          if (tmuxOutput) {
+            sessionMap.set(containerId, tmuxOutput.split('\n'))
+          }
+        } catch {
+          // Container has no tmux sessions
+        }
+      }
+    } catch {
+      // Docker not available
+    }
+
+    return sessionMap
   }
 
   /**
@@ -568,7 +704,7 @@ export class ContainerStorage {
     agentName: string
   }>): { added: number; updated: number; removed: number } {
     const now = Date.now()
-    let added = 0, updated = 0, removed = 0
+    let added = 0; let updated = 0; let removed = 0
 
     // Create a set of docker IDs currently running
     const activeDockerIds = new Set(dockerContainers.map(c => c.id.substring(0, 12)))

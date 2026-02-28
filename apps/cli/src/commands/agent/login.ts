@@ -1,18 +1,20 @@
-import { Args, Flags } from '@oclif/core';
+import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
-import inquirer from 'inquirer';
 import { colors } from '../../lib/colors.js';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, formatAgentList, resolveAgentDir } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { isDockerRunning } from '../../lib/execution/runners.js';
+import {
+  isDockerRunning,
+  getAgentContainerName,
+  isContainerRunning,
+  getContainerId,
+} from '../../lib/execution/runners.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class Login extends PMOCommand {
@@ -32,14 +34,6 @@ export default class Login extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -52,18 +46,12 @@ export default class Login extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
-      if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('agent login', flags));
-        this.exit(1);
-      }
-      this.error(message);
-    };
+    // Error handling config
+    const errorConfig = { jsonMode, commandName: 'agent login', flags };
 
     // Check Docker is running
     if (!isDockerRunning()) {
-      return handleError('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.');
+      this.handleError('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.', errorConfig);
     }
 
     // Get workspace information
@@ -80,80 +68,71 @@ export default class Login extends PMOCommand {
 
     let agentName = args.name;
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'agent login' } : null;
+
     // Interactive mode if no agent specified
     if (!agentName) {
-      // In JSON mode, output agent selection prompt
-      if (jsonMode) {
-        const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'name', 'Select agent to authenticate:', agentChoices),
-          createMetadata('agent login', flags)
-        );
-        return;
+      // Group agents by type
+      const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
+      const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
+
+      // Build choices with command field for JSON mode
+      const choices: Array<{ name: string; value: string; command: string }> = [];
+
+      for (const agent of staffAgents) {
+        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent login ${agent.name} --machine` });
       }
 
-      const { selected } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selected',
-          message: 'Select agent to authenticate:',
-          choices: workspaceInfo.agents.map(agent => ({
-            name: agent.name,
-            value: agent.name
-          }))
-        }
-      ]);
+      for (const agent of tempAgents) {
+        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent login ${agent.name} --machine` });
+      }
+
+      const { selected } = await this.prompt<{ selected: string }>([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select agent to authenticate:',
+        choices,
+      }], agentConfig);
+
       agentName = selected;
     }
 
     // Validate agent exists
     const agent = workspaceInfo.agents.find(a => a.name === agentName);
     if (!agent) {
-      this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+      this.error(`Agent "${agentName}" not found. Available: ${formatAgentList(workspaceInfo.agents)}`);
     }
 
-    const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
+    const agentDir = resolveAgentDir(workspaceInfo, agentName!);
 
-    // Check if devcontainer exists
-    const devcontainerPath = path.join(agentDir, '.devcontainer');
-    try {
-      execSync(`test -d "${devcontainerPath}"`, { stdio: 'ignore' });
-    } catch {
-      this.error(`Agent "${agentName}" does not have a devcontainer configuration. Run "prlt agent add ${agentName}" to initialize.`);
+    // Check if Docker config exists
+    const dockerfilePath = path.join(agentDir, '.devcontainer', 'Dockerfile');
+    if (!fs.existsSync(dockerfilePath)) {
+      this.error(`Agent "${agentName}" does not have a Docker configuration. Run "prlt agent add ${agentName}" to initialize.`);
     }
 
-    // Get container ID
+    // Get container using the standard naming convention
     this.log(colors.primary(`🔐 Authenticating agent: ${agentName}`));
     this.log('');
 
-    let containerId: string;
-    try {
-      containerId = execSync(
-        `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
-        { encoding: 'utf-8' }
-      ).trim();
-    } catch {
-      this.error('Failed to find running container. Make sure the agent container is running.');
+    const containerName = getAgentContainerName(agentName!);
+    let containerId: string | null = null;
+
+    // Check if container is running
+    if (isContainerRunning(containerName)) {
+      containerId = getContainerId(containerName);
     }
 
     if (!containerId) {
-      this.log(colors.warning('Container is not running. Starting it now...'));
+      this.log(colors.warning('Container is not running.'));
       this.log('');
-
-      try {
-        execSync(`devcontainer up --workspace-folder "${agentDir}"`, {
-          stdio: 'inherit',
-          cwd: agentDir
-        });
-
-        // Get container ID again
-        containerId = execSync(
-          `docker ps --filter "label=devcontainer.local_folder=${agentDir}" --format "{{.ID}}"`,
-          { encoding: 'utf-8' }
-        ).trim();
-      } catch {
-        this.error('Failed to start container.');
-      }
+      this.log('Start the container first by running a work command:');
+      this.log('  prlt work start <ticket-id>');
+      this.log('');
+      this.log('Or start an interactive session:');
+      this.log('  prlt agent shell ' + agentName);
+      this.error('Container must be running to authenticate.');
     }
 
     // Create a helper script to launch interactive session

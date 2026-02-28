@@ -1,32 +1,19 @@
-import { Flags } from '@oclif/core'
-import inquirer from 'inquirer'
+
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class Session extends PMOCommand {
-  static description = 'Manage agent tmux sessions (list, attach, detach)'
+  static description = 'Manage agent tmux sessions (list, attach, create, detach)'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> list',
     '<%= config.bin %> <%= command.id %> attach TKT-347-implement',
+    '<%= config.bin %> <%= command.id %> create my-session',
   ]
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   }
 
   protected getPMOOptions() {
@@ -36,39 +23,22 @@ export default class Session extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(Session)
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags)
+    const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'session' } : null
 
-    // Define choices
-    const menuChoices = [
-      { name: 'List active sessions', value: 'list' },
-      { name: 'Attach to a session', value: 'attach' },
-      { name: 'Cancel', value: 'cancel' },
-    ]
-    const message = 'Session Management - What would you like to do?'
-
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('session', flags)
-      )
-      return
-    }
-
-    const { action } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'action',
-        message: '🖥️  ' + message,
-        choices: [
-          { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
-          { name: '🔗 ' + menuChoices[1].name, value: menuChoices[1].value },
-          new inquirer.Separator(),
-          { name: '❌ ' + menuChoices[2].name, value: menuChoices[2].value },
-        ],
-      },
-    ])
+    const { action } = await this.prompt<{ action: string }>([{
+      type: 'list',
+      name: 'action',
+      message: 'Session Management - What would you like to do?',
+      choices: [
+        { name: 'List active sessions', value: 'list', command: 'prlt session list --json' },
+        { name: 'Create a new session', value: 'create', command: 'prlt session create --json' },
+        { name: 'Attach to a session', value: 'attach', command: 'prlt session attach --json' },
+        { name: 'Peek at agent output', value: 'peek', command: 'prlt session peek --json' },
+        { name: 'Check agent health', value: 'health', command: 'prlt session health --json' },
+        { name: 'Poke a running agent', value: 'poke', command: 'prlt session poke --json' },
+        { name: 'Cancel', value: 'cancel' },
+      ],
+    }], jsonModeConfig)
 
     if (action === 'cancel') {
       return
@@ -79,8 +49,20 @@ export default class Session extends PMOCommand {
       case 'list':
         await this.config.runCommand('session:list', [])
         break
+      case 'create':
+        await this.config.runCommand('session:create', [])
+        break
       case 'attach':
         await this.config.runCommand('session:attach', [])
+        break
+      case 'peek':
+        await this.config.runCommand('session:peek', [])
+        break
+      case 'health':
+        await this.config.runCommand('session:health', [])
+        break
+      case 'poke':
+        await this.config.runCommand('session:poke', [])
         break
     }
   }

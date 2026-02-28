@@ -1,15 +1,13 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { StateCategory, Ticket } from '../../lib/pmo/types.js';
+import { Ticket } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class ActionRun extends PMOCommand {
   static description = 'Run an action on one or more tickets (bulk action support)';
@@ -56,14 +54,6 @@ export default class ActionRun extends PMOCommand {
       description: 'Skip confirmation prompt',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -104,52 +94,55 @@ export default class ActionRun extends PMOCommand {
         tickets = allTickets.filter(t => t.statusCategory === 'backlog' || !t.statusCategory);
       }
     } else if (ticketIds.length > 0) {
-      // Get specific tickets
-      for (const id of ticketIds) {
-        const ticket = await this.storage.getTicket(id);
-        if (ticket) {
-          tickets.push(ticket);
-        } else {
-          this.warn(`Ticket not found: ${id}`);
-        }
-      }
+      // Get specific tickets in parallel
+      const results = await Promise.all(
+        ticketIds.map(async (id) => {
+          const ticket = await this.storage.getTicket(id);
+          if (!ticket) {
+            this.warn(`Ticket not found: ${id}`);
+          }
+          return ticket;
+        })
+      );
+      tickets = results.filter((t): t is Ticket => t !== null);
     } else {
-      // Interactive: show list of tickets to select
+      // Interactive: show list of tickets to select using FlagResolver
       const allTickets = await this.storage.listTickets(projectId);
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found.');
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} [${t.statusName || t.statusCategory || 'unknown'}]`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('checkbox', 'ticketIds', `Select tickets for "${action.name}" action:`, ticketChoices),
-          createMetadata('action run', flags)
-        );
-        return;
-      }
+      // Use FlagResolver for ticket selection - works in both JSON and interactive modes
+      const resolver = new FlagResolver<{ ticketIds?: string[] }>({
+        commandName: 'action run',
+        baseCommand: `prlt action run --action ${flags.action}`,
+        jsonMode,
+        flags: {},
+      });
 
-      const { selectedTickets } = await inquirer.prompt([{
+      resolver.addPrompt({
+        flagName: 'ticketIds',
         type: 'checkbox',
-        name: 'selectedTickets',
         message: `Select tickets for "${action.name}" action:`,
-        choices: allTickets.map(t => ({
+        choices: () => allTickets.map(t => ({
           name: `${t.id} - ${t.title} [${t.statusName || t.statusCategory || 'unknown'}]`,
           value: t.id,
-          checked: action.suggestedForCategories?.includes(t.statusCategory as StateCategory),
         })),
-        validate: (input: string[]) => input.length > 0 || 'Select at least one ticket',
-      }]);
+        validate: (value) => (value as unknown as string[]).length > 0 || 'Select at least one ticket',
+        getCommand: (value) => `prlt action run ${(value as unknown as string[]).join(' ')} --action ${flags.action} --json`,
+      });
 
-      for (const id of selectedTickets) {
-        const ticket = await this.storage.getTicket(id);
-        if (ticket) tickets.push(ticket);
+      const resolved = await resolver.resolve();
+
+      if (!resolved.ticketIds || resolved.ticketIds.length === 0) {
+        this.error('No tickets selected.');
       }
+
+      const selectedResults = await Promise.all(
+        resolved.ticketIds.map((id: string) => this.storage.getTicket(id))
+      );
+      tickets = selectedResults.filter((t): t is Ticket => t !== null);
     }
 
     if (tickets.length === 0) {
@@ -182,14 +175,30 @@ export default class ActionRun extends PMOCommand {
 
     // Confirm unless --force
     if (!flags.force && tickets.length > 1) {
-      const { confirm } = await inquirer.prompt([{
-        type: 'confirm',
-        name: 'confirm',
-        message: `Run "${action.name}" on ${tickets.length} tickets?`,
-        default: true,
-      }]);
+      // Use FlagResolver for confirmation prompt - works in both JSON and interactive modes
+      const resolver = new FlagResolver<{ confirmed?: boolean }>({
+        commandName: 'action run',
+        baseCommand: `prlt action run ${tickets.map(t => t.id).join(' ')} --action ${flags.action}`,
+        jsonMode,
+        flags: {},
+      });
 
-      if (!confirm) {
+      resolver.addPrompt({
+        flagName: 'confirmed',
+        type: 'list',
+        message: `Run "${action.name}" on ${tickets.length} tickets?`,
+        choices: () => [
+          { name: 'Yes', value: true },
+          { name: 'No', value: false },
+        ],
+        getCommand: (value) => value
+          ? `prlt action run ${tickets.map(t => t.id).join(' ')} --action ${flags.action} --force --json`
+          : '',
+      });
+
+      const resolved = await resolver.resolve();
+
+      if (!resolved.confirmed) {
         this.log(styles.muted('Cancelled.'));
         return;
       }

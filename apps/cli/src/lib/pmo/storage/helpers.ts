@@ -2,66 +2,158 @@
  * Helper functions for converting database rows to domain types.
  */
 
-import Database from 'better-sqlite3'
-import { PMO_TABLES } from '../schema.js'
+import { eq, asc } from 'drizzle-orm'
+import {
+  pmoSubtasks,
+  pmoTicketMetadata,
+  pmoWorkflowStatuses,
+  pmoTicketAcceptanceCriteria,
+} from '../../database/drizzle-schema.js'
+import type { DrizzleDB } from '../../database/drizzle.js'
 import {
   AcceptanceCriterion,
+  PMOError,
   Spec,
   StateCategory,
   Ticket,
-  Subtask,
   normalizePriority,
 } from '../types.js'
 import {
-  AcceptanceCriterionRow,
   SpecRow,
-  StatusRow,
   TicketRow,
+  WorkflowStatusRow,
 } from './types.js'
 
-const T = PMO_TABLES
+/**
+ * SQLite error with optional code property.
+ */
+interface SqliteError extends Error {
+  code?: string
+}
+
+/**
+ * Check if an error is a SQLite UNIQUE constraint violation.
+ */
+function isUniqueConstraintError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const sqliteErr = err as SqliteError
+  return (
+    sqliteErr.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+    sqliteErr.message.includes('UNIQUE constraint failed')
+  )
+}
+
+/**
+ * Check if an error is a SQLite FOREIGN KEY constraint violation.
+ */
+function isForeignKeyConstraintError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const sqliteErr = err as SqliteError
+  return (
+    sqliteErr.code === 'SQLITE_CONSTRAINT_FOREIGNKEY' ||
+    sqliteErr.message.includes('FOREIGN KEY constraint failed')
+  )
+}
+
+/**
+ * Check if an error is a SQLite CHECK constraint violation.
+ */
+function isCheckConstraintError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const sqliteErr = err as SqliteError
+  return (
+    sqliteErr.code === 'SQLITE_CONSTRAINT_CHECK' ||
+    sqliteErr.message.includes('CHECK constraint failed')
+  )
+}
+
+/**
+ * Wrap SQLite constraint errors with user-friendly messages.
+ * This function always throws - it never returns.
+ *
+ * @param entityType - The type of entity being operated on (e.g., 'Ticket', 'Spec', 'Project')
+ * @param operation - The operation being performed ('create', 'update', 'delete')
+ * @param err - The error thrown by SQLite
+ * @throws {PMOError} Always throws a user-friendly PMOError
+ */
+export function wrapSqliteError(
+  entityType: string,
+  operation: 'create' | 'update' | 'delete',
+  err: unknown
+): never {
+  if (isUniqueConstraintError(err)) {
+    if (operation === 'create') {
+      throw new PMOError('CONFLICT', `${entityType} with this ID already exists`)
+    }
+    throw new PMOError('CONFLICT', `${entityType} already exists with that value`)
+  }
+
+  if (isForeignKeyConstraintError(err)) {
+    if (operation === 'delete') {
+      throw new PMOError(
+        'CONFLICT',
+        `Cannot delete ${entityType.toLowerCase()}: it has dependencies. Remove them first.`
+      )
+    }
+    throw new PMOError(
+      'INVALID',
+      `Cannot ${operation} ${entityType.toLowerCase()}: referenced entity does not exist`
+    )
+  }
+
+  if (isCheckConstraintError(err)) {
+    throw new PMOError('INVALID', `Invalid ${entityType.toLowerCase()} data: constraint check failed`)
+  }
+
+  // Re-throw unknown errors
+  throw err
+}
 
 /**
  * Convert a database row to a Ticket object.
- * Fetches related data (subtasks, metadata, status info).
+ * Fetches related data (subtasks, metadata, status info) using Drizzle ORM.
  */
 export async function rowToTicket(
-  db: Database.Database,
+  drizzle: DrizzleDB,
   row: TicketRow
 ): Promise<Ticket> {
   // Get subtasks
-  const subtasks = db
-    .prepare(`SELECT * FROM ${T.subtasks} WHERE ticket_id = ? ORDER BY position`)
-    .all(row.id) as Array<{
-    id: string
-    title: string
-    done: number
-  }>
+  const subtaskRows = drizzle
+    .select()
+    .from(pmoSubtasks)
+    .where(eq(pmoSubtasks.ticketId, row.id))
+    .orderBy(asc(pmoSubtasks.position))
+    .all()
 
   // Get metadata
-  const metaRows = db
-    .prepare(`SELECT key, value FROM ${T.ticket_metadata} WHERE ticket_id = ?`)
-    .all(row.id) as Array<{ key: string; value: string }>
+  const metaRows = drizzle
+    .select({ key: pmoTicketMetadata.key, value: pmoTicketMetadata.value })
+    .from(pmoTicketMetadata)
+    .where(eq(pmoTicketMetadata.ticketId, row.id))
+    .all()
   const metadata: Record<string, string> = {}
   for (const m of metaRows) {
-    metadata[m.key] = m.value
+    metadata[m.key] = m.value || ''
   }
 
-  // Get status info
+  // Get status info from workflow_statuses
   let statusName: string | undefined
   let statusCategory: StateCategory | undefined
   if (row.status_id) {
-    const statusRow = db
-      .prepare(`SELECT name, category FROM ${T.statuses} WHERE id = ?`)
-      .get(row.status_id) as { name: string; category: StateCategory } | undefined
+    const statusRow = drizzle
+      .select({ name: pmoWorkflowStatuses.name, category: pmoWorkflowStatuses.category })
+      .from(pmoWorkflowStatuses)
+      .where(eq(pmoWorkflowStatuses.id, row.status_id))
+      .get()
     if (statusRow) {
       statusName = statusRow.name
-      statusCategory = statusRow.category
+      statusCategory = statusRow.category as StateCategory
     }
   }
 
   // Map category to deprecated status enum for backward compat
   const categoryToStatus: Record<StateCategory, string> = {
+    triage: 'triage',
     backlog: 'backlog',
     unstarted: 'planned',
     started: 'in_progress',
@@ -95,14 +187,14 @@ export async function rowToTicket(
     branch: row.branch || undefined,
     specId: row.spec_id || undefined,
     epicId: row.epic_id || undefined,
-    subtasks: subtasks.map((st) => ({
+    subtasks: subtaskRows.map((st) => ({
       id: st.id,
       title: st.title,
-      done: st.done === 1,
+      done: st.done ?? false,
     })),
     labels,
     metadata,
-    acceptanceCriteria: getAcceptanceCriteriaSync(db, row.id),
+    acceptanceCriteria: getAcceptanceCriteriaSync(drizzle, row.id),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
     lastSyncedFromSpec: row.last_synced_from_spec
@@ -119,23 +211,24 @@ export async function rowToTicket(
  * Get acceptance criteria for a ticket (sync version).
  */
 export function getAcceptanceCriteriaSync(
-  db: Database.Database,
+  drizzle: DrizzleDB,
   ticketId: string
 ): AcceptanceCriterion[] {
-  const rows = db
-    .prepare(
-      `SELECT * FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ? ORDER BY position`
-    )
-    .all(ticketId) as AcceptanceCriterionRow[]
+  const rows = drizzle
+    .select()
+    .from(pmoTicketAcceptanceCriteria)
+    .where(eq(pmoTicketAcceptanceCriteria.ticketId, ticketId))
+    .orderBy(asc(pmoTicketAcceptanceCriteria.position))
+    .all()
 
   return rows.map((row) => ({
     id: row.id,
-    ticketId: row.ticket_id,
+    ticketId: row.ticketId,
     criterion: row.criterion,
-    verifiable: row.verifiable === 1,
-    verified: row.verified === 1,
-    verifiedAt: row.verified_at ? new Date(row.verified_at) : undefined,
-    verifiedBy: row.verified_by || undefined,
+    verifiable: row.verifiable ?? true,
+    verified: row.verified ?? false,
+    verifiedAt: row.verifiedAt ? new Date(row.verifiedAt) : undefined,
+    verifiedBy: row.verifiedBy || undefined,
     position: row.position,
   }))
 }
@@ -150,7 +243,8 @@ export function rowToSpec(row: SpecRow): Spec {
     status: row.status as 'draft' | 'active' | 'implemented',
     type: row.type as 'product' | 'platform' | 'infra' | 'integration' | undefined,
     tags: row.tags ? JSON.parse(row.tags) : undefined,
-    dependsOn: row.depends_on ? JSON.parse(row.depends_on) : undefined,
+    // Note: dependsOn is now handled via spec_dependencies table, not inline column
+    dependsOn: undefined,
     problem: row.problem || undefined,
     solution: row.solution || undefined,
     decisions: row.decisions || undefined,
@@ -167,12 +261,12 @@ export function rowToSpec(row: SpecRow): Spec {
 }
 
 /**
- * Convert a status database row to WorkflowStatus.
+ * Convert a workflow status database row to WorkflowStatus.
  */
-export function rowToStatus(row: StatusRow) {
+export function rowToStatus(row: WorkflowStatusRow) {
   return {
     id: row.id,
-    projectId: row.project_id,
+    workflowId: row.workflow_id,
     name: row.name,
     category: row.category as StateCategory,
     position: row.position,

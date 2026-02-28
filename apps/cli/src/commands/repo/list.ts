@@ -2,6 +2,8 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import { findHQRoot, getWorkspaceRepoInfo } from '../../lib/repos/index.js';
+import { isNonTTY } from '../../lib/prompt-json.js';
+import { visualPadEnd } from '../../lib/string-utils.js';
 
 export default class List extends PMOCommand {
   static description = 'List all repositories in the HQ';
@@ -28,6 +30,11 @@ export default class List extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(List);
+
+    // Default format to 'json' in non-TTY environments (piped output, CI, agents)
+    if (flags.format === 'table' && isNonTTY()) {
+      flags.format = 'json';
+    }
 
     // Find HQ root
     const hqPath = findHQRoot();
@@ -66,10 +73,10 @@ export default class List extends PMOCommand {
 
     // Header
     this.log(colors.textMuted(
-      'Name'.padEnd(20) +
-      'Status'.padEnd(10) +
-      'Branch'.padEnd(15) +
-      'Commits'.padEnd(12) +
+      visualPadEnd('Name', 20) +
+      visualPadEnd('Status', 10) +
+      visualPadEnd('Branch', 15) +
+      visualPadEnd('Commits', 12) +
       'Added'
     ));
     this.log(colors.textMuted('─'.repeat(70)));
@@ -91,10 +98,10 @@ export default class List extends PMOCommand {
       const added = repo.addedAt ? new Date(repo.addedAt).toLocaleDateString() : '-';
 
       this.log(
-        colors.text(repo.name.padEnd(20)) +
-        statusColor(repo.status.padEnd(10)) +
-        colors.warning((repo.branch || '-').padEnd(15)) +
-        colors.text(commits.padEnd(12)) +
+        colors.text(visualPadEnd(repo.name, 20)) +
+        statusColor(visualPadEnd(repo.status, 10)) +
+        colors.warning(visualPadEnd(repo.branch || '-', 15)) +
+        colors.text(visualPadEnd(commits, 12)) +
         colors.textMuted(added)
       );
     }

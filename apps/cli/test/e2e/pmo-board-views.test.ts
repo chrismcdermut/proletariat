@@ -13,6 +13,7 @@ import { exec } from './test-helpers.js';
  * SKIPPED: Board view command with filters is not yet implemented.
  * See ticket TKT-041 for implementation tracking.
  */
+// eslint-disable-next-line mocha/no-skipped-tests
 describe.skip('PMO Board Views E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;

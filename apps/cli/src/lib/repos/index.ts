@@ -12,6 +12,7 @@ import {
   Repository
 } from '../database/index.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
+import { getGitIdentity } from '../pr/index.js';
 import { findHQRoot } from '../workspace.js';
 
 export interface RepoToAdd {
@@ -109,9 +110,10 @@ export async function promptForRepositories(
     }
   }
 
-  // Loop to add more repos
+  // Loop to add more repos - user interaction requires sequential processing
   let addingRepos = true;
   while (addingRepos) {
+    // eslint-disable-next-line no-await-in-loop
     const { repoAction } = await inquirer.prompt([{
       type: 'list',
       name: 'repoAction',
@@ -119,12 +121,12 @@ export async function promptForRepositories(
         ? 'How would you like to add repositories to the HQ?'
         : 'Add another repository?',
       choices: [
-        { name: '📁 Manually enter repository path or Git URL', value: 'manual' },
         { name: '🔍 Search for repositories on this machine', value: 'search' },
+        { name: '📁 Manually enter repository path or Git URL', value: 'manual' },
         { name: '✨ Create new repository', value: 'create' },
         { name: repos.length === 0 ? '⏭️  Skip adding repositories' : '✅ Done adding repositories', value: 'skip' }
       ],
-      default: repos.length === 0 ? 'manual' : 'skip'
+      default: repos.length === 0 ? 'search' : 'skip'
     }]);
 
     if (repoAction === 'skip') {
@@ -133,6 +135,7 @@ export async function promptForRepositories(
     }
 
     if (repoAction === 'create') {
+      // eslint-disable-next-line no-await-in-loop
       const newRepo = await createNewRepository();
       if (newRepo) {
         repos.push(newRepo);
@@ -141,11 +144,13 @@ export async function promptForRepositories(
     }
 
     if (repoAction === 'search') {
+      // eslint-disable-next-line no-await-in-loop
       const foundRepos = await searchForRepositories();
       repos.push(...foundRepos);
       
       // After search, ask if they want to add more (unless they selected nothing)
       if (foundRepos.length > 0) {
+        // eslint-disable-next-line no-await-in-loop
         const { addMoreAfterSearch } = await inquirer.prompt([{
           type: 'list',
           name: 'addMoreAfterSearch',
@@ -166,6 +171,7 @@ export async function promptForRepositories(
     }
 
     // Manual entry (existing logic)
+    // eslint-disable-next-line no-await-in-loop
     const { repoPath } = await inquirer.prompt([{
       type: 'input',
       name: 'repoPath',
@@ -193,6 +199,7 @@ export async function promptForRepositories(
         console.log(chalk.yellow(`Cannot move ${repoName} - you're currently inside it. Will clone instead.`));
         repos.push({ path: resolvedPath, action: 'clone' });
       } else {
+        // eslint-disable-next-line no-await-in-loop
         const { action } = await inquirer.prompt([{
           type: 'list',
           name: 'action',
@@ -378,8 +385,10 @@ async function searchForRepositories(): Promise<RepoToAdd[]> {
     return [];
   }
 
-  // Remove duplicates and get repo names
-  const uniqueRepos = [...new Set(foundRepos)];
+  // Remove duplicates and sort alphabetically by repo name
+  const uniqueRepos = [...new Set(foundRepos)].sort((a, b) =>
+    path.basename(a).toLowerCase().localeCompare(path.basename(b).toLowerCase())
+  );
   const repoChoices = uniqueRepos.map(repoPath => ({
     name: `${path.basename(repoPath)} (${repoPath})`,
     value: repoPath
@@ -546,10 +555,13 @@ export async function addRepository(
 
     // Create devcontainer config for sandboxed execution in the central repo
     console.log(styles.muted(`Creating devcontainer config for ${repoName}...`));
+    const gitIdentity = getGitIdentity();
     createDevcontainerConfig({
       agentName: repoName,  // Use repo name as identifier
       agentDir: targetPath,
       repoWorktrees: [],    // No nested worktrees - this is the repo itself
+      gitUserName: gitIdentity.name || undefined,
+      gitUserEmail: gitIdentity.email || undefined,
     });
 
     return { success: true, name: repoName };
@@ -601,25 +613,24 @@ export async function removeRepository(
 async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath: string): Promise<void> {
   const db = openWorkspaceDatabase(hqPath);
 
-  // Get workspace config for theme info
-  const workspace = db.prepare('SELECT theme FROM workspace').get() as { theme: string };
-  const theme = db.prepare('SELECT workspace_dir FROM themes WHERE name = ?').get(workspace.theme) as { workspace_dir: string };
-
-  // Get all agents
-  const agents = db.prepare('SELECT name FROM agents').all() as { name: string }[];
+  // Get all agents with their worktree paths
+  const agents = db.prepare('SELECT name, worktree_path FROM agents WHERE status = \'active\' OR status IS NULL').all() as { name: string; worktree_path: string | null }[];
 
   if (agents.length === 0) {
     db.close();
     return;
   }
 
-  const agentsBasePath = path.join(hqPath, 'agents', theme.workspace_dir);
-
   for (const agent of agents) {
+    // Skip agents without a worktree path
+    if (!agent.worktree_path) {
+      continue;
+    }
+
     // Name worktree directory as {repoName}-{agentName} so git creates unique worktree entries
     // e.g., proletariat-branson instead of proletariat (which causes proletariat1, proletariat2, etc.)
     const worktreeDirName = `${repoName}-${agent.name}`;
-    const agentRepoPath = path.join(agentsBasePath, agent.name, worktreeDirName);
+    const agentRepoPath = path.join(hqPath, agent.worktree_path, worktreeDirName);
     const branchName = `agent-${agent.name}`;
 
     try {
@@ -637,7 +648,7 @@ async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath
       `).run(
         agent.name,
         repoName,
-        `agents/${theme.workspace_dir}/${agent.name}/${worktreeDirName}`,
+        `${agent.worktree_path}/${worktreeDirName}`,
         branchName,
         new Date().toISOString()
       );
@@ -655,18 +666,18 @@ async function createWorktreesForRepo(hqPath: string, repoName: string, repoPath
 async function removeWorktreesForRepo(hqPath: string, repoName: string): Promise<void> {
   const db = openWorkspaceDatabase(hqPath);
 
-  // Get workspace config for theme info
-  const workspace = db.prepare('SELECT theme FROM workspace').get() as { theme: string };
-  const theme = db.prepare('SELECT workspace_dir FROM themes WHERE name = ?').get(workspace.theme) as { workspace_dir: string };
-
-  // Get all agents
-  const agents = db.prepare('SELECT name FROM agents').all() as { name: string }[];
+  // Get all agents with their worktree paths
+  const agents = db.prepare('SELECT name, worktree_path FROM agents').all() as { name: string; worktree_path: string | null }[];
 
   const repoPath = path.join(hqPath, 'repos', repoName);
-  const agentsBasePath = path.join(hqPath, 'agents', theme.workspace_dir);
 
   for (const agent of agents) {
-    const agentRepoPath = path.join(agentsBasePath, agent.name, repoName);
+    // Skip agents without a worktree path
+    if (!agent.worktree_path) {
+      continue;
+    }
+
+    const agentRepoPath = path.join(hqPath, agent.worktree_path, repoName);
 
     try {
       // Remove worktree from git
@@ -709,8 +720,8 @@ export async function promptAddSingleRepo(): Promise<RepoToAdd | null> {
     name: 'method',
     message: 'How would you like to add a repository?',
     choices: [
-      { name: '📁 Enter path or Git URL', value: 'manual' },
       { name: '🔍 Search for repositories on this machine', value: 'search' },
+      { name: '📁 Enter path or Git URL', value: 'manual' },
       { name: '✨ Create new repository', value: 'create' },
       new inquirer.Separator(),
       { name: '❌ Cancel', value: 'cancel' }
@@ -791,8 +802,8 @@ export async function promptSelectRepo(
   ];
 
   if (allowCancel) {
-    choices.push(
-      new inquirer.Separator() as any,
+    (choices as Array<{ name: string; value: string } | inquirer.Separator>).push(
+      new inquirer.Separator(),
       { name: '❌ Cancel', value: 'cancel' }
     );
   }

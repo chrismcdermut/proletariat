@@ -7,20 +7,30 @@
 
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment } from './types.js'
+import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
+import {
+  shouldOutputJson,
+  outputPromptAsJson,
+  createMetadata,
+  buildPromptConfig,
+  type JsonFlags,
+} from '../prompt-json.js'
 
-import { execSync } from 'child_process'
+import { execSync } from 'node:child_process'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
 // Config keys stored in workspace_settings table
 const CONFIG_KEYS = {
   terminalApp: 'execution.terminal.app',
+  terminalOpenInBackground: 'execution.terminal.open_in_background',
   shell: 'execution.shell',
   defaultMode: 'execution.default_mode',
   defaultExecutor: 'execution.default_executor',
   autoExecute: 'execution.auto_execute',
+  outputMode: 'execution.output_mode',
+  sandboxed: 'execution.sandboxed',
   tmuxSession: 'execution.tmux.session',
   tmuxLayout: 'execution.tmux.layout',
   tmuxControlMode: 'execution.tmux.control_mode',
@@ -28,11 +38,13 @@ const CONFIG_KEYS = {
   dockerNetwork: 'execution.docker.network',
   dockerMemory: 'execution.docker.memory',
   dockerCpus: 'execution.docker.cpus',
+  firewallAllowlistDomains: 'execution.firewall.allowlist_domains',
   vmDefaultHost: 'execution.vm.default_host',
   vmUser: 'execution.vm.user',
   vmKeyPath: 'execution.vm.key_path',
   vmSyncMethod: 'execution.vm.sync_method',
   coderName: 'coder.name',
+  authMethod: 'execution.auth_method',
 }
 
 /**
@@ -65,7 +77,13 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   // Load terminal app
   const terminalApp = getSetting(db, CONFIG_KEYS.terminalApp)
   if (terminalApp) {
-    config.terminal = { app: terminalApp as TerminalApp }
+    config.terminal = { ...config.terminal, app: terminalApp as TerminalApp }
+  }
+
+  // Load terminal open in background setting
+  const terminalOpenInBackground = getSetting(db, CONFIG_KEYS.terminalOpenInBackground)
+  if (terminalOpenInBackground !== null) {
+    config.terminal = { ...config.terminal, openInBackground: terminalOpenInBackground === 'true' }
   }
 
   // Load shell
@@ -90,6 +108,24 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const autoExecute = getSetting(db, CONFIG_KEYS.autoExecute)
   if (autoExecute !== null) {
     config.autoExecute = autoExecute === 'true'
+  }
+
+  // Load output mode
+  const outputMode = getSetting(db, CONFIG_KEYS.outputMode)
+  if (outputMode) {
+    config.outputMode = outputMode as OutputMode
+  }
+
+  // Load sandboxed preference
+  const sandboxed = getSetting(db, CONFIG_KEYS.sandboxed)
+  if (sandboxed !== null) {
+    config.sandboxed = sandboxed === 'true'
+  }
+
+  // Load auth method preference
+  const authMethod = getSetting(db, CONFIG_KEYS.authMethod)
+  if (authMethod) {
+    config.authMethod = authMethod as AuthMethod
   }
 
   // Load tmux settings
@@ -122,6 +158,28 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const dockerCpus = getSetting(db, CONFIG_KEYS.dockerCpus)
   if (dockerCpus) {
     config.docker = { ...config.docker, cpus: parseInt(dockerCpus, 10) }
+  }
+
+  // Load firewall allowlist domains
+  const firewallAllowlistDomains = getSetting(db, CONFIG_KEYS.firewallAllowlistDomains)
+  if (firewallAllowlistDomains) {
+    let parsed: string[] = []
+    try {
+      const jsonValue = JSON.parse(firewallAllowlistDomains)
+      if (Array.isArray(jsonValue)) {
+        parsed = jsonValue
+          .filter((domain): domain is string => typeof domain === 'string')
+          .map(domain => domain.trim())
+          .filter(Boolean)
+      }
+    } catch {
+      // Backward-compatible fallback: comma-separated string
+      parsed = firewallAllowlistDomains
+        .split(',')
+        .map(domain => domain.trim())
+        .filter(Boolean)
+    }
+    config.firewall = { ...config.firewall, allowlistDomains: parsed }
   }
 
   // Load VM settings
@@ -175,6 +233,46 @@ export function saveTmuxControlMode(db: Database.Database, enabled: boolean): vo
 }
 
 /**
+ * Save terminal open in background preference.
+ * When enabled, new terminal tabs open without stealing focus from current window.
+ */
+export function saveTerminalOpenInBackground(db: Database.Database, enabled: boolean): void {
+  setSetting(db, CONFIG_KEYS.terminalOpenInBackground, enabled.toString())
+}
+
+/**
+ * Save extra firewall allowlist domains.
+ */
+export function saveFirewallAllowlistDomains(db: Database.Database, domains: string[]): void {
+  const cleaned = [...new Set(domains.map(domain => domain.trim()).filter(Boolean))]
+  setSetting(db, CONFIG_KEYS.firewallAllowlistDomains, JSON.stringify(cleaned))
+}
+
+/**
+ * Save auth method preference (oauth or apikey)
+ */
+export function saveAuthMethod(db: Database.Database, method: AuthMethod): void {
+  setSetting(db, CONFIG_KEYS.authMethod, method)
+}
+
+/**
+ * Get saved auth method preference.
+ * Returns null if no preference has been saved (user should be prompted).
+ */
+export function getAuthMethod(db: Database.Database): AuthMethod | null {
+  const value = getSetting(db, CONFIG_KEYS.authMethod)
+  if (value === 'oauth' || value === 'apikey') return value
+  return null
+}
+
+/**
+ * Clear saved auth method preference (will prompt again next time)
+ */
+export function clearAuthMethod(db: Database.Database): void {
+  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(CONFIG_KEYS.authMethod)
+}
+
+/**
  * Check if terminal app preference has been set
  */
 export function hasTerminalPreference(db: Database.Database): boolean {
@@ -186,6 +284,44 @@ export function hasTerminalPreference(db: Database.Database): boolean {
  */
 export function hasShellPreference(db: Database.Database): boolean {
   return getSetting(db, CONFIG_KEYS.shell) !== null
+}
+
+/**
+ * Auto-detect terminal app from environment.
+ * Uses TERM_PROGRAM env var set by most terminal emulators.
+ */
+export function detectTerminalApp(): TerminalApp | null {
+  const termProgram = process.env.TERM_PROGRAM?.toLowerCase() || ''
+
+  // Map TERM_PROGRAM values to our TerminalApp type
+  if (termProgram === 'iterm.app') return 'iTerm'
+  if (termProgram === 'apple_terminal') return 'Terminal'
+  if (termProgram === 'alacritty') return 'Alacritty'
+  if (termProgram === 'wezterm') return 'WezTerm'
+  if (termProgram === 'ghostty') return 'Ghostty'
+  if (termProgram === 'kitty') return 'Kitty'
+  if (termProgram === 'warp') return 'Warp'
+
+  // Also check TERMINAL_EMULATOR for some apps
+  const termEmulator = process.env.TERMINAL_EMULATOR?.toLowerCase() || ''
+  if (termEmulator.includes('jetbrains')) return 'tmux' // IDE terminal, fall back to tmux
+
+  return null
+}
+
+/**
+ * Auto-detect shell from environment.
+ * Uses SHELL env var.
+ */
+export function detectShell(): Shell | null {
+  const shellPath = process.env.SHELL || ''
+  const shellName = shellPath.split('/').pop()?.toLowerCase() || ''
+
+  if (shellName === 'zsh') return 'zsh'
+  if (shellName === 'bash') return 'bash'
+  if (shellName === 'fish') return 'fish'
+
+  return null
 }
 
 /**
@@ -253,7 +389,7 @@ export async function promptTmuxControlModePreference(db: Database.Database): Pr
 }
 
 /**
- * Get terminal app, prompting if not set
+ * Get terminal app, auto-detecting or prompting if not set
  */
 export async function getTerminalApp(db: Database.Database): Promise<TerminalApp> {
   const config = loadExecutionConfig(db)
@@ -263,7 +399,18 @@ export async function getTerminalApp(db: Database.Database): Promise<TerminalApp
     return config.terminal.app
   }
 
-  // First time - prompt user
+  // Try auto-detection first
+  const detected = detectTerminalApp()
+  if (detected) {
+    saveTerminalApp(db, detected)
+    // If iTerm detected, also enable control mode by default (best experience)
+    if (detected === 'iTerm') {
+      saveTmuxControlMode(db, true)
+    }
+    return detected
+  }
+
+  // Fall back to prompting user
   return promptTerminalPreference(db)
 }
 
@@ -292,7 +439,7 @@ export async function promptShellPreference(db: Database.Database): Promise<Shel
 }
 
 /**
- * Get shell, prompting if not set
+ * Get shell, auto-detecting or prompting if not set
  */
 export async function getShell(db: Database.Database): Promise<Shell> {
   const config = loadExecutionConfig(db)
@@ -302,7 +449,14 @@ export async function getShell(db: Database.Database): Promise<Shell> {
     return config.shell
   }
 
-  // First time - prompt user
+  // Try auto-detection first
+  const detected = detectShell()
+  if (detected) {
+    saveShell(db, detected)
+    return detected
+  }
+
+  // Fall back to prompting user
   return promptShellPreference(db)
 }
 
@@ -325,6 +479,11 @@ export interface ExecutionPromptOptions {
   reconfigure?: boolean
   /** Log function for status messages */
   log?: (msg: string) => void
+  /** JSON mode configuration for AI agents */
+  jsonMode?: {
+    flags: JsonFlags & Record<string, unknown>
+    commandName: string
+  }
 }
 
 export interface ExecutionPromptResult {
@@ -344,7 +503,10 @@ export async function promptExecutionSettings(
   db: Database.Database,
   options: ExecutionPromptOptions
 ): Promise<ExecutionPromptResult> {
-  const { displayMode, environment, log = () => {} } = options
+  const { displayMode, environment, log = () => {}, jsonMode } = options
+
+  // Check if JSON mode is active
+  const isJsonMode = jsonMode && shouldOutputJson(jsonMode.flags)
 
   // Load execution config from database
   const executionConfig = loadExecutionConfig(db)
@@ -382,15 +544,25 @@ export async function promptExecutionSettings(
   const streamingDisplayModes: DisplayMode[] = ['terminal']
 
   if (options.outputMode === undefined && streamingDisplayModes.includes(displayMode)) {
+    const outputChoices = [
+      { name: 'interactive  - Watch Claude work in real-time (streaming UI)', value: 'interactive' },
+      { name: 'print        - Show final result only (better for logs)', value: 'print' },
+    ]
+
+    // In JSON mode, output the output mode prompt
+    if (isJsonMode && jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'selectedOutputMode', 'How should Claude display output?', outputChoices, 'interactive'),
+        createMetadata(jsonMode.commandName, jsonMode.flags)
+      )
+    }
+
     const { selectedOutputMode } = await inquirer.prompt([
       {
         type: 'list',
         name: 'selectedOutputMode',
         message: 'How should Claude display output?',
-        choices: [
-          { name: 'interactive  - Watch Claude work in real-time (streaming UI)', value: 'interactive' },
-          { name: 'print        - Show final result only (better for logs)', value: 'print' },
-        ],
+        choices: outputChoices,
         default: 'interactive',
       },
     ])
@@ -404,15 +576,25 @@ export async function promptExecutionSettings(
     const containerNote = (environment === 'devcontainer' || environment === 'docker')
       ? ' (container provides additional isolation)'
       : ''
+    const permissionChoices = [
+      { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
+      { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
+    ]
+
+    // In JSON mode, output the permissions prompt
+    if (isJsonMode && jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'safe'),
+        createMetadata(jsonMode.commandName, jsonMode.flags)
+      )
+    }
+
     const { permissionMode } = await inquirer.prompt([
       {
         type: 'list',
         name: 'permissionMode',
         message: `Permission mode for Claude Code${containerNote}:`,
-        choices: [
-          { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
-          { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
-        ],
+        choices: permissionChoices,
         default: 'safe',
       },
     ])
@@ -424,15 +606,25 @@ export async function promptExecutionSettings(
   if (options.createPR === undefined) {
     const ghAvailable = isGHInstalled() && isGHAuthenticated()
     if (ghAvailable) {
+      const prChoices = [
+        { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
+        { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
+      ]
+
+      // In JSON mode, output the PR creation prompt
+      if (isJsonMode && jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'prChoice', 'Create a pull request when work is ready?', prChoices, 'yes'),
+          createMetadata(jsonMode.commandName, jsonMode.flags)
+        )
+      }
+
       const { prChoice } = await inquirer.prompt([
         {
           type: 'list',
           name: 'prChoice',
           message: 'Create a pull request when work is ready?',
-          choices: [
-            { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
-            { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
-          ],
+          choices: prChoices,
           default: 'yes',
         },
       ])

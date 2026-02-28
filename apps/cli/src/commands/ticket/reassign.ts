@@ -1,14 +1,12 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 
 export default class TicketReassign extends PMOCommand {
   static description = 'Reassign ticket(s) to a different agent';
@@ -34,14 +32,6 @@ export default class TicketReassign extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     to: Flags.string({
       description: 'Target agent name (for bulk mode)',
     }),
@@ -108,29 +98,19 @@ export default class TicketReassign extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} [${t.assignee || 'unassigned'}]`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to reassign:', ticketChoices),
-          createMetadata('ticket reassign', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to reassign:',
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket reassign ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket reassign' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
-        message: 'Select ticket to reassign:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} [${t.assignee || 'unassigned'}]`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+      ticketId = selected;
     }
 
     // Get ticket
@@ -143,27 +123,29 @@ export default class TicketReassign extends PMOCommand {
     let targetAssignee = args.assignee || flags.to;
 
     if (!targetAssignee) {
-      const { assignee } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'ticket reassign' } : null;
+      const { assignee } = await this.prompt<{ assignee: string }>([{
         type: 'list',
         name: 'assignee',
         message: `Reassign ${ticketId} to:`,
         choices: [
-          { name: 'None (unassign)', value: '__none__' },
+          { name: 'None (unassign)', value: '__none__', command: `prlt ticket reassign ${ticketId} none${projectId ? ` -P ${projectId}` : ''} --json` },
           ...Array.from(assignees).sort().map(a => ({
             name: a === ticket.assignee ? `${a} (current)` : a,
             value: a,
+            command: `prlt ticket reassign ${ticketId} ${a}${projectId ? ` -P ${projectId}` : ''} --json`,
           })),
-          { name: '── Enter custom name ──', value: '__custom__' },
+          { name: '── Enter custom name ──', value: '__custom__', command: `prlt ticket reassign ${ticketId} <name>${projectId ? ` -P ${projectId}` : ''} --json` },
         ],
-      }]);
+      }], jsonModeConfig);
 
       if (assignee === '__custom__') {
-        const { customAssignee } = await inquirer.prompt([{
+        const { customAssignee } = await this.prompt<{ customAssignee: string }>([{
           type: 'input',
           name: 'customAssignee',
           message: 'Enter agent/assignee name:',
-          validate: (input: string) => input.length > 0 || 'Name is required',
-        }]);
+          validate: (input: unknown) => (input as string).length > 0 || 'Name is required',
+        }], jsonModeConfig);
         targetAssignee = customAssignee;
       } else if (assignee === '__none__') {
         targetAssignee = undefined;
@@ -175,6 +157,19 @@ export default class TicketReassign extends PMOCommand {
     // Handle special values
     if (targetAssignee === 'none' || targetAssignee === 'unassigned') {
       targetAssignee = undefined;
+    }
+
+    // Validate agent name if provided directly (not through interactive prompt)
+    if (targetAssignee && (args.assignee || flags.to)) {
+      try {
+        const workspaceInfo = getWorkspaceInfo();
+        const agent = workspaceInfo.agents.find(a => a.name === targetAssignee);
+        if (!agent) {
+          this.error(`Agent "${targetAssignee}" not found. Run 'prlt agent list' to see available agents.`);
+        }
+      } catch {
+        // Not in a workspace or agents table doesn't exist - skip validation
+      }
     }
 
     // Check if same
@@ -200,8 +195,9 @@ export default class TicketReassign extends PMOCommand {
   private async executeBulk(
     allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
     assigneesList: string[],
-    flags: { to?: string; from?: string; force: boolean }
+    flags: { to?: string; from?: string; force: boolean; json?: boolean }
   ): Promise<void> {
+    const jsonMode = shouldOutputJson(flags);
     this.log(styles.emphasis('👤 Reassign Tickets\n'));
 
     // Filter tickets if --from specified
@@ -220,7 +216,8 @@ export default class TicketReassign extends PMOCommand {
     }
 
     // Select tickets to reassign
-    const { selectedTickets } = await inquirer.prompt([{
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket reassign' } : null;
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to reassign:',
@@ -228,7 +225,7 @@ export default class TicketReassign extends PMOCommand {
         name: `${t.id} - ${t.title}  [Assignee: ${t.assignee || '(none)'}]`,
         value: t.id,
       })),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -238,27 +235,28 @@ export default class TicketReassign extends PMOCommand {
     // Select target assignee
     let targetAssignee: string | undefined = flags.to;
     if (targetAssignee === undefined) {
-      const { assignee } = await inquirer.prompt([{
+      const { assignee } = await this.prompt<{ assignee: string }>([{
         type: 'list',
         name: 'assignee',
         message: 'Reassign to which agent?',
         choices: [
-          { name: 'None (unassign)', value: '__none__' },
+          { name: 'None (unassign)', value: '__none__', command: '' },
           ...assigneesList.sort().map(a => ({
             name: a,
             value: a,
+            command: `prlt ticket reassign --bulk --to ${a} --json`,
           })),
-          { name: '── Enter custom name ──', value: '__custom__' },
+          { name: '── Enter custom name ──', value: '__custom__', command: '' },
         ],
-      }]);
+      }], jsonModeConfig);
 
       if (assignee === '__custom__') {
-        const { customAssignee } = await inquirer.prompt([{
+        const { customAssignee } = await this.prompt<{ customAssignee: string }>([{
           type: 'input',
           name: 'customAssignee',
           message: 'Enter agent/assignee name:',
-          validate: (input: string) => input.length > 0 || 'Name is required',
-        }]);
+          validate: (input: unknown) => (input as string).length > 0 || 'Name is required',
+        }], jsonModeConfig);
         targetAssignee = customAssignee;
       } else if (assignee === '__none__') {
         targetAssignee = undefined;
@@ -270,6 +268,19 @@ export default class TicketReassign extends PMOCommand {
     // Handle special values
     if (targetAssignee === 'none' || targetAssignee === 'unassigned') {
       targetAssignee = undefined;
+    }
+
+    // Validate agent name if provided directly via --to flag (not through interactive prompt)
+    if (targetAssignee && flags.to) {
+      try {
+        const workspaceInfo = getWorkspaceInfo();
+        const agent = workspaceInfo.agents.find(a => a.name === targetAssignee);
+        if (!agent) {
+          this.error(`Agent "${targetAssignee}" not found. Run 'prlt agent list' to see available agents.`);
+        }
+      } catch {
+        // Not in a workspace or agents table doesn't exist - skip validation
+      }
     }
 
     // Confirmation
@@ -285,16 +296,16 @@ export default class TicketReassign extends PMOCommand {
       }
       this.log('');
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, reassign tickets', value: true }
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, reassign tickets', value: true, command: `prlt ticket reassign --bulk --to ${targetAssignee || 'none'} --force --json` }
         ],
         default: 0
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Operation cancelled.'));
@@ -308,8 +319,10 @@ export default class TicketReassign extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.updateTicket(ticketId, { assignee: targetAssignee || undefined });
 
         const action = targetAssignee ? `Reassigned to ${targetAssignee}` : 'Unassigned';

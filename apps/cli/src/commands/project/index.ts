@@ -1,12 +1,5 @@
-import { Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class Project extends PMOCommand {
   static description = 'Interactive menu for project operations';
@@ -17,14 +10,6 @@ export default class Project extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -38,38 +23,27 @@ export default class Project extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Define choices once, use for both JSON and interactive modes
+    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { name: 'Create new project', value: 'create' },
-      { name: 'List all projects', value: 'list' },
-      { name: 'View project board', value: 'view' },
-      { name: 'Manage project specs', value: 'spec' },
-      { name: 'Delete project', value: 'delete' },
-      { name: 'Cancel', value: 'cancel' },
+      { id: 'create', name: 'Create new project', command: 'prlt project create --json' },
+      { id: 'list', name: 'List all projects', command: 'prlt project list --format json' },
+      { id: 'view', name: 'View project board', command: 'prlt project view --json' },
+      { id: 'spec', name: 'Manage project specs', command: 'prlt project spec --json' },
+      { id: 'delete', name: 'Delete project', command: 'prlt project delete --json' },
+      { id: 'cancel', name: 'Cancel', command: '' },
     ];
     const message = 'Project Operations - What would you like to do?';
 
-    // In JSON mode, output menu prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('project', flags)
-      );
-      return;
-    }
-
-    // Show interactive menu
-    const { action } = await inquirer.prompt([{
-      type: 'list',
-      name: 'action',
+    const action = await this.selectFromList({
       message,
-      choices: [
-        ...menuChoices.slice(0, -1),
-        new inquirer.Separator(),
-        menuChoices[menuChoices.length - 1],
-      ],
-    }]);
+      items: menuChoices,
+      getName: (c) => c.name,
+      getValue: (c) => c.id,
+      getCommand: (c) => c.command,
+      jsonMode: jsonMode ? { flags, commandName: 'project' } : null,
+    });
 
-    if (action === 'cancel') {
+    if (action === 'cancel' || !action) {
       return;
     }
 

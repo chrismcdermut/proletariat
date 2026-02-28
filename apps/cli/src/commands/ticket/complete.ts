@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import {
   autoExportToBoard,
   PMOCommand,
@@ -8,10 +7,8 @@ import {
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketComplete extends PMOCommand {
@@ -32,14 +29,6 @@ export default class TicketComplete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     bulk: Flags.boolean({
       char: 'b',
       description: 'Enable bulk mode to complete multiple tickets',
@@ -84,7 +73,10 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Get board for columns (use the first incomplete ticket's project)
-    const board = await this.storage.getBoard(incompleteTickets[0].projectId!);
+    const board = await this.storage.getProjectBoard(incompleteTickets[0].projectId!);
+    if (!board) {
+      return handleError('PROJECT_NOT_FOUND', `Project "${incompleteTickets[0].projectId}" not found. The ticket may belong to an orphaned project.`);
+    }
 
     // Find the "Done" column (case-insensitive)
     const doneColumn = board.columns.find(col =>
@@ -97,7 +89,7 @@ export default class TicketComplete extends PMOCommand {
 
     // Bulk mode
     if (flags.bulk) {
-      await this.executeBulk(incompleteTickets, doneColumn.name, flags.force);
+      await this.executeBulk(incompleteTickets, doneColumn.name, flags);
       return;
     }
 
@@ -105,29 +97,19 @@ export default class TicketComplete extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = incompleteTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to complete:', ticketChoices),
-          createMetadata('ticket complete', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to mark complete:',
+        items: incompleteTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket complete ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket complete' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
-        message: 'Select ticket to complete:',
-        choices: incompleteTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+      ticketId = selected;
     }
 
     // Get ticket
@@ -150,20 +132,27 @@ export default class TicketComplete extends PMOCommand {
   private async executeBulk(
     incompleteTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
     doneColumnName: string,
-    force: boolean
+    flags: { force: boolean; json: boolean; machine: boolean; bulk: boolean; project?: string }
   ): Promise<void> {
-    this.log(styles.emphasis('✅ Complete Multiple Tickets\n'));
+    // Only show header in interactive mode
+    if (!shouldOutputJson(flags)) {
+      this.log(styles.emphasis('✅ Complete Multiple Tickets\n'));
+    }
 
-    // Select tickets to complete
-    const { selectedTickets } = await inquirer.prompt([{
+    // Agent mode config for prompts
+    const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'ticket complete --bulk' } : null;
+
+    // Select tickets to complete (now agent-compatible!)
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to mark as COMPLETE:',
       choices: incompleteTickets.map(t => ({
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
+        command: `prlt ticket complete ${t.id}${flags.project ? ` -P ${flags.project}` : ''} --json`,  // For agent: complete single ticket
       })),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -171,7 +160,7 @@ export default class TicketComplete extends PMOCommand {
     }
 
     // Confirmation
-    if (!force) {
+    if (!flags.force) {
       this.log(styles.primary('\nWill mark as complete:'));
       for (const ticketId of selectedTickets) {
         const ticket = incompleteTickets.find(t => t.id === ticketId);
@@ -179,16 +168,15 @@ export default class TicketComplete extends PMOCommand {
       }
       this.log(styles.primary(`  → Move to: ${doneColumnName}\n`));
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, complete tickets', value: true }
+          { name: 'No, cancel', value: 'false', command: '' },
+          { name: 'Yes, complete tickets', value: 'true', command: `prlt ticket complete ${selectedTickets.join(' ')}${flags.project ? ` -P ${flags.project}` : ''} --force --json` }
         ],
-        default: 1
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Operation cancelled.'));
@@ -202,12 +190,14 @@ export default class TicketComplete extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
         const ticket = incompleteTickets.find(t => t.id === ticketId);
         if (!ticket) {
           throw new Error('Ticket not found in incomplete tickets list');
         }
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.moveTicket(ticket.projectId!, ticketId, doneColumnName);
         this.log(styles.success(`Completed ${ticketId}`));
         successCount++;

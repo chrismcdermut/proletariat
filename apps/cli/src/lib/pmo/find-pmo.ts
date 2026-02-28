@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { findHQRoot, isValidHQ } from '../workspace.js';
+import { isValidHQ } from '../workspace.js';
 
 /**
  * Resolve PMO path from stored value.
@@ -62,7 +62,7 @@ function hasPMOTables(dbPath: string): boolean {
  * Find PMO directory by checking workspace.db for pmo_projects table
  *
  * Search priority:
- * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true - for devcontainer mounts)
+ * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true or PRLT_TEST_ENV=true)
  * 2. Current directory tree for HQ with PMO
  * 3. Current directory tree for standalone PMO (.pmo/)
  * 4. ~/.proletariat/config.json activeWorkspace (fallback when NOT in any workspace)
@@ -72,11 +72,11 @@ function hasPMOTables(dbPath: string): boolean {
  * working in different workspaces simultaneously.
  */
 export function findPMO(): string | null {
-  // Check PRLT_HQ_PATH environment variable (only in devcontainers)
+  // Check PRLT_HQ_PATH environment variable (only in devcontainers or test environments)
   const hqPath = process.env.PRLT_HQ_PATH;
-  const isDevcontainer = process.env.DEVCONTAINER === 'true';
+  const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
 
-  if (hqPath && isDevcontainer) {
+  if (hqPath && allowEnvHqPath) {
     // In devcontainer, PMO is always mounted at /hq/pmo regardless of database value
     // (database stores relative path like "repos/proletariat/pmo" but mount is at /hq/pmo)
     return path.join(hqPath, 'pmo');

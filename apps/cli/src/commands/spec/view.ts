@@ -1,14 +1,12 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class SpecView extends PMOCommand {
   static description = 'View a spec and its linked tickets';
@@ -27,14 +25,6 @@ export default class SpecView extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     spec: Flags.string({
       char: 's',
       description: 'Spec ID',
@@ -48,11 +38,18 @@ export default class SpecView extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SpecView);
-    // This command requires project context for listing linked tickets
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context for listing linked tickets (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'spec view',
+        baseCommand: 'prlt spec view',
+      } : undefined,
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -71,29 +68,26 @@ export default class SpecView extends PMOCommand {
         return handleError('NO_SPECS', 'No specs found. Create one first with: prlt spec create');
       }
 
-      // In JSON mode, output spec selection prompt
-      if (jsonMode) {
-        const specChoices = specs.map(s => ({
-          name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
-          value: s.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'spec', 'Select spec to view:', specChoices),
-          createMetadata('spec view', flags)
-        );
-        return;
-      }
+      // Use FlagResolver for spec selection
+      const resolver = new FlagResolver<{ spec?: string }>({
+        commandName: 'spec view',
+        baseCommand: 'prlt spec view',
+        jsonMode,
+        flags: { spec: flags.spec },
+      });
 
-      const { selectedSpec } = await inquirer.prompt([{
+      resolver.addPrompt({
+        flagName: 'spec',
         type: 'list',
-        name: 'selectedSpec',
         message: 'Select spec to view:',
-        choices: specs.map(s => ({
+        choices: () => specs.map(s => ({
           name: `${s.title} [${s.status}]${s.type ? ` (${s.type})` : ''}`,
           value: s.id,
         })),
-      }]);
-      specId = selectedSpec;
+      });
+
+      const resolved = await resolver.resolve();
+      specId = resolved.spec;
     }
 
     // Get the spec
@@ -108,6 +102,36 @@ export default class SpecView extends PMOCommand {
     // Get dependencies
     const dependencies = await this.storage.getSpecDependencies(spec.id);
     const dependents = await this.storage.getSpecDependents(spec.id);
+
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        spec: {
+          id: spec.id,
+          title: spec.title,
+          status: spec.status,
+          type: spec.type,
+          problem: spec.problem,
+          solution: spec.solution,
+          decisions: spec.decisions,
+          notNow: spec.notNow,
+          uiUx: spec.uiUx,
+          acceptanceCriteria: spec.acceptanceCriteria,
+          openQuestions: spec.openQuestions,
+          requirementsFunctional: spec.requirementsFunctional,
+          requirementsTechnical: spec.requirementsTechnical,
+          context: spec.context,
+          tags: spec.tags,
+          createdAt: spec.createdAt.toISOString(),
+          updatedAt: spec.updatedAt.toISOString(),
+          dependencies: dependencies.map(d => ({ id: d.id, title: d.title, status: d.status })),
+          dependents: dependents.map(d => ({ id: d.id, title: d.title, status: d.status })),
+          tickets: tickets.map(t => ({ id: t.id, title: t.title, status: t.status })),
+        },
+      }, null, 2));
+      return;
+    }
 
     // Display spec info
     this.log(styles.title(`\n📄 ${spec.title}`));

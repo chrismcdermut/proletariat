@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Epic, EpicStatus, Ticket } from '../../lib/pmo/types.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 // Progress bar helper
 function progressBar(percent: number, width = 20): string {
@@ -29,6 +30,7 @@ export default class EpicList extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(EpicList);
+    const jsonMode = shouldOutputJson(flags);
     const projectId = await this.requireProject();
 
     const epics = await this.storage.listEpics(
@@ -37,21 +39,39 @@ export default class EpicList extends PMOCommand {
     );
 
     if (epics.length === 0) {
+      if (jsonMode) {
+        this.log(JSON.stringify([], null, 2));
+        return;
+      }
       this.log(styles.muted('\nNo epics found.'));
       this.log(styles.muted('Create one with: prlt epic create'));
       return;
     }
 
+    // Get ticket counts for each epic in parallel
+    const ticketCounts = await Promise.all(
+      epics.map(async (epic) => {
+        const tickets = await this.storage.getTicketsForEpic(projectId, epic.id);
+        const done = tickets.filter((t: Ticket) => t.status === 'done').length;
+        return { epicId: epic.id, done, total: tickets.length };
+      })
+    );
+    const epicProgress = new Map(
+      ticketCounts.map(({ epicId, done, total }) => [epicId, { done, total }])
+    );
+
+    if (jsonMode) {
+      const epicsWithProgress = epics.map(epic => {
+        const progress = epicProgress.get(epic.id) || { done: 0, total: 0 };
+        const percent = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+        return { ...epic, progress: { ...progress, percent } };
+      });
+      this.log(JSON.stringify(epicsWithProgress, null, 2));
+      return;
+    }
+
     // Group epics by status
     const grouped = this.groupByStatus(epics);
-
-    // Get ticket counts for each epic
-    const epicProgress: Map<string, { done: number; total: number }> = new Map();
-    for (const epic of epics) {
-      const tickets = await this.storage.getTicketsForEpic(projectId, epic.id);
-      const done = tickets.filter((t: Ticket) => t.status === 'done').length;
-      epicProgress.set(epic.id, { done, total: tickets.length });
-    }
 
     const projectName = await this.getProjectName(projectId);
     this.log(`\n🎯 ${styles.emphasis('Epics')} - ${projectName}`);

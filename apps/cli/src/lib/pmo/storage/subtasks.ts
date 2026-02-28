@@ -2,10 +2,12 @@
  * Subtask operations for tickets.
  */
 
+import { randomUUID } from 'node:crypto'
 import { PMO_TABLES } from '../schema.js'
 import { PMOError, Subtask, AcceptanceCriterion } from '../types.js'
 import { slugify } from '../utils.js'
 import { StorageContext } from './types.js'
+import { wrapSqliteError } from './helpers.js'
 
 const T = PMO_TABLES
 
@@ -31,13 +33,33 @@ export class SubtaskStorage {
       FROM ${T.subtasks} WHERE ticket_id = ?
     `).get(ticketId) as { max_pos: number }
 
-    const id = slugify(title)
+    // Generate unique ID - start with slugified title, append counter if collision
+    const baseId = slugify(title)
+    let id = baseId
+    let counter = 1
+
+    // Check for existing subtask with same ID and append counter if needed
+    while (true) {
+      const existing = this.ctx.db.prepare(`
+        SELECT 1 FROM ${T.subtasks} WHERE ticket_id = ? AND id = ?
+      `).get(ticketId, id)
+
+      if (!existing) break
+
+      counter++
+      id = `${baseId}-${counter}`
+    }
+
     const position = maxPos.max_pos + 1
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
-      VALUES (?, ?, ?, 0, ?)
-    `).run(id, ticketId, title, position)
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
+        VALUES (?, ?, ?, 0, ?)
+      `).run(id, ticketId, title, position)
+    } catch (err) {
+      wrapSqliteError('Subtask', 'create', err)
+    }
 
     // Update ticket timestamp
     this.ctx.db.prepare(`
@@ -150,13 +172,18 @@ export class AcceptanceCriteriaStorage {
       FROM ${T.ticket_acceptance_criteria} WHERE ticket_id = ?
     `).get(ticketId) as { max_pos: number }
 
-    const id = `ac-${Date.now()}`
+    // Use UUID to guarantee uniqueness even when multiple ACs are added in the same millisecond
+    const id = `ac-${randomUUID()}`
     const position = maxPos.max_pos + 1
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.ticket_acceptance_criteria} (id, ticket_id, criterion, verifiable, verified, position)
-      VALUES (?, ?, ?, 1, 0, ?)
-    `).run(id, ticketId, criterion, position)
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.ticket_acceptance_criteria} (id, ticket_id, criterion, verifiable, verified, position)
+        VALUES (?, ?, ?, 1, 0, ?)
+      `).run(id, ticketId, criterion, position)
+    } catch (err) {
+      wrapSqliteError('Acceptance criterion', 'create', err)
+    }
 
     this.ctx.db.prepare(`
       UPDATE ${T.tickets} SET updated_at = ? WHERE id = ?

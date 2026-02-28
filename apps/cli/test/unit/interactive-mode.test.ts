@@ -49,10 +49,15 @@ describe('Interactive Mode Support Audit', () => {
       issues: [],
     };
 
-    // Check for imports
+    // Check for imports - detect direct inquirer usage AND wrapper patterns
+    // Commands may use inquirer directly, or via FlagResolver/this.prompt()/this.selectFromList()
     info.usesInquirer = content.includes("import inquirer from 'inquirer'") ||
                         content.includes('from "inquirer"') ||
-                        content.includes("require('inquirer')");
+                        content.includes("require('inquirer')") ||
+                        content.includes('FlagResolver') ||
+                        content.includes('this.prompt(') ||
+                        content.includes('this.prompt<') ||
+                        content.includes('this.selectFromList(');
 
     // Check for static flags
     const flagsMatch = content.match(/static flags\s*=\s*\{[\s\S]*?\n\s*\}/);

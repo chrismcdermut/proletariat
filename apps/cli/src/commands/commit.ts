@@ -1,14 +1,13 @@
-import { Command, Args, Flags } from '@oclif/core'
-import { execSync } from 'child_process'
-import inquirer from 'inquirer'
+import { Args, Flags } from '@oclif/core'
+import { execSync } from 'node:child_process'
+import { PromptCommand } from '../lib/prompt-command.js'
+import { machineOutputFlags } from '../lib/pmo/index.js'
 import { validateBranchName, BranchType } from '../lib/branch/index.js'
 import { styles } from '../lib/styles.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../lib/prompt-json.js'
 
 /**
@@ -173,7 +172,7 @@ function branchTypeToCommitType(branchType: BranchType): string {
   return mapping[branchType] || branchType
 }
 
-export default class Commit extends Command {
+export default class Commit extends PromptCommand {
   static description = 'Create a commit with ticket ID from branch name'
 
   static examples = [
@@ -226,14 +225,7 @@ export default class Commit extends Command {
       description: 'Show what would be committed without committing',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
+    ...machineOutputFlags,
   }
 
   async run(): Promise<void> {
@@ -241,6 +233,7 @@ export default class Commit extends Command {
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'commit' } : null
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -323,73 +316,15 @@ export default class Commit extends Command {
           return handleError('NO_CHANGES', 'No changes to commit. Working tree is clean.')
         }
 
-        // In JSON mode, output the staging action prompt first
-        if (jsonMode) {
-          const stagingChoicesJson: Array<{ name: string; value: string }> = []
-          if (hasStaged) {
-            stagingChoicesJson.push({
-              name: `Commit staged only (${status.staged.length} file${status.staged.length === 1 ? '' : 's'})`,
-              value: 'staged',
-            })
-          }
-          if (hasUnstaged || hasUntracked) {
-            const totalUnstaged = status.unstaged.length + status.untracked.length
-            stagingChoicesJson.push({
-              name: `Add all & commit (${totalUnstaged} unstaged + ${status.staged.length} staged)`,
-              value: 'all',
-            })
-            stagingChoicesJson.push({
-              name: 'Select files to add...',
-              value: 'select',
-            })
-          }
-          stagingChoicesJson.push({ name: 'Cancel', value: 'cancel' })
-          outputPromptAsJson(
-            buildPromptConfig('list', 'stagingAction', 'What would you like to commit?', stagingChoicesJson),
-            createMetadata('commit', flags)
-          )
-          return
-        }
-
-        // Build status display
-        this.log('')
-        if (hasStaged) {
-          this.log(styles.success(`  Staged (${status.staged.length}):`))
-          for (const file of status.staged.slice(0, 5)) {
-            this.log(styles.success(`    ✓ ${file}`))
-          }
-          if (status.staged.length > 5) {
-            this.log(styles.muted(`    ... and ${status.staged.length - 5} more`))
-          }
-        }
-        if (hasUnstaged) {
-          this.log(styles.warning(`  Modified (${status.unstaged.length}):`))
-          for (const file of status.unstaged.slice(0, 5)) {
-            this.log(styles.warning(`    ○ ${file}`))
-          }
-          if (status.unstaged.length > 5) {
-            this.log(styles.muted(`    ... and ${status.unstaged.length - 5} more`))
-          }
-        }
-        if (hasUntracked) {
-          this.log(styles.muted(`  Untracked (${status.untracked.length}):`))
-          for (const file of status.untracked.slice(0, 5)) {
-            this.log(styles.muted(`    ? ${file}`))
-          }
-          if (status.untracked.length > 5) {
-            this.log(styles.muted(`    ... and ${status.untracked.length - 5} more`))
-          }
-        }
-        this.log('')
-
-        // Build staging choices based on current state
+        // Build staging choices with command fields for agent navigation
         type StagingAction = 'staged' | 'all' | 'select' | 'cancel'
-        const stagingChoices: Array<{ name: string; value: StagingAction }> = []
+        const stagingChoices: Array<{ name: string; value: StagingAction; command?: string }> = []
 
         if (hasStaged) {
           stagingChoices.push({
             name: `Commit staged only (${status.staged.length} file${status.staged.length === 1 ? '' : 's'})`,
             value: 'staged',
+            command: 'prlt commit --json',
           })
         }
         if (hasUnstaged || hasUntracked) {
@@ -397,22 +332,57 @@ export default class Commit extends Command {
           stagingChoices.push({
             name: `Add all & commit (${totalUnstaged} unstaged + ${status.staged.length} staged)`,
             value: 'all',
+            command: 'prlt commit --all --json',
           })
           stagingChoices.push({
             name: 'Select files to add...',
             value: 'select',
+            command: 'prlt commit --stage <file> --json',
           })
         }
         stagingChoices.push({ name: 'Cancel', value: 'cancel' })
 
-        const { stagingAction } = await inquirer.prompt([
+        // Display git status (interactive only)
+        if (!jsonMode) {
+          this.log('')
+          if (hasStaged) {
+            this.log(styles.success(`  Staged (${status.staged.length}):`))
+            for (const file of status.staged.slice(0, 5)) {
+              this.log(styles.success(`    ✓ ${file}`))
+            }
+            if (status.staged.length > 5) {
+              this.log(styles.muted(`    ... and ${status.staged.length - 5} more`))
+            }
+          }
+          if (hasUnstaged) {
+            this.log(styles.warning(`  Modified (${status.unstaged.length}):`))
+            for (const file of status.unstaged.slice(0, 5)) {
+              this.log(styles.warning(`    ○ ${file}`))
+            }
+            if (status.unstaged.length > 5) {
+              this.log(styles.muted(`    ... and ${status.unstaged.length - 5} more`))
+            }
+          }
+          if (hasUntracked) {
+            this.log(styles.muted(`  Untracked (${status.untracked.length}):`))
+            for (const file of status.untracked.slice(0, 5)) {
+              this.log(styles.muted(`    ? ${file}`))
+            }
+            if (status.untracked.length > 5) {
+              this.log(styles.muted(`    ... and ${status.untracked.length - 5} more`))
+            }
+          }
+          this.log('')
+        }
+
+        const { stagingAction } = await this.prompt<{ stagingAction: StagingAction }>([
           {
             type: 'list',
             name: 'stagingAction',
             message: 'What would you like to commit?',
             choices: stagingChoices,
           },
-        ])
+        ], jsonModeConfig)
 
         if (stagingAction === 'cancel') {
           this.log(styles.muted('Cancelled.'))
@@ -425,7 +395,7 @@ export default class Commit extends Command {
         } else if (stagingAction === 'select') {
           // Let user select files to stage
           const allUnstaged = [...status.unstaged, ...status.untracked]
-          const { filesToStage } = await inquirer.prompt([
+          const { filesToStage } = await this.prompt<{ filesToStage: string[] }>([
             {
               type: 'checkbox',
               name: 'filesToStage',
@@ -436,7 +406,7 @@ export default class Commit extends Command {
                 checked: false,
               })),
             },
-          ])
+          ], null)
 
           if (filesToStage.length > 0) {
             stageFiles(filesToStage)
@@ -465,18 +435,10 @@ export default class Commit extends Command {
         const formatChoices = Object.entries(COMMIT_FORMATS).map(([name, preset]) => ({
           name: `${name}${name === DEFAULT_COMMIT_FORMAT ? ' (default)' : ''} → ${preset.format(exampleCtx)}`,
           value: name,
+          command: `prlt commit --all --format ${name} --json`,
         }))
 
-        // In JSON mode, output format selection prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'format', 'Commit format:', formatChoices),
-            createMetadata('commit', flags)
-          )
-          return
-        }
-
-        const { chosenFormat } = await inquirer.prompt([
+        const { chosenFormat } = await this.prompt<{ chosenFormat: string }>([
           {
             type: 'list',
             name: 'chosenFormat',
@@ -484,28 +446,19 @@ export default class Commit extends Command {
             choices: formatChoices,
             default: DEFAULT_COMMIT_FORMAT,
           },
-        ])
+        ], jsonModeConfig)
         selectedFormat = chosenFormat
       }
 
-      // In JSON mode with format specified, output message input prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('input', 'message', 'Commit message:', []),
-          createMetadata('commit', flags)
-        )
-        return
-      }
-
       // Prompt for message
-      const { inputMessage } = await inquirer.prompt([
+      const { inputMessage } = await this.prompt<{ inputMessage: string }>([
         {
           type: 'input',
           name: 'inputMessage',
           message: 'Commit message:',
-          validate: (input: string) => input.trim() ? true : 'Message cannot be empty',
+          validate: (input: unknown) => (input as string).trim() ? true : 'Message cannot be empty',
         },
-      ])
+      ], jsonModeConfig)
       message = inputMessage.trim()
     }
 

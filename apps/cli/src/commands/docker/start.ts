@@ -1,12 +1,14 @@
 import { Args, Command, Flags } from '@oclif/core'
-import { execSync } from 'child_process'
-import * as path from 'path'
+import { execSync } from 'node:child_process'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, isContainerRunning, sanitizeContainerId } from '../../lib/docker/resolve.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class DockerStart extends Command {
   static description = 'Start a stopped container (by execution ID, agent name, or container ID)'
@@ -18,6 +20,7 @@ export default class DockerStart extends Command {
   ]
 
   static flags = {
+    ...machineOutputFlags,
     attach: Flags.boolean({
       char: 'a',
       description: 'Attach to container after starting',
@@ -34,6 +37,7 @@ export default class DockerStart extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(DockerStart)
+    const jsonMode = shouldOutputJson(flags)
 
     if (!isDockerRunning()) {
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
@@ -68,17 +72,26 @@ export default class DockerStart extends Command {
 
       // Check if container is already running
       if (isContainerRunning(result.containerId)) {
+        if (jsonMode) {
+          this.log(JSON.stringify({ type: 'success', result: { containerId: result.containerId, displayName: result.displayName, executionId: result.executionId, status: 'already_running' } }, null, 2))
+          db.close()
+          return
+        }
         this.log(`\n${styles.warning(`Container ${result.displayName} is already running`)}\n`)
         db.close()
         return
       }
 
-      this.log(`\n${styles.header('Start Container')}`)
-      this.log(styles.muted(`Target: ${result.displayName}`))
-      this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}\n`))
+      if (!jsonMode) {
+        this.log(`\n${styles.header('Start Container')}`)
+        this.log(styles.muted(`Target: ${result.displayName}`))
+        this.log(styles.muted(`Container: ${result.containerId.substring(0, 12)}\n`))
+      }
 
       // Start container
-      this.log(styles.muted('Starting container...'))
+      if (!jsonMode) {
+        this.log(styles.muted('Starting container...'))
+      }
 
       try {
         const attachFlag = flags.attach ? '-a' : ''
@@ -90,6 +103,12 @@ export default class DockerStart extends Command {
         // Update execution status if we have an execution ID
         if (result.executionId) {
           executionStorage.updateStatus(result.executionId, 'running')
+        }
+
+        if (jsonMode) {
+          this.log(JSON.stringify({ type: 'success', result: { containerId: result.containerId, displayName: result.displayName, executionId: result.executionId, status: 'started' } }, null, 2))
+          db.close()
+          return
         }
 
         this.log(`${styles.success('Container started successfully')}\n`)

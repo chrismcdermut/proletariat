@@ -1,14 +1,11 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketEpic extends PMOCommand {
@@ -34,14 +31,6 @@ export default class TicketEpic extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     unlink: Flags.boolean({
       char: 'u',
       description: 'Remove epic link instead of adding',
@@ -95,11 +84,10 @@ export default class TicketEpic extends PMOCommand {
     // Get all epics
     const epics = await this.storage.listEpics(projectId);
 
-    // Get epic_id for each ticket via direct DB query
-    const db = (this.storage as unknown as { db: { prepare: (sql: string) => { get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => void } } }).db;
+    // Helper to get ticket's epic ID via storage layer
     const getTicketEpicId = (ticketId: string): string | null => {
-      const row = db.prepare(`SELECT epic_id FROM pmo_tickets WHERE id = ?`).get(ticketId) as { epic_id: string | null } | undefined;
-      return row?.epic_id || null;
+      const ticket = allTickets.find((t: Ticket) => t.id === ticketId);
+      return ticket?.epicId ?? null;
     };
 
     let ticketId = args.id;
@@ -112,21 +100,29 @@ export default class TicketEpic extends PMOCommand {
 
     // If no ticket ID provided, prompt for selection
     if (!ticketId) {
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
+      const ticketChoices = allTickets.map((t: Ticket) => {
+        const currentEpicId = getTicketEpicId(t.id);
+        const epicLabel = currentEpicId
+          ? epics.find(e => e.id === currentEpicId)?.title || currentEpicId
+          : 'No epic';
+        return {
+          id: t.id,
+          name: `${t.id} - ${t.title} (${t.statusName || t.status}) [${epicLabel}]`,
+        };
+      });
+
+      const selected = await this.selectFromList({
         message: 'Select ticket to link:',
-        choices: allTickets.map((t: Ticket) => {
-          const currentEpicId = getTicketEpicId(t.id);
-          const epicLabel = currentEpicId
-            ? epics.find(e => e.id === currentEpicId)?.title || currentEpicId
-            : 'No epic';
-          return {
-            name: `${t.id} - ${t.title} (${t.statusName || t.status}) [${epicLabel}]`,
-            value: t.id,
-          };
-        }),
-      }]);
+        items: ticketChoices,
+        getName: (t) => t.name,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket epic ${t.id} -P ${projectId} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
+      });
+
+      if (!selected) {
+        return;
+      }
       ticketId = selected;
     }
 
@@ -148,11 +144,7 @@ export default class TicketEpic extends PMOCommand {
       const currentEpic = epics.find(e => e.id === currentEpicId);
 
       // Update the ticket
-      db.prepare(`
-        UPDATE pmo_tickets
-        SET epic_id = NULL, updated_at = ?
-        WHERE id = ?
-      `).run(Date.now(), ticketId);
+      await this.storage.unlinkTicketFromEpic(ticketId!);
 
       await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
@@ -163,37 +155,37 @@ export default class TicketEpic extends PMOCommand {
 
     // If no epic ID provided, prompt for selection
     if (!epicId) {
-      const choices = [
-        ...epics.map(e => ({
-          name: `${e.id} ${e.title} (${e.status})${e.id === currentEpicId ? ' ← current' : ''}`,
-          value: e.id,
-        })),
-      ];
+      const epicChoices = epics.map(e => ({
+        id: e.id,
+        name: `${e.id} ${e.title} (${e.status})${e.id === currentEpicId ? ' ← current' : ''}`,
+      }));
 
-      if (currentEpicId) {
-        choices.push(new inquirer.Separator() as unknown as { name: string; value: string });
-        choices.push({ name: 'None (remove epic link)', value: '__none__' });
-      }
-
-      if (choices.length === 0 || (choices.length === 2 && currentEpicId)) {
+      if (epicChoices.length === 0) {
         this.log(styles.muted('\nNo epics found. Create one with: prlt epic create'));
         return;
       }
 
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
+      // Add "None" option if ticket has an epic
+      if (currentEpicId) {
+        epicChoices.push({ id: '__none__', name: 'None (remove epic link)' });
+      }
+
+      const selected = await this.selectFromList({
         message: 'Link to which epic?',
-        choices,
-      }]);
+        items: epicChoices,
+        getName: (e) => e.name,
+        getValue: (e) => e.id,
+        getCommand: (e) => e.id === '__none__' ? `prlt ticket epic ${ticketId} --unlink -P ${projectId} --json` : `prlt ticket epic ${ticketId} ${e.id} -P ${projectId} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket epic' } : null,
+      });
+
+      if (!selected) {
+        return;
+      }
 
       if (selected === '__none__') {
         // Unlink
-        db.prepare(`
-          UPDATE pmo_tickets
-          SET epic_id = NULL, updated_at = ?
-          WHERE id = ?
-        `).run(Date.now(), ticketId);
+        await this.storage.unlinkTicketFromEpic(ticketId!);
 
         const currentEpic = epics.find(e => e.id === currentEpicId);
         await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -219,11 +211,7 @@ export default class TicketEpic extends PMOCommand {
     }
 
     // Update the ticket
-    db.prepare(`
-      UPDATE pmo_tickets
-      SET epic_id = ?, updated_at = ?
-      WHERE id = ?
-    `).run(epicId, Date.now(), ticketId);
+    await this.storage.linkTicketToEpic(ticketId!, epicId!);
 
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
@@ -237,7 +225,10 @@ export default class TicketEpic extends PMOCommand {
     'from-epic'?: string;
     force: boolean;
     unlink: boolean;
+    json?: boolean;
   }): Promise<void> {
+    const jsonMode = shouldOutputJson(flags);
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket epic' } : null;
     this.log(styles.emphasis('🔗 Link Tickets to Epic\n'));
 
     // Get project first
@@ -251,24 +242,13 @@ export default class TicketEpic extends PMOCommand {
       return;
     }
 
-    // Get epics from database
-    const db = (this.storage as unknown as { db: { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[]; get: (...args: unknown[]) => unknown; run: (...args: unknown[]) => unknown } } }).db;
-    const epics = db.prepare(`
-      SELECT id, title, status FROM pmo_epics
-      WHERE project_id = ?
-      ORDER BY status, title
-    `).all(projectId) as Array<{ id: string; title: string; status: string }>;
+    // Get epics via storage layer
+    const epics = await this.storage.listEpics(projectId);
 
     // Filter tickets if --from-epic specified
     let filteredTickets = allTickets;
     if (flags['from-epic']) {
-      // Get tickets with matching epic_id via metadata or direct query
-      const epicTickets = db.prepare(`
-        SELECT id FROM pmo_tickets
-        WHERE project_id = ? AND epic_id = ?
-      `).all(projectId, flags['from-epic']) as Array<{ id: string }>;
-      const epicTicketIds = new Set(epicTickets.map(t => t.id));
-      filteredTickets = allTickets.filter(t => epicTicketIds.has(t.id));
+      filteredTickets = allTickets.filter(t => t.epicId === flags['from-epic']);
     }
 
     if (filteredTickets.length === 0) {
@@ -276,17 +256,14 @@ export default class TicketEpic extends PMOCommand {
       return;
     }
 
-    // Get current epic for each ticket
+    // Get current epic for each ticket (already available on Ticket objects)
     const ticketEpics = new Map<string, string | null>();
     for (const ticket of filteredTickets) {
-      const row = db.prepare(`
-        SELECT epic_id FROM pmo_tickets WHERE id = ?
-      `).get(ticket.id) as { epic_id: string | null } | undefined;
-      ticketEpics.set(ticket.id, row?.epic_id || null);
+      ticketEpics.set(ticket.id, ticket.epicId ?? null);
     }
 
     // Select tickets to link
-    const { selectedTickets } = await inquirer.prompt([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to link:',
@@ -298,7 +275,7 @@ export default class TicketEpic extends PMOCommand {
           value: t.id,
         };
       }),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -308,18 +285,19 @@ export default class TicketEpic extends PMOCommand {
     // Select target epic
     let targetEpic: string | null | undefined = flags['to-epic'];
     if (targetEpic === undefined) {
-      const { epic } = await inquirer.prompt([{
+      const { epic } = await this.prompt<{ epic: string | null }>([{
         type: 'list',
         name: 'epic',
         message: 'Link to which epic?',
         choices: [
-          { name: 'None (remove epic link)', value: null },
+          { name: 'None (remove epic link)', value: null, command: 'prlt ticket epic --bulk --unlink --json' },
           ...epics.map(e => ({
             name: `${e.title} (${e.status})`,
             value: e.id,
+            command: `prlt ticket epic --bulk --to-epic ${e.id} --json`,
           })),
         ],
-      }]);
+      }], jsonModeConfig);
       targetEpic = epic;
     }
 
@@ -338,16 +316,16 @@ export default class TicketEpic extends PMOCommand {
       }
       this.log('');
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Continue?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, link tickets', value: true }
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, link tickets', value: true, command: `prlt ticket epic --bulk --to-epic ${targetEpic || 'none'} --force --json` }
         ],
         default: 0
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Operation cancelled.'));
@@ -363,11 +341,11 @@ export default class TicketEpic extends PMOCommand {
 
     for (const ticketId of selectedTickets) {
       try {
-        db.prepare(`
-          UPDATE pmo_tickets
-          SET epic_id = ?, updated_at = ?
-          WHERE id = ?
-        `).run(targetEpic, Date.now(), ticketId);
+        if (targetEpic) {
+          await this.storage.linkTicketToEpic(ticketId, targetEpic);
+        } else {
+          await this.storage.unlinkTicketFromEpic(ticketId);
+        }
 
         const action = targetEpic ? `Linked to ${targetEpic}` : 'Removed epic link';
         this.log(styles.success(`${ticketId}: ${action}`));

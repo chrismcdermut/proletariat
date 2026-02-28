@@ -1,7 +1,6 @@
-import { Args, Flags } from '@oclif/core';
+import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
@@ -9,10 +8,8 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class WorkComplete extends PMOCommand {
@@ -32,14 +29,6 @@ export default class WorkComplete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -92,28 +81,20 @@ export default class WorkComplete extends PMOCommand {
           return;
         }
 
-        // In JSON mode, output ticket selection prompt and exit
-        if (jsonMode) {
-          const ticketChoices = completableTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          }));
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', 'Select work to mark as complete:', ticketChoices),
-            createMetadata('work complete', flags)
-          );
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
+        const selected = await this.selectFromList({
           message: 'Select work to mark as complete:',
-          choices: completableTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+          items: completableTickets,
+          getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work complete ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work complete' } : null,
+        });
+
+        if (!selected) {
+          db.close();
+          return;
+        }
+        ticketId = selected;
       }
 
       // Get ticket
@@ -126,8 +107,8 @@ export default class WorkComplete extends PMOCommand {
       // Get configured column name (from pmo_settings or default)
       const targetColumnName = getWorkColumnSetting(db, 'done');
 
-      const board = await this.storage.getBoard(ticket.projectId!);
-      const columnNames = board.columns.map(col => col.name);
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+      const columnNames = board ? board.columns.map(col => col.name) : [];
       const doneColumn = findColumnByName(columnNames, targetColumnName);
 
       if (!doneColumn) {

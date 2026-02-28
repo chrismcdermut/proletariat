@@ -1,22 +1,22 @@
-import { Args, Flags } from '@oclif/core';
+import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
-import inquirer from 'inquirer';
 import Database from 'better-sqlite3';
 import { colors } from '../../lib/colors.js';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, getAgentTmuxSessions, formatAgentList, resolveAgentDir } from '../../lib/agents/commands.js';
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';
 import { getTerminalApp } from '../../lib/execution/config.js';
 import { TerminalApp } from '../../lib/execution/types.js';
-import { isDockerRunning } from '../../lib/execution/runners.js';
+import {
+  isDockerRunning,
+  getAgentContainerName,
+  isContainerRunning,
+  getContainerId,
+} from '../../lib/execution/runners.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
-  outputErrorAsJson,
-  createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class Shell extends PMOCommand {
@@ -36,14 +36,6 @@ export default class Shell extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -56,22 +48,15 @@ export default class Shell extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
-      if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('agent shell', flags));
-        this.exit(1);
-      }
-      this.error(message);
-    };
+    // Error handling config
+    const errorConfig = { jsonMode, commandName: 'agent shell', flags };
 
     // Get workspace information
     const workspaceInfo = getWorkspaceInfo();
 
     if (workspaceInfo.agents.length === 0) {
       if (jsonMode) {
-        outputErrorAsJson('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', createMetadata('agent shell', flags));
-        return;
+        this.handleError('NO_AGENTS', 'No agents found. Add agents with "prlt agent add"', errorConfig);
       }
       this.log(colors.warning('No agents found. Add agents with "prlt agent add"'));
       return;
@@ -79,105 +64,172 @@ export default class Shell extends PMOCommand {
 
     let agentName = args.name;
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'agent shell' } : null;
+
     // Interactive mode if no agent specified
     if (!agentName) {
-      // Build choices once, use for both JSON and interactive modes
-      const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
-      const selectMessage = 'Select agent to open shell in:';
+      // Group agents by type
+      const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
+      const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
 
-      // In JSON mode, output agent selection prompt and exit
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'name', selectMessage, agentChoices),
-          createMetadata('agent shell', flags)
-        );
+      // Build choices with command field for JSON mode
+      const choices: Array<{ name: string; value: string; command: string }> = [];
+
+      for (const agent of staffAgents) {
+        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --machine` });
       }
 
-      const { selected } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selected',
-          message: selectMessage,
-          choices: agentChoices
-        }
-      ]);
+      for (const agent of tempAgents) {
+        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent shell ${agent.name} --machine` });
+      }
+
+      const { selected } = await this.prompt<{ selected: string }>([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select agent to open shell in:',
+        choices,
+      }], agentConfig);
+
       agentName = selected;
     }
 
     // Validate agent exists
     const agent = workspaceInfo.agents.find(a => a.name === agentName);
     if (!agent) {
-      return handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map(a => a.name).join(', ')}`);
+      this.handleError('AGENT_NOT_FOUND', `Agent "${agentName}" not found. Available: ${formatAgentList(workspaceInfo.agents)}`, errorConfig);
     }
 
-    const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
+    // Check for existing tmux sessions (skip in JSON mode - can't handle interactive tmux)
+    const existingSessions = getAgentTmuxSessions(agentName!);
+    if (existingSessions.length > 0 && !jsonMode) {
+      this.log(colors.warning(`\n⚠️  Agent "${agentName}" has ${existingSessions.length} active tmux session(s):`));
+      for (const session of existingSessions) {
+        this.log(colors.textMuted(`   • ${session}`));
+      }
+      this.log('');
+
+      const { sessionAction } = await this.prompt<{ sessionAction: string }>([{
+        type: 'list',
+        name: 'sessionAction',
+        message: 'What would you like to do?',
+        choices: [
+          { name: '🔗 Attach to existing session', value: 'attach', command: '' },
+          { name: '⚠️  Open new shell anyway (may cause conflicts)', value: 'continue', command: `prlt agent shell ${agentName} --machine` },
+          { name: '❌ Cancel', value: 'cancel', command: '' },
+        ],
+      }], agentConfig);
+
+      if (sessionAction === 'cancel') {
+        this.log(colors.textMuted('Operation cancelled.'));
+        return;
+      }
+
+      if (sessionAction === 'attach') {
+        // Attach to the first session
+        const sessionName = existingSessions[0];
+        this.log(colors.primary(`\nAttaching to session: ${sessionName}`));
+        try {
+          execSync(`tmux attach-session -t "${sessionName}"`, { stdio: 'inherit' });
+        } catch {
+          // User detached or session ended
+          this.log(colors.textMuted('\nDetached from session.'));
+        }
+        return;
+      }
+      // If 'continue', proceed with opening a new shell
+      this.log(colors.warning('\nProceeding with new shell - be careful of conflicts!\n'));
+    }
+
+    const agentDir = resolveAgentDir(workspaceInfo, agentName!);
 
     // Check if agent has devcontainer
     const hasDevcontainer = hasDevcontainerConfig(agentDir);
 
-    // In JSON mode with agent name provided, output config choices prompt and exit
+    // In JSON mode with agent name provided, output combined config prompt
     if (jsonMode) {
       const configChoices = [
-        { name: 'terminal - safe - devcontainer', value: 'terminal-safe-devcontainer' },
-        { name: 'terminal - safe - host', value: 'terminal-safe-host' },
-        { name: 'terminal - danger - devcontainer', value: 'terminal-danger-devcontainer' },
-        { name: 'terminal - danger - host', value: 'terminal-danger-host' },
-        { name: 'foreground - safe - devcontainer', value: 'foreground-safe-devcontainer' },
-        { name: 'foreground - safe - host', value: 'foreground-safe-host' },
-        { name: 'foreground - danger - devcontainer', value: 'foreground-danger-devcontainer' },
-        { name: 'foreground - danger - host', value: 'foreground-danger-host' },
+        { name: 'terminal - safe - devcontainer', value: 'terminal-safe-devcontainer', command: '' },
+        { name: 'terminal - safe - host', value: 'terminal-safe-host', command: '' },
+        { name: 'terminal - danger - devcontainer', value: 'terminal-danger-devcontainer', command: '' },
+        { name: 'terminal - danger - host', value: 'terminal-danger-host', command: '' },
+        { name: 'foreground - safe - devcontainer', value: 'foreground-safe-devcontainer', command: '' },
+        { name: 'foreground - safe - host', value: 'foreground-safe-host', command: '' },
+        { name: 'foreground - danger - devcontainer', value: 'foreground-danger-devcontainer', command: '' },
+        { name: 'foreground - danger - host', value: 'foreground-danger-host', command: '' },
       ];
-      outputPromptAsJson(
-        {
-          ...buildPromptConfig('list', 'config', 'Select shell configuration (displayMode-permissionMode-environment):',
-            hasDevcontainer ? configChoices : configChoices.filter(c => c.value.endsWith('-host'))),
-          context: { agentName, hasDevcontainer },
-        },
-        createMetadata('agent shell', flags)
-      );
+
+      const { config } = await this.prompt<{ config: string }>([{
+        type: 'list',
+        name: 'config',
+        message: 'Select shell configuration (displayMode-permissionMode-environment):',
+        choices: hasDevcontainer ? configChoices : configChoices.filter(c => c.value.endsWith('-host')),
+      }], agentConfig);
+
+      // Parse the config selection (this won't be reached in JSON mode as agentPrompt exits)
+      const [displayMode, permissionMode, environment] = config.split('-') as ['terminal' | 'foreground', 'safe' | 'danger', 'devcontainer' | 'host'];
+      const dangerMode = permissionMode === 'danger';
+
+      if (environment === 'devcontainer') {
+        await this.openDevcontainerShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
+      } else {
+        await this.openHostShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
+      }
+      return;
     }
 
-    // Prompt for environment
+    // Interactive mode: Prompt for environment
     let environment: 'devcontainer' | 'host' = 'host';
     if (hasDevcontainer) {
-      const { selectedEnvironment } = await inquirer.prompt([
-        {
+      let environmentSelected = false;
+      while (!environmentSelected) {
+        // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
+        const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: 'devcontainer' | 'host' }>([{
           type: 'list',
           name: 'selectedEnvironment',
           message: 'Where should the shell run?',
           choices: [
-            { name: '🐳 devcontainer (recommended)', value: 'devcontainer' },
-            { name: '💻 host (agent worktree on your machine)', value: 'host' },
+            { name: '🐳 devcontainer (recommended)', value: 'devcontainer', command: '' },
+            { name: '💻 host (agent worktree on your machine)', value: 'host', command: '' },
           ],
-          default: 'devcontainer',
-        },
-      ]);
-      environment = selectedEnvironment;
+        }], null);
+
+        if (selectedEnvironment === 'devcontainer') {
+          // Dynamically check Docker when selected (user may have started it)
+          if (!isDockerRunning()) {
+            this.log('');
+            this.warn('Docker is not running. Please start Docker and try again.');
+            this.log('');
+            continue;
+          }
+        }
+
+        environment = selectedEnvironment;
+        environmentSelected = true;
+      }
     }
 
-    // Prompt for display mode and permission mode
-    const { displayMode, permissionMode } = await inquirer.prompt([
-      {
-        type: 'list',
-        name: 'displayMode',
-        message: 'How should the shell be opened?',
-        choices: [
-          { name: 'terminal     - New terminal window', value: 'terminal' },
-          { name: 'foreground   - Run in current terminal', value: 'foreground' },
-        ],
-        default: 'terminal',
-      },
-      {
-        type: 'list',
-        name: 'permissionMode',
-        message: 'Permission mode for Claude Code:',
-        choices: [
-          { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-          { name: '⚠️  danger - Skip permission checks', value: 'danger' },
-        ],
-        default: 'safe',
-      },
-    ]);
+    // Interactive mode: Prompt for display mode
+    const { displayMode } = await this.prompt<{ displayMode: 'terminal' | 'foreground' }>([{
+      type: 'list',
+      name: 'displayMode',
+      message: 'How should the shell be opened?',
+      choices: [
+        { name: 'terminal     - New terminal window', value: 'terminal', command: '' },
+        { name: 'foreground   - Run in current terminal', value: 'foreground', command: '' },
+      ],
+    }], null);
+
+    // Interactive mode: Prompt for permission mode
+    const { permissionMode } = await this.prompt<{ permissionMode: 'safe' | 'danger' }>([{
+      type: 'list',
+      name: 'permissionMode',
+      message: 'Permission mode for Claude Code:',
+      choices: [
+        { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: '' },
+        { name: '⚠️  danger - Skip permission checks', value: 'danger', command: '' },
+      ],
+    }], null);
 
     this.log('');
     this.log(colors.primary(`🐚 Opening shell for agent: ${agentName}`));
@@ -198,24 +250,27 @@ export default class Shell extends PMOCommand {
       this.error('Docker is not running. Please start Docker Desktop and try again.');
     }
 
-    // Start or ensure container is running
-    try {
-      execSync(`devcontainer up --workspace-folder "${agentDir}"`, {
-        stdio: 'pipe',
-      });
-    } catch (error) {
-      this.error(`Failed to start devcontainer: ${error instanceof Error ? error.message : error}`);
-    }
-
-    // Get container ID
+    // Get container using the standard naming convention
+    const containerName = getAgentContainerName(agentName);
     let containerId: string | null = null;
-    try {
-      containerId = execSync(
-        `docker ps -q --filter "label=devcontainer.local_folder=${agentDir}"`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim();
-    } catch {
-      // Ignore
+
+    // Check if container is running
+    if (isContainerRunning(containerName)) {
+      containerId = getContainerId(containerName);
+    } else {
+      // Try to start a stopped container
+      try {
+        execSync(`docker start ${containerName}`, { stdio: 'pipe' });
+        containerId = getContainerId(containerName);
+      } catch {
+        // Container doesn't exist - user needs to run a work command first
+        this.log(colors.warning('Container is not running.'));
+        this.log('');
+        this.log('Start the container first by running a work command:');
+        this.log('  prlt work start <ticket-id>');
+        this.log('');
+        this.error('Container must exist. Run a work command first to create it.');
+      }
     }
 
     if (!containerId) {

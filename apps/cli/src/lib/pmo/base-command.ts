@@ -2,16 +2,60 @@ import { Command, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { getPMOContext, type PMOContext } from './pmo-context.js';
 import { styles } from '../styles.js';
+import { PromptCommand } from '../prompt-command.js';
+import {
+  shouldOutputJson,
+  isNonTTY,
+  outputPromptAsJson,
+  outputErrorAsJson,
+  createMetadata,
+  type JsonFlags,
+} from '../prompt-json.js';
+
+/**
+ * Base flags for JSON/agent mode support
+ * Include these in your command's flags by spreading: ...jsonModeFlags
+ * @deprecated Use machineOutputFlags instead
+ */
+export const jsonModeFlags = {
+  json: Flags.boolean({
+    description: 'Output as JSON for AI agents/scripts',
+    default: false,
+  }),
+  machine: Flags.boolean({
+    char: 'm',
+    description: 'Output as JSON for AI agents/scripts',
+    default: false,
+  }),
+};
+
+/**
+ * Base flags for machine-readable output mode
+ * Include these in your command's flags by spreading: ...machineOutputFlags
+ * --json and --machine/-m both trigger JSON output mode
+ */
+export const machineOutputFlags = {
+  json: Flags.boolean({
+    description: 'Output as JSON for AI agents/scripts',
+    default: false,
+  }),
+  machine: Flags.boolean({
+    char: 'm',
+    description: 'Output as JSON for AI agents/scripts',
+    default: false,
+  }),
+};
 
 /**
  * Base flags shared by all PMO commands
- * Include these in your command's flags by spreading: ...PMOCommand.baseFlags
+ * Include these in your command's flags by spreading: ...pmoBaseFlags
  */
 export const pmoBaseFlags = {
   project: Flags.string({
     char: 'P',
     description: 'Project ID (uses first project if only one exists)',
   }),
+  ...machineOutputFlags,
 };
 
 /**
@@ -49,7 +93,7 @@ export const pmoBaseFlags = {
  * }
  * ```
  */
-export abstract class PMOCommand extends Command {
+export abstract class PMOCommand extends PromptCommand {
   /**
    * PMO context with storage, pmoPath, etc.
    * Available after init() runs (before execute())
@@ -85,14 +129,10 @@ export abstract class PMOCommand extends Command {
     const { flags } = await this.parse(this.constructor as typeof Command);
     this.projectFlag = (flags as { project?: string }).project;
 
-    try {
-      this.pmoContext = await getPMOContext({
-        logger: (msg) => this.pmoLogger(msg),
-      });
-      this.contextInitialized = true;
-    } catch (error) {
-      throw error;
-    }
+    this.pmoContext = await getPMOContext({
+      logger: (msg) => this.pmoLogger(msg),
+    });
+    this.contextInitialized = true;
   }
 
   /**
@@ -102,12 +142,20 @@ export abstract class PMOCommand extends Command {
    * Priority:
    * 1. If -P flag was provided, uses that
    * 2. If only one project exists, uses that
-   * 3. If multiple projects exist, prompts user to select one
+   * 3. If multiple projects exist, prompts user to select one (or outputs JSON if jsonMode)
    *
    * @param options.filterEmptyProjects - Only show projects with tickets
+   * @param options.jsonMode - JSON mode configuration for AI agents
    * @returns The selected project ID - pass this to storage operations
    */
-  protected async requireProject(options?: { filterEmptyProjects?: boolean }): Promise<string> {
+  protected async requireProject(options?: {
+    filterEmptyProjects?: boolean;
+    jsonMode?: {
+      flags: JsonFlags & Record<string, unknown>;
+      commandName: string;
+      baseCommand: string;
+    };
+  }): Promise<string> {
     // If -P flag was provided, use it
     if (this.projectFlag) {
       return this.projectFlag;
@@ -125,6 +173,7 @@ export abstract class PMOCommand extends Command {
     if (options?.filterEmptyProjects) {
       const projectsWithTickets: typeof projects = [];
       for (const p of projects) {
+        // eslint-disable-next-line no-await-in-loop -- Sequential filtering for project selection
         const tickets = await this.storage.listTickets(p.id);
         if (tickets.length > 0) {
           projectsWithTickets.push(p);
@@ -142,7 +191,7 @@ export abstract class PMOCommand extends Command {
       return filteredProjects[0].id;
     }
 
-    // Multiple projects - prompt for selection
+    // Multiple projects - check for JSON mode
     // Sort projects by leading number in name (e.g., "1. MVP" before "10. Infra")
     const sortedProjects = [...filteredProjects].sort((a, b) => {
       const numA = parseInt(a.name.match(/^(\d+)/)?.[1] || '999', 10);
@@ -150,6 +199,36 @@ export abstract class PMOCommand extends Command {
       return numA - numB;
     });
 
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = options?.jsonMode ?? (isNonTTY()
+      ? {
+          flags: { json: true } as JsonFlags & Record<string, unknown>,
+          commandName: this.id ?? 'unknown',
+          baseCommand: `prlt ${(this.id ?? 'unknown').replace(/:/g, ' ')}`,
+        }
+      : null);
+
+    // If JSON mode is active, output project choices as JSON
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
+      const choices = sortedProjects.map(p => ({
+        name: `${p.name} (${p.id})`,
+        value: p.id,
+        command: `${effectiveJsonMode.baseCommand} -P ${p.id} --json`,
+      }));
+      outputPromptAsJson(
+        {
+          type: 'list',
+          name: 'project',
+          message: 'Select project:',
+          choices,
+        },
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
+      );
+      // outputPromptAsJson calls process.exit, so this is unreachable
+      return '';
+    }
+
+    // Interactive mode - prompt for selection
     const { selectedProjectId } = await inquirer.prompt([{
       type: 'list',
       name: 'selectedProjectId',
@@ -169,6 +248,220 @@ export abstract class PMOCommand extends Command {
   protected async getProjectName(projectId: string): Promise<string> {
     const project = await this.storage.getProject(projectId);
     return project?.name || projectId;
+  }
+
+  /**
+   * Select from a list of items with JSON mode support for AI agents.
+   *
+   * In JSON mode: outputs choices as JSON with command field and exits
+   * In interactive mode: shows prompt and returns selected value
+   *
+   * @param options Configuration for the selection
+   * @returns The selected value (only in interactive mode)
+   *
+   * @example
+   * ```typescript
+   * const ticketId = await this.selectFromList({
+   *   message: 'Select ticket:',
+   *   items: tickets,
+   *   getName: (t) => `${t.id}: ${t.title}`,
+   *   getValue: (t) => t.id,
+   *   getCommand: (t) => `prlt ticket view ${t.id} --json`,
+   *   jsonMode: { flags, commandName: 'ticket view' },
+   * });
+   * ```
+   */
+  protected async selectFromList<T>(options: {
+    /** Prompt message shown to user */
+    message: string;
+    /** Items to select from */
+    items: T[];
+    /** Extract display name from item */
+    getName: (item: T) => string;
+    /** Extract value from item */
+    getValue: (item: T) => string;
+    /** Build command string for item (should include --json) */
+    getCommand: (item: T) => string;
+    /** JSON mode config - if provided and flags indicate JSON mode, outputs JSON */
+    jsonMode?: {
+      flags: JsonFlags & Record<string, unknown>;
+      commandName: string;
+    } | null;
+    /** Optional: include a Cancel option */
+    allowCancel?: boolean;
+    /** Optional: custom cancel value (default: null returned) */
+    cancelValue?: string;
+  }): Promise<string | null> {
+    const {
+      message,
+      items,
+      getName,
+      getValue,
+      getCommand,
+      jsonMode,
+      allowCancel = false,
+      cancelValue,
+    } = options;
+
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = jsonMode ?? (isNonTTY()
+      ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown' }
+      : null);
+
+    // Build choices with command field
+    const choices = items.map(item => ({
+      name: getName(item),
+      value: getValue(item),
+      command: getCommand(item),
+    }));
+
+    // Check for JSON mode
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
+      outputPromptAsJson(
+        {
+          type: 'list',
+          name: 'selection',
+          message,
+          choices,
+        },
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
+      );
+      // outputPromptAsJson exits, so this is unreachable
+      return null;
+    }
+
+    // Interactive mode
+    const interactiveChoices = choices.map(c => ({
+      name: c.name,
+      value: c.value,
+    }));
+
+    if (allowCancel) {
+      interactiveChoices.push(
+        { name: '─'.repeat(20), value: '__separator__' } as typeof interactiveChoices[0],
+        { name: 'Cancel', value: cancelValue ?? '__cancel__' }
+      );
+    }
+
+    const { selection } = await inquirer.prompt([{
+      type: 'list',
+      name: 'selection',
+      message,
+      choices: interactiveChoices,
+    }]);
+
+    if (selection === '__cancel__' || selection === '__separator__') {
+      return null;
+    }
+
+    return selection;
+  }
+
+  /**
+   * Prompt for input with JSON mode support for AI agents.
+   *
+   * In JSON mode: outputs field info as JSON and exits
+   * In interactive mode: shows prompt and returns input value
+   *
+   * @param options Configuration for the input
+   * @returns The input value (only in interactive mode)
+   */
+  protected async promptForInput(options: {
+    /** Prompt message shown to user */
+    message: string;
+    /** Field name for the prompt */
+    fieldName: string;
+    /** Default value */
+    defaultValue?: string;
+    /** Validation function */
+    validate?: (input: string) => boolean | string;
+    /** JSON mode config */
+    jsonMode?: {
+      flags: JsonFlags & Record<string, unknown>;
+      commandName: string;
+      /** Hint for how to provide this value */
+      commandHint: string;
+      /** Example command */
+      example?: string;
+    } | null;
+  }): Promise<string> {
+    const { message, fieldName, defaultValue, validate, jsonMode } = options;
+
+    // Auto-detect non-TTY: switch to JSON mode when no TTY present
+    const effectiveJsonMode = jsonMode ?? (isNonTTY()
+      ? { flags: { json: true } as JsonFlags & Record<string, unknown>, commandName: this.id ?? 'unknown', commandHint: '', example: undefined as string | undefined }
+      : null);
+
+    // Check for JSON mode
+    if (effectiveJsonMode && shouldOutputJson(effectiveJsonMode.flags)) {
+      outputPromptAsJson(
+        {
+          type: 'input',
+          name: fieldName,
+          message,
+          default: defaultValue,
+          context: {
+            hint: effectiveJsonMode.commandHint,
+            example: effectiveJsonMode.example,
+          },
+        },
+        createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
+      );
+      // outputPromptAsJson exits, so this is unreachable
+      return '';
+    }
+
+    // Interactive mode
+    const { value } = await inquirer.prompt([{
+      type: 'input',
+      name: 'value',
+      message,
+      default: defaultValue,
+      validate,
+    }]);
+
+    return value;
+  }
+
+  /**
+   * Unified error handler for JSON/interactive modes.
+   *
+   * Consolidates error handling to avoid message drift between JSON and interactive modes.
+   * In JSON mode: outputs structured error JSON and exits
+   * In interactive mode: calls this.error() with the message
+   *
+   * @param code - Error code for JSON output (e.g., 'NOT_FOUND', 'DOCKER_NOT_RUNNING')
+   * @param message - Human-readable error message (used in both modes)
+   * @param options - Configuration for error handling
+   *
+   * @example
+   * ```typescript
+   * // Instead of duplicating messages:
+   * // if (jsonMode) { outputErrorAsJson('CODE', 'msg', ...); }
+   * // this.error('msg');
+   *
+   * // Use:
+   * this.handleError('DOCKER_NOT_RUNNING', 'Docker is not running.', {
+   *   jsonMode,
+   *   commandName: 'agent auth',
+   *   flags,
+   * });
+   * ```
+   */
+  protected handleError(
+    code: string,
+    message: string,
+    options: {
+      jsonMode: boolean;
+      commandName: string;
+      flags: Record<string, unknown>;
+    }
+  ): never {
+    if (options.jsonMode) {
+      outputErrorAsJson(code, message, createMetadata(options.commandName, options.flags));
+      this.exit(1);
+    }
+    this.error(message);
   }
 
   /**

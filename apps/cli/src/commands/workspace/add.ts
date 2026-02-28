@@ -2,13 +2,14 @@ import { Command, Args, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { isValidHQ } from '../../lib/workspace.js';
 import {
   registerWorkspace,
   normalizePath,
   isWorkspaceRegistered,
   getWorkspaceNameFromPath,
 } from '../../lib/machine-config.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class WorkspaceAdd extends Command {
   static description = 'Register an existing workspace in the machine config';
@@ -27,6 +28,7 @@ export default class WorkspaceAdd extends Command {
   };
 
   static flags = {
+    ...machineOutputFlags,
     name: Flags.string({
       char: 'n',
       description: 'Custom name for the workspace (defaults to directory basename or workspace config name)',
@@ -35,6 +37,7 @@ export default class WorkspaceAdd extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkspaceAdd);
+    const jsonMode = shouldOutputJson(flags);
 
     // Normalize the path
     const workspacePath = normalizePath(args.path);
@@ -74,6 +77,10 @@ export default class WorkspaceAdd extends Command {
 
     // Check if already registered
     if (isWorkspaceRegistered(workspacePath)) {
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'success', result: { path: workspacePath, status: 'already_registered' } }));
+        return;
+      }
       this.log(chalk.yellow(`Workspace is already registered: ${workspacePath}`));
       this.log(chalk.gray('Use "prlt workspace use" to set it as active.'));
       return;
@@ -85,10 +92,19 @@ export default class WorkspaceAdd extends Command {
     // Register the workspace
     try {
       const entry = registerWorkspace(workspacePath, workspaceName, true);
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'success', result: { name: entry.name, path: entry.path, registeredAt: entry.registeredAt, status: 'registered' } }));
+        return;
+      }
       this.log(chalk.green(`Registered workspace: ${entry.name}`));
       this.log(chalk.gray(`  Path: ${entry.path}`));
       this.log(chalk.gray(`  Registered at: ${entry.registeredAt}`));
     } catch (error) {
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'error', error: { code: 'REGISTER_FAILED', message: (error as Error).message } }));
+        this.exit(1);
+        return;
+      }
       this.error(`Failed to register workspace: ${(error as Error).message}`);
     }
   }

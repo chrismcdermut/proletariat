@@ -21,6 +21,7 @@ import { exec } from './test-helpers.js';
  * - prlt status template save "<name>"
  * - prlt status template delete <template-id>
  */
+// eslint-disable-next-line mocha/no-skipped-tests
 describe.skip('PMO Status Template Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;

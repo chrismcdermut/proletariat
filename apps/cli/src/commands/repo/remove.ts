@@ -1,20 +1,15 @@
 import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import inquirer from 'inquirer';
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
-  promptSelectRepo,
-  promptSelectMultipleRepos,
   removeRepository,
   getWorkspaceRepoInfo
 } from '../../lib/repos/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class Remove extends PMOCommand {
@@ -48,14 +43,6 @@ export default class Remove extends PMOCommand {
     bulk: Flags.boolean({
       char: 'b',
       description: 'Remove multiple repositories interactively',
-      default: false,
-    }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
       default: false,
     }),
   };
@@ -100,34 +87,21 @@ export default class Remove extends PMOCommand {
         return handleError('NO_REPOSITORIES', 'No repositories found.');
       }
 
-      // Build choices once, use for both JSON and interactive modes
-      const repoChoices = repositories.map(r => ({
-        name: r.name,
-        value: r.name,
-      }));
-      const selectMessage = 'Select repository to remove:';
+      // Use selectFromList helper for JSON mode support
+      const selected = await this.selectFromList({
+        message: 'Select repository to remove:',
+        items: repositories,
+        getName: (r) => r.name,
+        getValue: (r) => r.name,
+        getCommand: (r) => `prlt repo remove ${r.name} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'repo remove' } : null,
+      });
 
-      // In JSON mode, output repo selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'repoName', selectMessage, repoChoices),
-          createMetadata('repo remove', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: selectMessage,
-        choices: repoChoices,
-      }]);
-      repoName = selected;
-
-      if (!repoName) {
+      if (!selected) {
         this.log(colors.textMuted('Operation cancelled.'));
         return;
       }
+      repoName = selected;
     }
 
     // Validate repository exists
@@ -139,39 +113,24 @@ export default class Remove extends PMOCommand {
 
     // Confirmation unless --force
     if (!flags.force) {
-      // Build choices once, use for both JSON and interactive modes
-      const confirmChoices = [
-        { name: 'No, cancel', value: 'false' },
-        { name: 'Yes, remove repository', value: 'true' },
-      ];
-      const confirmMessage = `Remove repository "${repoName}"? (This will remove repos/${repoName} directory and agent worktrees)`;
-
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
-          createMetadata('repo remove', flags)
-        );
-        return;
-      }
+      const agentConfig = jsonMode ? { flags, commandName: 'repo remove' } : null;
 
       this.log(colors.warning('\n⚠️  This will:'));
       this.log(colors.text(`  • Remove repos/${repoName} directory`));
       this.log(colors.text('  • Remove agent worktrees for this repo'));
       this.log(colors.text('  • Update database\n'));
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: string }>([{
         type: 'list',
         name: 'confirm',
         message: `Are you sure you want to remove "${repoName}"?`,
         choices: [
-          { name: '❌ ' + confirmChoices[0].name, value: false },
-          { name: '⚠️  ' + confirmChoices[1].name, value: true }
+          { name: 'No, cancel', value: 'false', command: '' },
+          { name: 'Yes, remove repository', value: 'true', command: `prlt repo remove ${repoName} --force --json` },
         ],
-        default: 0
-      }]);
+      }], agentConfig);
 
-      if (!confirm) {
+      if (confirm !== 'true') {
         this.log(colors.textMuted('Removal cancelled.'));
         return;
       }
@@ -193,30 +152,35 @@ export default class Remove extends PMOCommand {
    * Bulk mode: remove multiple repositories interactively
    */
   private async executeBulk(hqPath: string, force: boolean, keepFiles: boolean, jsonMode = false, flags: Record<string, unknown> = {}): Promise<void> {
-    // In JSON mode, output repo selection prompt for bulk mode
-    if (jsonMode) {
-      const { repositories } = getWorkspaceRepoInfo();
-      if (repositories.length === 0) {
+    const { repositories } = getWorkspaceRepoInfo();
+    if (repositories.length === 0) {
+      if (jsonMode) {
         outputErrorAsJson('NO_REPOSITORIES', 'No repositories found.', createMetadata('repo remove', flags));
         this.exit(1);
       }
-      const repoChoices = repositories.map(r => ({
-        name: r.name,
-        value: r.name,
-      }));
-      outputPromptAsJson(
-        buildPromptConfig('checkbox', 'repoNames', 'Select repositories to remove:', repoChoices),
-        createMetadata('repo remove', flags)
-      );
-      return;
+      this.error('No repositories found.');
     }
 
-    this.log(colors.primary('📦 Remove Repositories (Bulk Mode)\n'));
+    // Only show header in interactive mode
+    if (!jsonMode) {
+      this.log(colors.primary('📦 Remove Repositories (Bulk Mode)\n'));
+    }
 
-    // Select repositories to remove
-    const selectedRepos = await promptSelectMultipleRepos('Select repositories to remove:');
+    // Use prompt for JSON mode support
+    const agentConfig = jsonMode ? { flags, commandName: 'repo remove --bulk' } : null;
 
-    if (selectedRepos.length === 0) {
+    const { selectedRepos } = await this.prompt<{ selectedRepos: string[] }>([{
+      type: 'checkbox',
+      name: 'selectedRepos',
+      message: 'Select repositories to remove:',
+      choices: repositories.map(r => ({
+        name: r.name,
+        value: r.name,
+        command: `prlt repo remove ${r.name} --json`,
+      })),
+    }], agentConfig);
+
+    if (!selectedRepos || selectedRepos.length === 0) {
       this.log(colors.textMuted('No repositories selected.'));
       return;
     }
@@ -229,18 +193,17 @@ export default class Remove extends PMOCommand {
       }
       this.log(colors.text('  • Agent worktrees for these repos\n'));
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: string }>([{
         type: 'list',
         name: 'confirm',
         message: 'Are you sure?',
         choices: [
-          { name: '❌ No, cancel', value: false },
-          { name: '⚠️  Yes, remove repositories', value: true }
+          { name: 'No, cancel', value: 'false', command: '' },
+          { name: 'Yes, remove repositories', value: 'true', command: `prlt repo remove ${selectedRepos.join(' ')} --force --json` },
         ],
-        default: 0
-      }]);
+      }], agentConfig);
 
-      if (!confirm) {
+      if (confirm !== 'true') {
         this.log(colors.textMuted('Removal cancelled.'));
         return;
       }
@@ -255,6 +218,7 @@ export default class Remove extends PMOCommand {
     for (const repoName of selectedRepos) {
       this.log(colors.textMuted(`Removing ${repoName}...`));
 
+      // eslint-disable-next-line no-await-in-loop -- Sequential remove with user feedback
       const result = await removeRepository(hqPath, repoName, keepFiles);
 
       if (result.success) {

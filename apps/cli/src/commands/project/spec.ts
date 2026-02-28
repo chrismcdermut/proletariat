@@ -4,10 +4,9 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class ProjectSpec extends PMOCommand {
@@ -37,14 +36,6 @@ export default class ProjectSpec extends PMOCommand {
       char: 'r',
       description: 'Remove a spec from this project',
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -66,6 +57,9 @@ export default class ProjectSpec extends PMOCommand {
       this.error(message);
     };
 
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'project spec' } : null;
+
     // Get all projects
     const projects = await this.storage.listProjects();
     if (projects.length === 0) {
@@ -81,25 +75,16 @@ export default class ProjectSpec extends PMOCommand {
 
     // If no project ID provided, prompt for selection
     if (!projectId) {
-      // In JSON mode, output project selection prompt
-      if (jsonMode) {
-        const projectChoices = projects.map(p => ({ name: `${p.id} - ${p.name} (${p.status})`, value: p.id }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'projectId', 'Select project:', projectChoices),
-          createMetadata('project spec', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select project:',
         choices: projects.map(p => ({
           name: `${p.id} - ${p.name} (${p.status})`,
           value: p.id,
+          command: `prlt project spec ${p.id} --json`,
         })),
-      }]);
+      }], agentConfig);
       projectId = selected;
     }
 
@@ -145,17 +130,19 @@ export default class ProjectSpec extends PMOCommand {
     // In JSON mode, output the menu prompt (no loop - AI will call back)
     if (jsonMode) {
       const currentSpecs = await this.storage.getSpecsForProject(projectId!);
-      const menuChoices = [
-        { name: 'Add spec to project', value: 'add' },
-        { name: 'Remove spec from project', value: 'remove' },
-        { name: 'Done', value: 'done' },
-      ];
-      outputPromptAsJson(
+      const allSpecs = await this.storage.listSpecs();
+      const currentSpecIds = new Set(currentSpecs.map(s => s.id));
+      const availableSpecs = allSpecs.filter(s => !currentSpecIds.has(s.id));
+
+      outputSuccessAsJson(
         {
-          ...buildPromptConfig('list', 'action', `Manage specs for ${projectId}:`, menuChoices),
-          context: {
-            projectId,
-            currentSpecs: currentSpecs.map(s => ({ id: s.id, title: s.title, status: s.status })),
+          projectId,
+          projectName: project.name,
+          currentSpecs: currentSpecs.map(s => ({ id: s.id, title: s.title, status: s.status })),
+          availableSpecs: availableSpecs.map(s => ({ id: s.id, title: s.title, status: s.status })),
+          commands: {
+            addSpec: `prlt project spec ${projectId} --add <SPEC_ID> --json`,
+            removeSpec: `prlt project spec ${projectId} --remove <SPEC_ID> --json`,
           },
         },
         createMetadata('project spec', flags)
@@ -166,6 +153,7 @@ export default class ProjectSpec extends PMOCommand {
     let continueLoop = true;
     while (continueLoop) {
       // Refresh project specs each iteration
+      // eslint-disable-next-line no-await-in-loop -- Interactive user loop
       const currentSpecs = await this.storage.getSpecsForProject(projectId!);
       const currentSpecIds = new Set(currentSpecs.map(s => s.id));
 
@@ -178,7 +166,8 @@ export default class ProjectSpec extends PMOCommand {
         }
       }
 
-      const { action } = await inquirer.prompt([{
+      // eslint-disable-next-line no-await-in-loop -- Interactive user prompt
+      const { action } = await this.prompt<{ action: string }>([{
         type: 'list',
         name: 'action',
         message: `Manage specs for ${projectId}:`,
@@ -188,7 +177,7 @@ export default class ProjectSpec extends PMOCommand {
           new inquirer.Separator(),
           { name: 'Done', value: 'done' },
         ],
-      }]);
+      }], null);
 
       if (action === 'done') {
         continueLoop = false;
@@ -197,6 +186,7 @@ export default class ProjectSpec extends PMOCommand {
 
       if (action === 'add') {
         // Get all specs not already associated
+        // eslint-disable-next-line no-await-in-loop -- User action handling
         const allSpecs = await this.storage.listSpecs();
         const availableSpecs = allSpecs.filter(s => !currentSpecIds.has(s.id));
 
@@ -205,7 +195,8 @@ export default class ProjectSpec extends PMOCommand {
           continue;
         }
 
-        const { selected } = await inquirer.prompt([{
+        // eslint-disable-next-line no-await-in-loop -- User selection prompt
+        const { selected } = await this.prompt<{ selected: string[] }>([{
           type: 'checkbox',
           name: 'selected',
           message: 'Select specs to add:',
@@ -213,7 +204,7 @@ export default class ProjectSpec extends PMOCommand {
             name: `${s.id} - ${s.title} (${s.status})`,
             value: s.id,
           })),
-        }]);
+        }], null);
 
         if (selected.length === 0) {
           this.log(styles.muted('  No specs selected.'));
@@ -221,6 +212,7 @@ export default class ProjectSpec extends PMOCommand {
         }
 
         for (const specId of selected) {
+          // eslint-disable-next-line no-await-in-loop -- Sequential updates with feedback
           await this.storage.linkProjectToSpec(projectId!, specId);
           this.log(styles.success(`  Added ${specId}`));
         }
@@ -233,7 +225,8 @@ export default class ProjectSpec extends PMOCommand {
           continue;
         }
 
-        const { selected } = await inquirer.prompt([{
+        // eslint-disable-next-line no-await-in-loop -- User selection prompt
+        const { selected } = await this.prompt<{ selected: string[] }>([{
           type: 'checkbox',
           name: 'selected',
           message: 'Select specs to remove:',
@@ -241,7 +234,7 @@ export default class ProjectSpec extends PMOCommand {
             name: `${s.id} - ${s.title} (${s.status})`,
             value: s.id,
           })),
-        }]);
+        }], null);
 
         if (selected.length === 0) {
           this.log(styles.muted('  No specs selected.'));
@@ -249,6 +242,7 @@ export default class ProjectSpec extends PMOCommand {
         }
 
         for (const specId of selected) {
+          // eslint-disable-next-line no-await-in-loop -- Sequential updates with feedback
           await this.storage.unlinkProjectFromSpec(projectId!, specId);
           this.log(styles.success(`  Removed ${specId}`));
         }

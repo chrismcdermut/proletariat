@@ -1,102 +1,259 @@
-import { Command } from '@oclif/core';
+import { Flags } from '@oclif/core';
 import chalk from 'chalk';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import {
   getWorkspaceInfo,
-  getAllAgentsStatus
+  getAllAgentsStatus,
+  getAgentTmuxSessions,
+  resolveAgentDir
 } from '../../lib/agents/commands.js';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
-export default class List extends Command {
+export default class List extends PMOCommand {
   static description = 'List all agents and their current status';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --type staff',
+    '<%= config.bin %> <%= command.id %> --type temp',
   ];
 
-  static flags = {};
+  static flags = {
+    ...pmoBaseFlags,
+    type: Flags.string({
+      char: 't',
+      description: 'Filter by agent type',
+      options: ['staff', 'temp', 'all'],
+    }),
+  };
 
-  async run(): Promise<void> {
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
+  }
+
+  async execute(): Promise<void> {
     try {
+      const { flags } = await this.parse(List);
+      const jsonMode = shouldOutputJson(flags);
+
+      // Agent mode config for prompts
+      const agentConfig = jsonMode ? { flags, commandName: 'agent list' } : null;
+
       // Get workspace information
       const workspaceInfo = getWorkspaceInfo();
 
-      if (workspaceInfo.agents.length === 0) {
-        this.log(chalk.yellow('No agents found. Add agents with "prlt agent add"'));
+      // Filter to active agents only
+      const activeAgents = workspaceInfo.agents.filter(a => a.status === 'active');
+
+      // Determine type filter - prompt if not provided (but not in JSON mode)
+      let typeFilter = flags.type as 'staff' | 'temp' | 'all' | undefined;
+
+      // In JSON mode, output agents as JSON respecting the type filter
+      if (jsonMode) {
+        const staffAgents = activeAgents.filter(a => a.type === 'persistent');
+        const tempAgents = activeAgents.filter(a => a.type === 'ephemeral');
+        const agentsStatus = getAllAgentsStatus(workspaceInfo);
+
+        const formatAgentJson = (agents: typeof activeAgents) => {
+          return agents.map(agent => {
+            const status = agentsStatus.find(s => s.name === agent.name);
+            const sessions = getAgentTmuxSessions(agent.name);
+            return {
+              name: agent.name,
+              type: agent.type === 'persistent' ? 'staff' : 'temp',
+              exists: status?.exists ?? false,
+              branch: status?.branch ?? null,
+              repositories: status?.repositories ?? [],
+              assignedTickets: status?.assignedTickets ?? [],
+              completedTickets: status?.completedTickets ?? [],
+              running: sessions.length > 0,
+            };
+          });
+        };
+
+        let output: Record<string, unknown[]>;
+        if (typeFilter === 'staff') {
+          output = { staff: formatAgentJson(staffAgents) };
+        } else if (typeFilter === 'temp') {
+          output = { temp: formatAgentJson(tempAgents) };
+        } else {
+          // No filter or 'all' - return both groups without redundant combined array
+          output = {
+            staff: formatAgentJson(staffAgents),
+            temp: formatAgentJson(tempAgents),
+          };
+        }
+
+        this.log(JSON.stringify(output, null, 2));
         return;
       }
 
-      // Get status for all agents
+      if (!typeFilter) {
+        const { selectedType } = await this.prompt<{ selectedType: 'staff' | 'temp' | 'all' }>([{
+          type: 'list',
+          name: 'selectedType',
+          message: 'Which agents do you want to list?',
+          choices: [
+            { name: '📋 All agents', value: 'all', command: 'prlt agent list --type all --machine' },
+            { name: '👔 Staff agents only', value: 'staff', command: 'prlt agent list --type staff --machine' },
+            { name: '⏱️  Temp agents only', value: 'temp', command: 'prlt agent list --type temp --machine' },
+          ],
+        }], agentConfig);
+        typeFilter = selectedType;
+      }
+
+      // Filter agents based on type selection
+      const staffAgents = activeAgents.filter(a => a.type === 'persistent');
+      const tempAgents = activeAgents.filter(a => a.type === 'ephemeral');
+
+      const showStaff = typeFilter === 'all' || typeFilter === 'staff';
+      const showTemp = typeFilter === 'all' || typeFilter === 'temp';
+
+      const filteredAgents = [
+        ...(showStaff ? staffAgents : []),
+        ...(showTemp ? tempAgents : []),
+      ];
+
+      if (filteredAgents.length === 0) {
+        const typeLabel = typeFilter === 'all' ? '' : ` ${typeFilter}`;
+        this.log(chalk.yellow(`No active${typeLabel} agents found.`));
+        this.log(chalk.dim('Use "prlt agent staff add" or "prlt work spawn" to create agents.'));
+        return;
+      }
+
+      // Get status for all active agents
       const agentsStatus = getAllAgentsStatus(workspaceInfo);
 
-      this.log(chalk.bold.cyan('\n👥 Active Agents:\n'));
+      // Staff agents section
+      if (showStaff && staffAgents.length > 0) {
+        this.log(chalk.bold.cyan('\n Staff Agents:\n'));
 
-      for (const agentStatus of agentsStatus) {
-        // Agent info line
-        const statusIcon = agentStatus.exists ? '🟢' : '🔴';
-        const status = agentStatus.exists ? chalk.green('Active') : chalk.red('Missing');
+        const staffStatus = agentsStatus.filter(a =>
+          staffAgents.some(s => s.name === a.name)
+        );
 
-        this.log(`${statusIcon} ${chalk.bold(agentStatus.name)} - ${status}`);
+        for (const agentStatus of staffStatus) {
+          const statusIcon = agentStatus.exists ? '🟢' : '🔴';
+          const status = agentStatus.exists ? chalk.green('Active') : chalk.red('Missing');
 
-        if (agentStatus.exists) {
-          // Show branch info
-          if (agentStatus.branch) {
-            this.log(chalk.cyan(`   Branch: ${agentStatus.branch}`));
-          }
+          this.log(`${statusIcon} ${chalk.bold(agentStatus.name)} ${chalk.dim('[staff]')} - ${status}`);
 
-          // Show repository status
-          if (agentStatus.repositories.length > 0) {
-            const dirtyRepos = agentStatus.repositories.filter(r => r.status === 'dirty').length;
-            const reposWithCommits = agentStatus.repositories.filter(r => r.commitsAhead > 0);
-
-            let repoStatusText = `${agentStatus.repositories.length} repo(s)`;
-            if (dirtyRepos > 0) {
-              repoStatusText += `, ${dirtyRepos} dirty`;
+          if (agentStatus.exists) {
+            if (agentStatus.branch) {
+              this.log(chalk.cyan(`   Branch: ${agentStatus.branch}`));
             }
-            if (reposWithCommits.length > 0) {
-              const commitDetails = reposWithCommits.map(r => `${r.name}(+${r.commitsAhead})`).join(', ');
-              repoStatusText += `, commits ahead: ${commitDetails}`;
-            }
-            this.log(chalk.white(`   Repositories: ${repoStatusText}`));
-          }
 
-          // Show ticket info
-          if (agentStatus.assignedTickets.length > 0) {
-            this.log(chalk.blue(`   Current tickets: ${agentStatus.assignedTickets.join(', ')}`));
+            if (agentStatus.repositories.length > 0) {
+              const dirtyRepos = agentStatus.repositories.filter(r => r.status === 'dirty').length;
+              const reposWithCommits = agentStatus.repositories.filter(r => r.commitsAhead > 0);
+
+              let repoStatusText = `${agentStatus.repositories.length} repo(s)`;
+              if (dirtyRepos > 0) {
+                repoStatusText += `, ${dirtyRepos} dirty`;
+              }
+              if (reposWithCommits.length > 0) {
+                const commitDetails = reposWithCommits.map(r => `${r.name}(+${r.commitsAhead})`).join(', ');
+                repoStatusText += `, commits ahead: ${commitDetails}`;
+              }
+              this.log(chalk.white(`   Repositories: ${repoStatusText}`));
+            }
+
+            if (agentStatus.assignedTickets.length > 0) {
+              this.log(chalk.blue(`   Current tickets: ${agentStatus.assignedTickets.join(', ')}`));
+            } else {
+              this.log(chalk.white('   No active tickets'));
+            }
+
+            if (agentStatus.completedTickets.length > 0) {
+              this.log(chalk.white(`   Completed: ${agentStatus.completedTickets.length} ticket(s)`));
+            }
           } else {
-            this.log(chalk.white('   No active tickets'));
+            const agentDir = resolveAgentDir(workspaceInfo, agentStatus.name);
+            const dirExists = fs.existsSync(agentDir);
+
+            if (dirExists) {
+              this.log(chalk.red(`   Invalid or broken worktrees`));
+            } else {
+              this.log(chalk.red(`   Agent directory not found`));
+            }
+            this.log(chalk.white('   Run "prlt agent staff add" to recreate'));
           }
 
-          if (agentStatus.completedTickets.length > 0) {
-            this.log(chalk.white(`   Completed: ${agentStatus.completedTickets.length} ticket(s)`));
-          }
-        } else {
-          const agentDir = path.join(workspaceInfo.agentsPath, agentStatus.name);
-          const dirExists = fs.existsSync(agentDir);
+          this.log('');
+        }
+      }
 
-          if (dirExists) {
-            this.log(chalk.red(`   Invalid or broken worktrees`));
-            this.log(chalk.yellow('   Agent directory exists but worktrees are missing or corrupted'));
+      // Temp agents section
+      if (showTemp && tempAgents.length > 0) {
+        this.log(chalk.bold.yellow('\n Temporary Agents:\n'));
+
+        const tempStatus = agentsStatus.filter(a =>
+          tempAgents.some(s => s.name === a.name)
+        );
+
+        for (const agentStatus of tempStatus) {
+          const sessions = getAgentTmuxSessions(agentStatus.name);
+          const hasRunningWork = sessions.length > 0;
+
+          const statusIcon = hasRunningWork ? '🟡' : (agentStatus.exists ? '🟢' : '🔴');
+          const runningLabel = hasRunningWork ? chalk.yellow(' (running)') : '';
+          const status = agentStatus.exists ? chalk.green('Active') : chalk.red('Missing');
+
+          this.log(`${statusIcon} ${chalk.bold(agentStatus.name)} ${chalk.dim('[temp]')} - ${status}${runningLabel}`);
+
+          if (agentStatus.exists) {
+            if (agentStatus.branch) {
+              this.log(chalk.cyan(`   Branch: ${agentStatus.branch}`));
+            }
+
+            if (agentStatus.assignedTickets.length > 0) {
+              this.log(chalk.blue(`   Current tickets: ${agentStatus.assignedTickets.join(', ')}`));
+            }
           } else {
             this.log(chalk.red(`   Agent directory not found`));
           }
-          this.log(chalk.white('   Run "prlt agent add" to recreate'));
-        }
 
-        this.log(''); // Empty line between agents
+          this.log('');
+        }
       }
 
       // Summary
-      const activeCount = agentsStatus.filter(a => a.exists).length;
-      const totalAssignedTickets = agentsStatus.reduce((sum, a) => sum + a.assignedTickets.length, 0);
+      const activeStaffCount = agentsStatus.filter(a =>
+        staffAgents.some(s => s.name === a.name) && a.exists
+      ).length;
+      const activeTempCount = agentsStatus.filter(a =>
+        tempAgents.some(s => s.name === a.name) && a.exists
+      ).length;
+      const runningTempCount = tempAgents.filter(a => {
+        const sessions = getAgentTmuxSessions(a.name);
+        return sessions.length > 0;
+      }).length;
 
-      this.log(chalk.bold(`📊 Summary:`));
-      this.log(`   Total agents: ${workspaceInfo.agents.length}`);
-      this.log(`   Active: ${activeCount}`);
-      this.log(`   Inactive: ${workspaceInfo.agents.length - activeCount}`);
+      // Calculate tickets for filtered agents only
+      const filteredAgentNames = new Set(filteredAgents.map(a => a.name));
+      const filteredStatus = agentsStatus.filter(a => filteredAgentNames.has(a.name));
+      const totalAssignedTickets = filteredStatus.reduce((sum, a) => sum + a.assignedTickets.length, 0);
+
+      this.log(chalk.bold(`Summary:`));
+      if (showStaff) {
+        this.log(`   Staff agents: ${staffAgents.length} (${activeStaffCount} active)`);
+      }
+      if (showTemp) {
+        this.log(`   Temp agents: ${tempAgents.length} (${activeTempCount} active${runningTempCount > 0 ? `, ${runningTempCount} running` : ''})`);
+      }
 
       if (workspaceInfo.hasPMO) {
         this.log(`   Tickets assigned: ${totalAssignedTickets}`);
+      }
+
+      // Show cleaned agents count if any (only when showing all)
+      if (typeFilter === 'all') {
+        const cleanedAgents = workspaceInfo.agents.filter(a => a.status === 'cleaned');
+        if (cleanedAgents.length > 0) {
+          this.log(chalk.dim(`   Cleaned (historical): ${cleanedAgents.length}`));
+        }
       }
 
     } catch (error) {

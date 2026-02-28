@@ -169,6 +169,16 @@ export function validateBranchName(name: string): ValidationResult {
   if (parts.length === 2) {
     // {type}/{description}
     const description = parts[1]
+
+    // Check if description looks like a ticket ID (user put ticket in wrong position)
+    if (isTicketId(description)) {
+      return {
+        valid: false,
+        error: `Segment "${description}" looks like a ticket ID, but ticket IDs must be the first segment. ` +
+               `Expected format: {ticketId}/{type}/{description}`,
+      }
+    }
+
     if (!isKebabCase(description)) {
       return {
         valid: false,
@@ -185,10 +195,28 @@ export function validateBranchName(name: string): ValidationResult {
   const owner = parts[1]
   const description = parts[2]
 
+  // Check if owner looks like a ticket ID (user put ticket in wrong position)
+  if (isTicketId(owner)) {
+    return {
+      valid: false,
+      error: `Segment "${owner}" looks like a ticket ID, but it's in the owner position (segment 2). ` +
+             `Ticket IDs must be the first segment. Expected format: {ticketId}/{type}/{owner}/{description}`,
+    }
+  }
+
   if (!isKebabCase(owner)) {
     return {
       valid: false,
       error: `Owner name must be kebab-case: "${owner}"`,
+    }
+  }
+
+  // Check if description looks like a ticket ID (user put ticket in wrong position)
+  if (isTicketId(description)) {
+    return {
+      valid: false,
+      error: `Segment "${description}" looks like a ticket ID, but it's in the description position (segment 3). ` +
+             `Ticket IDs must be the first segment.`,
     }
   }
 
@@ -268,6 +296,7 @@ export interface BranchInfo {
   agent?: string
   description?: string
   tracking?: string
+  repo?: string
 }
 
 /**

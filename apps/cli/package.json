@@ -1,36 +1,43 @@
 {
-  "name": "@chrismcdermut/prlt",
-  "description": "Proletariat CLI v2 - Multi-agent development orchestration",
-  "version": "0.1.0-alpha.10",
+  "name": "@proletariat/cli",
+  "description": "Agent orchestration platform for AI labor - Spin up workers on demand for multi-agent development",
+  "version": "0.3.45",
   "author": "Chris McDermut",
+  "mcpName": "io.github.chrismcdermut/proletariat-cli",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "bin": {
-    "prltdev": "./bin/run.js"
+    "prlt": "./bin/run.js"
   },
-  "bugs": "https://github.com/chrismcdermut/proletariat-cli/issues",
+  "bugs": "https://github.com/chrismcdermut/proletariat/issues",
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
+    "@linear/sdk": "^76.0.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "@oclif/core": "^4",
     "@oclif/plugin-autocomplete": "^3",
     "@oclif/plugin-commands": "^4",
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
-    "better-sqlite3": "^9.2.2",
+    "@oclif/plugin-warn-if-update-available": "^3",
+    "better-sqlite3": "^12.6.2",
     "chalk": "^4.1.2",
     "chokidar": "^5.0.0",
+    "drizzle-orm": "^0.37.0",
     "gray-matter": "^4.0.3",
     "ink": "^5.0.1",
     "ink-select-input": "^6.0.0",
     "inquirer": "^8.2.5",
-    "react": "^18.0.0"
+    "react": "^18.0.0",
+    "string-width": "^8.1.1",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/compat": "^2.0.0",
     "@oclif/prettier-config": "^0.2.1",
     "@oclif/test": "^4",
-    "@types/better-sqlite3": "^7.6.8",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/chai": "^4",
     "@types/ink-spinner": "^3.0.5",
     "@types/inquirer": "^8.2.6",
@@ -39,6 +46,7 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "chai": "^4",
+    "drizzle-kit": "^0.30.0",
     "eslint": "^9",
     "eslint-config-oclif": "^6.0.129",
     "eslint-config-prettier": "^10",
@@ -49,23 +57,32 @@
     "typescript": "^5"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "20.x || 22.x || 23.x || 24.x || 25.x"
   },
   "files": [
     "./bin",
     "./dist",
-    "./oclif.manifest.json"
+    "./images",
+    "./oclif.manifest.json",
+    "README.md"
   ],
-  "homepage": "https://github.com/chrismcdermut/proletariat-cli",
+  "homepage": "https://proletariat.ai/",
   "keywords": [
+    "cli",
     "multi-agent",
-    "development",
-    "ai",
+    "ai-agents",
+    "coding-assistant",
     "claude",
-    "cursor",
+    "claude-code",
+    "git-worktree",
+    "automation",
+    "ticket-management",
+    "project-management",
+    "tmux",
+    "docker",
     "oclif"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "main": "dist/index.js",
   "type": "module",
   "oclif": {
@@ -76,25 +93,16 @@
       "@oclif/plugin-autocomplete",
       "@oclif/plugin-commands",
       "@oclif/plugin-help",
-      "@oclif/plugin-plugins"
+      "@oclif/plugin-plugins",
+      "@oclif/plugin-warn-if-update-available"
     ],
     "topicSeparator": " ",
-    "topics": {
-      "agent": {
-        "description": "Manage agents (workers)"
-      },
-      "docker": {
-        "description": "Manage Docker containers used by agents"
-      },
-      "ticket": {
-        "description": "Manage PMO tickets"
-      },
-      "repo": {
-        "description": "Manage repositories"
-      }
-    },
     "hooks": {
       "init": "./dist/hooks/init"
+    },
+    "warn-if-update-available": {
+      "timeoutInDays": 1,
+      "message": "\n<%= chalk.yellow('Updated prlt available!') %> <%= chalk.dim(config.version) %> → <%= chalk.green(latest) %>\nRun <%= chalk.cyan('npm install -g @proletariat/cli') %> to get the latest\n"
     }
   },
   "repository": {
@@ -103,7 +111,9 @@
     "directory": "apps/cli"
   },
   "scripts": {
+    "postinstall": "npm rebuild better-sqlite3 || echo 'WARNING: npm rebuild better-sqlite3 failed. Native binding may be missing.'",
     "build": "shx rm -rf dist && tsc -b",
+    "rebuild": "pnpm install && pnpm build",
     "clean": "shx rm -rf dist",
     "dev": "tsc --watch",
     "lint": "eslint",
@@ -117,8 +127,12 @@
     "test:unit": "mocha --forbid-only \"test/unit/**/*.test.ts\"",
     "test:e2e": "mocha --forbid-only \"test/e2e/**/*.test.ts\"",
     "test:e2e:pmo": "mocha --forbid-only \"test/e2e/pmo-*.test.ts\"",
+    "test:e2e:interactive": "mocha --forbid-only --timeout 120000 \"test/e2e/interactive-menu.test.ts\"",
     "test:commands": "mocha --forbid-only \"test/commands/**/*.test.ts\"",
-    "version": "oclif readme && git add README.md"
+    "version": "oclif readme && git add README.md",
+    "publish:npm": "pnpm build && pnpm publish --access public --no-git-checks && git tag v$(node -p \"require('./package.json').version\") && git push origin v$(node -p \"require('./package.json').version\") && gh release create v$(node -p \"require('./package.json').version\") --generate-notes --title \"v$(node -p \"require('./package.json').version\")\"",
+    "roadmap:generate": "node ./bin/run.js roadmap generate --all",
+    "check:raw-sql": "bash ../../scripts/check-raw-sql.sh"
   },
   "types": "dist/index.d.ts"
 }

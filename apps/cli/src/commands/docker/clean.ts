@@ -1,19 +1,15 @@
 import { Command, Flags } from '@oclif/core'
-import { execSync } from 'child_process'
-import * as path from 'path'
+import { execSync } from 'node:child_process'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
-import inquirer from 'inquirer'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { sanitizeContainerId } from '../../lib/docker/resolve.js'
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js'
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
+import { machineOutputFlags } from '../../lib/pmo/base-command.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 interface OrphanedContainer {
   id: string
@@ -49,14 +45,7 @@ export default class DockerClean extends Command {
       description: 'Remove all stopped devcontainers (not just orphaned)',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
+    ...machineOutputFlags,
   }
 
   async run(): Promise<void> {
@@ -106,18 +95,18 @@ export default class DockerClean extends Command {
       this.log(`\n${styles.header('Orphaned Containers')}`)
       this.log('='.repeat(80))
       this.log(styles.muted(
-        padEnd('Container ID', 15) +
-        padEnd('Name', 30) +
-        padEnd('Status', 15) +
+        visualPadEnd('Container ID', 15) +
+        visualPadEnd('Name', 30) +
+        visualPadEnd('Status', 15) +
         'Reason'
       ))
       this.log('-'.repeat(80))
 
       for (const container of orphanedContainers) {
         this.log(
-          padEnd(container.id, 15) +
-          padEnd(truncate(container.name, 28), 30) +
-          padEnd(container.status, 15) +
+          visualPadEnd(container.id, 15) +
+          visualPadEnd(truncate(container.name, 28), 30) +
+          visualPadEnd(container.status, 15) +
           styles.muted(container.reason)
         )
       }
@@ -130,36 +119,26 @@ export default class DockerClean extends Command {
 
       // Confirm removal
       if (!flags.force) {
-        // Check if JSON output mode is active
-        const jsonMode = shouldOutputJson(flags)
+        const resolver = new FlagResolver<{ confirmed?: boolean; machine?: boolean; json?: boolean }>({
+          commandName: 'docker clean',
+          baseCommand: 'prlt docker clean',
+          jsonMode: shouldOutputJson(flags),
+          flags,
+        })
 
-        // Build choices once, use for both JSON and interactive modes
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ]
-        const confirmMessage = `Remove ${orphanedContainers.length} orphaned container(s)?`
+        resolver.addPrompt({
+          flagName: 'confirmed',
+          type: 'list',
+          message: `Remove ${orphanedContainers.length} orphaned container(s)?`,
+          choices: () => [
+            { name: 'Yes', value: true },
+            { name: 'No', value: false },
+          ],
+        })
 
-        // In JSON mode, output confirmation prompt
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'confirmed', confirmMessage, confirmChoices),
-            createMetadata('docker clean', flags)
-          )
-          db.close()
-          return
-        }
+        const resolved = await resolver.resolve()
 
-        const { confirm } = await inquirer.prompt([
-          {
-            type: 'confirm',
-            name: 'confirm',
-            message: confirmMessage,
-            default: false,
-          },
-        ])
-
-        if (!confirm) {
+        if (!resolved.confirmed) {
           this.log(`\n${styles.muted('Aborted.')}\n`)
           db.close()
           return
@@ -284,9 +263,6 @@ export default class DockerClean extends Command {
   }
 }
 
-function padEnd(str: string, length: number): string {
-  return str.padEnd(length)
-}
 
 function truncate(str: string, maxLength: number): string {
   if (str.length <= maxLength) return str

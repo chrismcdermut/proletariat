@@ -2,12 +2,11 @@ import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import inquirer from 'inquirer'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { getWorkspaceInfo, resolveAgentDir } from '../../lib/agents/commands.js'
 import {
   DisplayMode,
   SessionManager,
@@ -19,10 +18,11 @@ import {
   Shell,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, isDockerRunning } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isDevcontainerCliInstalled, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, getShell, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
 import {
   isGHInstalled,
   isGHAuthenticated,
@@ -32,10 +32,8 @@ import {
 } from '../../lib/pr/index.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js'
 
 export default class WorkRevise extends PMOCommand {
@@ -56,16 +54,8 @@ export default class WorkRevise extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     mode: Flags.string({
-      char: 'm',
+      char: 'd',
       description: 'Runtime mode',
       options: ['foreground', 'background', 'tmux', 'terminal', 'devcontainer'],
     }),
@@ -123,6 +113,16 @@ export default class WorkRevise extends PMOCommand {
       )
     }
 
+    // Early devcontainer CLI check
+    if (!flags['run-on-host'] && !isDevcontainerCliInstalled()) {
+      return handleError(
+        'DEVCONTAINER_CLI_NOT_INSTALLED',
+        'devcontainer CLI is not installed.\n\n' +
+        'Install with: npm install -g @devcontainers/cli\n\n' +
+        'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
+      )
+    }
+
     // Get workspace info
     let workspaceInfo
     try {
@@ -156,7 +156,8 @@ export default class WorkRevise extends PMOCommand {
           return
         }
 
-        const { selectedTicketId } = await inquirer.prompt([
+        const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work revise' } : null
+        const { selectedTicketId } = await this.prompt<{ selectedTicketId: string }>([
           {
             type: 'list',
             name: 'selectedTicketId',
@@ -164,9 +165,10 @@ export default class WorkRevise extends PMOCommand {
             choices: reviewTickets.map((t) => ({
               name: `${t.id} - ${t.title}`,
               value: t.id,
+              command: `prlt work revise ${t.id} --json`,
             })),
           },
-        ])
+        ], jsonModeConfig)
         ticketId = selectedTicketId
       }
 
@@ -231,29 +233,21 @@ export default class WorkRevise extends PMOCommand {
         )
       }
 
-      // Find worktree path
-      const agentDir = path.join(workspaceInfo.agentsPath, agentName)
+      // Find worktree path (handles staff and temp agents)
+      const agentDir = resolveAgentDir(workspaceInfo, agentName)
       if (!fs.existsSync(agentDir)) {
         db.close()
         this.error(`Agent directory not found at ${agentDir}.`)
       }
 
-      let worktreePath = agentDir
-      const agentContents = fs.readdirSync(agentDir)
-      const repoWorktrees = agentContents.filter(item => {
-        const itemPath = path.join(agentDir, item)
-        const gitPath = path.join(itemPath, '.git')
-        return fs.statSync(itemPath).isDirectory() && fs.existsSync(gitPath)
-      })
+      // Detect repository worktrees within agent directory
+      const repoWorktrees = detectRepoWorktrees(agentDir)
+      const worktreePath = resolveWorktreePath(agentDir, repoWorktrees)
 
-      if (repoWorktrees.length === 1) {
-        worktreePath = path.join(agentDir, repoWorktrees[0])
-      } else if (repoWorktrees.length > 1) {
-        worktreePath = agentDir
+      if (repoWorktrees.length > 1) {
         this.log(styles.muted(`   Repos: ${repoWorktrees.join(', ')}`))
-      } else {
+      } else if (repoWorktrees.length === 0) {
         this.log(styles.muted(`   No git worktree found, using current directory`))
-        worktreePath = process.cwd()
       }
 
       // Get branch from ticket metadata or current branch
@@ -273,6 +267,8 @@ export default class WorkRevise extends PMOCommand {
         worktreePath,
         branch,
         hqPath,
+        pmoPath: this.pmoPath,
+        repoWorktrees,
         // Revision-specific context
         isRevision: true,
         prFeedback: formattedFeedback,
@@ -284,43 +280,46 @@ export default class WorkRevise extends PMOCommand {
       let displayMode: DisplayMode = 'terminal'
       let sandboxed = false
 
+      const reviseJsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work revise' } : null
+
       if (hasDevcontainer && !flags['run-on-host']) {
         environment = 'devcontainer'
 
-        const { selectedDisplay } = await inquirer.prompt([
+        const { selectedDisplay } = await this.prompt<{ selectedDisplay: string }>([
           {
             type: 'list',
             name: 'selectedDisplay',
             message: 'How should the agent output be displayed?',
             choices: [
-              { name: 'terminal     - New terminal window', value: 'terminal' },
-              { name: 'background   - Runs detached, reattach with: prlt session attach', value: 'background' },
+              { name: 'terminal     - New terminal window', value: 'terminal', command: `prlt work revise ${ticketId} --mode terminal --json` },
+              { name: 'background   - Runs detached, reattach with: prlt session attach', value: 'background', command: `prlt work revise ${ticketId} --mode background --json` },
             ],
             default: 'terminal',
           },
-        ])
+        ], reviseJsonModeConfig)
         displayMode = selectedDisplay as DisplayMode
       } else if (flags.mode) {
         // Host environment: terminal/background are display modes
         displayMode = flags.mode as DisplayMode
       }
 
+      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+      const executorName = getExecutorDisplayName(executor)
+
       // Permission mode
-      const { permissionMode } = await inquirer.prompt([
+      const { permissionMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
-          message: 'Permission mode for Claude Code:',
+          message: `Permission mode for ${executorName}:`,
           choices: [
-            { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger' },
-            { name: 'safe   - Requires approval for dangerous operations', value: 'safe' },
+            { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger', command: `prlt work revise ${ticketId} --json` },
+            { name: 'safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt work revise ${ticketId} --json` },
           ],
           default: 'danger',
         },
-      ])
+      ], reviseJsonModeConfig)
       sandboxed = permissionMode === 'safe'
-
-      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
       // Show execution info
       this.log('')
@@ -368,8 +367,8 @@ export default class WorkRevise extends PMOCommand {
       // Move ticket back to In Progress column
       const inProgressColumnName = getWorkColumnSetting(db, 'in_progress')
 
-      const board = await this.storage.getBoard(ticket.projectId!)
-      const columnNames = board.columns.map(col => col.name)
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
+      const columnNames = board ? board.columns.map(col => col.name) : []
       const inProgressColumn = findColumnByName(columnNames, inProgressColumnName)
 
       if (inProgressColumn && ticket.statusName !== inProgressColumn) {

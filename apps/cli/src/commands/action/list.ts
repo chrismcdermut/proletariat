@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, WorkAction } from '../../lib/pmo/types.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class ActionList extends PMOCommand {
   static description = 'List available work actions';
@@ -27,10 +28,6 @@ export default class ActionList extends PMOCommand {
       description: 'Filter to actions suggested for a category',
       options: ['backlog', 'unstarted', 'started', 'completed', 'canceled'],
     }),
-    json: Flags.boolean({
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -43,7 +40,8 @@ export default class ActionList extends PMOCommand {
 
     const actions = await this.storage.listActions(filter);
 
-    if (flags.json) {
+    // Check for JSON output mode (--machine or --json flag)
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify(actions, null, 2));
       return;
     }

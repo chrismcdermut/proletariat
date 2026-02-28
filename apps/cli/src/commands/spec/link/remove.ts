@@ -1,119 +1,114 @@
-import { Args, Flags } from '@oclif/core'
-import inquirer from 'inquirer'
-import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
-import { styles } from '../../../lib/styles.js'
-import { SpecDependencyType } from '../../../lib/pmo/types.js'
+import { Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js'
+} from '../../../lib/prompt-json.js';
 
 export default class SpecLinkRemove extends PMOCommand {
-  static description = 'Remove a dependency from a spec'
+  static description = 'Remove a dependency between specs';
+
   static examples = [
-    '<%= config.bin %> <%= command.id %> my-feature other-spec',
-    '<%= config.bin %> <%= command.id %> my-feature --all',
-  ]
+    '<%= config.bin %> <%= command.id %> SPEC-001 SPEC-002',
+    '<%= config.bin %> <%= command.id %> SPEC-001 --machine',
+  ];
 
   static args = {
-    id: Args.string({ description: 'Spec ID', required: true }),
-    target: Args.string({ description: 'Target spec ID to unlink', required: false }),
-  }
+    spec: Args.string({
+      description: 'Source spec ID',
+      required: true,
+    }),
+    target: Args.string({
+      description: 'Target spec ID to remove dependency from',
+      required: false,
+    }),
+  };
+
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
-    type: Flags.string({ char: 't', description: 'Dependency type', options: ['depends_on', 'relates_to', 'duplicates'] }),
-    all: Flags.boolean({ char: 'a', description: 'Remove all dependencies', default: false }),
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
   }
 
   async execute(): Promise<void> {
-    const { args, flags } = await this.parse(SpecLinkRemove)
+    const { args, flags } = await this.parse(SpecLinkRemove);
+    const jsonMode = shouldOutputJson(flags);
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags)
-
-    // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
       if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('spec link remove', flags))
-        this.exit(1)
+        outputErrorAsJson(code, message, createMetadata('spec link remove', flags));
+        this.exit(1);
       }
-      this.error(message)
+      this.error(message);
+    };
+
+    // Verify source spec exists
+    const sourceSpec = await this.storage.getSpec(args.spec);
+    if (!sourceSpec) {
+      return handleError('SPEC_NOT_FOUND', `Spec not found: ${args.spec}`);
     }
 
-    const spec = await this.storage.getSpec(args.id)
-    if (!spec) return handleError('SPEC_NOT_FOUND', `Spec not found: ${args.id}`)
-
-    const dependencies = await this.storage.listSpecDependencies(args.id)
-    if (dependencies.length === 0) {
-      if (jsonMode) {
-        outputErrorAsJson('NO_DEPENDENCIES', `Spec ${args.id} has no dependencies.`, createMetadata('spec link remove', flags))
-        return
+    // If target not provided, show existing dependencies for selection
+    if (!args.target) {
+      const dependencies = await this.storage.listSpecDependencies(args.spec);
+      if (dependencies.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_DEPENDENCIES', `No dependencies found for ${args.spec}.`, createMetadata('spec link remove', flags));
+          return;
+        }
+        this.log(styles.muted(`No dependencies found for ${args.spec}.`));
+        return;
       }
-      this.log(styles.muted(`\nSpec ${args.id} has no dependencies.`))
-      return
-    }
 
-    if (flags.all) {
-      // In JSON mode, output confirmation prompt
+      // Get spec details for dependency targets
+      const choices: Array<{ name: string; value: string; command: string }> = [];
+      for (const dep of dependencies) {
+        // eslint-disable-next-line no-await-in-loop
+        const targetSpec = await this.storage.getSpec(dep.dependsOnSpecId);
+        const name = targetSpec ? `${dep.dependsOnSpecId} - ${targetSpec.title} (${dep.dependencyType})` : `${dep.dependsOnSpecId} (${dep.dependencyType})`;
+        choices.push({
+          name,
+          value: dep.dependsOnSpecId,
+          command: `prlt spec link remove ${args.spec} ${dep.dependsOnSpecId} --json`,
+        });
+      }
+
+      const message = `Select dependency to remove from ${args.spec}:`;
+
       if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ]
         outputPromptAsJson(
-          buildPromptConfig('list', 'confirmed', `Remove all ${dependencies.length} dependencies?`, confirmChoices),
+          buildPromptConfig('list', 'target', message, choices),
           createMetadata('spec link remove', flags)
-        )
-        return
+        );
+        return;
       }
 
-      const { confirmed } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
-        name: 'confirmed',
-        message: `Remove all ${dependencies.length} dependencies?`,
-        choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
-        ],
-      }])
-      if (!confirmed) { this.log(styles.muted('\nCancelled.')); return }
-      for (const dep of dependencies) await this.storage.deleteSpecDependency(args.id, dep.dependsOnSpecId, dep.dependencyType)
-      this.log(styles.success(`\n✅ Removed ${dependencies.length} dependencies from ${args.id}`))
-      return
+        name: 'selected',
+        message,
+        choices,
+      }], null);
+
+      args.target = selected;
     }
 
-    let targetId = args.target
-    if (!targetId) {
-      const choices = await Promise.all(dependencies.map(async dep => {
-        const depSpec = await this.storage.getSpec(dep.dependsOnSpecId)
-        return { name: `${dep.dependsOnSpecId} - ${depSpec?.title || 'Unknown'} (${dep.dependencyType})`, value: dep.dependsOnSpecId }
-      }))
+    // Remove the dependency
+    try {
+      await this.storage.deleteSpecDependency(args.spec, args.target!);
 
-      // In JSON mode, output dependency selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'target', 'Select dependency to remove:', choices),
-          createMetadata('spec link remove', flags)
-        )
-        return
+      this.log(styles.success(`\nRemoved dependency: ${args.spec} no longer depends on ${args.target}`));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not found')) {
+        return handleError('NOT_FOUND', `Dependency not found between ${args.spec} and ${args.target}`);
       }
-
-      const { selected } = await inquirer.prompt([{ type: 'list', name: 'selected', message: 'Select dependency to remove:', choices }])
-      targetId = selected
+      throw error;
     }
-
-    await this.storage.deleteSpecDependency(args.id, targetId!, flags.type as SpecDependencyType | undefined)
-    this.log(styles.success(`\n✅ Removed dependency: ${args.id} → ${targetId}`))
   }
 }

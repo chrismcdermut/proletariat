@@ -1,27 +1,26 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
 import Database from 'better-sqlite3'
-import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { getWorkspaceInfo, resolveAgentDir } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import {
   spawnForColumn,
   getAvailableAgents,
   isDockerRunning,
+  isDevcontainerCliInstalled,
   AgentStrategy,
 } from '../../lib/execution/spawner.js'
 import { DisplayMode, ExecutionEnvironment, ExecutionConfig } from '../../lib/execution/types.js'
 import { promptExecutionSettings } from '../../lib/execution/config.js'
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 
 export default class WorkWatch extends PMOCommand {
   static description = 'Watch a column and auto-spawn agents for new tickets'
@@ -36,14 +35,6 @@ export default class WorkWatch extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     column: Flags.string({
       char: 'c',
       description: 'Column to watch for new tickets (prompts if not provided)',
@@ -61,18 +52,20 @@ export default class WorkWatch extends PMOCommand {
     limit: Flags.integer({
       char: 'l',
       description: 'Maximum concurrent executions',
+      min: 1,
     }),
     interval: Flags.integer({
       char: 'i',
       description: 'Polling interval in seconds',
       default: 5,
+      min: 1,
     }),
     once: Flags.boolean({
       description: 'Check once and exit (no continuous watching)',
       default: false,
     }),
     mode: Flags.string({
-      char: 'm',
+      char: 'd',
       description: 'Display mode for agent output',
       options: ['terminal', 'background'],
     }),
@@ -81,7 +74,7 @@ export default class WorkWatch extends PMOCommand {
       default: false,
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready',
+      description: 'Create PR when work is ready (canonical flag for PR behavior)',
       default: false,
     }),
   }
@@ -160,95 +153,136 @@ export default class WorkWatch extends PMOCommand {
       // Prompt for column if not provided
       this.columnName = flags.column || ''
       if (!this.columnName) {
-        // In JSON mode, output column selection prompt
-        if (jsonMode) {
-          const columnChoices = columns.map(col => {
-            const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
-            return {
-              name: `${col} (${ticketCount} tickets)`,
-              value: col,
-            }
-          })
-          outputPromptAsJson(
-            buildPromptConfig('list', 'column', 'Select column to watch for new tickets:', columnChoices),
-            createMetadata('work watch', flags)
-          )
-          db.close()
-          return
-        }
+        // Build column choices with ticket counts
+        const columnChoices = columns.map(col => {
+          const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
+          return {
+            name: `${col} (${ticketCount} tickets)`,
+            value: col,
+          }
+        })
 
-        const { selectedColumn } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedColumn',
-            message: 'Select column to watch for new tickets:',
-            choices: columns.map(col => {
-              // Get ticket count for each column
-              const ticketCount = board.columns.find(c => c.name === col)?.tickets?.length || 0
-              return {
-                name: `${col} (${ticketCount} tickets)`,
-                value: col,
-              }
-            }),
-          },
-        ])
-        this.columnName = selectedColumn
+        // Use FlagResolver for column selection
+        const columnResolver = new FlagResolver<{ column?: string }>({
+          commandName: 'work watch',
+          baseCommand: 'prlt work watch',
+          jsonMode,
+          flags: {},
+        })
+
+        columnResolver.addPrompt({
+          flagName: 'column',
+          type: 'list',
+          message: 'Select column to watch for new tickets:',
+          choices: () => columnChoices,
+        })
+
+        const columnResult = await columnResolver.resolve()
+        this.columnName = columnResult.column || ''
       }
 
       // Check if any agent has devcontainer
       const hasDevcontainer = workspaceInfo.agents.some(agent => {
-        const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
+        const agentDir = resolveAgentDir(workspaceInfo, agent.name)
         return hasDevcontainerConfig(agentDir)
       })
-
-      // Docker check
-      const dockerRunning = isDockerRunning()
-      if (hasDevcontainer && !dockerRunning) {
-        this.warn(
-          'Docker is not running. Agents will run on host instead of devcontainer.\n' +
-          'Start Docker Desktop for sandboxed execution.'
-        )
-      }
 
       // Prompt for environment and display mode if not provided
       this.environment = 'host'
       this.displayMode = 'terminal'
 
       if (!flags.mode) {
-        if (hasDevcontainer && dockerRunning) {
-          // Prompt for environment choice
-          const { selectedEnvironment } = await inquirer.prompt([
-            {
+        if (hasDevcontainer) {
+          const envChoices = [
+            { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+            { name: '💻 host (runs directly on your machine)', value: 'host' },
+          ]
+
+          if (jsonMode) {
+            // In JSON mode, use FlagResolver (outputs prompt and exits)
+            const envResolver = new FlagResolver<{ selectedEnvironment?: string }>({
+              commandName: 'work watch',
+              baseCommand: 'prlt work watch',
+              jsonMode,
+              flags: {},
+            })
+
+            envResolver.addPrompt({
+              flagName: 'selectedEnvironment',
               type: 'list',
-              name: 'selectedEnvironment',
               message: 'Where should agents run?',
-              choices: [
-                { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
-                { name: '💻 host (runs directly on your machine)', value: 'host' },
-              ],
               default: 'devcontainer',
-            },
-          ])
-          this.environment = selectedEnvironment
+              choices: () => envChoices,
+            })
+
+            await envResolver.resolve()
+            return // unreachable, but satisfies TypeScript
+          }
+
+          // Interactive mode: loop to handle Docker not running
+          let environmentSelected = false
+          while (!environmentSelected) {
+            // eslint-disable-next-line no-await-in-loop -- Interactive loop with retry on Docker check
+            const { selectedEnvironment } = await this.prompt<{ selectedEnvironment: string }>([
+              {
+                type: 'list',
+                name: 'selectedEnvironment',
+                message: 'Where should agents run?',
+                choices: envChoices,
+                default: 'devcontainer',
+              },
+            ], null)
+
+            if (selectedEnvironment === 'devcontainer') {
+              // Dynamically check Docker when selected (user may have started it)
+              if (!isDockerRunning()) {
+                this.log('')
+                this.warn('Docker is not running. Please start Docker and try again.')
+                this.log('')
+                continue
+              }
+
+              if (!isDevcontainerCliInstalled()) {
+                this.log('')
+                this.warn(
+                  'devcontainer CLI is not installed.\n' +
+                  'Install with: npm install -g @devcontainers/cli\n' +
+                  'Or select "host" to run directly on your machine.'
+                )
+                this.log('')
+                continue
+              }
+            }
+
+            this.environment = selectedEnvironment as ExecutionEnvironment
+            environmentSelected = true
+          }
         }
 
-        // Prompt for display mode
-        const { selectedDisplay } = await inquirer.prompt([
-          {
-            type: 'list',
-            name: 'selectedDisplay',
-            message: 'How should agent output be displayed?',
-            choices: [
-              { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
-              { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
-            ],
-            default: 'terminal',
-          },
-        ])
-        this.displayMode = selectedDisplay as DisplayMode
+        // Use FlagResolver for display mode
+        const displayResolver = new FlagResolver<{ selectedDisplay?: string }>({
+          commandName: 'work watch',
+          baseCommand: 'prlt work watch',
+          jsonMode,
+          flags: {},
+        })
+
+        displayResolver.addPrompt({
+          flagName: 'selectedDisplay',
+          type: 'list',
+          message: 'How should agent output be displayed?',
+          default: 'terminal',
+          choices: () => [
+            { name: '🖥️  New tab      - Opens in new terminal tab (recommended)', value: 'terminal' },
+            { name: '📦 Background  - Runs detached, reattach with: prlt session attach', value: 'background' },
+          ],
+        })
+
+        const displayResult = await displayResolver.resolve()
+        this.displayMode = displayResult.selectedDisplay as DisplayMode
       } else {
         this.displayMode = flags.mode as DisplayMode
-        this.environment = hasDevcontainer && dockerRunning ? 'devcontainer' : 'host'
+        this.environment = hasDevcontainer && isDockerRunning() ? 'devcontainer' : 'host'
       }
 
       // Prompt for execution settings (terminal, output mode, permissions, PR creation)
@@ -258,6 +292,7 @@ export default class WorkWatch extends PMOCommand {
         skipPermissions: flags['skip-permissions'] ? true : undefined,
         createPR: flags['create-pr'] ? true : undefined,
         log: (msg) => this.log(styles.header(msg)),
+        jsonMode: jsonMode ? { flags, commandName: 'work watch' } : undefined,
       })
       this.executionConfig = promptResult.executionConfig
       this.skipPermissions = promptResult.skipPermissions
@@ -332,6 +367,7 @@ export default class WorkWatch extends PMOCommand {
       this.log('')
 
       while (this.isRunning) {
+        // eslint-disable-next-line no-await-in-loop -- Continuous polling loop
         await this.pollForNewTickets(
           flags,
           executionStorage,
@@ -340,6 +376,7 @@ export default class WorkWatch extends PMOCommand {
         )
 
         // Wait for interval
+        // eslint-disable-next-line no-await-in-loop -- Poll interval delay
         await new Promise(resolve => setTimeout(resolve, flags.interval * 1000))
       }
 

@@ -215,7 +215,7 @@ export class ActionStorage {
         ? (JSON.parse(row.default_category) as StateCategory[])
         : undefined,
       defaultMoveToCategory: row.default_category as StateCategory | undefined,
-      modifiesCode: row.is_builtin === 1,
+      modifiesCode: row.modifies_code === 1,
       isBuiltin: row.is_builtin === 1,
       createdAt: new Date(row.created_at),
     }

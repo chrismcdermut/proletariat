@@ -1,5 +1,4 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import {
   autoExportToBoard,
   PMOCommand,
@@ -8,10 +7,8 @@ import {
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketDelete extends PMOCommand {
@@ -34,14 +31,6 @@ export default class TicketDelete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt',
@@ -79,7 +68,7 @@ export default class TicketDelete extends PMOCommand {
 
     // Bulk mode
     if (flags.bulk) {
-      await this.executeBulk(allTickets, flags.force);
+      await this.executeBulk(allTickets, flags.force, flags);
       return;
     }
 
@@ -87,29 +76,20 @@ export default class TicketDelete extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to delete:', ticketChoices),
-          createMetadata('ticket delete', flags)
-        );
-        return;
-      }
-
-      const { selectedTicketId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedTicketId',
+      // Use helper for ticket selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
         message: 'Select ticket to delete:',
-        choices: allTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
-      ticketId = selectedTicketId;
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket delete ${t.id}${projectId ? ` -P ${projectId}` : ''} --force --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket delete' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      ticketId = selected;
     }
 
     // Get ticket to show details in confirmation
@@ -118,26 +98,27 @@ export default class TicketDelete extends PMOCommand {
       this.error(`Ticket "${ticketId}" not found.`);
     }
 
-    // Get board for project name
-    const board = await this.storage.getBoard(ticket.projectId!);
+    // Get board for project name (may be null if project was deleted/orphaned)
+    const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
 
     // Confirmation prompt (unless --force)
     if (!flags.force) {
       this.log(`\nDelete ticket ${styles.emphasis(ticketId)}?`);
       this.log(`  Title: ${ticket.title}`);
-      this.log(`  Project: ${board.name}`);
+      this.log(`  Project: ${board?.name || ticket.projectId || 'Unknown'}`);
       this.log(`  Status: ${ticket.statusName}`);
 
-      const { confirmed } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'ticket delete' } : null;
+      const { confirmed } = await this.prompt<{ confirmed: boolean }>([{
         type: 'list',
         name: 'confirmed',
         message: 'Are you sure?',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, delete', value: true },
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, delete', value: true, command: `prlt ticket delete ${ticketId} --force --json` },
         ],
         default: 0,
-      }]);
+      }], jsonModeConfig);
 
       if (!confirmed) {
         this.log(styles.warning('Deletion cancelled.'));
@@ -151,18 +132,30 @@ export default class TicketDelete extends PMOCommand {
     // Auto-export to board.md after write
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
+    // JSON output mode - match MCP tool response shape
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        message: `Deleted ${ticketId}`,
+      }, null, 2));
+      return;
+    }
+
     this.log(styles.success(`\n✅ Ticket ${styles.emphasis(ticketId)} deleted`));
     this.log(styles.muted('   Removed from database and board'));
   }
 
   private async executeBulk(
     allTickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
-    force: boolean
+    force: boolean,
+    flags?: Record<string, unknown>
   ): Promise<void> {
+    const jsonMode = flags ? shouldOutputJson(flags) : false;
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket delete' } : null;
     this.log(styles.emphasis('🗑️  Delete Multiple Tickets\n'));
 
     // Select tickets to delete
-    const { selectedTickets } = await inquirer.prompt([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to DELETE:',
@@ -170,7 +163,7 @@ export default class TicketDelete extends PMOCommand {
         name: `${t.id} - ${t.title} (${t.statusName})`,
         value: t.id,
       })),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -186,16 +179,16 @@ export default class TicketDelete extends PMOCommand {
       }
       this.log('');
 
-      const { confirm } = await inquirer.prompt([{
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
         message: 'Are you sure? This cannot be undone.',
         choices: [
-          { name: 'No, cancel', value: false },
-          { name: 'Yes, DELETE tickets', value: true }
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, DELETE tickets', value: true, command: 'prlt ticket delete --bulk --force --json' }
         ],
         default: 0
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Deletion cancelled.'));
@@ -209,8 +202,10 @@ export default class TicketDelete extends PMOCommand {
     let successCount = 0;
     let failCount = 0;
 
+    // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.deleteTicket(ticketId);
         this.log(styles.success(`Deleted ${ticketId}`));
         successCount++;

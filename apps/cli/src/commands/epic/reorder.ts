@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class EpicReorder extends PMOCommand {
@@ -48,14 +45,6 @@ export default class EpicReorder extends PMOCommand {
       description: 'Move before this epic ID',
       exclusive: ['first', 'last', 'after'],
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   async execute(): Promise<void> {
@@ -93,23 +82,16 @@ export default class EpicReorder extends PMOCommand {
       const choices = epics.map((e, i) => ({
         name: `#${i + 1} ${e.id} - ${e.title}`,
         value: e.id,
+        command: `prlt epic reorder ${e.id} --json`,
       }));
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select epic to reorder:', choices),
-          createMetadata('epic reorder', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic reorder' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select epic to reorder:',
         choices,
-      }]);
+      }], jsonModeConfig);
       epicId = selected;
     }
 
@@ -143,35 +125,31 @@ export default class EpicReorder extends PMOCommand {
       if (newPosition < 0) newPosition = 0;
       if (newPosition >= epics.length) newPosition = epics.length - 1;
     } else {
-      // In JSON mode, output rank input prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('input', 'rank', `New rank for ${epicId} (1-${epics.length}):`, undefined, String(epic.position + 1)),
-          createMetadata('epic reorder', flags)
-        );
-        return;
+      // Interactive: show current order and ask for new position
+      if (!jsonMode) {
+        this.log(`\nCurrent order:`);
+        epics.forEach((e, i) => {
+          const marker = e.id === epicId ? ' ◀' : '';
+          this.log(`  #${i + 1} ${e.id} - ${e.title}${marker}`);
+        });
       }
 
-      // Interactive: show current order and ask for new position
-      this.log(`\nCurrent order:`);
-      epics.forEach((e, i) => {
-        const marker = e.id === epicId ? ' ◀' : '';
-        this.log(`  #${i + 1} ${e.id} - ${e.title}${marker}`);
-      });
+      // Build position choices for rank selection
+      const rankChoices = epics.map((e, i) => ({
+        name: `#${i + 1}${e.id === epicId ? ' (current)' : ` - before ${e.title}`}`,
+        value: String(i + 1),
+        command: `prlt epic reorder ${epicId} ${i + 1} --json`,
+      }));
 
-      const { rank } = await inquirer.prompt([{
-        type: 'number',
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic reorder' } : null;
+      const { rank } = await this.prompt<{ rank: string }>([{
+        type: 'list',
         name: 'rank',
         message: `New rank for ${epicId} (1-${epics.length}):`,
-        default: epic.position + 1,
-        validate: (input: number) => {
-          if (input < 1 || input > epics.length) {
-            return `Please enter a number between 1 and ${epics.length}`;
-          }
-          return true;
-        },
-      }]);
-      newPosition = rank - 1;
+        choices: rankChoices,
+        default: String(epic.position + 1),
+      }], jsonModeConfig);
+      newPosition = parseInt(rank, 10) - 1;
     }
 
     // Perform reorder

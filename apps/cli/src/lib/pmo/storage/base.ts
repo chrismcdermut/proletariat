@@ -5,7 +5,9 @@
 
 import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
-import { StateCategory } from '../types.js'
+import { StateCategory, TICKET_CATEGORIES, STATE_CATEGORY_ORDER } from '../types.js'
+import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
+import { setWorkspacePriorities, DEFAULT_PRIORITIES } from '../utils.js'
 
 const T = PMO_TABLES
 
@@ -16,11 +18,13 @@ const T = PMO_TABLES
 export function initializePMOTables(db: Database.Database): void {
   runMigrations(db)
   db.exec(PMO_SCHEMA_SQL)
-  seedBuiltinTemplates(db)
+  seedBuiltinWorkflows(db)  // Workflows are the source of truth for status configurations
   seedBuiltinPhases(db)
   seedBuiltinPhaseTemplates(db)
   seedBuiltinActions(db)
   seedBuiltinTicketTemplates(db)
+  seedDefaultPriorities(db)  // Seed default priority scale if not set
+  seedBuiltinLabels(db)  // Seed built-in label groups and labels
   validateTicketSchema(db)
 }
 
@@ -131,8 +135,8 @@ export function runMigrations(db: Database.Database): void {
   // Migration: Add position column to actions table
   if (tableExists(T.actions)) {
     const actionsColumns = db.pragma(`table_info(${T.actions})`) as Array<{ name: string }>
-    const actionsColumnNames = actionsColumns.map(c => c.name)
-    if (!actionsColumnNames.includes('position')) {
+    const actionsColumnNames = new Set(actionsColumns.map(c => c.name))
+    if (!actionsColumnNames.has('position')) {
       try {
         db.exec(`ALTER TABLE ${T.actions} ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
         const positionMap: Record<string, number> = {
@@ -146,7 +150,7 @@ export function runMigrations(db: Database.Database): void {
       }
     }
 
-    if (!actionsColumnNames.includes('end_prompt')) {
+    if (!actionsColumnNames.has('end_prompt')) {
       try {
         db.exec(`ALTER TABLE ${T.actions} ADD COLUMN end_prompt TEXT`)
       } catch {
@@ -246,108 +250,179 @@ export function runMigrations(db: Database.Database): void {
       // Ignore errors if migration already ran
     }
   }
+
+  // Migration: Add workflow_id column to projects table
+  if (!projectsColumnNames.has('workflow_id')) {
+    try {
+      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN workflow_id TEXT`)
+    } catch {
+      // Column may already exist
+    }
+  }
+
+  // Migration: Drop pmo_templates table (workflows are now used directly)
+  if (tableExists('pmo_templates')) {
+    try {
+      db.exec('DROP TABLE pmo_templates')
+    } catch {
+      // Table may already be dropped
+    }
+  }
+
+  // Migration: Add position column to tickets table (TKT-965)
+  if (!ticketsColumnNames.has('position')) {
+    try {
+      db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_position ON ${T.tickets}(status_id, position)`)
+
+      // Backfill existing tickets with gapped positions (1000, 2000, ...) per status
+      const statuses = db.prepare(
+        `SELECT DISTINCT status_id FROM ${T.tickets} WHERE status_id IS NOT NULL`
+      ).all() as { status_id: string }[]
+
+      const getTicketsForStatus = db.prepare(`
+        SELECT id FROM ${T.tickets} WHERE status_id = ?
+        ORDER BY
+          CASE priority
+            WHEN 'P0' THEN 0
+            WHEN 'P1' THEN 1
+            WHEN 'P2' THEN 2
+            WHEN 'P3' THEN 3
+            ELSE 4
+          END,
+          created_at ASC
+      `)
+      const updatePosition = db.prepare(`UPDATE ${T.tickets} SET position = ? WHERE id = ?`)
+
+      for (const { status_id } of statuses) {
+        const tickets = getTicketsForStatus.all(status_id) as { id: string }[]
+        for (let i = 0; i < tickets.length; i++) {
+          updatePosition.run((i + 1) * 1000, tickets[i].id)
+        }
+      }
+    } catch {
+      // Column may already exist
+    }
+  }
+
+  // Migration: Add error_message column to agent_work table (TKT-1082)
+  if (tableExists(T.agent_work)) {
+    const agentWorkColumns = db.pragma(`table_info(${T.agent_work})`) as Array<{ name: string }>
+    const agentWorkColumnNames = new Set(agentWorkColumns.map(c => c.name))
+    if (!agentWorkColumnNames.has('error_message')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN error_message TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+  }
+
+  // Migration: Reassign orphaned tickets (TKT-940)
+  // Tickets with project_id that doesn't match any existing project are "orphaned".
+  // This can happen when a 'default' project never existed or was deleted.
+  // NOTE: This runs on every init but is idempotent — if no orphaned tickets exist, it's a no-op.
+  // Kept as a runtime check rather than a one-time migration since orphaned tickets could
+  // reappear if projects are deleted in the future.
+  if (tableExists(T.tickets) && tableExists(T.projects)) {
+    try {
+      // Find orphaned tickets (project_id doesn't match any project)
+      const orphanedTickets = db.prepare(`
+        SELECT t.id, t.project_id
+        FROM ${T.tickets} t
+        LEFT JOIN ${T.projects} p ON t.project_id = p.id
+        WHERE p.id IS NULL
+      `).all() as Array<{ id: string; project_id: string }>
+
+      if (orphanedTickets.length > 0) {
+        // Get the first available project to reassign to
+        const firstProject = db.prepare(`
+          SELECT id FROM ${T.projects} ORDER BY created_at ASC LIMIT 1
+        `).get() as { id: string } | undefined
+
+        if (firstProject) {
+          // Get the default status for the target project's workflow
+          const project = db.prepare(`
+            SELECT workflow_id FROM ${T.projects} WHERE id = ?
+          `).get(firstProject.id) as { workflow_id: string | null } | undefined
+
+          const workflowId = project?.workflow_id || 'default'
+          const defaultStatus = db.prepare(`
+            SELECT id FROM ${T.workflow_statuses}
+            WHERE workflow_id = ? AND is_default = 1
+          `).get(workflowId) as { id: string } | undefined
+
+          // Reassign orphaned tickets to the first project
+          const updateStmt = defaultStatus
+            ? db.prepare(`UPDATE ${T.tickets} SET project_id = ?, status_id = COALESCE(status_id, ?) WHERE id = ?`)
+            : db.prepare(`UPDATE ${T.tickets} SET project_id = ? WHERE id = ?`)
+
+          for (const ticket of orphanedTickets) {
+            if (defaultStatus) {
+              updateStmt.run(firstProject.id, defaultStatus.id, ticket.id)
+            } else {
+              updateStmt.run(firstProject.id, ticket.id)
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-critical migration - don't fail initialization
+    }
+  }
+
 }
 
 /**
- * Seed built-in workflow templates.
+ * Seed built-in workflows from BUILTIN_TEMPLATES (single source of truth).
+ * Creates workflows from template definitions for reuse across projects.
  */
-export function seedBuiltinTemplates(db: Database.Database): void {
-  type WorkflowTemplateStatus = {
-    name: string
-    category: StateCategory
-    position: number
-  }
+export function seedBuiltinWorkflows(db: Database.Database): void {
+  const now = new Date().toISOString()
 
-  const builtinTemplates: Array<{
-    id: string
-    name: string
-    description: string
-    statuses: WorkflowTemplateStatus[]
-  }> = [
-    {
-      id: 'kanban',
-      name: 'Kanban',
-      description: 'Simple kanban workflow: Backlog → To Do → In Progress → Done',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0 },
-        { name: 'To Do', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'linear',
-      name: 'Linear',
-      description: 'Linear-style workflow with backlog, triage, and review stages',
-      statuses: [
-        { name: 'Backlog', category: 'backlog', position: 0 },
-        { name: 'Triage', category: 'backlog', position: 1 },
-        { name: 'Todo', category: 'unstarted', position: 0 },
-        { name: 'In Progress', category: 'started', position: 0 },
-        { name: 'In Review', category: 'started', position: 1 },
-        { name: 'Done', category: 'completed', position: 0 },
-        { name: 'Canceled', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'bug-smash',
-      name: 'Bug Smash',
-      description: 'Bug tracking workflow with verification stages',
-      statuses: [
-        { name: 'Reported', category: 'backlog', position: 0 },
-        { name: 'Confirmed', category: 'unstarted', position: 0 },
-        { name: 'Fixing', category: 'started', position: 0 },
-        { name: 'Verifying', category: 'started', position: 1 },
-        { name: 'Fixed', category: 'completed', position: 0 },
-        { name: "Won't Fix", category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: '5-tool-founder',
-      name: '5-Tool Founder',
-      description: 'Founder workflow: Ideas → Build → Ship → Measure → Iterate',
-      statuses: [
-        { name: 'Ideas', category: 'backlog', position: 0 },
-        { name: 'Next Up', category: 'unstarted', position: 0 },
-        { name: 'Building', category: 'started', position: 0 },
-        { name: 'Shipping', category: 'started', position: 1 },
-        { name: 'Measuring', category: 'started', position: 2 },
-        { name: 'Shipped', category: 'completed', position: 0 },
-        { name: 'Parked', category: 'canceled', position: 0 },
-      ],
-    },
-    {
-      id: 'gtm',
-      name: 'GTM',
-      description: 'Go-to-market workflow for launches and campaigns',
-      statuses: [
-        { name: 'Ideation', category: 'backlog', position: 0 },
-        { name: 'Planning', category: 'unstarted', position: 0 },
-        { name: 'In Development', category: 'started', position: 0 },
-        { name: 'Ready to Launch', category: 'started', position: 1 },
-        { name: 'Launched', category: 'completed', position: 0 },
-        { name: 'Retired', category: 'canceled', position: 0 },
-      ],
-    },
-  ]
-
-  const insertTemplate = db.prepare(`
-    INSERT OR IGNORE INTO ${T.templates} (id, name, description, is_builtin, statuses, created_at)
+  const insertWorkflow = db.prepare(`
+    INSERT OR IGNORE INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
     VALUES (?, ?, ?, 1, ?, ?)
   `)
 
-  const now = new Date().toISOString()
-  for (const template of builtinTemplates) {
-    insertTemplate.run(
-      template.id,
-      template.name,
-      template.description,
-      JSON.stringify(template.statuses),
-      now
-    )
+  const insertStatus = db.prepare(`
+    INSERT OR IGNORE INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  // Read from BUILTIN_TEMPLATES - the single source of truth
+  for (const template of BUILTIN_TEMPLATES) {
+    insertWorkflow.run(template.id, template.name, template.description, now, now)
+
+    for (let i = 0; i < template.statuses.length; i++) {
+      const status = template.statuses[i]
+      const statusId = `${template.id}-${status.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`
+      // First status is the default
+      const isDefault = i === 0
+      insertStatus.run(
+        statusId,
+        template.id,
+        status.name,
+        status.category,
+        status.position,
+        null, // color
+        null, // description
+        isDefault ? 1 : 0,
+        now
+      )
+    }
   }
+
+  // Assign default workflow to any projects without a workflow
+  db.prepare(`
+    UPDATE ${T.projects}
+    SET workflow_id = 'default'
+    WHERE workflow_id IS NULL
+  `).run()
 }
+
+// REMOVED: seedBuiltinTemplates - workflows are now used directly (no separate template concept)
+// Built-in workflows are seeded in seedBuiltinWorkflows() above
 
 /**
  * Seed default project phases.
@@ -475,6 +550,72 @@ export function seedBuiltinPhaseTemplates(db: Database.Database): void {
 }
 
 /**
+ * Rule for agents about using the globally installed prlt command.
+ * This prevents agents from wasting time trying to build from source when working in the prlt repo.
+ */
+const PRLT_USAGE_RULE = `
+**IMPORTANT RULES**:
+
+1. **Use globally installed prlt**: Always use the \`prlt\` command directly
+2. **Never use local dev builds**: Do NOT use \`./apps/cli/bin/dev.js\` or \`./apps/cli/bin/run.js\`
+3. **Why**: You may be working inside the prlt source code. The local builds require dependencies and may not work correctly. The globally installed version is already configured and ready to use.
+
+Example (correct):
+\`\`\`bash
+prlt ticket edit TKT-123 --add-ac "Test passes"
+\`\`\`
+
+Example (WRONG - do not do this):
+\`\`\`bash
+./apps/cli/bin/run.js ticket edit TKT-123 ...
+\`\`\`
+`.trim()
+
+/**
+ * prlt CLI command reference sections for action prompts.
+ * Each action gets a tailored set of commands relevant to its workflow.
+ */
+const PRLT_COMMANDS_COMMON = `
+## prlt CLI Reference
+
+Use these commands to interact with the ticket system. Always use the global \`prlt\` command.
+
+| Command | Description |
+|---------|-------------|
+| \`prlt ticket show <id>\` | View full ticket details (description, AC, subtasks, labels) |
+| \`prlt ticket edit <id> [flags]\` | Update ticket fields (see flags below) |
+| \`prlt ticket list\` | List tickets on the board |
+| \`prlt whoami\` | Show current agent/user identity |
+
+### Common \`ticket edit\` flags
+| Flag | Description |
+|------|-------------|
+| \`--title "..."\` | Update title |
+| \`--description "..."\` | Update description |
+| \`--priority P0\\|P1\\|P2\\|P3\` | Set priority |
+| \`--category <type>\` | Set category (feature, bug, refactor, etc.) |
+| \`--add-ac "..."\` | Add acceptance criterion |
+| \`--clear-ac\` | Clear all acceptance criteria |
+| \`--add-subtask "..."\` | Add a subtask |
+| \`--clear-subtasks\` | Clear all subtasks |
+| \`--add-label "..."\` | Add a label |
+| \`--remove-label "..."\` | Remove a label |
+| \`--assignee <name>\` | Set assignee |
+| \`--owner <name>\` | Set owner |`
+
+const PRLT_COMMANDS_CODE = `
+| \`prlt commit "message"\` | Create a commit with ticket ID from branch name |
+| \`prlt work ready <id> --pr\` | Mark ticket ready for review and create a PR |`
+
+const PRLT_COMMANDS_REVIEW = `
+| \`prlt ticket move <id>\` | Move ticket to a different column |
+| \`prlt ticket complete <id>\` | Mark ticket as complete (move to Done) |`
+
+const PRLT_COMMANDS_RESOLVE = `
+| \`prlt ticket resolve <id>\` | Interactive resolution of ambiguity questions |
+| \`prlt work resolve <id>\` | Agent-assisted resolution of ambiguity questions |`
+
+/**
  * Seed built-in work actions.
  */
 export function seedBuiltinActions(db: Database.Database): void {
@@ -483,7 +624,13 @@ export function seedBuiltinActions(db: Database.Database): void {
       id: 'groom',
       name: 'Groom',
       description: 'Flesh out ticket with requirements and acceptance criteria',
-      prompt: `Analyze this ticket and improve its definition:
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Groom
+
+Analyze this ticket and improve its definition:
 - Add detailed requirements if missing or vague
 - Add clear, testable acceptance criteria
 - Break down into subtasks if the work is complex
@@ -491,6 +638,33 @@ export function seedBuiltinActions(db: Database.Database): void {
 - Flag any ambiguities or missing information that need clarification
 
 Do NOT implement the ticket - only improve its definition so it's ready to be worked on.
+
+## Flagging Ambiguities
+
+If you identify ambiguities or questions that need human clarification, add them to the description using this **exact format**:
+
+\`\`\`
+**Q1:** Should the API use REST or GraphQL?
+**Q2:** What is the expected timeout for sessions?
+**Q3:** Should this feature be behind a feature flag?
+\`\`\`
+
+When questions are added:
+- Add the \`needs-clarification\` label: \`--add-label "needs-clarification"\`
+- Questions can later be resolved with \`prlt ticket resolve\` or \`prlt work resolve\`
+
+If NO ambiguities are found, add the \`ready\` label instead.
+
+**AI Agent Tip:** When running \`prlt\` commands without all required arguments, use \`--json\` to receive interactive prompts as structured JSON.
+
+### Additional prlt Commands
+| Command | Description |
+|---------|-------------|
+| \`prlt ticket show <id>\` | View full ticket details |
+| \`prlt ticket list\` | List tickets on the board |
+| \`prlt whoami\` | Show current agent/user identity |
+| \`prlt ticket resolve <id>\` | Interactive resolution of ambiguity questions |
+| \`prlt work resolve <id>\` | Agent-assisted resolution of ambiguity questions |
 
 ## Ticket Schema Reference
 
@@ -545,6 +719,8 @@ Requirements:
 - Use \`--clear-subtasks\` if replacing existing subtasks
 - Use \`--clear-ac\` if replacing existing acceptance criteria
 
+**Tip:** Use \`prlt ticket view <id>\` to see full ticket details at any time.
+
 After updating, output a brief summary of your grooming changes.`,
       suggestedForCategories: ['backlog'],
       defaultMoveToCategory: 'unstarted',
@@ -552,17 +728,90 @@ After updating, output a brief summary of your grooming changes.`,
       position: 0,
     },
     {
+      id: 'resolve',
+      name: 'Resolve',
+      description: 'Help human resolve ambiguity questions flagged during grooming',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Resolve Ambiguities
+
+This ticket has been groomed and has open questions (Q1, Q2, etc.) that need human answers.
+
+Your job is to help the human answer each question by:
+1. Reading the ticket description to find all **Q1:**, **Q2:**, etc. questions
+2. For each question, explore the codebase to find relevant context
+3. Present each question to the human with your findings and a suggested answer
+4. Collect the human's answer (they may accept your suggestion or provide their own)
+5. Write the resolved answers back into the ticket description
+
+## Process
+
+For each question:
+1. **Search the codebase** for relevant context (files, patterns, existing implementations)
+2. **Present your findings**: "Q1: Should this use REST or GraphQL? I found you're already using GraphQL in \`src/api/schema.ts\`..."
+3. **Suggest an answer** based on the codebase context
+4. **Ask the human** to confirm or provide their own answer
+5. After collecting all answers, update the ticket:
+   \`\`\`bash
+   prlt ticket edit {{TICKET_ID}} --description "updated description with answers"
+   prlt ticket edit {{TICKET_ID}} --remove-label "needs-clarification" --add-label "ready"
+   \`\`\`
+
+## Important
+- This is an INTERACTIVE session - always ask the human before writing answers
+- If the ticket has acceptance criteria or subtasks that need updating based on answers, update those too
+- After resolving, move the ticket to the Ready column if all questions are answered
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_RESOLVE}`,
+      endPrompt: `After resolving all questions:
+1. Update the ticket description with answers below each question
+2. Remove the \`needs-clarification\` label and add \`ready\` label
+3. Update acceptance criteria and subtasks if answers affect them
+
+\`\`\`bash
+prlt ticket edit {{TICKET_ID}} --description "..." --remove-label "needs-clarification" --add-label "ready"
+\`\`\``,
+      suggestedForCategories: [],
+      modifiesCode: false,
+      position: 1,
+    },
+    {
       id: 'implement',
       name: 'Implement',
       description: 'Write code to implement the ticket requirements',
-      prompt: `Implement this ticket according to its requirements and acceptance criteria:
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Implement
+
+Implement this ticket according to its requirements and acceptance criteria:
 - Follow the acceptance criteria exactly
 - Write clean, well-tested code
-- Create atomic commits with clear messages
 - Update documentation if the changes affect it
 - Run tests to verify the implementation
 
-When complete, the ticket should be ready for code review.`,
+**IMPORTANT: Commit and push frequently!**
+- Commit after each logical change or completed subtask
+- Push after every 1-2 commits to save your work
+- Use atomic commits with clear messages describing the change
+- Don't wait until the end to commit - your work could be lost!
+
+Example workflow:
+\`\`\`bash
+# After completing a piece of work
+git add -A
+prlt commit "implement user validation"
+git push
+\`\`\`
+
+When complete, the ticket should be ready for code review.
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}`,
       endPrompt: `When complete:
 1. **Commit your work** in each repository directory you modified:
    \`\`\`bash
@@ -583,17 +832,35 @@ When complete, the ticket should be ready for code review.`,
       suggestedForCategories: ['unstarted', 'started'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
-      position: 1,
+      position: 2,
     },
     {
       id: 'continue',
       name: 'Continue',
       description: 'Continue working from where you left off',
-      prompt: `Continue working on this ticket from where you left off.
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Continue
+
+Continue working on this ticket from where you left off.
 - Review existing commits and changes to understand current state
 - Check what subtasks remain incomplete
 - Complete the remaining work
-- Ensure all acceptance criteria are met`,
+- Ensure all acceptance criteria are met
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each logical change or completed subtask
+- Push after every 1-2 commits to save your work
+- Don't wait until the end to commit - your work could be lost!
+
+\`\`\`bash
+git add -A && prlt commit "your change" && git push
+\`\`\`
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}`,
       endPrompt: `When complete:
 1. **Commit your work** in each repository directory you modified:
    \`\`\`bash
@@ -613,18 +880,400 @@ When complete, the ticket should be ready for code review.`,
       suggestedForCategories: ['started'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
-      position: 2,
+      position: 3,
+    },
+    {
+      id: 'review',
+      name: 'Code Review',
+      description: 'Review the implementation and post feedback on the PR',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Code Review
+
+Review this ticket's implementation thoroughly:
+- Check for bugs, edge cases, and potential issues
+- Look for security vulnerabilities
+- Verify it meets all acceptance criteria
+- Check code quality and maintainability
+- Suggest improvements if appropriate
+
+After reviewing, determine your verdict:
+- **APPROVE**: Code is ready to merge, no significant issues
+- **REQUEST_CHANGES**: There are issues that must be fixed before merging
+- **COMMENT**: General feedback, no blocking issues but some suggestions
+
+Do NOT modify any code. This is a read-only review.
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_REVIEW}`,
+      endPrompt: `When you have finished reviewing, post your review on the PR using \`gh pr review\`.
+
+Choose the appropriate command based on your verdict:
+
+**If approving:**
+\`\`\`bash
+gh pr review --approve --body "## Code Review
+
+### What looks good
+- ...
+
+### Verdict
+APPROVED - Code is ready to merge."
+\`\`\`
+
+**If requesting changes:**
+\`\`\`bash
+gh pr review --request-changes --body "## Code Review
+
+### What looks good
+- ...
+
+### Concerns
+- ...
+
+### Suggested improvements
+- ...
+
+### Verdict
+REQUEST CHANGES - Issues must be addressed before merging."
+\`\`\`
+
+**If commenting:**
+\`\`\`bash
+gh pr review --comment --body "## Code Review
+
+### What looks good
+- ...
+
+### Suggestions
+- ...
+
+### Verdict
+COMMENT - Some suggestions but no blocking issues."
+\`\`\`
+
+Format the body with: what looks good, concerns (if any), suggested improvements (if any), and your verdict.
+
+No commits are needed for code review.`,
+      suggestedForCategories: ['started', 'completed'],
+      modifiesCode: false,
+      position: 4,
+    },
+    {
+      id: 'review-fix',
+      name: 'Review & Fix',
+      description: 'Review the implementation, fix issues, and post feedback on the PR',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Review & Fix
+
+Review this ticket's implementation thoroughly and fix any issues found:
+- Check for bugs, edge cases, and potential issues
+- Look for security vulnerabilities
+- Verify it meets all acceptance criteria
+- Check code quality and maintainability
+- Fix any issues you find directly in the code
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each fix or logical group of changes
+- Push after every 1-2 commits to save your work
+
+\`\`\`bash
+git add -A && prlt commit "fix: address code review findings" && git push
+\`\`\`
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}
+${PRLT_COMMANDS_REVIEW}`,
+      endPrompt: `When you have finished reviewing and fixing:
+
+1. **If issues were found and fixed**, post a review summary and push your fixes:
+   \`\`\`bash
+   gh pr review --comment --body "## Code Review & Fix Summary
+
+   ### Issues found and fixed
+   - ...
+
+   ### What looks good
+   - ...
+
+   ### Changes made
+   - ...
+   "
+   prlt commit "fix: address code review findings"
+   git push
+   \`\`\`
+
+2. **If no issues were found**, approve the PR:
+   \`\`\`bash
+   gh pr review --approve --body "## Code Review
+
+   ### What looks good
+   - ...
+
+   ### Verdict
+   APPROVED - Code looks great, no issues found."
+   \`\`\``,
+      suggestedForCategories: ['started', 'completed'],
+      modifiesCode: true,
+      position: 5,
+    },
+    {
+      id: 'revise',
+      name: 'Revise',
+      description: 'Pull the branch, read PR review feedback, implement fixes, and push',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Revise
+
+Address the feedback on this ticket's pull request:
+
+1. **Pull the latest branch** to ensure you have the most recent code:
+   \`\`\`bash
+   git pull
+   \`\`\`
+
+2. **Read all review comments and requested changes** from the PR:
+   \`\`\`bash
+   gh pr view
+   gh api repos/{owner}/{repo}/pulls/{number}/comments
+   \`\`\`
+
+3. **Understand each piece of feedback** before making changes — read carefully and understand the reviewer's intent
+
+4. **Implement the requested fixes** and address each review comment:
+   - Make the necessary code changes to address each point
+   - Respond to questions with explanations
+   - Ensure all requested changes are addressed
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each fix or logical group of changes
+- Push after every 1-2 commits to save your work
+
+\`\`\`bash
+git add -A && prlt commit "fix: address PR review feedback" && git push
+\`\`\`
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}`,
+      endPrompt: `After addressing all feedback:
+
+1. **Commit your changes**:
+   \`\`\`bash
+   git add -A
+   prlt commit "fix: address PR review feedback"
+   \`\`\`
+
+2. **Push your changes**:
+   \`\`\`bash
+   git push
+   \`\`\`
+
+3. **Optionally reply to resolved review threads** using the GitHub API:
+   \`\`\`bash
+   gh api repos/{owner}/{repo}/pulls/{number}/comments
+   \`\`\`
+
+The PR will be updated automatically with your pushed changes.`,
+      suggestedForCategories: ['completed'],
+      defaultMoveToCategory: 'started',
+      modifiesCode: true,
+      position: 6,
+    },
+    {
+      id: 'explore-cli',
+      name: 'Explore CLI',
+      description: 'AI QA agent that autonomously explores the interactive CLI to discover bugs',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Explore CLI (Autonomous QA)
+
+You are an AI QA tester for the prlt CLI. You have access to a tmux session where the CLI is running.
+Your job is to **systematically explore every menu, try every option, and find bugs**.
+
+## Your Tools
+
+- **tmux_send_keys** — send keystrokes to the tmux session (typing, arrows, Enter, Escape, Ctrl+C, etc.)
+- **tmux_capture_pane** — read the current terminal screen to see what's displayed
+- **tmux_start_session** — start a new tmux session to run the CLI in
+- **tmux_list_sessions** — list active tmux sessions
+- **ticket_create** — file a bug ticket when you find something broken
+
+## Getting Started
+
+1. Start a tmux session for testing:
+   \`\`\`
+   tmux_start_session({ session: "qa-test", command: "prlt" })
+   \`\`\`
+2. Wait a moment, then capture the screen to see the main menu:
+   \`\`\`
+   tmux_capture_pane({ session: "qa-test" })
+   \`\`\`
+3. Begin systematic exploration.
+
+## Exploration Strategies
+
+Work through these systematically. After each action, always capture the screen to see the result.
+
+### 1. Navigate Every Top-Level Menu Item
+- Use arrow keys (Up/Down) to highlight each option
+- Press Enter to select each one
+- Capture the screen to see what happens
+- Press Escape or Ctrl+C to go back
+
+### 2. Test Every Submenu Option
+- For each menu item, explore all sub-options
+- Try selecting each choice in every list/menu
+
+### 3. Test Input Handling
+- **Valid inputs**: Normal expected values
+- **Empty inputs**: Just press Enter without typing anything
+- **Invalid inputs**: Random strings, numbers where text is expected, etc.
+- **Long strings**: Very long ticket titles, descriptions (100+ characters)
+- **Special characters**: Quotes, backslashes, Unicode (emojis, CJK characters)
+- **SQL injection-like**: \`'; DROP TABLE --\` style strings
+- **Boundary values**: 0, -1, 999999, etc. for numeric inputs
+
+### 4. Test Cancellation Flows
+- Press Ctrl+C mid-flow (should exit gracefully, no crash)
+- Press Escape in menus (should go back)
+- Press q or Q in menus (common quit shortcut)
+- Rapidly press Escape multiple times
+
+### 5. Test Navigation Edge Cases
+- Rapid arrow key presses (Up Up Up Down Down Down)
+- Arrow keys at the top/bottom of lists (should not crash)
+- Tab key in various contexts
+- Home/End keys
+
+### 6. Test Error Recovery
+- Navigate to ticket operations without any tickets
+- Try to create items with duplicate names
+- Try operations on non-existent IDs
+
+## What to Look For
+
+- **Crashes**: Unhandled exceptions, stack traces visible on screen
+- **Rendering glitches**: Items cut off, wrong alignment, overlapping text, garbled output
+- **Wrong data**: Incorrect values displayed, stale data, missing information
+- **Missing options**: Menu items that should exist but don't
+- **Broken navigation**: Arrow keys don't work, can't go back, infinite loops
+- **Unhelpful errors**: Generic "Error" with no details, or raw error objects
+- **Hangs**: Screen freezes, no response to input (wait 10 seconds before declaring a hang)
+- **Screen overflow**: Content pushed off screen, no scrolling available
+- **Partial renders**: Screen shows half-drawn UI elements
+- **State corruption**: Operations succeed but data is wrong afterward
+
+## Cross-Validation
+
+Compare what you see on screen with what the MCP tools return:
+- After creating a ticket via the interactive menu, use \`ticket_list\` to verify it was created correctly
+- After moving a ticket, verify the status changed via \`ticket_show\`
+- Check that counts displayed in menus match actual data
+
+## When You Find a Bug
+
+1. **Document exact reproduction steps** — which keys you pressed, in what order
+2. **Capture the screen** showing the bug
+3. **File a ticket** using the ticket_create MCP tool:
+   - Title: Clear description of the bug
+   - Category: "bug"
+   - Priority: P1 for crashes/data loss, P2 for rendering/UX issues, P3 for minor issues
+   - Description: Include exact reproduction steps, screen capture, and expected vs actual behavior
+
+## Session Management
+
+- If the CLI crashes, restart it: kill the session and start a new one
+- If you get stuck, use Ctrl+C to escape, or kill and restart the session
+- Periodically capture the screen even when not expecting changes (catch intermittent issues)
+
+## Test Prioritization
+
+Start with the most commonly used flows, then move to edge cases:
+1. Main menu navigation
+2. Ticket operations (create, list, view, edit, move)
+3. Project operations
+4. Board view
+5. Work/session operations
+6. Epic and spec operations
+7. Settings and configuration
+8. Edge cases and stress testing`,
+      endPrompt: `## Wrap-Up
+
+When you've completed your exploration:
+
+1. **Summarize your findings**: List all bugs found with their ticket IDs
+2. **Note areas not tested**: If you couldn't reach certain features, list them
+3. **Rate overall CLI quality**: Brief assessment of stability, UX, and completeness
+
+Output a structured summary:
+\`\`\`
+## Exploratory QA Summary
+
+### Bugs Filed
+- TKT-XXX: [brief description]
+- TKT-YYY: [brief description]
+
+### Areas Tested
+- [ ] Main menu navigation
+- [ ] Ticket CRUD
+- [ ] Project operations
+- [ ] Board view
+- [ ] Work sessions
+- [ ] Epics & specs
+- [ ] Error handling
+- [ ] Input validation
+
+### Areas Not Tested
+- [list any areas you couldn't reach]
+
+### Overall Assessment
+[Brief quality assessment]
+\`\`\`
+
+Clean up your tmux session:
+\`\`\`
+tmux_kill_session({ session: "qa-test" })
+\`\`\``,
+      suggestedForCategories: [],
+      modifiesCode: false,
+      position: 8,
     },
     {
       id: 'test',
       name: 'Write Tests',
       description: 'Add comprehensive tests for the implementation',
-      prompt: `Write comprehensive tests for this ticket's implementation:
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Write Tests
+
+Write comprehensive tests for this ticket's implementation:
 - Add unit tests for core functionality
 - Add integration tests where appropriate
 - Cover edge cases and error handling
 - Aim for good coverage of the changed code
-- Ensure all tests pass`,
+- Ensure all tests pass
+
+**IMPORTANT: Commit and push frequently!**
+- Commit after each test file or logical group of tests
+- Push after every 1-2 commits to save your work
+
+\`\`\`bash
+git add -A && prlt commit "add tests for X" && git push
+\`\`\`
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}`,
       endPrompt: `When complete:
 1. **Commit your tests**:
    \`\`\`bash
@@ -641,50 +1290,7 @@ When complete, the ticket should be ready for code review.`,
 **IMPORTANT:** Use the global \`prlt\` command.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: true,
-      position: 3,
-    },
-    {
-      id: 'review',
-      name: 'Code Review',
-      description: 'Review the implementation for issues',
-      prompt: `Review this ticket's implementation thoroughly:
-- Check for bugs, edge cases, and potential issues
-- Look for security vulnerabilities
-- Verify it meets all acceptance criteria
-- Check code quality and maintainability
-- Suggest improvements if appropriate
-
-Output a review summary with your findings and any concerns.`,
-      endPrompt: `When you have finished reviewing, output a detailed review summary with:
-- ✅ What looks good
-- ⚠️ Concerns or potential issues
-- 🔧 Suggested improvements
-- 📋 Verdict: Approve, Request Changes, or Needs Discussion
-
-No commits are needed for code review.`,
-      suggestedForCategories: ['started', 'completed'],
-      modifiesCode: false,
-      position: 4,
-    },
-    {
-      id: 'revise',
-      name: 'Revise',
-      description: 'Address PR feedback and review comments',
-      prompt: `Address the feedback on this ticket's pull request:
-- Review all comments and requested changes carefully
-- Make the necessary code changes to address each point
-- Respond to questions with explanations
-- Push updates to the PR branch
-- Mark resolved conversations as resolved`,
-      endPrompt: `After addressing the feedback:
-1. Commit your changes using \`prlt commit "your message"\`
-2. Push your changes: \`git push\`
-
-The PR will be updated automatically.`,
-      suggestedForCategories: ['completed'],
-      defaultMoveToCategory: 'started',
-      modifiesCode: true,
-      position: 5,
+      position: 7,
     },
   ]
 
@@ -882,6 +1488,213 @@ Why is this refactor needed?
       JSON.stringify(template.suggestedSubtasks || []),
       now
     )
+  }
+}
+
+/**
+ * Seed built-in categories from TICKET_CATEGORIES and STATE_CATEGORY_ORDER.
+ */
+export function seedBuiltinCategories(db: Database.Database): void {
+  const insertCategory = db.prepare(`
+    INSERT OR IGNORE INTO ${T.categories} (id, name, type, description, position, is_builtin, created_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?)
+  `)
+
+  const now = new Date().toISOString()
+
+  // Seed ticket categories from TICKET_CATEGORIES
+  for (let i = 0; i < TICKET_CATEGORIES.length; i++) {
+    const category = TICKET_CATEGORIES[i]
+    const id = `ticket-${category}`
+    insertCategory.run(
+      id,
+      category,
+      'ticket',
+      null,
+      i,
+      now
+    )
+  }
+
+  // Seed status categories from STATE_CATEGORY_ORDER
+  const statusCategoryDescriptions: Record<string, string> = {
+    triage: 'Inbox - needs review before entering workflow',
+    backlog: 'Not yet scheduled for work',
+    unstarted: 'Scheduled but work has not begun',
+    started: 'Work is actively in progress',
+    completed: 'Work finished successfully',
+    canceled: 'Work will not be done',
+  }
+
+  for (let i = 0; i < STATE_CATEGORY_ORDER.length; i++) {
+    const category = STATE_CATEGORY_ORDER[i]
+    const id = `status-${category}`
+    insertCategory.run(
+      id,
+      category,
+      'status',
+      statusCategoryDescriptions[category] || null,
+      i,
+      now
+    )
+  }
+}
+
+/**
+ * Seed default priorities if not already set.
+ * Preserves any existing user-defined priority scale.
+ */
+export function seedDefaultPriorities(db: Database.Database): void {
+  // getWorkspacePriorities returns DEFAULT_PRIORITIES if not set,
+  // but we need to check if it's actually stored in the DB
+  const row = db.prepare(
+    `SELECT value FROM ${T.settings} WHERE key = 'priorities'`
+  ).get() as { value: string } | undefined
+
+  if (!row) {
+    // No priorities set yet - seed with defaults
+    setWorkspacePriorities(db, [...DEFAULT_PRIORITIES])
+  }
+}
+
+/**
+ * Seed built-in label groups and labels.
+ * Creates Function, Type, and Area groups with their labels.
+ * Migrates existing ticket category values to Function labels.
+ */
+export function seedBuiltinLabels(db: Database.Database): void {
+  const now = new Date().toISOString()
+
+  const insertGroup = db.prepare(`
+    INSERT OR IGNORE INTO ${T.label_groups} (id, name, description, is_exclusive, is_required, position, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  const insertLabel = db.prepare(`
+    INSERT OR IGNORE INTO ${T.labels} (id, name, color, description, group_id, position, is_builtin, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+  `)
+
+  // Built-in label groups
+  const groups = [
+    {
+      id: 'function',
+      name: 'Function',
+      description: 'Business function category (diet enforcement)',
+      isExclusive: true,
+      isRequired: true,
+      position: 0,
+      labels: [
+        { id: 'fn-ship', name: 'ship', description: 'Core product development', color: '#2da44e' },
+        { id: 'fn-grow', name: 'grow', description: 'Marketing, adoption, community', color: '#bf8700' },
+        { id: 'fn-support', name: 'support', description: 'Docs, error messages, onboarding', color: '#0969da' },
+        { id: 'fn-bizops', name: 'bizops', description: 'Infrastructure, CI/CD, operations', color: '#8250df' },
+        { id: 'fn-strategy', name: 'strategy', description: 'Design decisions, spikes, retros, planning', color: '#cf222e' },
+      ],
+    },
+    {
+      id: 'type',
+      name: 'Type',
+      description: 'Work type classification',
+      isExclusive: true,
+      isRequired: false,
+      position: 1,
+      labels: [
+        { id: 'type-bug', name: 'bug', description: 'Bug fix', color: '#cf222e' },
+        { id: 'type-feature', name: 'feature', description: 'New feature', color: '#2da44e' },
+        { id: 'type-improvement', name: 'improvement', description: 'Enhancement to existing feature', color: '#0969da' },
+        { id: 'type-task', name: 'task', description: 'General task', color: '#6e7781' },
+      ],
+    },
+    {
+      id: 'area',
+      name: 'Area',
+      description: 'System area (non-exclusive)',
+      isExclusive: false,
+      isRequired: false,
+      position: 2,
+      labels: [
+        { id: 'area-cli', name: 'cli', description: 'CLI tool', color: '#0969da' },
+        { id: 'area-pmo', name: 'pmo', description: 'Project management', color: '#8250df' },
+        { id: 'area-agent', name: 'agent', description: 'Agent system', color: '#2da44e' },
+        { id: 'area-docker', name: 'docker', description: 'Docker integration', color: '#bf8700' },
+        { id: 'area-mcp', name: 'mcp', description: 'MCP server', color: '#cf222e' },
+        { id: 'area-desktop', name: 'desktop', description: 'Desktop app', color: '#6e7781' },
+      ],
+    },
+  ]
+
+  for (const group of groups) {
+    insertGroup.run(
+      group.id,
+      group.name,
+      group.description,
+      group.isExclusive ? 1 : 0,
+      group.isRequired ? 1 : 0,
+      group.position,
+      now
+    )
+
+    for (let i = 0; i < group.labels.length; i++) {
+      const label = group.labels[i]
+      insertLabel.run(
+        label.id,
+        label.name,
+        label.color,
+        label.description,
+        group.id,
+        i,
+        now
+      )
+    }
+  }
+
+  // Migrate existing category column values to Function label group
+  // Only run if there are tickets with category set but no Function label yet
+  migrateCategoryToFunctionLabels(db)
+}
+
+/**
+ * Migrate existing ticket category values to Function label group entries.
+ * Maps known category names to function labels (e.g., 'ship' -> fn-ship).
+ * This is idempotent - only creates associations that don't exist yet.
+ */
+function migrateCategoryToFunctionLabels(db: Database.Database): void {
+  // Map of old category values to function label IDs
+  // The ticket's category field contains values like 'feature', 'bug', etc.
+  // The diet system uses ship/grow/support/bizops/strategy which are different
+  // from ticket categories. The diet categories map to the Function label group.
+  // Since existing categories (feature, bug, etc.) don't map to Function labels,
+  // we only migrate if the category field happens to contain a Function label name.
+  const functionLabelMap: Record<string, string> = {
+    ship: 'fn-ship',
+    grow: 'fn-grow',
+    support: 'fn-support',
+    bizops: 'fn-bizops',
+    strategy: 'fn-strategy',
+  }
+
+  const tickets = db.prepare(`
+    SELECT id, category FROM ${T.tickets}
+    WHERE category IS NOT NULL AND category != ''
+  `).all() as Array<{ id: string; category: string }>
+
+  const insertTicketLabel = db.prepare(`
+    INSERT OR IGNORE INTO ${T.ticket_labels} (ticket_id, label_id)
+    VALUES (?, ?)
+  `)
+
+  for (const ticket of tickets) {
+    const labelId = functionLabelMap[ticket.category.toLowerCase()]
+    if (labelId) {
+      // Check label exists before inserting
+      const labelExists = db.prepare(
+        `SELECT id FROM ${T.labels} WHERE id = ?`
+      ).get(labelId) as { id: string } | undefined
+      if (labelExists) {
+        insertTicketLabel.run(ticket.id, labelId)
+      }
+    }
   }
 }
 

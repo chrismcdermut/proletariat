@@ -1,13 +1,10 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class TicketProject extends PMOCommand {
@@ -33,14 +30,6 @@ export default class TicketProject extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     'keep-epic': Flags.boolean({
       description: 'Keep ticket assigned to its epic (if epic is in source project, will unlink)',
       default: false,
@@ -84,28 +73,18 @@ export default class TicketProject extends PMOCommand {
         return;
       }
 
-      // In JSON mode, output ticket selection prompt
-      if (jsonMode) {
-        const ticketChoices = tickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'ticketId', 'Select ticket to move:', ticketChoices),
-          createMetadata('ticket project', flags)
-        );
+      const selected = await this.selectFromList({
+        message: 'Select ticket to move:',
+        items: tickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket project ${t.id} -P ${sourceProjectId} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
+      });
+
+      if (!selected) {
         return;
       }
-
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
-        message: 'Select ticket to move:',
-        choices: tickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName})`,
-          value: t.id,
-        })),
-      }]);
       ticketId = selected;
     }
 
@@ -121,15 +100,19 @@ export default class TicketProject extends PMOCommand {
 
     if (otherProjects.length === 0) {
       this.log(styles.muted('\nNo other projects to move to.'));
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
+      const actionChoices = [
+        { id: 'create', name: 'Create a new project' },
+        { id: 'cancel', name: 'Cancel' },
+      ];
+
+      const action = await this.selectFromList({
         message: 'What would you like to do?',
-        choices: [
-          { name: 'Create a new project', value: 'create' },
-          { name: 'Cancel', value: 'cancel' },
-        ],
-      }]);
+        items: actionChoices,
+        getName: (a) => a.name,
+        getValue: (a) => a.id,
+        getCommand: (a) => a.id === 'create' ? 'prlt project create --json' : '',
+        jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
+      });
 
       if (action === 'create') {
         await this.config.runCommand('project:create', []);
@@ -140,15 +123,18 @@ export default class TicketProject extends PMOCommand {
     // Get target project
     let targetProjectId = args.targetProject;
     if (!targetProjectId) {
-      const { selected } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selected',
+      const selected = await this.selectFromList({
         message: 'Select target project:',
-        choices: otherProjects.map(p => ({
-          name: `${p.id} - ${p.name} (${p.status})`,
-          value: p.id,
-        })),
-      }]);
+        items: otherProjects,
+        getName: (p) => `${p.id} - ${p.name} (${p.status})`,
+        getValue: (p) => p.id,
+        getCommand: (p) => `prlt ticket project ${ticketId} ${p.id} -P ${sourceProjectId} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
+      });
+
+      if (!selected) {
+        return;
+      }
       targetProjectId = selected;
     }
 
@@ -169,17 +155,22 @@ export default class TicketProject extends PMOCommand {
       const epic = await this.storage.getEpic(ticket.epicId!);
       if (epic && epic.projectId !== targetProjectId) {
         this.log(styles.warning(`\nTicket is assigned to epic "${ticket.epicId}" in source project.`));
-        const { action } = await inquirer.prompt([{
-          type: 'list',
-          name: 'action',
-          message: 'How to handle epic assignment?',
-          choices: [
-            { name: 'Unlink from epic (move ticket only)', value: 'unlink' },
-            { name: 'Cancel', value: 'cancel' },
-          ],
-        }]);
 
-        if (action === 'cancel') {
+        const actionChoices = [
+          { id: 'unlink', name: 'Unlink from epic (move ticket only)' },
+          { id: 'cancel', name: 'Cancel' },
+        ];
+
+        const action = await this.selectFromList({
+          message: 'How to handle epic assignment?',
+          items: actionChoices,
+          getName: (a) => a.name,
+          getValue: (a) => a.id,
+          getCommand: (a) => a.id === 'unlink' ? `prlt ticket project ${ticketId} ${targetProjectId} -P ${sourceProjectId} --json` : '',
+          jsonMode: jsonMode ? { flags, commandName: 'ticket project' } : null,
+        });
+
+        if (action === 'cancel' || !action) {
           return;
         }
 
@@ -200,7 +191,9 @@ export default class TicketProject extends PMOCommand {
     this.log(styles.muted(`\nView ticket: prlt ticket view ${ticketId}`));
   }
 
-  private async executeBulk(flags: { target?: string }): Promise<void> {
+  private async executeBulk(flags: { target?: string; json?: boolean }): Promise<void> {
+    const jsonMode = shouldOutputJson(flags);
+    const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket project' } : null;
     this.log(styles.emphasis('📁 Bulk Move Tickets to Project\n'));
 
     // Get source project ID
@@ -214,7 +207,7 @@ export default class TicketProject extends PMOCommand {
     }
 
     // Select tickets
-    const { selectedTickets } = await inquirer.prompt([{
+    const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
       type: 'checkbox',
       name: 'selectedTickets',
       message: 'Select tickets to move:',
@@ -225,7 +218,7 @@ export default class TicketProject extends PMOCommand {
           value: t.id,
         };
       }),
-    }]);
+    }], jsonModeConfig);
 
     if (selectedTickets.length === 0) {
       this.log(styles.muted('No tickets selected.'));
@@ -244,15 +237,16 @@ export default class TicketProject extends PMOCommand {
     let targetProjectId = flags.target;
 
     if (!targetProjectId) {
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select target project:',
         choices: otherProjects.map(p => ({
           name: `${p.id} - ${p.name}`,
           value: p.id,
+          command: `prlt ticket project --bulk --target ${p.id} --json`,
         })),
-      }]);
+      }], jsonModeConfig);
       targetProjectId = selected;
     }
 
@@ -270,32 +264,34 @@ export default class TicketProject extends PMOCommand {
 
     if (ticketsWithEpics.length > 0) {
       this.log(styles.warning(`\n${ticketsWithEpics.length} ticket(s) are assigned to epics.`));
-      const { action } = await inquirer.prompt([{
+      const { action } = await this.prompt<{ action: string }>([{
         type: 'list',
         name: 'action',
         message: 'How to handle epic assignments?',
         choices: [
-          { name: 'Unlink from epics and move', value: 'unlink' },
-          { name: 'Cancel', value: 'cancel' },
+          { name: 'Unlink from epics and move', value: 'unlink', command: `prlt ticket project --bulk --target ${targetProjectId} --json` },
+          { name: 'Cancel', value: 'cancel', command: '' },
         ],
-      }]);
+      }], jsonModeConfig);
 
       if (action === 'cancel') {
         return;
       }
     }
 
-    // Move each ticket using the storage method
+    // Move each ticket using the storage method - sequential for clear logging
     let lastMovedTicket;
     for (const ticketId of selectedTickets) {
       const ticket = tickets.find(t => t.id === ticketId);
 
       // Unlink from epic if needed
       if (ticket?.epicId) {
+        // eslint-disable-next-line no-await-in-loop
         await this.storage.updateTicket(ticketId, { epicId: undefined });
       }
 
       // Move ticket to new project
+      // eslint-disable-next-line no-await-in-loop
       lastMovedTicket = await this.storage.moveTicketToProject(ticketId, targetProjectId!);
 
       this.log(styles.success(`  Moved ${ticketId} to ${targetProjectId}`));

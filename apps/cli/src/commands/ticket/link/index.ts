@@ -1,271 +1,138 @@
-import { Args, Flags } from '@oclif/core'
-import inquirer from 'inquirer'
-import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
-import { styles } from '../../../lib/styles.js'
-import { TicketDependencyType } from '../../../lib/pmo/types.js'
+import { Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
-  outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js'
+} from '../../../lib/prompt-json.js';
 
 export default class TicketLink extends PMOCommand {
-  static description = 'Manage ticket dependencies (links)'
+  static description = 'Manage links (dependencies) for a ticket';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001                    # List dependencies',
-    '<%= config.bin %> <%= command.id %> TKT-001 --blocks TKT-002   # TKT-001 is blocked by TKT-002',
-    '<%= config.bin %> <%= command.id %> TKT-001 --relates TKT-002  # TKT-001 relates to TKT-002',
-    '<%= config.bin %> <%= command.id %> TKT-001 --duplicates TKT-002',
-    '<%= config.bin %> <%= command.id %> TKT-001 --all              # Show all (blockers + blocking)',
-  ]
+    '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> TKT-001',
+    '<%= config.bin %> <%= command.id %> TKT-001 --json',
+  ];
 
   static args = {
-    id: Args.string({
+    ticket: Args.string({
       description: 'Ticket ID',
       required: false,
     }),
-  }
+  };
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
-    blocks: Flags.string({
-      char: 'b',
-      description: 'Add blocking dependency: this ticket is blocked by TARGET',
-    }),
-    relates: Flags.string({
-      char: 'r',
-      description: 'Add relates_to dependency: this ticket relates to TARGET',
-    }),
-    duplicates: Flags.string({
-      char: 'd',
-      description: 'Add duplicates dependency: this ticket duplicates TARGET',
-    }),
-    all: Flags.boolean({
-      char: 'a',
-      description: 'Show all dependencies (blockers and tickets blocked by this)',
-      default: false,
-    }),
-  }
+  };
 
   async execute(): Promise<void> {
-    const { args, flags } = await this.parse(TicketLink)
+    const { args, flags } = await this.parse(TicketLink);
+    const jsonMode = shouldOutputJson(flags);
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags)
+    const projectId = await this.requireProject();
 
-    const projectId = (flags as { project?: string }).project
-    let ticketId = args.id
-    if (!ticketId) {
-      const tickets = await this.storage.listTickets(projectId)
+    // If no ticket ID provided, prompt for selection
+    if (!args.ticket) {
+      const tickets = await this.storage.listTickets(projectId);
       if (tickets.length === 0) {
-        if (jsonMode) {
-          outputErrorAsJson('NO_TICKETS', 'No tickets found.', createMetadata('ticket link', flags))
-          return
-        }
-        this.log(styles.muted('\nNo tickets found.'))
-        return
+        this.log(styles.muted('No tickets found.'));
+        return;
       }
 
-      // In JSON mode, output ticket selection prompt
+      const choices = tickets.map(t => ({
+        name: `${t.id} - ${t.title}`,
+        value: t.id,
+        command: `prlt ticket link ${t.id}${flags.project ? ` -P ${flags.project}` : ''} --json`,
+      }));
+      const message = 'Select a ticket to manage links:';
+
       if (jsonMode) {
-        const ticketChoices = tickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id }))
         outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select ticket to manage dependencies:', ticketChoices),
+          buildPromptConfig('list', 'ticket', message, choices),
           createMetadata('ticket link', flags)
-        )
-        return
+        );
+        return;
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
-        message: 'Select ticket to manage dependencies:',
-        choices: tickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
-      }])
-      ticketId = selected
+        message,
+        choices,
+      }], null);
+
+      args.ticket = selected;
     }
 
-    const ticket = await this.storage.getTicket(ticketId!)
+    const ticket = await this.storage.getTicket(args.ticket!);
     if (!ticket) {
-      this.error(`Ticket not found: ${ticketId}`)
+      this.error(`Ticket not found: ${args.ticket}`);
     }
 
-    // If a dependency flag is provided, add the dependency directly
-    if (flags.blocks || flags.relates || flags.duplicates) {
-      const targetId = flags.blocks || flags.relates || flags.duplicates
-      const dependencyType: TicketDependencyType = flags.blocks ? 'blocks' :
-                                                    flags.relates ? 'relates_to' : 'duplicates'
-      await this.addDependency(this.storage, this.pmoPath, ticketId!, targetId!, dependencyType, ticket.title)
-      return
+    // Show link actions submenu
+    const projectFlag = flags.project ? ` -P ${flags.project}` : '';
+    const menuChoices = [
+      { name: 'Add blocker', value: 'block', command: `prlt ticket link block ${args.ticket}${projectFlag} --json` },
+      { name: 'Add related ticket', value: 'relates', command: `prlt ticket link relates ${args.ticket}${projectFlag} --json` },
+      { name: 'Mark as duplicate', value: 'duplicates', command: `prlt ticket link duplicates ${args.ticket}${projectFlag} --json` },
+      { name: 'View links', value: 'view', command: `prlt link list ${args.ticket}${projectFlag} --json` },
+      { name: 'Remove link', value: 'remove', command: `prlt link remove ${args.ticket}${projectFlag} --json` },
+      { name: 'Cancel', value: 'cancel', command: '' },
+    ];
+    const message = `Manage links for ${args.ticket}: ${ticket.title}`;
+
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'action', message, menuChoices),
+        createMetadata('ticket link', flags)
+      );
+      return;
     }
 
-    // Interactive mode: show menu in a loop
-    let continueLoop = true
-    while (continueLoop) {
-      const allTickets = await this.storage.listTickets(projectId)
-      const otherTickets = allTickets.filter(t => t.id !== ticketId)
+    const { action } = await this.prompt<{ action: string }>([{
+      type: 'list',
+      name: 'action',
+      message,
+      choices: menuChoices,
+    }], null);
 
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
-        message: `Dependencies for ${ticket.id}:`,
-        choices: [
-          { name: 'View dependencies', value: 'view' },
-          { name: 'Add blocking dependency (blocked by...)', value: 'blocks' },
-          { name: 'Add relates_to dependency', value: 'relates_to' },
-          { name: 'Add duplicates dependency', value: 'duplicates' },
-          new inquirer.Separator(),
-          { name: 'Remove dependency', value: 'remove' },
-          { name: 'Done', value: 'done' },
-        ],
-      }])
+    if (action === 'cancel') {
+      this.log(styles.muted('Cancelled.'));
+      return;
+    }
 
-      if (action === 'done') {
-        continueLoop = false
-        continue
+    switch (action) {
+      case 'block': {
+        const { default: BlockCommand } = await import('./block.js');
+        const cmd = new BlockCommand([args.ticket!, ...(flags.project ? ['-P', flags.project] : [])], this.config);
+        await cmd.run();
+        break;
       }
-
-      if (action === 'view') {
-        await this.viewDependencies(this.storage, ticketId!, ticket, flags.all)
-        continue
+      case 'relates': {
+        const { default: RelatesCommand } = await import('./relates.js');
+        const cmd = new RelatesCommand([args.ticket!, ...(flags.project ? ['-P', flags.project] : [])], this.config);
+        await cmd.run();
+        break;
       }
-
-      if (action === 'remove') {
-        const dependencies = await this.storage.listTicketDependencies(ticketId!)
-        if (dependencies.length === 0) {
-          this.log(styles.muted('\nNo dependencies to remove.'))
-          continue
-        }
-        const choices = await Promise.all(dependencies.map(async dep => {
-          const depTicket = await this.storage.getTicket(dep.dependsOnTicketId)
-          return {
-            name: `${dep.dependsOnTicketId} - ${depTicket?.title || 'Unknown'} (${dep.dependencyType})`,
-            value: { targetId: dep.dependsOnTicketId, type: dep.dependencyType }
-          }
-        }))
-        const { selected } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selected',
-          message: 'Select dependency to remove:',
-          choices,
-        }])
-        await this.storage.deleteTicketDependency(ticketId!, selected.targetId, selected.type)
-        await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
-        this.log(styles.success(`\n✅ Removed dependency: ${ticketId} → ${selected.targetId}`))
-        continue
+      case 'duplicates': {
+        const { default: DuplicatesCommand } = await import('./duplicates.js');
+        const cmd = new DuplicatesCommand([args.ticket!, ...(flags.project ? ['-P', flags.project] : [])], this.config);
+        await cmd.run();
+        break;
       }
-
-      // Add dependency
-      if (otherTickets.length === 0) {
-        this.log(styles.muted('\nNo other tickets to link to.'))
-        continue
+      case 'view': {
+        const { default: LinkListCommand } = await import('../../link/list.js');
+        const cmd = new LinkListCommand([args.ticket!, ...(flags.project ? ['-P', flags.project] : [])], this.config);
+        await cmd.run();
+        break;
       }
-      const { targetId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'targetId',
-        message: `Select ticket that ${ticketId} ${action === 'blocks' ? 'is blocked by' : action === 'relates_to' ? 'relates to' : 'duplicates'}:`,
-        choices: otherTickets.map(t => ({ name: `${t.id} - ${t.title}`, value: t.id })),
-      }])
-      await this.addDependency(this.storage, this.pmoPath, ticketId!, targetId, action as TicketDependencyType, ticket.title)
-    }
-  }
-
-  private async addDependency(
-    storage: typeof this.storage,
-    pmoPath: string,
-    ticketId: string,
-    targetId: string,
-    dependencyType: TicketDependencyType,
-    ticketTitle: string
-  ): Promise<void> {
-    const targetTicket = await this.storage.getTicket(targetId)
-    if (!targetTicket) {
-      this.error(`Ticket not found: ${targetId}`)
-    }
-
-    try {
-      await this.storage.createTicketDependency(ticketId, targetId, dependencyType)
-      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
-
-      const typeLabel = dependencyType === 'blocks' ? 'is blocked by' :
-                        dependencyType === 'relates_to' ? 'relates to' : 'duplicates'
-
-      this.log(styles.success(`\n✅ ${styles.emphasis(ticketId)} ${typeLabel} ${styles.emphasis(targetId)}`))
-      this.log(styles.muted(`   ${ticketTitle}`))
-      this.log(styles.muted(`   ${typeLabel} ${targetTicket.title}`))
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('already exists')) {
-          this.error('Dependency already exists')
-        }
-        if (error.message.includes('self-dependency')) {
-          this.error('Cannot create self-dependency')
-        }
-      }
-      throw error
-    }
-  }
-
-  private async viewDependencies(
-    storage: typeof this.storage,
-    ticketId: string,
-    ticket: { id: string; title: string },
-    showAll: boolean
-  ): Promise<void> {
-    const dependencies = await this.storage.listTicketDependencies(ticketId)
-    const blockers = await this.storage.getTicketBlockers(ticketId)
-    const isBlocked = await this.storage.isTicketBlocked(ticketId)
-
-    this.log(`\n${styles.emphasis(ticket.id)}: ${ticket.title}`)
-
-    if (isBlocked) {
-      this.log(styles.warning('  Status: BLOCKED'))
-    }
-
-    if (blockers.length > 0) {
-      this.log(styles.muted('\n  Blocked by:'))
-      for (const blocker of blockers) {
-        const status = blocker.status === 'done' ? styles.success('done') : styles.warning(blocker.status)
-        this.log(`    - ${blocker.id}: ${blocker.title} (${status})`)
+      case 'remove': {
+        this.log(styles.muted('Use: prlt link remove <from> <to>'));
+        break;
       }
     }
-
-    const otherDeps = dependencies.filter(d => d.dependencyType !== 'blocks')
-    if (otherDeps.length > 0) {
-      this.log(styles.muted('\n  Related:'))
-      for (const dep of otherDeps) {
-        const relatedTicket = await this.storage.getTicket(dep.dependsOnTicketId)
-        if (relatedTicket) {
-          this.log(`    - ${dep.dependencyType}: ${relatedTicket.id} - ${relatedTicket.title}`)
-        }
-      }
-    }
-
-    if (showAll) {
-      const blockedBy = await this.storage.getTicketsBlockedBy(ticketId)
-      if (blockedBy.length > 0) {
-        this.log(styles.muted('\n  Blocking:'))
-        for (const blocked of blockedBy) {
-          this.log(`    - ${blocked.id}: ${blocked.title} (${blocked.status})`)
-        }
-      }
-    }
-
-    if (dependencies.length === 0 && blockers.length === 0) {
-      this.log(styles.muted('\n  No dependencies.'))
-    }
-
-    this.log('')
   }
 }

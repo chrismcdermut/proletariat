@@ -1,7 +1,11 @@
 import { Command } from '@oclif/core';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { colors } from '../lib/colors.js';
+import { getAgentByPath } from '../lib/database/index.js';
+import { shouldOutputJson } from '../lib/prompt-json.js';
+import { machineOutputFlags } from '../lib/pmo/index.js';
 
 export default class Whoami extends Command {
   static description = 'Show current agent/environment context';
@@ -10,12 +14,34 @@ export default class Whoami extends Command {
     '<%= config.bin %> <%= command.id %>',
   ];
 
+  static flags = {
+    ...machineOutputFlags,
+  };
+
   async run(): Promise<void> {
+    const { flags } = await this.parse(Whoami);
+    const jsonMode = shouldOutputJson(flags);
     const isDevcontainer = process.env.DEVCONTAINER === 'true';
     const agentName = this.detectAgentName();
     const repoName = this.detectRepoName();
     const branch = this.getCurrentBranch();
     const hqPath = process.env.PRLT_HQ_PATH;
+    const pmoPath = process.env.PRLT_PMO_PATH;
+    const hostPath = process.env.PRLT_HOST_PATH;
+
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        agent: agentName,
+        repository: repoName,
+        branch,
+        environment: isDevcontainer ? 'devcontainer' : 'host',
+        workingDir: process.cwd(),
+        hqPath: hqPath || null,
+        pmoPath: pmoPath || null,
+        hostPath: hostPath || null,
+      }, null, 2));
+      return;
+    }
 
     this.log('');
     this.log(colors.primary('🔍 Proletariat Context'));
@@ -47,10 +73,12 @@ export default class Whoami extends Command {
       this.log(`  HQ path:     ${colors.textMuted(hqPath)}`);
     }
 
-    // Show PMO path if available
-    const pmoPath = process.env.PRLT_PMO_PATH;
     if (pmoPath) {
       this.log(`  PMO path:    ${colors.textMuted(pmoPath)}`);
+    }
+
+    if (hostPath) {
+      this.log(`  Host path:   ${colors.textMuted(hostPath)}`);
     }
 
     this.log('');
@@ -62,20 +90,32 @@ export default class Whoami extends Command {
       return process.env.PRLT_AGENT_NAME;
     }
 
-    // Try to detect from directory structure
-    // Pattern: /workspace/proletariat-{agentName} or agents/staff/{agentName}
     const cwd = process.cwd();
 
+    // Try database lookup (most reliable on host)
+    const workspacePath = this.findWorkspaceRoot(cwd);
+    if (workspacePath) {
+      try {
+        const agent = getAgentByPath(workspacePath, cwd);
+        if (agent) {
+          return agent.name;
+        }
+      } catch {
+        // DB lookup failed, fall back to other methods
+      }
+    }
+
+    // Fallback: detect from directory structure
     // Devcontainer pattern: /workspace/proletariat-{agent}
     const workspaceMatch = cwd.match(/\/workspace\/[^/]+-(\w+)/);
     if (workspaceMatch) {
       return workspaceMatch[1];
     }
 
-    // Host pattern: agents/staff/{agent}
-    const staffMatch = cwd.match(/agents\/staff\/(\w+)/);
-    if (staffMatch) {
-      return staffMatch[1];
+    // Host pattern: agents/staff/{agent} or agents/temp/{agent}
+    const agentDirMatch = cwd.match(/agents\/(?:staff|temp)\/([\w-]+)/);
+    if (agentDirMatch) {
+      return agentDirMatch[1];
     }
 
     // Try git branch pattern: agent-{name}
@@ -87,6 +127,20 @@ export default class Whoami extends Command {
       }
     } catch {
       // Ignore git errors
+    }
+
+    return null;
+  }
+
+  private findWorkspaceRoot(startDir: string): string | null {
+    let currentDir = startDir;
+
+    while (currentDir !== '/') {
+      const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
+      if (fs.existsSync(dbPath)) {
+        return currentDir;
+      }
+      currentDir = path.dirname(currentDir);
     }
 
     return null;

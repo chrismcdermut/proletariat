@@ -3,9 +3,13 @@
  *
  * This is the main facade that delegates to domain-specific storage modules.
  * Uses the unified workspace.db database with pmo_ prefixed tables.
+ *
+ * This module now supports Drizzle ORM for type-safe queries while maintaining
+ * backward compatibility with raw SQL queries during the migration period.
  */
 
 import Database from 'better-sqlite3'
+import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
 import {
   AcceptanceCriterion,
   Board,
@@ -13,6 +17,9 @@ import {
   BoardView,
   BoardViewFilter,
   BoardViewFilters,
+  Category,
+  CategoryFilter,
+  CategoryType,
   Column,
   CreateTicketInput,
   Epic,
@@ -22,11 +29,13 @@ import {
   PhaseFilter,
   PhaseTemplate,
   PhaseTemplateFilter,
-  PMOError,
   PMOStorage,
   Project,
   ProjectFilter,
   ProjectPhase,
+  Roadmap,
+  RoadmapFilter,
+  RoadmapProject,
   Spec,
   SpecDependency,
   SpecDependencyType,
@@ -35,7 +44,6 @@ import {
   Subtask,
   SyncResult,
   SyncStatus,
-  TemplateFilter,
   Ticket,
   TicketDependency,
   TicketDependencyType,
@@ -44,25 +52,28 @@ import {
   TicketTemplateFilter,
   WorkAction,
   WorkActionFilter,
+  Workflow,
+  WorkflowFilter,
   WorkflowStatus,
-  WorkflowTemplate,
+  Label,
+  LabelFilter,
+  LabelGroup,
+  LabelGroupFilter,
 } from '../types.js'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StorageContext } from './types.js'
 import {
-  initializePMOTables,
   runMigrations,
-  seedBuiltinTemplates,
+  seedBuiltinWorkflows,
   seedBuiltinPhases,
   seedBuiltinPhaseTemplates,
   seedBuiltinActions,
   seedBuiltinTicketTemplates,
+  seedBuiltinCategories,
+  seedBuiltinLabels,
   updateBoardTimestamp,
-  getMaxColumnPosition,
-  getMaxTicketPosition,
 } from './base.js'
 import { ProjectStorage } from './projects.js'
-import { ColumnStorage } from './columns.js'
 import { TicketStorage } from './tickets.js'
 import { SubtaskStorage, AcceptanceCriteriaStorage } from './subtasks.js'
 import { SpecStorage } from './specs.js'
@@ -73,17 +84,20 @@ import { TemplateStorage } from './templates.js'
 import { PhaseStorage } from './phases.js'
 import { ActionStorage } from './actions.js'
 import { ViewStorage } from './views.js'
+import { RoadmapStorage } from './roadmaps.js'
+import { CategoryStorage } from './categories.js'
+import { LabelStorage } from './labels.js'
 
 const T = PMO_TABLES
 
 export class SQLiteStorage implements PMOStorage {
   readonly type = 'sqlite' as const
   private db: Database.Database
+  private drizzle: DrizzleDB
   private dbPath: string
 
   // Domain-specific storage modules
   private projectStorage: ProjectStorage
-  private columnStorage: ColumnStorage
   private ticketStorage: TicketStorage
   private subtaskStorage: SubtaskStorage
   private acceptanceCriteriaStorage: AcceptanceCriteriaStorage
@@ -95,6 +109,9 @@ export class SQLiteStorage implements PMOStorage {
   private phaseStorage: PhaseStorage
   private actionStorage: ActionStorage
   private viewStorage: ViewStorage
+  private roadmapStorage: RoadmapStorage
+  private categoryStorage: CategoryStorage
+  private labelStorage: LabelStorage
 
   constructor(dbPath: string) {
     this.dbPath = dbPath
@@ -103,16 +120,19 @@ export class SQLiteStorage implements PMOStorage {
     this.db = new Database(dbPath)
     this.db.pragma('foreign_keys = ON')
 
+    // Create Drizzle ORM connection wrapping the same database
+    this.drizzle = createDrizzleConnection(this.db)
+
     // Create the storage context shared by all modules
     // Note: projectId is passed explicitly to operations, not stored in context
     const ctx: StorageContext = {
       db: this.db,
+      drizzle: this.drizzle,
       updateBoardTimestamp: (projectId: string) => updateBoardTimestamp(this.db, projectId),
     }
 
     // Initialize domain-specific storage modules
     this.projectStorage = new ProjectStorage(ctx)
-    this.columnStorage = new ColumnStorage(ctx)
     this.ticketStorage = new TicketStorage(ctx)
     this.subtaskStorage = new SubtaskStorage(ctx)
     this.acceptanceCriteriaStorage = new AcceptanceCriteriaStorage(ctx)
@@ -124,6 +144,9 @@ export class SQLiteStorage implements PMOStorage {
     this.phaseStorage = new PhaseStorage(ctx)
     this.actionStorage = new ActionStorage(ctx)
     this.viewStorage = new ViewStorage(ctx)
+    this.roadmapStorage = new RoadmapStorage(ctx)
+    this.categoryStorage = new CategoryStorage(ctx)
+    this.labelStorage = new LabelStorage(ctx)
 
     // Ensure PMO tables exist
     this.ensurePMOTables()
@@ -137,6 +160,13 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   /**
+   * Get the Drizzle ORM database connection for type-safe queries.
+   */
+  getDrizzle(): DrizzleDB {
+    return this.drizzle
+  }
+
+  /**
    * Ensure PMO tables exist in the database.
    */
   private ensurePMOTables(): void {
@@ -146,12 +176,14 @@ export class SQLiteStorage implements PMOStorage {
     // Create tables and indexes using shared schema
     this.db.exec(PMO_SCHEMA_SQL)
 
-    // Seed built-in data
-    seedBuiltinTemplates(this.db)
+    // Seed built-in data (workflows are the source of truth for status configurations)
+    seedBuiltinWorkflows(this.db)
     seedBuiltinPhases(this.db)
     seedBuiltinPhaseTemplates(this.db)
     seedBuiltinActions(this.db)
     seedBuiltinTicketTemplates(this.db)
+    seedBuiltinCategories(this.db)
+    seedBuiltinLabels(this.db)
 
     // Validate schema
     validateTicketSchema(this.db)
@@ -174,27 +206,70 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
-  // Column Operations
+  // Column Operations (columns are now workflow statuses)
   // ===========================================================================
 
   getColumnNames(projectId: string): string[] {
-    return this.columnStorage.getColumnNames(projectId)
+    // Get project's workflow
+    const project = this.db.prepare(`
+      SELECT workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { workflow_id: string | null } | undefined
+
+    const workflowId = project?.workflow_id || 'default'
+
+    const rows = this.db.prepare(`
+      SELECT name FROM ${T.workflow_statuses}
+      WHERE workflow_id = ?
+      ORDER BY position
+    `).all(workflowId) as Array<{ name: string }>
+    return rows.map((r) => r.name)
   }
 
   async createColumn(projectId: string, name: string, position?: number): Promise<Column> {
-    return this.columnStorage.createColumn(projectId, name, position)
+    // Get project's workflow
+    const project = this.db.prepare(`
+      SELECT workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { workflow_id: string | null } | undefined
+
+    const workflowId = project?.workflow_id || 'default'
+
+    // Create a status in the workflow
+    const status = await this.statusStorage.createStatus(workflowId, {
+      name,
+      category: 'unstarted', // Default category for manually created columns
+      position,
+    })
+
+    return {
+      id: status.id,
+      name: status.name,
+      position: status.position,
+      tickets: [],
+    }
   }
 
   async renameColumn(projectId: string, id: string, name: string): Promise<Column> {
-    return this.columnStorage.renameColumn(projectId, id, name)
+    const status = await this.statusStorage.updateStatus(id, { name })
+    return {
+      id: status.id,
+      name: status.name,
+      position: status.position,
+      tickets: [],
+    }
   }
 
   async moveColumn(projectId: string, id: string, position: number): Promise<Column> {
-    return this.columnStorage.moveColumn(projectId, id, position)
+    const status = await this.statusStorage.reorderStatus(id, position)
+    return {
+      id: status.id,
+      name: status.name,
+      position: status.position,
+      tickets: [],
+    }
   }
 
-  async deleteColumn(projectId: string, id: string, cascade?: boolean): Promise<void> {
-    return this.columnStorage.deleteColumn(projectId, id, cascade)
+  async deleteColumn(projectId: string, id: string, _cascade?: boolean): Promise<void> {
+    return this.statusStorage.deleteStatus(id)
   }
 
   // ===========================================================================
@@ -219,6 +294,10 @@ export class SQLiteStorage implements PMOStorage {
 
   async moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket> {
     return this.ticketStorage.moveTicket(projectId, id, column, position)
+  }
+
+  async reorderTicket(id: string, opts: { position?: number; afterTicketId?: string }): Promise<Ticket> {
+    return this.ticketStorage.reorderTicket(id, opts)
   }
 
   async moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket> {
@@ -458,19 +537,47 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
-  // Status Operations
+  // Workflow Operations
   // ===========================================================================
 
-  async listStatuses(projectId: string): Promise<WorkflowStatus[]> {
-    return this.statusStorage.listStatuses(projectId)
+  async listWorkflows(filter?: WorkflowFilter): Promise<Workflow[]> {
+    return this.statusStorage.listWorkflows(filter)
+  }
+
+  async getWorkflow(id: string): Promise<Workflow | null> {
+    return this.statusStorage.getWorkflow(id)
+  }
+
+  async createWorkflow(workflow: Partial<Workflow>): Promise<Workflow> {
+    return this.statusStorage.createWorkflow(workflow)
+  }
+
+  async updateWorkflow(id: string, changes: Partial<Workflow>): Promise<Workflow> {
+    return this.statusStorage.updateWorkflow(id, changes)
+  }
+
+  async deleteWorkflow(id: string): Promise<void> {
+    return this.statusStorage.deleteWorkflow(id)
+  }
+
+  async getProjectWorkflow(projectId: string): Promise<Workflow | null> {
+    return this.statusStorage.getProjectWorkflow(projectId)
+  }
+
+  // ===========================================================================
+  // Workflow Status Operations
+  // ===========================================================================
+
+  async listStatuses(workflowId: string): Promise<WorkflowStatus[]> {
+    return this.statusStorage.listStatuses(workflowId)
   }
 
   async getStatus(id: string): Promise<WorkflowStatus | null> {
     return this.statusStorage.getStatus(id)
   }
 
-  async createStatus(projectId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
-    return this.statusStorage.createStatus(projectId, status)
+  async createStatus(workflowId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
+    return this.statusStorage.createStatus(workflowId, status)
   }
 
   async updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus> {
@@ -485,41 +592,15 @@ export class SQLiteStorage implements PMOStorage {
     return this.statusStorage.reorderStatus(id, newPosition)
   }
 
-  async getDefaultStatus(projectId: string): Promise<WorkflowStatus | null> {
-    return this.statusStorage.getDefaultStatus(projectId)
-  }
-
-  // ===========================================================================
-  // Template Operations
-  // ===========================================================================
-
-  async listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]> {
-    return this.templateStorage.listTemplates(filter)
-  }
-
-  async getTemplate(id: string): Promise<WorkflowTemplate | null> {
-    return this.templateStorage.getTemplate(id)
-  }
-
-  async applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]> {
-    return this.templateStorage.applyTemplate(projectId, templateId)
-  }
-
-  async saveTemplate(
-    name: string,
-    projectId: string,
-    description?: string
-  ): Promise<WorkflowTemplate> {
-    return this.templateStorage.saveTemplate(name, projectId, description)
-  }
-
-  async deleteTemplate(id: string): Promise<void> {
-    return this.templateStorage.deleteTemplate(id)
+  async getDefaultStatus(workflowId: string): Promise<WorkflowStatus | null> {
+    return this.statusStorage.getDefaultStatus(workflowId)
   }
 
   // ===========================================================================
   // Ticket Template Operations
   // ===========================================================================
+  // Note: Workflow templates have been removed. Use workflow commands directly
+  // (prlt workflow list, prlt workflow create, prlt workflow switch)
 
   async listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]> {
     return this.templateStorage.listTicketTemplates(filter)
@@ -652,12 +733,7 @@ export class SQLiteStorage implements PMOStorage {
   async createProject(
     project: { id?: string; name: string; template?: string; description?: string }
   ): Promise<Board> {
-    return this.projectStorage.createProject(
-      project,
-      (projectId, templateId) => this.applyTemplate(projectId, templateId),
-      (projectId) => this.listStatuses(projectId),
-      (id) => this.getTemplate(id)
-    )
+    return this.projectStorage.createProject(project)
   }
 
   async getProjectBoard(projectId: string): Promise<Board | null> {
@@ -733,6 +809,174 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
+  // Roadmap Operations
+  // ===========================================================================
+
+  async listRoadmaps(filter?: RoadmapFilter): Promise<Roadmap[]> {
+    return this.roadmapStorage.listRoadmaps(filter)
+  }
+
+  async getRoadmap(id: string): Promise<Roadmap | null> {
+    return this.roadmapStorage.getRoadmap(id)
+  }
+
+  async createRoadmap(roadmap: Partial<Roadmap> & { name: string }): Promise<Roadmap> {
+    return this.roadmapStorage.createRoadmap(roadmap)
+  }
+
+  async updateRoadmap(id: string, changes: Partial<Roadmap>): Promise<Roadmap> {
+    return this.roadmapStorage.updateRoadmap(id, changes)
+  }
+
+  async deleteRoadmap(id: string): Promise<void> {
+    return this.roadmapStorage.deleteRoadmap(id)
+  }
+
+  async getDefaultRoadmap(): Promise<Roadmap | null> {
+    return this.roadmapStorage.getDefaultRoadmap()
+  }
+
+  async setDefaultRoadmap(id: string): Promise<Roadmap> {
+    return this.roadmapStorage.setDefaultRoadmap(id)
+  }
+
+  // ===========================================================================
+  // Roadmap Project Operations
+  // ===========================================================================
+
+  async listRoadmapProjects(roadmapId: string): Promise<Project[]> {
+    return this.roadmapStorage.listRoadmapProjects(roadmapId)
+  }
+
+  async addProjectToRoadmap(roadmapId: string, projectId: string, position?: number): Promise<RoadmapProject> {
+    return this.roadmapStorage.addProjectToRoadmap(roadmapId, projectId, position)
+  }
+
+  async removeProjectFromRoadmap(roadmapId: string, projectId: string): Promise<void> {
+    return this.roadmapStorage.removeProjectFromRoadmap(roadmapId, projectId)
+  }
+
+  async reorderRoadmapProject(roadmapId: string, projectId: string, newPosition: number): Promise<RoadmapProject> {
+    return this.roadmapStorage.reorderRoadmapProject(roadmapId, projectId, newPosition)
+  }
+
+  async getRoadmapsForProject(projectId: string): Promise<Roadmap[]> {
+    return this.roadmapStorage.getRoadmapsForProject(projectId)
+  }
+
+  // ===========================================================================
+  // Category Operations
+  // ===========================================================================
+
+  async listCategories(filter?: CategoryFilter): Promise<Category[]> {
+    return this.categoryStorage.listCategories(filter)
+  }
+
+  async getCategory(id: string): Promise<Category | null> {
+    return this.categoryStorage.getCategory(id)
+  }
+
+  async getCategoryByName(name: string, type: CategoryType): Promise<Category | null> {
+    return this.categoryStorage.getCategoryByName(name, type)
+  }
+
+  async createCategory(category: Partial<Category> & { name: string; type: CategoryType }): Promise<Category> {
+    return this.categoryStorage.createCategory(category)
+  }
+
+  async updateCategory(id: string, changes: Partial<Category>): Promise<Category> {
+    return this.categoryStorage.updateCategory(id, changes)
+  }
+
+  async renameCategory(id: string, newName: string): Promise<Category> {
+    return this.categoryStorage.renameCategory(id, newName)
+  }
+
+  async deleteCategory(id: string): Promise<void> {
+    return this.categoryStorage.deleteCategory(id)
+  }
+
+  async getCategoryNames(type: CategoryType): Promise<string[]> {
+    return this.categoryStorage.getCategoryNames(type)
+  }
+
+  async isValidCategory(name: string, type: CategoryType): Promise<boolean> {
+    return this.categoryStorage.isValidCategory(name, type)
+  }
+
+  // ===========================================================================
+  // Label Operations
+  // ===========================================================================
+
+  async listLabelGroups(filter?: LabelGroupFilter): Promise<LabelGroup[]> {
+    return this.labelStorage.listLabelGroups(filter)
+  }
+
+  async getLabelGroup(id: string): Promise<LabelGroup | null> {
+    return this.labelStorage.getLabelGroup(id)
+  }
+
+  async getLabelGroupByName(name: string): Promise<LabelGroup | null> {
+    return this.labelStorage.getLabelGroupByName(name)
+  }
+
+  async createLabelGroup(group: Partial<LabelGroup> & { name: string }): Promise<LabelGroup> {
+    return this.labelStorage.createLabelGroup(group)
+  }
+
+  async updateLabelGroup(id: string, changes: Partial<LabelGroup>): Promise<LabelGroup> {
+    return this.labelStorage.updateLabelGroup(id, changes)
+  }
+
+  async deleteLabelGroup(id: string): Promise<void> {
+    return this.labelStorage.deleteLabelGroup(id)
+  }
+
+  async listLabels(filter?: LabelFilter): Promise<Label[]> {
+    return this.labelStorage.listLabels(filter)
+  }
+
+  async getLabel(id: string): Promise<Label | null> {
+    return this.labelStorage.getLabel(id)
+  }
+
+  async getLabelByName(name: string, groupId?: string): Promise<Label | null> {
+    return this.labelStorage.getLabelByName(name, groupId)
+  }
+
+  async createLabel(label: Partial<Label> & { name: string }): Promise<Label> {
+    return this.labelStorage.createLabel(label)
+  }
+
+  async updateLabel(id: string, changes: Partial<Label>): Promise<Label> {
+    return this.labelStorage.updateLabel(id, changes)
+  }
+
+  async deleteLabel(id: string): Promise<void> {
+    return this.labelStorage.deleteLabel(id)
+  }
+
+  async addLabelToTicket(ticketId: string, labelId: string): Promise<void> {
+    return this.labelStorage.addLabelToTicket(ticketId, labelId)
+  }
+
+  async removeLabelFromTicket(ticketId: string, labelId: string): Promise<void> {
+    return this.labelStorage.removeLabelFromTicket(ticketId, labelId)
+  }
+
+  async getLabelsForTicket(ticketId: string): Promise<Label[]> {
+    return this.labelStorage.getLabelsForTicket(ticketId)
+  }
+
+  async addLabelToTicketByName(ticketId: string, labelName: string): Promise<void> {
+    return this.labelStorage.addLabelToTicketByName(ticketId, labelName)
+  }
+
+  async removeLabelFromTicketByName(ticketId: string, labelName: string): Promise<void> {
+    return this.labelStorage.removeLabelFromTicketByName(ticketId, labelName)
+  }
+
+  // ===========================================================================
   // Sync Operations (no-op for pure SQLite)
   // ===========================================================================
 
@@ -756,38 +1000,77 @@ export class SQLiteStorage implements PMOStorage {
     const projectId = board.id
     const T = PMO_TABLES
 
-    // Clear existing data for current project only
+    // Clear existing tickets for current project
     this.db.prepare(`DELETE FROM ${T.tickets} WHERE project_id = ?`).run(projectId)
-    this.db.prepare(`DELETE FROM ${T.columns} WHERE project_id = ?`).run(projectId)
 
-    // Rebuild
     const now = Date.now()
+    const nowIso = new Date(now).toISOString()
 
-    // Update or insert project - preserve existing name if board.name is default "Board"
-    const existingProject = this.db.prepare(`SELECT name FROM ${T.projects} WHERE id = ?`).get(projectId) as { name: string } | undefined
+    // Get or create project and its workflow
+    const existingProject = this.db.prepare(`
+      SELECT name, workflow_id FROM ${T.projects} WHERE id = ?
+    `).get(projectId) as { name: string; workflow_id: string | null } | undefined
+
     const projectName = (board.name === 'Board' && existingProject?.name) ? existingProject.name : board.name
+    let workflowId = existingProject?.workflow_id
 
+    // If no workflow, create a project-specific one
+    if (!workflowId) {
+      workflowId = `workflow-${projectId}`
+      this.db.prepare(`
+        INSERT OR IGNORE INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
+        VALUES (?, ?, ?, 0, ?, ?)
+      `).run(workflowId, `${projectName} Workflow`, `Workflow for ${projectName}`, nowIso, nowIso)
+    }
+
+    // Update or insert project with workflow
     this.db.prepare(`
-      INSERT OR REPLACE INTO ${T.projects} (id, name, updated_at)
-      VALUES (?, ?, ?)
-    `).run(projectId, projectName, now)
+      INSERT OR REPLACE INTO ${T.projects} (id, name, workflow_id, updated_at)
+      VALUES (?, ?, ?, ?)
+    `).run(projectId, projectName, workflowId, now)
 
-    // Insert columns and tickets
-    const insertColumn = this.db.prepare(`
-      INSERT INTO ${T.columns} (id, project_id, name, position, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `)
+    // Create a map of column name to status id
+    const statusMap = new Map<string, string>()
+
+    // Clear existing statuses for this workflow (only if not builtin)
+    const workflow = this.db.prepare(`SELECT is_builtin FROM ${T.workflows} WHERE id = ?`).get(workflowId) as { is_builtin: number } | undefined
+    if (workflow && !workflow.is_builtin) {
+      this.db.prepare(`DELETE FROM ${T.workflow_statuses} WHERE workflow_id = ?`).run(workflowId)
+    }
+
+    // Create statuses from board columns (if workflow is not builtin)
+    if (!workflow?.is_builtin) {
+      const insertStatus = this.db.prepare(`
+        INSERT OR REPLACE INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, is_default, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      for (const column of board.columns) {
+        const statusId = `${workflowId}-${column.id}`
+        // Infer category from column name or position
+        const category = this.inferCategoryFromColumnName(column.name, column.position, board.columns.length)
+        const isDefault = column.position === 0 ? 1 : 0
+        insertStatus.run(statusId, workflowId, column.name, category, column.position, isDefault, nowIso)
+        statusMap.set(column.name, statusId)
+      }
+    } else {
+      // For builtin workflows, map column names to existing statuses
+      const statuses = this.db.prepare(`
+        SELECT id, name FROM ${T.workflow_statuses} WHERE workflow_id = ? ORDER BY position
+      `).all(workflowId) as Array<{ id: string; name: string }>
+      for (const status of statuses) {
+        statusMap.set(status.name, status.id)
+      }
+    }
+
+    // Insert tickets
     const insertTicket = this.db.prepare(`
       INSERT INTO ${T.tickets} (
         id, project_id, title, description, priority, category,
-        status, owner, assignee, spec_id,
+        status_id, owner, assignee, spec_id,
         created_at, updated_at, last_synced_from_spec, last_synced_from_board
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    const insertBoardTicket = this.db.prepare(`
-      INSERT INTO ${T.board_tickets} (project_id, ticket_id, column_id, position)
-      VALUES (?, ?, ?, ?)
     `)
     const insertSubtask = this.db.prepare(`
       INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
@@ -799,10 +1082,10 @@ export class SQLiteStorage implements PMOStorage {
     `)
 
     for (const column of board.columns) {
-      insertColumn.run(column.id, projectId, column.name, column.position, now)
+      const statusId = statusMap.get(column.name)
 
       for (const ticket of column.tickets) {
-        // Insert ticket data
+        // Insert ticket data with status_id
         insertTicket.run(
           ticket.id,
           projectId,
@@ -810,7 +1093,7 @@ export class SQLiteStorage implements PMOStorage {
           ticket.description || null,
           ticket.priority || null,
           ticket.category || null,
-          ticket.status || 'backlog',
+          statusId || null,
           ticket.owner || null,
           ticket.assignee || null,
           ticket.specId || null,
@@ -819,9 +1102,6 @@ export class SQLiteStorage implements PMOStorage {
           ticket.lastSyncedFromSpec || null,
           ticket.lastSyncedFromBoard || null
         )
-
-        // Insert board position
-        insertBoardTicket.run(projectId, ticket.id, column.id, ticket.position)
 
         // Subtasks
         ticket.subtasks.forEach((st, idx) => {
@@ -834,6 +1114,26 @@ export class SQLiteStorage implements PMOStorage {
         }
       }
     }
+  }
+
+  /**
+   * Infer a status category from column name or position.
+   */
+  private inferCategoryFromColumnName(name: string, position: number, totalColumns: number): string {
+    const lowerName = name.toLowerCase()
+
+    // Match common column names to categories
+    if (lowerName.includes('backlog') || lowerName.includes('icebox')) return 'backlog'
+    if (lowerName.includes('ready') || lowerName.includes('todo') || lowerName.includes('to do')) return 'unstarted'
+    if (lowerName.includes('progress') || lowerName.includes('doing') || lowerName.includes('review')) return 'started'
+    if (lowerName.includes('done') || lowerName.includes('complete') || lowerName.includes('finished')) return 'completed'
+    if (lowerName.includes('cancel') || lowerName.includes('won\'t')) return 'canceled'
+
+    // Fallback: infer from position
+    if (position === 0) return 'backlog'
+    if (position === totalColumns - 1) return 'completed'
+    if (position <= totalColumns / 2) return 'unstarted'
+    return 'started'
   }
 
   // ===========================================================================

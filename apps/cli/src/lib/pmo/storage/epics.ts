@@ -6,7 +6,7 @@ import { PMO_TABLES } from '../schema.js'
 import { Epic, EpicFilter, PMOError, Ticket } from '../types.js'
 import { generateEntityId } from '../utils.js'
 import { StorageContext, EpicRow, TicketRow } from './types.js'
-import { rowToTicket } from './helpers.js'
+import { rowToTicket, wrapSqliteError } from './helpers.js'
 
 const T = PMO_TABLES
 
@@ -31,21 +31,25 @@ export class EpicStorage {
       position = maxPos.max_pos + 1
     }
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.epics} (id, project_id, title, description, status, position, file_path, spec_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      projectId,
-      title,
-      epic.description || null,
-      status,
-      position,
-      epic.filePath || null,
-      epic.specId || null,
-      now,
-      now
-    )
+    try {
+      this.ctx.db.prepare(`
+        INSERT INTO ${T.epics} (id, project_id, title, description, status, position, file_path, spec_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        projectId,
+        title,
+        epic.description || null,
+        status,
+        position,
+        epic.filePath || null,
+        epic.specId || null,
+        now,
+        now
+      )
+    } catch (err) {
+      wrapSqliteError('Epic', 'create', err)
+    }
 
     this.ctx.updateBoardTimestamp(projectId)
 
@@ -194,12 +198,17 @@ export class EpicStorage {
       throw new PMOError('NOT_FOUND', `Epic not found: ${id}`)
     }
 
-    // Unlink tickets from this epic
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets} SET epic_id = NULL WHERE epic_id = ?
-    `).run(id)
+    try {
+      // Unlink tickets from this epic
+      this.ctx.db.prepare(`
+        UPDATE ${T.tickets} SET epic_id = NULL WHERE epic_id = ?
+      `).run(id)
 
-    this.ctx.db.prepare(`DELETE FROM ${T.epics} WHERE id = ?`).run(id)
+      this.ctx.db.prepare(`DELETE FROM ${T.epics} WHERE id = ?`).run(id)
+    } catch (err) {
+      wrapSqliteError('Epic', 'delete', err)
+    }
+
     this.ctx.updateBoardTimestamp(epic.projectId)
   }
 
@@ -208,15 +217,17 @@ export class EpicStorage {
    */
   async getTicketsForEpic(projectId: string, epicId: string): Promise<Ticket[]> {
     const rows = this.ctx.db.prepare(`
-      SELECT t.*, bt.column_id, bt.position, c.name as column_name
+      SELECT t.*,
+             ws.id as column_id,
+             t.position as position,
+             ws.name as column_name
       FROM ${T.tickets} t
-      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
-      LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
+      LEFT JOIN ${T.workflow_statuses} ws ON t.status_id = ws.id
       WHERE t.project_id = ? AND t.epic_id = ?
-      ORDER BY c.position, bt.position
+      ORDER BY ws.position, t.position ASC, t.created_at ASC
     `).all(projectId, epicId) as TicketRow[]
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(rows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**

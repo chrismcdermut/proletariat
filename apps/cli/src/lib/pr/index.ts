@@ -89,6 +89,87 @@ export function isGHTokenInEnv(): boolean {
 }
 
 // =============================================================================
+// Git Identity Detection
+// =============================================================================
+
+export interface GitIdentity {
+  name: string | null;
+  email: string | null;
+}
+
+/**
+ * Detect the user's git identity for commit attribution.
+ * Tries GitHub CLI first (gh api user), falls back to git config.
+ * Results are memoized so subprocess calls only run once per process.
+ */
+let _cachedGitIdentity: GitIdentity | undefined;
+
+export function getGitIdentity(cwd?: string): GitIdentity {
+  if (_cachedGitIdentity) return _cachedGitIdentity;
+
+  let name: string | null = null;
+  let email: string | null = null;
+
+  // Method 1: Try gh api user (most reliable for GitHub identity)
+  try {
+    const userJson = execSync('gh api user', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const user = JSON.parse(userJson);
+    name = user.name || user.login || null;
+    email = user.email || null;
+
+    // If no public email, try GitHub emails API for primary email
+    if (!email) {
+      try {
+        const emailsJson = execSync('gh api user/emails', {
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        const emails = JSON.parse(emailsJson) as Array<{ email: string; primary: boolean }>;
+        const primary = emails.find(e => e.primary);
+        if (primary) {
+          email = primary.email;
+        }
+      } catch {
+        // emails API may not be accessible with current token scope
+      }
+    }
+  } catch {
+    // gh not available or not authenticated
+  }
+
+  // Method 2: Fall back to git config
+  if (!name) {
+    try {
+      name = execSync('git config user.name', {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim() || null;
+    } catch {
+      // git config not set
+    }
+  }
+
+  if (!email) {
+    try {
+      email = execSync('git config user.email', {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim() || null;
+    } catch {
+      // git config not set
+    }
+  }
+
+  _cachedGitIdentity = { name, email };
+  return _cachedGitIdentity;
+}
+
+// =============================================================================
 // Git Remote Detection
 // =============================================================================
 
@@ -123,27 +204,32 @@ export function getGitHubRepo(cwd?: string): string | null {
 
 /**
  * Get the default base branch (main or master).
+ * Prefers origin/main over local main to avoid stale local branches
+ * in agent worktrees where local main is never updated.
  */
 export function getDefaultBaseBranch(cwd?: string): string {
-  try {
-    // Check if 'main' exists
-    execSync('git rev-parse --verify main', {
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return 'main';
-  } catch {
-    // Fall back to 'master'
+  // Check origin/main first (most reliable in worktree environments)
+  // then local main, then origin/master, then local master
+  const candidates = [
+    { ref: 'origin/main', name: 'main' },
+    { ref: 'main', name: 'main' },
+    { ref: 'origin/master', name: 'master' },
+    { ref: 'master', name: 'master' },
+  ];
+
+  for (const { ref, name } of candidates) {
     try {
-      execSync('git rev-parse --verify master', {
+      execSync(`git rev-parse --verify ${ref}`, {
         cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      return 'master';
+      return name;
     } catch {
-      return 'main'; // Default to main even if not found
+      // Try next candidate
     }
   }
+
+  return 'main'; // Default to main even if not found
 }
 
 /**
@@ -210,10 +296,26 @@ export function hasUnpushedCommits(branch: string, cwd?: string): boolean {
 
 /**
  * Get the commit log between base and head.
+ * Prefers origin/${base} over local ${base} to avoid stale local branches
+ * in agent worktrees where local main/master is never updated.
  */
 export function getCommitLog(base: string, cwd?: string): string[] {
+  // Prefer origin/${base} for accurate comparison (local branch may be stale)
+  let ref = base;
+  if (!base.startsWith('origin/')) {
+    try {
+      execSync(`git rev-parse --verify origin/${base}`, {
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      ref = `origin/${base}`;
+    } catch {
+      // Fall back to local ref
+    }
+  }
+
   try {
-    const output = execSync(`git log ${base}..HEAD --oneline`, {
+    const output = execSync(`git log ${ref}..HEAD --oneline`, {
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],

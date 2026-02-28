@@ -1,225 +1,24 @@
 /**
- * Workflow and ticket template operations.
+ * Ticket template operations.
+ *
+ * Note: Workflow templates have been removed. Workflows are now used directly
+ * as the source of truth for status configurations. See workflow commands
+ * and StatusStorage for workflow operations.
  */
 
 import { PMO_TABLES } from '../schema.js'
 import {
   PMOError,
-  TemplateFilter,
   TicketTemplate,
   TicketTemplateFilter,
-  WorkflowStatus,
-  WorkflowTemplate,
-  WorkflowTemplateStatus,
 } from '../types.js'
 import { slugify } from '../utils.js'
-import { StorageContext, WorkflowTemplateRow, TicketTemplateRow } from './types.js'
+import type { StorageContext, TicketTemplateRow } from './types.js'
 
 const T = PMO_TABLES
 
 export class TemplateStorage {
   constructor(private ctx: StorageContext) {}
-
-  // =========================================================================
-  // Workflow Templates
-  // =========================================================================
-
-  /**
-   * List workflow templates.
-   */
-  async listTemplates(filter?: TemplateFilter): Promise<WorkflowTemplate[]> {
-    let query = `SELECT * FROM ${T.templates} WHERE 1=1`
-    const params: unknown[] = []
-
-    if (filter?.isBuiltin !== undefined) {
-      query += ' AND is_builtin = ?'
-      params.push(filter.isBuiltin ? 1 : 0)
-    }
-    if (filter?.search) {
-      query += ' AND (name LIKE ? OR description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
-    }
-
-    query += ' ORDER BY is_builtin DESC, name'
-
-    const rows = this.ctx.db.prepare(query).all(...params) as WorkflowTemplateRow[]
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      description: row.description || undefined,
-      isBuiltin: row.is_builtin === 1,
-      statuses: JSON.parse(row.statuses) as WorkflowTemplateStatus[],
-      createdAt: new Date(row.created_at),
-    }))
-  }
-
-  /**
-   * Get a workflow template by ID.
-   */
-  async getTemplate(id: string): Promise<WorkflowTemplate | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.templates} WHERE id = ?
-    `).get(id) as WorkflowTemplateRow | undefined
-
-    if (!row) return null
-
-    return {
-      id: row.id,
-      name: row.name,
-      description: row.description || undefined,
-      isBuiltin: row.is_builtin === 1,
-      statuses: JSON.parse(row.statuses) as WorkflowTemplateStatus[],
-      createdAt: new Date(row.created_at),
-    }
-  }
-
-  /**
-   * Apply a workflow template to a project.
-   */
-  async applyTemplate(projectId: string, templateId: string): Promise<WorkflowStatus[]> {
-    const template = await this.getTemplate(templateId)
-    if (!template) {
-      throw new PMOError('NOT_FOUND', `Template not found: ${templateId}`)
-    }
-
-    // Verify project exists
-    const project = this.ctx.db.prepare(`SELECT id FROM ${T.projects} WHERE id = ?`).get(
-      projectId
-    )
-    if (!project) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
-    }
-
-    // Delete existing statuses for this project
-    this.ctx.db.prepare(`DELETE FROM ${T.statuses} WHERE project_id = ?`).run(projectId)
-
-    // Create new statuses from template
-    const now = new Date().toISOString()
-    const insertStatus = this.ctx.db.prepare(`
-      INSERT INTO ${T.statuses} (id, project_id, name, category, position, color, is_default, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-
-    const createdStatuses: WorkflowStatus[] = []
-    let isFirstBacklog = true
-
-    for (const templateStatus of template.statuses) {
-      const id = `${projectId}-${slugify(templateStatus.name)}`
-      const isDefault = templateStatus.category === 'backlog' && isFirstBacklog
-      if (isDefault) isFirstBacklog = false
-
-      insertStatus.run(
-        id,
-        projectId,
-        templateStatus.name,
-        templateStatus.category,
-        templateStatus.position,
-        templateStatus.color || null,
-        isDefault ? 1 : 0,
-        now
-      )
-
-      createdStatuses.push({
-        id,
-        projectId,
-        name: templateStatus.name,
-        category: templateStatus.category,
-        position: templateStatus.position,
-        color: templateStatus.color,
-        isDefault,
-        createdAt: new Date(now),
-      })
-    }
-
-    return createdStatuses
-  }
-
-  /**
-   * Save current project statuses as a template.
-   */
-  async saveTemplate(
-    name: string,
-    projectId: string,
-    description?: string
-  ): Promise<WorkflowTemplate> {
-    // Get statuses from the project
-    const statuses = this.ctx.db.prepare(`
-      SELECT * FROM ${T.statuses}
-      WHERE project_id = ?
-      ORDER BY
-        CASE category
-          WHEN 'backlog' THEN 0
-          WHEN 'unstarted' THEN 1
-          WHEN 'started' THEN 2
-          WHEN 'completed' THEN 3
-          WHEN 'canceled' THEN 4
-        END,
-        position
-    `).all(projectId) as Array<{
-      name: string
-      category: string
-      position: number
-      color: string | null
-    }>
-
-    if (statuses.length === 0) {
-      throw new PMOError(
-        'INVALID',
-        `Project ${projectId} has no statuses to save as template`
-      )
-    }
-
-    // Check for duplicate template name
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.templates}
-      WHERE LOWER(name) = LOWER(?)
-    `).get(name) as { id: string } | undefined
-    if (existing) {
-      throw new PMOError('CONFLICT', `Template with name "${name}" already exists`)
-    }
-
-    const id = slugify(name)
-    const now = new Date().toISOString()
-
-    // Convert statuses to template format
-    const templateStatuses: WorkflowTemplateStatus[] = statuses.map((s) => ({
-      name: s.name,
-      category: s.category as WorkflowTemplateStatus['category'],
-      position: s.position,
-      color: s.color || undefined,
-    }))
-
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.templates} (id, name, description, is_builtin, statuses, created_at)
-      VALUES (?, ?, ?, 0, ?, ?)
-    `).run(id, name, description || null, JSON.stringify(templateStatuses), now)
-
-    return {
-      id,
-      name,
-      description,
-      isBuiltin: false,
-      statuses: templateStatuses,
-      createdAt: new Date(now),
-    }
-  }
-
-  /**
-   * Delete a workflow template.
-   */
-  async deleteTemplate(id: string): Promise<void> {
-    const existing = await this.getTemplate(id)
-    if (!existing) {
-      throw new PMOError('NOT_FOUND', `Template not found: ${id}`)
-    }
-
-    if (existing.isBuiltin) {
-      throw new PMOError('INVALID', 'Cannot delete built-in templates')
-    }
-
-    this.ctx.db.prepare(`DELETE FROM ${T.templates} WHERE id = ?`).run(id)
-  }
 
   // =========================================================================
   // Ticket Templates

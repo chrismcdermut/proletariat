@@ -45,10 +45,12 @@ export type SessionManager =
  * DisplayMode - How output is presented to the user.
  * - terminal: Opens a new terminal tab attached to the tmux session
  * - background: Runs detached, reattach later with `prlt session attach`
+ * - foreground: Attaches tmux in current terminal (blocking)
  */
 export type DisplayMode =
   | 'terminal'      // New terminal tab showing execution
   | 'background'    // Detached tmux session, reattach later
+  | 'foreground'    // Attached tmux in current terminal (blocking)
 
 /**
  * OutputMode - How Claude Code displays its output.
@@ -58,6 +60,15 @@ export type DisplayMode =
 export type OutputMode =
   | 'interactive'   // Streaming UI (no -p flag) - watch Claude work in real-time
   | 'print'         // Print mode (-p flag) - final result only, good for automation
+
+/**
+ * PermissionMode - How Claude Code handles permission checks.
+ * - danger: Skip permission checks (faster, relies on container/environment isolation)
+ * - safe: Requires approval for dangerous operations
+ */
+export type PermissionMode =
+  | 'danger'        // Skip permission checks (--dangerously-skip-permissions)
+  | 'safe'          // Require approval for dangerous operations
 
 // =============================================================================
 // Executor Types
@@ -122,6 +133,7 @@ export interface AgentWork {
   startedAt: Date
   completedAt?: Date
   exitCode?: number
+  errorMessage?: string
 }
 
 // =============================================================================
@@ -146,6 +158,7 @@ export interface ExecutionContext {
   branch: string
   hqPath?: string // HQ root path for storing execution artifacts
   pmoPath?: string // PMO path for mounting into container
+  repoWorktrees?: string[] // Names of repo worktrees to mount for git worktree resolution
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
   // Action context (what the agent should do)
   actionId?: string       // Action ID (e.g., 'implement', 'groom')
@@ -153,6 +166,10 @@ export interface ExecutionContext {
   actionPrompt?: string   // The action prompt (start instruction for agent)
   actionEndPrompt?: string // The action end prompt (completion instructions)
   modifiesCode?: boolean  // Whether this action modifies code (needs branch)
+  // Custom message (appended as additional instructions to any action)
+  customMessage?: string
+  // Docker credential mode
+  useApiKey?: boolean // If true, pass ANTHROPIC_API_KEY to container (user explicitly chose this)
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
@@ -298,6 +315,12 @@ export function generateBranchName(
 }
 
 // =============================================================================
+// Auth Method
+// =============================================================================
+
+export type AuthMethod = 'oauth' | 'apikey'
+
+// =============================================================================
 // Execution Configuration
 // =============================================================================
 
@@ -308,13 +331,16 @@ export interface ExecutionConfig {
   shell: Shell
   outputMode: OutputMode  // interactive (streaming) or print (final result only)
   sandboxed: boolean      // Whether --dangerously-skip-permissions is NOT used
+  authMethod?: AuthMethod // Saved auth method preference (oauth or apikey). null/undefined = ask each time
   tmux: {
     session: string
     layout: 'split' | 'window'
     controlMode: boolean  // Use tmux -CC for iTerm native integration
+    windowMode: 'tab' | 'window'  // How iTerm opens tmux windows: tab in current window, or new window
   }
   terminal: {
     app: TerminalApp
+    openInBackground: boolean  // Open terminal tabs without stealing focus (default: true)
   }
   devcontainer: {
     defaultImage: string
@@ -327,6 +353,9 @@ export interface ExecutionConfig {
     network: string
     memory?: string
     cpus?: number
+  }
+  firewall: {
+    allowlistDomains: string[]  // Additional domains to allow in container firewall
   }
   vm: {
     defaultHost?: string
@@ -358,10 +387,12 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   tmux: {
     session: 'proletariat',
     layout: 'window',
-    controlMode: true,  // Enable -CC for iTerm native integration by default
+    controlMode: true,  // Use -u -CC for native iTerm scrolling/selection
+    windowMode: 'tab',  // Open tmux windows as tabs in current window by default
   },
   terminal: {
     app: 'Terminal',
+    openInBackground: true,  // Don't steal focus when opening new tabs
   },
   devcontainer: {
     defaultImage: 'mcr.microsoft.com/devcontainers/base:ubuntu',
@@ -372,6 +403,9 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   docker: {
     image: 'claude-code:latest',
     network: 'host',
+  },
+  firewall: {
+    allowlistDomains: [],
   },
   vm: {
     user: 'agent',

@@ -2,7 +2,6 @@ import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import Database from 'better-sqlite3';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
@@ -24,10 +23,8 @@ import {
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class WorkReady extends PMOCommand {
@@ -37,7 +34,7 @@ export default class WorkReady extends PMOCommand {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> TKT-001',
     '<%= config.bin %> <%= command.id %> --pr',
-    '<%= config.bin %> <%= command.id %> TKT-001 --pr --draft',
+    '<%= config.bin %> <%= command.id %> TKT-001 --draft-pr',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
@@ -50,20 +47,12 @@ export default class WorkReady extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     pr: Flags.boolean({
       description: 'Create a pull request for this work',
       default: false,
     }),
-    draft: Flags.boolean({
-      description: 'Create PR as draft (only with --pr)',
+    'draft-pr': Flags.boolean({
+      description: 'Create a draft pull request (implies --pr)',
       default: false,
     }),
     'no-pr': Flags.boolean({
@@ -75,6 +64,11 @@ export default class WorkReady extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkReady);
     const projectId = (flags as { project?: string }).project;
+
+    // Check for conflicting PR flags
+    if (flags.pr && flags['no-pr']) {
+      this.error('--pr and --no-pr are mutually exclusive');
+    }
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -122,28 +116,20 @@ export default class WorkReady extends PMOCommand {
           return;
         }
 
-        // In JSON mode, output ticket selection prompt and exit
-        if (jsonMode) {
-          const ticketChoices = inProgressTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          }));
-          outputPromptAsJson(
-            buildPromptConfig('list', 'ticketId', 'Select work to mark as ready for review:', ticketChoices),
-            createMetadata('work ready', flags)
-          );
-        }
-
-        const { selectedTicketId } = await inquirer.prompt([{
-          type: 'list',
-          name: 'selectedTicketId',
+        const selected = await this.selectFromList({
           message: 'Select work to mark as ready for review:',
-          choices: inProgressTickets.map(t => ({
-            name: `${t.id} - ${t.title} (${t.statusName})`,
-            value: t.id,
-          })),
-        }]);
-        ticketId = selectedTicketId;
+          items: inProgressTickets,
+          getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+          getValue: (t) => t.id,
+          getCommand: (t) => `prlt work ready ${t.id} --json`,
+          jsonMode: jsonMode ? { flags, commandName: 'work ready' } : null,
+        });
+
+        if (!selected) {
+          db.close();
+          return;
+        }
+        ticketId = selected;
       }
 
       // Get ticket
@@ -154,22 +140,22 @@ export default class WorkReady extends PMOCommand {
       }
 
       // Get configured column name (from pmo_settings or default)
-      // In Linear-style workflow, "ready" moves ticket to Done (review is implicit via PR)
-      const targetColumnName = getWorkColumnSetting(db, 'done');
+      // "ready" moves ticket to Review column (work complete moves to Done)
+      const targetColumnName = getWorkColumnSetting(db, 'review');
 
-      const board = await this.storage.getBoard(ticket.projectId!);
-      const columnNames = board.columns.map(col => col.name);
-      const doneColumn = findColumnByName(columnNames, targetColumnName);
+      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+      const columnNames = board ? board.columns.map(col => col.name) : [];
+      const reviewColumn = findColumnByName(columnNames, targetColumnName);
 
-      if (!doneColumn) {
+      if (!reviewColumn) {
         db.close();
-        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_done <column-name>`);
+        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_review <column-name>`);
       }
 
       const previousColumn = ticket.statusName;
 
-      // Move to Done column (moveTicket also updates status_id)
-      await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn);
+      // Move to Review column (moveTicket also updates status_id)
+      await this.storage.moveTicket(ticket.projectId!, ticketId!, reviewColumn);
 
       // Auto-export to board.md if configured
       await autoExportToBoard(this.pmoPath, this.storage);
@@ -183,7 +169,8 @@ export default class WorkReady extends PMOCommand {
 
       // Handle PR creation
       let prUrl: string | undefined;
-      const shouldCreatePR = flags.pr || (!flags['no-pr'] && await this.shouldOfferPRCreation());
+      const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work ready' } : null;
+    const shouldCreatePR = flags.pr || flags['draft-pr'] || (!flags['no-pr'] && await this.shouldOfferPRCreation(jsonModeConfig));
 
       if (shouldCreatePR) {
         // Get branch and worktree path from the execution record
@@ -204,21 +191,33 @@ export default class WorkReady extends PMOCommand {
               worktreePath = path.join('/workspace', repoDirs[0].name);
             }
           } else {
-            const agentsPath = path.join(workspaceInfo.path, 'agents', 'staff');
-            const agentDir = path.join(agentsPath, agentName);
-            // Look for repo directories inside agent dir
-            const entries = fs.readdirSync(agentDir, { withFileTypes: true });
-            const repoDirs = entries.filter((e) =>
-              e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules'
-            );
-            if (repoDirs.length > 0) {
-              // Use the first repo directory (typically the main worktree)
-              worktreePath = path.join(agentDir, repoDirs[0].name);
+            // Resolve agent directory based on agent type (staff vs temp)
+            const agentRecord = workspaceInfo.agents.find(a => a.name === agentName);
+            let agentDir: string;
+            if (agentRecord?.worktree_path) {
+              // Use the worktree_path from the database if available
+              agentDir = path.join(workspaceInfo.path, agentRecord.worktree_path);
+            } else if (agentRecord?.type === 'ephemeral') {
+              agentDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName);
+            } else {
+              agentDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.persistentAgentsDir, agentName);
+            }
+
+            if (fs.existsSync(agentDir)) {
+              // Look for repo directories inside agent dir
+              const entries = fs.readdirSync(agentDir, { withFileTypes: true });
+              const repoDirs = entries.filter((e) =>
+                e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules'
+              );
+              if (repoDirs.length > 0) {
+                // Use the first repo directory (typically the main worktree)
+                worktreePath = path.join(agentDir, repoDirs[0].name);
+              }
             }
           }
         }
 
-        prUrl = await this.handlePRCreation(ticket, flags.draft, branch, worktreePath);
+        prUrl = await this.handlePRCreation(ticket, flags['draft-pr'], branch, worktreePath);
         if (prUrl) {
           // Store PR URL in ticket metadata
           await this.storage.updateTicket(ticketId!, {
@@ -235,7 +234,7 @@ export default class WorkReady extends PMOCommand {
       this.log(styles.success(`Work ready: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
       this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${doneColumn}`));
+      this.log(styles.muted(`   To: ${reviewColumn}`));
       if (prUrl) {
         this.log(styles.muted(`   PR: ${prUrl}`));
       }
@@ -248,7 +247,9 @@ export default class WorkReady extends PMOCommand {
   /**
    * Check if we should offer PR creation (gh is available, on a feature branch, etc.)
    */
-  private async shouldOfferPRCreation(): Promise<boolean> {
+  private async shouldOfferPRCreation(
+    jsonModeConfig: { flags: Record<string, unknown>; commandName: string } | null
+  ): Promise<boolean> {
     // Check if gh CLI is available
     if (!isGHInstalled() || !isGHAuthenticated()) {
       return false;
@@ -273,16 +274,16 @@ export default class WorkReady extends PMOCommand {
     }
 
     // Prompt user
-    const { createPR: wantPR } = await inquirer.prompt([{
+    const { createPR: wantPR } = await this.prompt<{ createPR: boolean }>([{
       type: 'list',
       name: 'createPR',
       message: 'Create a pull request for this work?',
       choices: [
-        { name: 'Yes', value: true },
-        { name: 'No', value: false },
+        { name: 'Yes', value: true, command: 'prlt work ready --pr --json' },
+        { name: 'No', value: false, command: 'prlt work ready --no-pr --json' },
       ],
       default: true,
-    }]);
+    }], jsonModeConfig);
 
     return wantPR;
   }
@@ -316,6 +317,24 @@ export default class WorkReady extends PMOCommand {
 
     try {
       const baseBranch = getDefaultBaseBranch();
+
+      // Check if PR already exists for this branch
+      const existingPR = getPRForBranch(currentBranch);
+      if (existingPR) {
+        if (existingPR.state === 'MERGED') {
+          this.log(styles.muted(`   PR #${existingPR.number} already merged: ${existingPR.url}`));
+          return existingPR.url;
+        }
+        if (existingPR.state === 'OPEN') {
+          // Push any unpushed commits so the existing PR is up to date
+          if (hasUnpushedCommits(currentBranch)) {
+            this.log(styles.muted(`   Pushing unpushed commits to existing PR...`));
+            pushBranch(currentBranch);
+          }
+          this.log(styles.muted(`   PR #${existingPR.number} already exists: ${existingPR.url}`));
+          return existingPR.url;
+        }
+      }
 
       // Push branch if needed
       if (!hasBranchBeenPushed(currentBranch)) {

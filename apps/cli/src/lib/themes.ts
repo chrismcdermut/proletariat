@@ -2,12 +2,57 @@ import {
   createTheme,
   addThemeNames,
   getThemes,
+  Agent,
 } from './database/index.js';
 
 /**
- * Default workspace directory for agents
+ * Default workspace directory for persistent agents (fallback if no theme)
  */
 export const DEFAULT_AGENTS_DIR = 'staff';
+
+/**
+ * Default directory for ephemeral agents (fallback if no theme)
+ */
+export const TEMP_AGENTS_DIR = 'temp';
+
+/**
+ * Default theme for ephemeral agent name generation
+ */
+export const DEFAULT_EPHEMERAL_THEME = 'billionaires';
+
+/**
+ * Adjectives for ephemeral agent name generation
+ * ~100 short, positive adjectives for readable agent names
+ */
+export const AGENT_ADJECTIVES = [
+  // Original set
+  'bold', 'calm', 'cool', 'deep', 'fair', 'fast', 'firm', 'free', 'good',
+  'keen', 'kind', 'neat', 'pure', 'safe', 'sure', 'true', 'warm', 'wise',
+  'able', 'avid', 'blue', 'deft', 'fine', 'glad', 'gold', 'open', 'real',
+  'rich', 'soft', 'tall', 'vast', 'wild', 'zest',
+  // Expanded set
+  'apt', 'big', 'brave', 'bright', 'brisk', 'busy', 'chief', 'civic',
+  'civil', 'clean', 'clear', 'close', 'crisp', 'dense', 'dry', 'dual',
+  'due', 'eager', 'early', 'easy', 'elite', 'epic', 'equal', 'even',
+  'exact', 'extra', 'faint', 'fancy', 'first', 'fit', 'flat', 'fleet',
+  'flush', 'focal', 'fond', 'frank', 'fresh', 'full', 'game', 'grand',
+  'grave', 'great', 'green', 'hale', 'happy', 'hardy', 'hasty', 'hazy',
+  'heavy', 'high', 'hot', 'huge', 'ideal', 'key', 'large', 'late', 'lean',
+  'legal', 'light', 'lithe', 'live', 'local', 'long', 'loose', 'loud',
+  'loyal', 'lucid', 'lucky', 'lunar', 'lusty', 'mad', 'main', 'major',
+  'meek', 'merry', 'mild', 'mini', 'minor', 'mint', 'modal', 'modern',
+  'moist', 'moral', 'naval', 'new', 'next', 'nice', 'noble', 'novel',
+  'odd', 'outer', 'pale', 'peak', 'perky', 'phat', 'plush', 'polar',
+  'polite', 'prime', 'proud', 'quick', 'quiet', 'rapid', 'rare', 'raw',
+  'ready', 'regal', 'royal', 'ruby', 'rural', 'rusty', 'salty', 'sandy',
+  'sassy', 'shiny', 'short', 'silky', 'slick', 'slim', 'slow', 'small',
+  'smart', 'smooth', 'snug', 'solar', 'solid', 'sonic', 'sound', 'spare',
+  'stark', 'steady', 'steel', 'steep', 'stoic', 'stout', 'strong', 'super',
+  'sweet', 'swift', 'tame', 'tart', 'tense', 'thick', 'thin', 'tidy',
+  'tight', 'tiny', 'top', 'total', 'tough', 'trim', 'ultra', 'upper',
+  'urban', 'valid', 'vivid', 'vocal', 'wary', 'whole', 'wide', 'witty',
+  'young', 'zappy', 'zen', 'zero', 'zippy', 'zonal'
+];
 
 /**
  * Validate an agent name
@@ -55,20 +100,52 @@ export interface BuiltinThemeDefinition {
   displayName: string;
   description: string;
   names: string[];
+  /** Directory for persistent/staff agents (default: 'staff') */
+  persistentDir: string;
+  /** Directory for ephemeral/temp agents (default: 'temp') */
+  ephemeralDir: string;
 }
 
 export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
   {
     id: 'billionaires',
     name: 'billionaires',
-    displayName: 'Billionaires & Tech Elite',
+    displayName: 'Billionaires',
     description: 'The ultra-wealthy work for you',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
     names: [
-      'altman', 'andreesen', 'bezos', 'branson', 'brin', 'buffett',
-      'cook', 'dalio', 'damodei', 'dorsey', 'ellison', 'gates', 'huang',
-      'iger', 'jobs', 'kalanick', 'karpathy', 'lecun', 'ma', 'musk',
-      'nadella', 'page', 'pichai', 'sandberg', 'schultz', 'sutskever',
-      'thiel', 'wojcicki', 'zuck'
+      'altman', 'andreesen', 'ballmer', 'benioff', 'bezos', 'branson',
+      'brin', 'buffett', 'chesky', 'collison', 'cook', 'dalio',
+      'dario', 'dell', 'dorsey', 'durov', 'ellison', 'fink',
+      'gates', 'hastings', 'hoffman', 'horowitz', 'huang', 'jobs',
+      'kalanick', 'khosla', 'knight', 'levinson', 'ma', 'mcnealy',
+      'musk', 'nadella', 'neumann', 'omidyar', 'page', 'parker',
+      'pichai', 'sandberg', 'schmidt', 'schultz', 'siebel',
+      'silbermann', 'spiegel', 'sweeney', 'systrom', 'thiel',
+      'wozniak', 'yang', 'zuck'
+    ]
+  },
+  {
+    id: 'cracked-engineers',
+    name: 'cracked-engineers',
+    displayName: 'Cracked Engineers',
+    description: 'AI researchers, engineers, and tech legends',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
+    names: [
+      // AI researchers
+      'karpathy', 'lecun', 'sutskever',
+      // Engineers & creators
+      'sinofsky', 'spolsky', 'torvalds', 'yegge',
+      // Investors & operators (non-billionaire)
+      'grove', 'kutcher', 'rabois', 'ross',
+      // Podcasters & educators
+      'fridman',
+      // Other tech figures
+      'hurd', 'iger', 'ive', 'levie', 'lynch', 'marcus', 'mayer',
+      'morin', 'powell', 'rometty', 'wales', 'wojcicki', 'zhang',
+      'zhong'
     ]
   },
   {
@@ -76,11 +153,23 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     name: 'toyotas',
     displayName: 'Toyota Garage',
     description: 'Reliable workhorses for your project',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
     names: [
+      // Classic & current models
       '4runner', 'avalon', 'camry', 'celica', 'corolla', 'cressida',
       'fj40', 'fj60', 'fj80', 'highlander', 'hilux', 'landcruiser',
       'mr2', 'prius', 'rav4', 'sequoia', 'sienna', 'supra', 'tacoma',
-      'tercel', 'tundra', 'venza', 'yaris'
+      'tercel', 'tundra', 'venza', 'yaris',
+      // More models & variants
+      'auris', 'belta', 'brevis', 'caldina', 'carina', 'century',
+      'chaser', 'coaster', 'corona', 'cresta', 'crown', 'dyna',
+      'estima', 'etios', 'fortuner', 'granvia', 'harrier', 'innova',
+      'ipsum', 'kluger', 'levin', 'lite', 'lucida', 'mark2',
+      'matrix', 'mirai', 'noah', 'paseo', 'picnic', 'platz',
+      'previa', 'premio', 'probox', 'raize', 'rukus', 'sera',
+      'soarer', 'solara', 'starlet', 'surf', 'tarago', 'trueno',
+      'urban', 'verso', 'vios', 'vista', 'vitz', 'wish'
     ]
   },
   {
@@ -88,13 +177,26 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     name: 'companies',
     displayName: 'Company Portfolio',
     description: 'Your corporate portfolio',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
     names: [
+      // Major tech companies
       'adobe', 'airbnb', 'amazon', 'apple', 'atlassian', 'cisco',
       'coinbase', 'databricks', 'discord', 'dropbox', 'figma', 'github',
       'google', 'intel', 'meta', 'microsoft', 'netflix', 'notion',
       'nvidia', 'openai', 'oracle', 'palantir', 'salesforce', 'shopify',
       'slack', 'snowflake', 'spotify', 'square', 'stripe', 'tesla',
-      'twilio', 'twitter', 'uber', 'vercel', 'zoom'
+      'twilio', 'twitter', 'uber', 'vercel', 'zoom',
+      // More companies
+      'airtable', 'algolia', 'asana', 'auth0', 'brex', 'canva',
+      'carta', 'checkout', 'clickup', 'cloudera', 'contentful', 'datadog',
+      'deel', 'docusign', 'doordash', 'elastic', 'fastly', 'fivetran',
+      'gitlab', 'gusto', 'hashicorp', 'hubspot', 'instacart', 'klarna',
+      'launchdark', 'linear', 'loom', 'lyft', 'mailchimp', 'miro',
+      'monday', 'mongo', 'netlify', 'okta', 'pagerduty', 'plaid',
+      'postman', 'reddit', 'retool', 'revolut', 'rippling', 'robinhood',
+      'segment', 'sentry', 'supabase', 'toast', 'twitch', 'webflow',
+      'wiz', 'workday', 'zendesk', 'zscaler'
     ]
   }
 ];
@@ -136,4 +238,217 @@ export function getBuiltinTheme(themeId: string): BuiltinThemeDefinition | undef
  */
 export function isBuiltinTheme(themeId: string): boolean {
   return BUILTIN_THEMES.some(t => t.id === themeId);
+}
+
+/**
+ * Get the persistent agents directory name for a theme
+ * Falls back to DEFAULT_AGENTS_DIR if theme not found
+ */
+export function getThemePersistentDir(themeId?: string): string {
+  if (!themeId) return DEFAULT_AGENTS_DIR;
+  const theme = BUILTIN_THEMES.find(t => t.id === themeId);
+  return theme?.persistentDir ?? DEFAULT_AGENTS_DIR;
+}
+
+/**
+ * Get the ephemeral agents directory name for a theme
+ * Falls back to TEMP_AGENTS_DIR if theme not found
+ */
+export function getThemeEphemeralDir(themeId?: string): string {
+  if (!themeId) return TEMP_AGENTS_DIR;
+  const theme = BUILTIN_THEMES.find(t => t.id === themeId);
+  return theme?.ephemeralDir ?? TEMP_AGENTS_DIR;
+}
+
+/**
+ * Get both directory names for a theme
+ */
+export function getThemeDirectories(themeId?: string): { persistentDir: string; ephemeralDir: string } {
+  return {
+    persistentDir: getThemePersistentDir(themeId),
+    ephemeralDir: getThemeEphemeralDir(themeId),
+  };
+}
+
+/**
+ * Pick a random adjective from the list
+ */
+export function pickAdjective(): string {
+  return AGENT_ADJECTIVES[Math.floor(Math.random() * AGENT_ADJECTIVES.length)];
+}
+
+/**
+ * Pick a random theme name from a specific theme
+ */
+export function pickThemeName(themeId: string): string {
+  const theme = BUILTIN_THEMES.find(t => t.id === themeId);
+  if (!theme) {
+    // Fall back to billionaires if theme not found
+    const fallback = BUILTIN_THEMES[0];
+    return fallback.names[Math.floor(Math.random() * fallback.names.length)];
+  }
+  return theme.names[Math.floor(Math.random() * theme.names.length)];
+}
+
+/**
+ * Pick a random theme name from any available theme
+ */
+export function pickRandomThemeName(): { themeName: string; themeId: string } {
+  const theme = BUILTIN_THEMES[Math.floor(Math.random() * BUILTIN_THEMES.length)];
+  const name = theme.names[Math.floor(Math.random() * theme.names.length)];
+  return { themeName: name, themeId: theme.id };
+}
+
+/**
+ * Options for ephemeral agent name generation
+ */
+export interface GenerateEphemeralNameOptions {
+  themeId?: string;
+  /**
+   * Optional callback to check if a candidate name conflicts with external resources.
+   * Returns { conflict: true, reason: string } if there's a conflict, or { conflict: false } if not.
+   * This allows checking for tmux sessions, directories, etc. that aren't in the database.
+   */
+  checkExternalConflict?: (name: string) => { conflict: boolean; reason?: string };
+  /**
+   * Optional callback for logging/messaging when conflicts are detected
+   */
+  onConflictSkipped?: (name: string, reason: string) => void;
+  /**
+   * Optional set of base names currently in use by active agents.
+   * If provided, the generator will prefer base names NOT in this set.
+   */
+  inUseBaseNames?: Set<string>;
+}
+
+/**
+ * Generate a unique ephemeral agent name.
+ * Format: {adjective}-{theme_name} or {adjective}-{theme_name}-{number}
+ * Example: "bold-bezos", "keen-camry", "bold-bezos-2" (if bold-bezos exists)
+ *
+ * @param existingNames - Set of existing agent names (for uniqueness checking)
+ * @param options - Optional configuration for name generation
+ */
+export function generateEphemeralAgentName(
+  existingNames: Set<string>,
+  options?: GenerateEphemeralNameOptions | string
+): string {
+  // Handle backwards compatibility: string arg = themeId
+  const opts: GenerateEphemeralNameOptions = typeof options === 'string'
+    ? { themeId: options }
+    : (options ?? {});
+
+  const maxAttempts = 100;
+
+  // Use specified theme or default (no mixing themes)
+  const themeId = opts.themeId ?? DEFAULT_EPHEMERAL_THEME;
+
+  // Get all theme names and partition into preferred (unused) and fallback (in use)
+  const theme = BUILTIN_THEMES.find(t => t.id === themeId) ?? BUILTIN_THEMES[0];
+  const allBaseNames = [...theme.names];
+  const inUseBaseNames = opts.inUseBaseNames ?? new Set<string>();
+
+  // Shuffle arrays for randomness
+  const shuffleArray = <T>(arr: T[]): T[] => {
+    const shuffled = [...arr];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
+  // Helper to check if a candidate name is available
+  const isAvailable = (candidateName: string): boolean => {
+    // Check database/in-memory conflicts first
+    if (existingNames.has(candidateName.toLowerCase())) {
+      return false;
+    }
+
+    // Check external resource conflicts if callback provided
+    if (opts.checkExternalConflict) {
+      const result = opts.checkExternalConflict(candidateName);
+      if (result.conflict) {
+        opts.onConflictSkipped?.(candidateName, result.reason ?? 'external conflict');
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // Partition base names: prefer unused ones first
+  const unusedBaseNames = shuffleArray(allBaseNames.filter(name => !inUseBaseNames.has(name.toLowerCase())));
+  const usedBaseNames = shuffleArray(allBaseNames.filter(name => inUseBaseNames.has(name.toLowerCase())));
+
+  // Try unused base names first, then fall back to used ones
+  const orderedBaseNames = [...unusedBaseNames, ...usedBaseNames];
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const adjective = pickAdjective();
+    // Pick base name: cycle through ordered list based on attempt
+    const themeName = orderedBaseNames[attempt % orderedBaseNames.length];
+
+    // First try without a number suffix: "bold-bezos"
+    const nameWithoutNumber = `${adjective}-${themeName}`;
+    if (isAvailable(nameWithoutNumber)) {
+      return nameWithoutNumber;
+    }
+
+    // If taken, try with number suffixes: "bold-bezos-2", "bold-bezos-3", etc.
+    for (let num = 2; num <= 9999; num++) {
+      const candidateName = `${adjective}-${themeName}-${num}`;
+      if (isAvailable(candidateName)) {
+        return candidateName;
+      }
+    }
+  }
+
+  // Fallback: use timestamp if all attempts fail
+  const timestamp = Date.now().toString(36);
+  return `agent-${timestamp}`;
+}
+
+/**
+ * Check if a name looks like an ephemeral agent name.
+ * Ephemeral names follow pattern: {adjective}-{name} or {adjective}-{name}-{number}
+ */
+export function isEphemeralAgentName(name: string): boolean {
+  const parts = name.split('-');
+  // Need at least 2 parts: adjective-baseName
+  if (parts.length < 2) return false;
+
+  const adjective = parts[0].toLowerCase();
+  return AGENT_ADJECTIVES.includes(adjective);
+}
+
+/**
+ * Extract the base name from an ephemeral agent name.
+ * Handles both formats: "bold-bezos" -> "bezos", "bold-bezos-2" -> "bezos"
+ */
+export function extractBaseName(agentName: string): string {
+  const parts = agentName.split('-');
+  if (parts.length < 2) return agentName;
+
+  // Check if last part is a number
+  const lastPart = parts[parts.length - 1];
+  const hasNumber = !isNaN(parseInt(lastPart, 10)) && parts.length >= 3;
+
+  // If has number: adjective-baseName-number -> baseName is middle parts
+  // If no number: adjective-baseName -> baseName is everything after adjective
+  return hasNumber
+    ? parts.slice(1, -1).join('-')
+    : parts.slice(1).join('-');
+}
+
+/**
+ * Get the base name for any agent type.
+ * - If agent has explicit base_name, use it
+ * - If ephemeral, extract from name pattern
+ * - Otherwise (staff), use agent name directly
+ */
+export function getAgentBaseName(agent: Agent): string {
+  if (agent.base_name) return agent.base_name;
+  if (agent.type === 'ephemeral') return extractBaseName(agent.name);
+  return agent.name;
 }

@@ -1,15 +1,12 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { Ticket } from '../../lib/pmo/types.js';
 import { moveEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class EpicArchive extends PMOCommand {
@@ -29,14 +26,6 @@ export default class EpicArchive extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Skip ticket completion check',
@@ -84,24 +73,17 @@ export default class EpicArchive extends PMOCommand {
         return {
           name: `${e.id} ${e.title} (${e.status}) [${done}/${tickets.length} tickets complete]${complete ? ' ✅' : ''}`,
           value: e.id,
+          command: `prlt epic archive ${e.id} --json`,
         };
       }));
 
-      // In JSON mode, output epic selection prompt
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select epic to archive:', choices),
-          createMetadata('epic archive', flags)
-        );
-        return;
-      }
-
-      const { selected } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic archive' } : null;
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
         message: 'Select epic to archive:',
         choices,
-      }]);
+      }], jsonModeConfig);
       epicId = selected;
     }
 
@@ -121,30 +103,20 @@ export default class EpicArchive extends PMOCommand {
     const allComplete = doneTickets === tickets.length;
 
     if (!allComplete && !flags.force) {
-      // In JSON mode, output confirmation prompt
-      if (jsonMode) {
-        const confirmChoices = [
-          { name: 'No', value: 'false' },
-          { name: 'Yes', value: 'true' },
-        ];
-        outputPromptAsJson(
-          buildPromptConfig('list', 'confirm', `Not all tickets are complete (${doneTickets}/${tickets.length} done). Continue archiving anyway?`, confirmChoices),
-          createMetadata('epic archive', flags)
-        );
-        return;
+      if (!jsonMode) {
+        this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
       }
 
-      this.log(styles.warning(`\n⚠️  Not all tickets are complete (${doneTickets}/${tickets.length} done)`));
-      const { confirm } = await inquirer.prompt([{
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'epic archive' } : null;
+      const { confirm } = await this.prompt<{ confirm: boolean }>([{
         type: 'list',
         name: 'confirm',
-        message: 'Continue archiving anyway?',
+        message: `Not all tickets are complete (${doneTickets}/${tickets.length} done). Continue archiving anyway?`,
         choices: [
-          { name: 'No', value: false },
-          { name: 'Yes', value: true },
+          { name: 'No', value: false, command: '' },
+          { name: 'Yes', value: true, command: `prlt epic archive ${epicId} --force --json` },
         ],
-        default: false,
-      }]);
+      }], jsonModeConfig);
 
       if (!confirm) {
         this.log(styles.muted('Cancelled.'));

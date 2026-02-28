@@ -50,6 +50,16 @@ export const ENTITY_PREFIXES = {
 export type EntityType = keyof typeof ENTITY_PREFIXES;
 
 /**
+ * Entity type to table name mapping for self-healing ID generation
+ */
+const ENTITY_TABLES = {
+  ticket: 'pmo_tickets',
+  epic: 'pmo_epics',
+  spec: 'pmo_specs',
+  project: 'pmo_projects',
+} as const;
+
+/**
  * Database interface for ID generation (compatible with better-sqlite3)
  */
 interface DatabaseLike {
@@ -60,28 +70,46 @@ interface DatabaseLike {
 }
 
 /**
- * Generate a sequential ID for an entity (e.g., TKT-001, EPIC-001)
+ * Generate a sequential ID for an entity.
+ *
+ * Format: TKT-001, EPIC-001, SPEC-001, PROJ-001
  *
  * Uses pmo_settings table to track the next ID for each entity type.
  * IDs are zero-padded to 3 digits (001-999), then expand (1000+).
  *
+ * Self-healing: If counter is behind MAX(id) in the table, auto-corrects.
+ *
  * @param db - Database instance with prepare method
  * @param entityType - Type of entity (ticket, epic, spec, project)
- * @returns Generated ID like "TKT-001" or "EPIC-042"
+ * @returns Generated ID like "TKT-001"
  */
 export function generateEntityId(
   db: DatabaseLike,
   entityType: EntityType
 ): string {
-  const prefix = ENTITY_PREFIXES[entityType];
+  const typePrefix = ENTITY_PREFIXES[entityType];
+  const tableName = ENTITY_TABLES[entityType];
   const settingKey = `next_${entityType}_id`;
+
+  // Get MAX(id) from the entity table for self-healing
+  // Extract numeric part: TKT-001 → 1, EPIC-042 → 42
+  const prefixLen = typePrefix.length + 1; // e.g., "TKT-" = 4 chars
+  const maxResult = db.prepare(
+    `SELECT MAX(CAST(SUBSTR(id, ${prefixLen + 1}) AS INTEGER)) as max_num FROM ${tableName}`
+  ).get() as { max_num: number | null } | undefined;
+  const maxExistingId = maxResult?.max_num || 0;
 
   // Get current counter
   const row = db.prepare(
     `SELECT value FROM pmo_settings WHERE key = ?`
   ).get(settingKey) as { value: string } | undefined;
 
-  const nextNum = row ? parseInt(row.value, 10) : 1;
+  let nextNum = row ? parseInt(row.value, 10) : 1;
+
+  // Self-healing: if counter is behind existing IDs, fix it
+  if (nextNum <= maxExistingId) {
+    nextNum = maxExistingId + 1;
+  }
 
   // Update counter
   db.prepare(`
@@ -91,7 +119,40 @@ export function generateEntityId(
 
   // Format ID with zero-padding (3 digits minimum)
   const numStr = nextNum.toString().padStart(3, '0');
-  return `${prefix}-${numStr}`;
+
+  return `${typePrefix}-${numStr}`;
+}
+
+/**
+ * Parsed entity ID components
+ */
+export interface ParsedEntityId {
+  entityType: string;
+  number: number;
+  raw: string;
+}
+
+/**
+ * Parse an entity ID into its components.
+ *
+ * Format: TKT-001 → { entityType: 'TKT', number: 1 }
+ *
+ * @param id - Entity ID to parse
+ * @returns Parsed components, or null if invalid format
+ */
+export function parseEntityId(id: string): ParsedEntityId | null {
+  if (!id) return null;
+
+  const match = id.match(/^([A-Z]+)-(\d+)$/);
+  if (match) {
+    return {
+      entityType: match[1],
+      number: parseInt(match[2], 10),
+      raw: id,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -108,14 +169,16 @@ export function deepClone<T>(obj: T): T {
 /**
  * Default column names for work commands (Linear-style workflow)
  *
- * Linear-style: Backlog → Planned → In Progress → Done
+ * Linear-style: Backlog → Planned → In Progress → Review → Done
  * - planned: Move tickets here when scheduled/assigned
  * - in_progress: Move tickets here when work starts
- * - done: Move tickets here when work is complete (includes review/merged)
+ * - review: Move tickets here when work is ready for review
+ * - done: Move tickets here when work is complete (reviewed/merged)
  */
 export const DEFAULT_WORK_COLUMNS = {
   planned: 'Planned',
   in_progress: 'In Progress',
+  review: 'Review',
   done: 'Done',
 } as const;
 
@@ -204,5 +267,90 @@ export function arraysEqual<T>(a: T[], b: T[]): boolean {
   const sortedA = [...a].sort()
   const sortedB = [...b].sort()
   return sortedA.every((val, idx) => val === sortedB[idx])
+}
+
+// =============================================================================
+// Workspace Priority Settings
+// =============================================================================
+
+/**
+ * Default priority scale (backwards compatible with hardcoded P0-P3).
+ */
+export const DEFAULT_PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const
+
+/**
+ * Settings key for storing workspace priorities.
+ */
+const PRIORITIES_SETTING_KEY = 'priorities'
+
+/**
+ * Get the workspace priority scale from pmo_settings.
+ * Returns the user-defined priority scale, or DEFAULT_PRIORITIES if not set.
+ *
+ * Priority values are ordered strings - position in array determines sort order.
+ * Index 0 is highest priority.
+ *
+ * @param db - Database instance
+ * @returns Array of priority strings ordered from highest to lowest
+ */
+export function getWorkspacePriorities(db: DatabaseLike): string[] {
+  const row = db.prepare(
+    `SELECT value FROM pmo_settings WHERE key = ?`
+  ).get(PRIORITIES_SETTING_KEY) as { value: string } | undefined
+
+  if (!row) return [...DEFAULT_PRIORITIES]
+
+  try {
+    const parsed = JSON.parse(row.value)
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((p: unknown) => typeof p === 'string')) {
+      return parsed
+    }
+    return [...DEFAULT_PRIORITIES]
+  } catch {
+    return [...DEFAULT_PRIORITIES]
+  }
+}
+
+/**
+ * Set the workspace priority scale in pmo_settings.
+ *
+ * @param db - Database instance
+ * @param priorities - Array of priority strings ordered from highest to lowest
+ */
+export function setWorkspacePriorities(db: DatabaseLike, priorities: string[]): void {
+  const value = JSON.stringify(priorities)
+
+  db.prepare(`
+    INSERT INTO pmo_settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = ?
+  `).run(PRIORITIES_SETTING_KEY, value, value)
+}
+
+/**
+ * Check if a value is a valid priority for the workspace.
+ *
+ * @param db - Database instance
+ * @param value - Value to check
+ * @returns true if the value is in the workspace priority scale
+ */
+export function isValidWorkspacePriority(db: DatabaseLike, value: string): boolean {
+  const priorities = getWorkspacePriorities(db)
+  return priorities.includes(value)
+}
+
+/**
+ * Get the sort index for a priority value.
+ * Returns the position in the priority array (0 = highest priority).
+ * Returns Infinity for unknown priorities (sorts last).
+ *
+ * @param db - Database instance
+ * @param value - Priority value
+ * @returns Sort index (lower = higher priority)
+ */
+export function getPrioritySortIndex(db: DatabaseLike, value: string | undefined | null): number {
+  if (!value) return Infinity
+  const priorities = getWorkspacePriorities(db)
+  const index = priorities.indexOf(value)
+  return index !== -1 ? index : Infinity
 }
 

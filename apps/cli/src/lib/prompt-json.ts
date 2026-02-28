@@ -43,14 +43,16 @@ export interface PromptChoice {
   value: string
   /** Optional: indicates if choice is disabled */
   disabled?: boolean
+  /** Optional: full CLI command to run for this choice (for AI agents) */
+  command?: string
 }
 
 /**
  * Form field configuration for multi-field prompts
  */
 export interface FormField {
-  /** Type of field: input, list, checkbox, confirm, editor */
-  type: 'input' | 'list' | 'checkbox' | 'confirm' | 'editor'
+  /** Type of field: input, list, checkbox, confirm, editor, multiline */
+  type: 'input' | 'list' | 'checkbox' | 'confirm' | 'editor' | 'multiline'
   /** Field name */
   name: string
   /** User-facing message */
@@ -65,8 +67,8 @@ export interface FormField {
  * Prompt configuration for JSON output
  */
 export interface PromptConfig {
-  /** Type of prompt: list (single select), checkbox (multi select), confirm, input, editor, or form (multi-field) */
-  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor' | 'form'
+  /** Type of prompt: list (single select), checkbox (multi select), confirm, input, editor, multiline (inline multi-line), or form (multi-field) */
+  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor' | 'multiline' | 'form'
   /** Field name for the prompt answer (not used for form type) */
   name?: string
   /** User-facing prompt message (not used for form type) */
@@ -91,12 +93,16 @@ export interface OutputMetadata {
   flags: Record<string, unknown>
   /** Timestamp of the output */
   timestamp?: string
+  /** Resolved PR mode after flag precedence ('create-pr' | 'no-pr') */
+  resolvedPRMode?: string
 }
 
 /**
  * JSON output when a prompt would be shown
  */
 export interface PromptJsonOutput {
+  /** Output type discriminator */
+  type: 'prompt'
   /** Prompt configuration, or null if no prompt needed */
   prompt: PromptConfig | null
   /** Command metadata */
@@ -107,6 +113,8 @@ export interface PromptJsonOutput {
  * JSON output for successful command execution (no prompt needed)
  */
 export interface SuccessJsonOutput {
+  /** Output type discriminator */
+  type: 'success'
   /** Always null when success output */
   prompt: null
   /** Indicates successful execution */
@@ -121,6 +129,8 @@ export interface SuccessJsonOutput {
  * JSON output for error conditions
  */
 export interface ErrorJsonOutput {
+  /** Output type discriminator */
+  type: 'error'
   /** Error details */
   error: {
     /** Machine-readable error code (e.g., "NO_TICKETS_AVAILABLE") */
@@ -133,51 +143,288 @@ export interface ErrorJsonOutput {
 }
 
 /**
- * Union type for all JSON output types
+ * JSON output for dry-run validation (what would happen)
  */
-export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput
+export interface DryRunJsonOutput {
+  /** Indicates this is a dry-run result */
+  type: 'dry-run'
+  /** Whether the inputs are valid */
+  valid: boolean
+  /** What would be created if valid */
+  wouldCreate?: {
+    type: string
+    [key: string]: unknown
+  }
+  /** Validation errors if invalid */
+  errors?: Array<{
+    field: string
+    error: string
+  }>
+  /** Command metadata */
+  metadata: OutputMetadata
+}
 
 /**
- * Flags interface for shouldOutputJson
+ * JSON output for confirmation needed (two-step execute protocol)
+ * Used when all required flags are provided but --yes is not set.
+ * Agent should review the plan and re-run with --yes to execute.
+ */
+export interface ConfirmationNeededJsonOutput {
+  /** Output type discriminator */
+  type: 'confirmation_needed'
+  /** Plan of what will happen if confirmed */
+  plan: Record<string, unknown>
+  /** The full command to run to confirm and execute */
+  confirm_command: string
+  /** Human-readable message */
+  message: string
+  /** Command metadata */
+  metadata: OutputMetadata
+}
+
+/**
+ * JSON output for execution result (after successful spawn/start)
+ */
+export interface ExecutionResultJsonOutput {
+  /** Output type discriminator */
+  type: 'execution_result'
+  /** Execution results */
+  result: {
+    executions: Array<{
+      workId: string
+      ticketId: string
+      agent: string
+      sessionId?: string
+      containerId?: string
+      status: string
+    }>
+    successCount: number
+    failCount: number
+  }
+  /** Command metadata */
+  metadata: OutputMetadata
+}
+
+/**
+ * Union type for all JSON output types
+ */
+export type JsonOutput = PromptJsonOutput | SuccessJsonOutput | ErrorJsonOutput | DryRunJsonOutput | ConfirmationNeededJsonOutput | ExecutionResultJsonOutput
+
+/**
+ * All valid JSON envelope type discriminators.
+ * Used for contract tests and schema validation.
+ */
+export const JSON_ENVELOPE_TYPES = [
+  'prompt',
+  'success',
+  'error',
+  'dry-run',
+  'confirmation_needed',
+  'execution_result',
+] as const
+
+export type JsonEnvelopeType = typeof JSON_ENVELOPE_TYPES[number]
+
+/**
+ * Required fields per envelope type for contract validation.
+ * Tests use this to verify no fields are accidentally removed.
+ */
+export const JSON_ENVELOPE_REQUIRED_FIELDS: Record<JsonEnvelopeType, string[]> = {
+  prompt: ['type', 'prompt', 'metadata'],
+  success: ['type', 'prompt', 'success', 'result', 'metadata'],
+  error: ['type', 'error', 'metadata'],
+  'dry-run': ['type', 'valid', 'metadata'],
+  confirmation_needed: ['type', 'plan', 'confirm_command', 'message', 'metadata'],
+  execution_result: ['type', 'result', 'metadata'],
+}
+
+/**
+ * Validate that a parsed JSON object conforms to the machine-mode envelope schema.
+ *
+ * Returns an array of validation errors (empty = valid).
+ * Useful for contract tests and runtime validation of JSON output.
+ *
+ * @param obj - Parsed JSON object to validate
+ * @returns Array of validation error strings (empty if valid)
+ */
+export function validateJsonEnvelope(obj: unknown): string[] {
+  const errors: string[] = []
+
+  if (typeof obj !== 'object' || obj === null) {
+    errors.push('Output must be a non-null object')
+    return errors
+  }
+
+  const record = obj as Record<string, unknown>
+
+  // Check type discriminator
+  if (!('type' in record)) {
+    errors.push('Missing required field: type')
+    return errors
+  }
+
+  const type = record.type as string
+  if (!JSON_ENVELOPE_TYPES.includes(type as JsonEnvelopeType)) {
+    errors.push(`Invalid envelope type: "${type}". Must be one of: ${JSON_ENVELOPE_TYPES.join(', ')}`)
+    return errors
+  }
+
+  // Check required fields for this type
+  const requiredFields = JSON_ENVELOPE_REQUIRED_FIELDS[type as JsonEnvelopeType]
+  for (const field of requiredFields) {
+    if (!(field in record)) {
+      errors.push(`Missing required field for type "${type}": ${field}`)
+    }
+  }
+
+  // Validate metadata structure
+  if ('metadata' in record && record.metadata !== undefined) {
+    const metadata = record.metadata as Record<string, unknown>
+    if (typeof metadata !== 'object' || metadata === null) {
+      errors.push('metadata must be a non-null object')
+    } else {
+      if (!('command' in metadata) || typeof metadata.command !== 'string') {
+        errors.push('metadata.command must be a string')
+      }
+      if (!('flags' in metadata) || typeof metadata.flags !== 'object') {
+        errors.push('metadata.flags must be an object')
+      }
+    }
+  }
+
+  // Type-specific validation
+  if (type === 'prompt' && 'prompt' in record && record.prompt !== null) {
+    const prompt = record.prompt as Record<string, unknown>
+    if (!('type' in prompt)) {
+      errors.push('prompt.type is required when prompt is non-null')
+    }
+  }
+
+  if (type === 'error' && 'error' in record) {
+    const error = record.error as Record<string, unknown>
+    if (typeof error !== 'object' || error === null) {
+      errors.push('error must be a non-null object')
+    } else {
+      if (!('code' in error) || typeof error.code !== 'string') {
+        errors.push('error.code must be a string')
+      }
+      if (!('message' in error) || typeof error.message !== 'string') {
+        errors.push('error.message must be a string')
+      }
+    }
+  }
+
+  if (type === 'success') {
+    if (record.success !== true) {
+      errors.push('success field must be true for success type')
+    }
+    if (record.prompt !== null) {
+      errors.push('prompt field must be null for success type')
+    }
+  }
+
+  if (type === 'confirmation_needed') {
+    if (typeof record.confirm_command !== 'string' || !record.confirm_command) {
+      errors.push('confirm_command must be a non-empty string')
+    }
+  }
+
+  return errors
+}
+
+/**
+ * Flags interface for JSON mode detection
  */
 export interface JsonFlags {
   json?: boolean
-  'no-interactive'?: boolean
-  noInteractive?: boolean
+  machine?: boolean
 }
 
 /**
- * Check if the current environment is non-TTY (piped output)
- *
- * @returns true if stdout is not a TTY (e.g., piped to another process)
+ * Flags interface for machine-readable output mode detection
+ * --json and --machine/-m both trigger JSON output mode
  */
-export function isNonTTY(): boolean {
-  return !process.stdout.isTTY
+export interface MachineOutputFlags {
+  /** JSON output flag */
+  json?: boolean
+  /** Machine output flag (-m shorthand) */
+  machine?: boolean
 }
 
 /**
- * Determine if JSON output should be used
+ * Check if the current environment is non-TTY (piped input or output)
+ *
+ * Uses the "either" strategy: returns true if EITHER stdin OR stdout is non-TTY.
+ * This covers the primary use case of scripts/agents calling prlt as a subprocess,
+ * where both stdin and stdout are typically non-TTY.
  *
  * Returns true if:
- * - The --json flag is explicitly set
- * - The --no-interactive flag is explicitly set
- * - The environment is non-TTY (piped output)
+ * - stdin is not a TTY (e.g., piped input)
+ * - stdout is not a TTY (e.g., piped output)
+ * - PRLT_JSON=1 environment variable is set (overrides TTY detection)
+ *
+ * Returns false if:
+ * - PRLT_FORCE_TEXT=1 is set (forces text output in non-TTY environments, useful for testing)
+ *
+ * @returns true if either stdin or stdout is not a TTY, or PRLT_JSON=1 is set
+ */
+export function isNonTTY(): boolean {
+  // PRLT_FORCE_TEXT overrides non-TTY detection, forcing human-readable text output.
+  // Used in E2E tests where execSync creates a non-TTY child process but tests
+  // assert on styled text output.
+  if (process.env.PRLT_FORCE_TEXT === '1' || process.env.PRLT_FORCE_TEXT === 'true') {
+    return false
+  }
+  if (process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true') {
+    return true
+  }
+  return !process.stdout.isTTY || !process.stdin.isTTY
+}
+
+/**
+ * Determine if JSON output mode is active (for AI agents)
+ *
+ * Returns true if:
+ * - The --json flag is set (or -m/--machine aliases)
+ * - The PRLT_JSON=1 environment variable is set
+ * - Either stdin or stdout is non-TTY (piped input/output)
  *
  * @param flags - Command flags object
- * @returns true if JSON output should be used
+ * @returns true if JSON mode should be used
  */
 export function shouldOutputJson(flags: JsonFlags): boolean {
-  // Explicit flag takes precedence
-  if (flags.json === true) {
+  // --json flag or --machine/-m flag
+  if (flags.json === true || flags.machine === true) {
     return true
   }
 
-  // --no-interactive alias for --json
-  if (flags['no-interactive'] === true || flags.noInteractive === true) {
+  // Automatic detection for non-TTY environments (includes PRLT_JSON env var)
+  return isNonTTY()
+}
+
+/**
+ * Alias for shouldOutputJson - clearer name for agent-focused code
+ */
+export const isAgentMode = shouldOutputJson
+
+/**
+ * Determine if machine-readable output mode is active (for AI agents/scripts)
+ *
+ * Returns true if:
+ * - The --json flag is set (or -m/--machine aliases)
+ * - The PRLT_JSON=1 environment variable is set
+ * - Either stdin or stdout is non-TTY (piped input/output)
+ *
+ * @param flags - Command flags object
+ * @returns true if machine-readable output mode should be used
+ */
+export function isMachineOutput(flags: MachineOutputFlags): boolean {
+  // --json flag or --machine/-m flag
+  if (flags.json === true || flags.machine === true) {
     return true
   }
 
-  // Automatic detection for non-TTY environments
+  // Automatic detection for non-TTY environments (includes PRLT_JSON env var)
   return isNonTTY()
 }
 
@@ -223,6 +470,7 @@ export function outputPromptAsJson(
   metadata: OutputMetadata
 ): never {
   const output: PromptJsonOutput = {
+    type: 'prompt',
     prompt: config,
     metadata,
   }
@@ -231,10 +479,11 @@ export function outputPromptAsJson(
 }
 
 /**
- * Output success result as JSON
+ * Output success result as JSON and exit
  *
  * Use this when all required data was provided via flags
- * and no prompt is needed.
+ * and no prompt is needed. Exits with EXIT_SUCCESS (0) to signal
+ * successful command completion.
  *
  * @param result - Command-specific result data
  * @param metadata - Command metadata
@@ -242,14 +491,16 @@ export function outputPromptAsJson(
 export function outputSuccessAsJson(
   result: Record<string, unknown>,
   metadata: OutputMetadata
-): void {
+): never {
   const output: SuccessJsonOutput = {
+    type: 'success',
     prompt: null,
     success: true,
     result,
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_SUCCESS)
 }
 
 /**
@@ -269,6 +520,7 @@ export function outputErrorAsJson(
   metadata: OutputMetadata
 ): never {
   const output: ErrorJsonOutput = {
+    type: 'error',
     error: {
       code,
       message,
@@ -289,7 +541,7 @@ export function outputErrorAsJson(
  * @returns Array of PromptChoice objects
  */
 export function normalizeChoices(
-  choices: Array<string | { name: string; value: string; disabled?: boolean | string } | unknown>
+  choices: Array<string | { name: string; value: string; disabled?: boolean | string; command?: string } | unknown>
 ): PromptChoice[] {
   const normalized: PromptChoice[] = []
 
@@ -317,11 +569,12 @@ export function normalizeChoices(
       'name' in choice &&
       'value' in choice
     ) {
-      const obj = choice as { name: string; value: string; disabled?: boolean | string }
+      const obj = choice as { name: string; value: string; disabled?: boolean | string; command?: string }
       normalized.push({
         name: obj.name,
         value: String(obj.value),
         ...(obj.disabled !== undefined && { disabled: Boolean(obj.disabled) }),
+        ...(obj.command !== undefined && { command: obj.command }),
       })
     }
   }
@@ -340,10 +593,10 @@ export function normalizeChoices(
  * @returns PromptConfig object
  */
 export function buildPromptConfig(
-  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor',
+  type: 'list' | 'checkbox' | 'confirm' | 'input' | 'editor' | 'multiline',
   name: string,
   message: string,
-  choices?: Array<string | { name: string; value: string; disabled?: boolean | string } | unknown>,
+  choices?: Array<string | { name: string; value: string; disabled?: boolean | string; command?: string } | unknown>,
   defaultValue?: string | boolean | string[]
 ): PromptConfig {
   const config: PromptConfig = {
@@ -376,4 +629,120 @@ export function buildFormPromptConfig(
     type: 'form',
     fields,
   }
+}
+
+/**
+ * Output a successful dry-run result as JSON and exit
+ *
+ * Use this when --dry-run is set and all validation passes.
+ * Shows what would be created without actually creating it.
+ *
+ * @param entityType - Type of entity that would be created (e.g., "ticket", "project")
+ * @param wouldCreate - Data about what would be created
+ * @param metadata - Command metadata
+ */
+export function outputDryRunSuccessAsJson(
+  entityType: string,
+  wouldCreate: Record<string, unknown>,
+  metadata: OutputMetadata
+): never {
+  const output: DryRunJsonOutput = {
+    type: 'dry-run',
+    valid: true,
+    wouldCreate: {
+      type: entityType,
+      ...wouldCreate,
+    },
+    metadata,
+  }
+  console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_SUCCESS)
+}
+
+/**
+ * Output a dry-run validation failure as JSON and exit
+ *
+ * Use this when --dry-run is set and validation fails.
+ * Shows the validation errors without attempting to create.
+ *
+ * @param errors - Array of validation errors
+ * @param metadata - Command metadata
+ */
+export function outputDryRunErrorsAsJson(
+  errors: Array<{ field: string; error: string }>,
+  metadata: OutputMetadata
+): never {
+  const output: DryRunJsonOutput = {
+    type: 'dry-run',
+    valid: false,
+    errors,
+    metadata,
+  }
+  console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_ERROR)
+}
+
+/**
+ * Output a confirmation needed response as JSON and exit
+ *
+ * Use this in non-TTY mode when all required flags are provided but --yes is not set.
+ * This allows agents to preview what will happen before confirming execution.
+ *
+ * @param plan - Details of what will happen if confirmed
+ * @param confirmCommand - The full command to run with --yes to execute
+ * @param message - Human-readable message explaining the confirmation
+ * @param metadata - Command metadata
+ */
+export function outputConfirmationNeededAsJson(
+  plan: Record<string, unknown>,
+  confirmCommand: string,
+  message: string,
+  metadata: OutputMetadata
+): never {
+  const output: ConfirmationNeededJsonOutput = {
+    type: 'confirmation_needed',
+    plan,
+    confirm_command: confirmCommand,
+    message,
+    metadata,
+  }
+  console.log(JSON.stringify(output, null, 2))
+  process.exit(EXIT_NEEDS_INPUT)
+}
+
+/**
+ * Output execution result as JSON (non-exiting version)
+ *
+ * Use this after execution completes in non-TTY mode to provide structured
+ * results. Unlike other output functions, this does NOT exit - caller should
+ * handle cleanup and exit.
+ *
+ * @param executions - Array of execution results
+ * @param successCount - Number of successful executions
+ * @param failCount - Number of failed executions
+ * @param metadata - Command metadata
+ */
+export function outputExecutionResultAsJson(
+  executions: Array<{
+    workId: string
+    ticketId: string
+    agent: string
+    sessionId?: string
+    containerId?: string
+    status: string
+  }>,
+  successCount: number,
+  failCount: number,
+  metadata: OutputMetadata
+): void {
+  const output: ExecutionResultJsonOutput = {
+    type: 'execution_result',
+    result: {
+      executions,
+      successCount,
+      failCount,
+    },
+    metadata,
+  }
+  console.log(JSON.stringify(output, null, 2))
 }

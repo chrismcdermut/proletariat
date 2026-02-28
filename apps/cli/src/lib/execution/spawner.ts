@@ -12,12 +12,14 @@ import Database from 'better-sqlite3'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
-import { WorkspaceInfo } from '../agents/commands.js'
+import { WorkspaceInfo, resolveAgentDir } from '../agents/commands.js'
 import { findHQRoot } from '../repos/index.js'
+import { hasGitHubRemote } from '../repos/git.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning } from './runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName } from './runners.js'
+import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import {
   DisplayMode,
   SessionManager,
@@ -43,6 +45,24 @@ function tryGitCommand(cmd: string, cwd: string): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * Check if any of the given repos have a GitHub remote
+ */
+function checkReposForRemote(repoPaths: string[]): { hasRemote: boolean; reposWithoutRemote: string[] } {
+  const reposWithoutRemote: string[] = []
+
+  for (const repoPath of repoPaths) {
+    if (isGitRepo(repoPath) && !hasGitHubRemote(repoPath)) {
+      reposWithoutRemote.push(repoPath)
+    }
+  }
+
+  return {
+    hasRemote: reposWithoutRemote.length === 0,
+    reposWithoutRemote,
   }
 }
 
@@ -101,6 +121,18 @@ function findBaseBranchInContainer(
 }
 
 // =============================================================================
+// Constants
+// =============================================================================
+
+/**
+ * Delay between container spawns to prevent Docker kernel panics (TKT-801).
+ * When spawning multiple agents simultaneously, Docker Desktop on Apple Silicon
+ * can hit kernel panics in grpcfuse (file sharing layer) due to spinlock
+ * contention when all agents mount the same shared volumes concurrently.
+ */
+const SPAWN_STAGGER_DELAY_MS = 2000
+
+// =============================================================================
 // Types
 // =============================================================================
 
@@ -125,6 +157,8 @@ export interface SpawnOptions {
   executionConfig?: ExecutionConfig
   /** Logging callback */
   log?: (msg: string) => void
+  /** Skip GitHub remote check */
+  skipRemoteCheck?: boolean
 }
 
 export interface SpawnResult {
@@ -170,14 +204,24 @@ export function getAgentsWithCounts(
 }
 
 /**
- * Get agents that are not currently running any executions.
+ * Get staff agents that are not currently running any executions.
+ * Only considers persistent (staff) agents with status='active'.
+ * Cleans up stale executions before checking availability (TKT-604).
  */
 export function getAvailableAgents(
   workspaceInfo: WorkspaceInfo,
   executionStorage: ExecutionStorage
 ): string[] {
+  // Clean up stale executions first (TKT-604)
+  executionStorage.cleanupStaleExecutions()
+
+  // Filter for active staff agents only (not ephemeral agents)
   return workspaceInfo.agents
-    .filter(agent => executionStorage.isAgentAvailable(agent.name))
+    .filter(agent =>
+      agent.type === 'persistent' &&
+      agent.status === 'active' &&
+      executionStorage.isAgentAvailable(agent.name)
+    )
     .map(agent => agent.name)
 }
 
@@ -251,8 +295,8 @@ export async function spawnAgentForTicket(
   const log = options.log || (() => {})
   const executor = options.executor || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
-  // Determine agent directory and worktree path
-  const agentDir = path.join(workspaceInfo.agentsPath, agentName)
+  // Determine agent directory and worktree path (handles staff and temp agents)
+  const agentDir = resolveAgentDir(workspaceInfo, agentName)
   if (!fs.existsSync(agentDir)) {
     return {
       success: false,
@@ -262,23 +306,9 @@ export async function spawnAgentForTicket(
     }
   }
 
-  // Find worktree path for agent
-  let worktreePath = agentDir
-  const agentContents = fs.readdirSync(agentDir)
-  const repoWorktrees = agentContents.filter(item => {
-    const itemPath = path.join(agentDir, item)
-    const gitPath = path.join(itemPath, '.git')
-    return fs.statSync(itemPath).isDirectory() && fs.existsSync(gitPath)
-  })
-
-  if (repoWorktrees.length === 1) {
-    worktreePath = path.join(agentDir, repoWorktrees[0])
-  } else if (repoWorktrees.length > 1) {
-    worktreePath = agentDir
-  } else {
-    // No git worktrees found - use current directory
-    worktreePath = process.cwd()
-  }
+  // Detect repository worktrees within agent directory
+  const repoWorktrees = detectRepoWorktrees(agentDir)
+  const worktreePath = resolveWorktreePath(agentDir, repoWorktrees)
 
   // Get coder name for branch naming (prompts on first use)
   const coderName = await getOrPromptCoderName(db)
@@ -335,6 +365,7 @@ export async function spawnAgentForTicket(
     branch,
     hqPath,
     pmoPath,
+    repoWorktrees,
     createPR: options.createPR ?? false,
   }
 
@@ -376,12 +407,52 @@ export async function spawnAgentForTicket(
   const displayMode: DisplayMode = options.displayMode || 'terminal'
   const sandboxed = !(options.skipPermissions ?? false)
 
+  // Executor preflight check (TKT-1082): verify binary is available before proceeding
+  // For host environment, check immediately. For devcontainer, check happens after container start.
+  if (environment === 'host') {
+    const preflight = runExecutorPreflight(environment, executor)
+    if (!preflight.ok) {
+      return {
+        success: false,
+        ticketId: ticket.id,
+        agentName,
+        error: preflight.error,
+      }
+    }
+  }
+
   // Create branch in worktree(s)
   // For devcontainer environments, run git commands inside the container
   // because the worktree .git file has container paths, not host paths
   const gitRepos = repoWorktrees.length > 0
     ? repoWorktrees.map(r => path.join(agentDir, r))
     : [worktreePath]
+
+  // Check for GitHub remote if PR creation is enabled
+  if (!options.skipRemoteCheck) {
+    const remoteCheck = checkReposForRemote(gitRepos)
+    if (!remoteCheck.hasRemote) {
+      const repoNames = remoteCheck.reposWithoutRemote.map(r => path.basename(r)).join(', ')
+      if (options.createPR) {
+        // If PR creation is requested, we must have a remote
+        return {
+          success: false,
+          ticketId: ticket.id,
+          agentName,
+          error: `No GitHub remote found for: ${repoNames}\n\n` +
+            'Cannot create PRs without a GitHub remote.\n' +
+            'Options:\n' +
+            '  1. Run "prlt repo create" to create a GitHub repo and set up remote\n' +
+            '  2. Manually add a remote: git remote add origin <url>\n' +
+            '  3. Use --skip-remote-check to spawn without PR support',
+        }
+      } else {
+        // Just warn if not creating PRs
+        log(`⚠️  No GitHub remote found for: ${repoNames}. PRs cannot be created.`)
+        log('   Run "prlt repo create" to set up a GitHub remote.')
+      }
+    }
+  }
 
   // Always fetch latest from origin before branch operations
   // This ensures all spawn actions work with the latest code
@@ -462,6 +533,53 @@ export async function spawnAgentForTicket(
     }
   }
 
+  // TKT-1028: Clean up orphaned execution records before creating a new one.
+  // If the agent's container doesn't exist or isn't running, any "running"/"starting"
+  // execution records for this agent are orphans — their container was destroyed
+  // or crashed. Mark them as "stopped" to prevent downstream issues like
+  // `prlt docker logs` failing with "multiple running containers".
+  // Also clean up stale records when the container IS running but the execution's
+  // containerId doesn't match the current container (e.g., container was recreated).
+  if (environment === 'devcontainer') {
+    const containerName = getAgentContainerName(agentName)
+    const containerRunning = isContainerRunning(containerName)
+    const staleExecutions = executionStorage.getAgentRunningExecutions(agentName)
+
+    if (!containerRunning) {
+      // Container not running — all "running" executions are orphans
+      for (const staleExec of staleExecutions) {
+        log(`Marking orphaned execution ${staleExec.id} as stopped (container not running)`)
+        executionStorage.updateStatus(staleExec.id, 'stopped')
+      }
+    } else if (staleExecutions.length > 0) {
+      // Container IS running — check for specific orphan scenarios:
+      // 1. containerId mismatch (container was recreated since execution started)
+      // 2. Same session name as incoming spawn (tmux session will be replaced)
+      // 3. Dead tmux sessions (crashed or killed externally)
+      const currentContainerId = getContainerId(containerName)
+      const incomingSessionName = buildSessionName(context)
+
+      for (const staleExec of staleExecutions) {
+        if (staleExec.containerId && currentContainerId && staleExec.containerId !== currentContainerId) {
+          log(`Marking orphaned execution ${staleExec.id} as stopped (containerId mismatch)`)
+          executionStorage.updateStatus(staleExec.id, 'stopped')
+        } else if (staleExec.sessionId === incomingSessionName) {
+          // Same session name — will be killed when the new tmux session is created
+          log(`Marking execution ${staleExec.id} as stopped (session will be replaced)`)
+          executionStorage.updateStatus(staleExec.id, 'stopped')
+        } else if (staleExec.sessionId && currentContainerId) {
+          // Different session — verify it still exists in the container
+          try {
+            execSync(`docker exec ${currentContainerId} tmux has-session -t "${staleExec.sessionId}"`, { stdio: 'pipe' })
+          } catch {
+            log(`Marking orphaned execution ${staleExec.id} as stopped (tmux session gone)`)
+            executionStorage.updateStatus(staleExec.id, 'stopped')
+          }
+        }
+      }
+    }
+  }
+
   // Create execution record
   const execution = executionStorage.createExecution({
     ticketId: ticket.id,
@@ -476,11 +594,20 @@ export async function spawnAgentForTicket(
   // Load execution config (use passed config or load from db)
   const executionConfig = options.executionConfig || loadExecutionConfig(db)
   executionConfig.sandboxed = sandboxed
-  // Use print mode for background, interactive for terminal/tmux
-  executionConfig.outputMode = displayMode === 'background' ? 'print' : 'interactive'
 
   // Run execution
-  const sessionManager = options.sessionManager || 'direct'
+  // Default to tmux for session persistence (enables peek/poke/attach)
+  const sessionManager = options.sessionManager || 'tmux'
+
+  // Determine output mode:
+  // - Devcontainer with tmux: always interactive (no -p flag) so Claude runs with TUI
+  //   inside tmux, enabling session peek/poke/attach for Docker agents
+  // - Otherwise: print mode for background (logs only), interactive for terminal/tmux
+  if (environment === 'devcontainer' && sessionManager === 'tmux') {
+    executionConfig.outputMode = 'interactive'
+  } else {
+    executionConfig.outputMode = displayMode === 'background' ? 'print' : 'interactive'
+  }
   const result = await runExecution(environment, context, executor, executionConfig, {
     displayMode,
     sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
@@ -519,7 +646,7 @@ export async function spawnAgentForTicket(
       agentName,
     }
   } else {
-    executionStorage.updateStatus(execution.id, 'failed')
+    executionStorage.updateStatus(execution.id, 'failed', undefined, result.error)
     return {
       success: false,
       executionId: execution.id,
@@ -665,6 +792,7 @@ export async function spawnForColumn(
 
     log(`Spawning ${agentName} for ${ticket.id}: ${ticket.title}`)
 
+    // eslint-disable-next-line no-await-in-loop -- Sequential spawning with user feedback
     const spawnResult = await spawnAgentForTicket(
       ticket,
       agentName,
@@ -692,6 +820,16 @@ export async function spawnForColumn(
           roundRobinState.lastIndex = -1
         }
       }
+
+      // Staggered spawn delay to prevent Docker kernel panics (TKT-801)
+      // When spawning multiple containers, add delay between spawns to avoid
+      // mount storms that cause spinlock contention in Docker's grpcfuse layer
+      const remainingTickets = ticketsToProcess.length - (ticketsToProcess.indexOf(ticket) + 1)
+      if (remainingTickets > 0 && availableAgents.length > 0) {
+        log(`Waiting ${SPAWN_STAGGER_DELAY_MS / 1000}s before next spawn (${remainingTickets} remaining)...`)
+        // eslint-disable-next-line no-await-in-loop -- Intentional staggered delay for Docker stability
+        await new Promise(resolve => setTimeout(resolve, SPAWN_STAGGER_DELAY_MS))
+      }
     } else {
       result.failed.push(spawnResult)
     }
@@ -715,7 +853,7 @@ export async function spawnForColumn(
 }
 
 // =============================================================================
-// Docker Check
+// Docker & GitHub Token Checks
 // =============================================================================
 
-export { isDockerRunning }
+export { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled }

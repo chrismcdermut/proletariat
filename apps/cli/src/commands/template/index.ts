@@ -1,91 +1,77 @@
-import { Command, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
-import { styles } from '../../lib/styles.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
 
-export default class Template extends Command {
-  static description = 'Manage workflow templates (list, delete) or access status/phase template management';
+import { styles } from '../../lib/styles.js';
+import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { PromptCommand } from '../../lib/prompt-command.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
+
+export default class Template extends PromptCommand {
+  static description = 'Manage templates (ticket and phase)';
 
   static aliases = ['templates'];
 
   static examples = [
-    '<%= config.bin %> template',
-    '<%= config.bin %> template list',
-    '<%= config.bin %> template list --builtin',
-    '<%= config.bin %> template delete',
-    '<%= config.bin %> template status',
-    '<%= config.bin %> template phase',
+    '<%= config.bin %> <%= command.id %> list',
+    '<%= config.bin %> <%= command.id %> list --type ticket',
+    '<%= config.bin %> <%= command.id %> create --type ticket "Bug Report"',
+    '<%= config.bin %> <%= command.id %> apply --type phase agile',
   ];
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Template);
-
-    // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Define choices once, use for both JSON and interactive modes
     const menuChoices = [
-      { name: 'List all workflow templates', value: 'list' },
-      { name: 'Delete workflow templates', value: 'delete' },
-      { name: 'Manage Status Templates (ticket workflow states)', value: 'status' },
-      { name: 'Manage Phase Templates (project lifecycle phases)', value: 'phase' },
+      { name: 'List templates', value: 'list', command: 'prlt template list --json' },
+      { name: 'Create template', value: 'create', command: 'prlt template create --json' },
+      { name: 'Apply template', value: 'apply', command: 'prlt template apply --json' },
+      { name: 'Save ticket as template', value: 'save', command: 'prlt template save --json' },
+      { name: 'Update phase template', value: 'update', command: 'prlt template update --json' },
+      { name: 'Delete template', value: 'delete', command: 'prlt template delete --json' },
+      { name: 'Cancel', value: 'cancel', command: '' },
     ];
-    const message = 'What would you like to do?';
 
-    // In JSON mode, output menu prompt
     if (jsonMode) {
       outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
+        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
         createMetadata('template', flags)
       );
       return;
     }
 
-    this.log('');
-    this.log(styles.header('📋 Templates'));
-    this.log('');
+    this.log(`\n${styles.emphasis('Templates')}`);
+    this.log(styles.muted('Manage ticket and phase templates\n'));
 
-    const { action } = await inquirer.prompt([{
+    const { action } = await this.prompt<{ action: string }>([{
       type: 'list',
       name: 'action',
-      message,
-      choices: [
-        { name: '📋 ' + menuChoices[0].name, value: menuChoices[0].value },
-        { name: '🗑️  ' + menuChoices[1].name, value: menuChoices[1].value },
-        new inquirer.Separator(),
-        { name: '📊 ' + menuChoices[2].name, value: menuChoices[2].value },
-        { name: '🔄 ' + menuChoices[3].name, value: menuChoices[3].value },
-      ],
-    }]);
+      message: 'What would you like to do?',
+      choices: menuChoices.map(c => ({ name: c.name, value: c.value, command: c.command })),
+    }], null);
+
+    if (action === 'cancel') return;
 
     switch (action) {
       case 'list':
         await this.config.runCommand('template:list', []);
         break;
+      case 'create':
+        await this.config.runCommand('template:create', []);
+        break;
+      case 'apply':
+        await this.config.runCommand('template:apply', []);
+        break;
+      case 'save':
+        await this.config.runCommand('template:save', []);
+        break;
+      case 'update':
+        await this.config.runCommand('template:update', []);
+        break;
       case 'delete':
         await this.config.runCommand('template:delete', []);
-        break;
-      case 'status':
-        await this.config.runCommand('status:template', []);
-        break;
-      case 'phase':
-        await this.config.runCommand('phase:template', []);
         break;
     }
   }

@@ -1,15 +1,16 @@
 import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../../lib/prompt-json.js';
 import { styles } from '../../../lib/styles.js';
-import { PhaseTemplate, StateCategory } from '../../../lib/pmo/types.js';
+import { StateCategory, PhaseTemplate } from '../../../lib/pmo/types.js';
 
 export default class PhaseTemplateList extends PMOCommand {
-  static description = 'List available phase templates';
+  static description = 'List phase templates';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --builtin  # Only built-in templates',
-    '<%= config.bin %> <%= command.id %> --custom   # Only custom templates',
+    '<%= config.bin %> <%= command.id %> --builtin',
+    '<%= config.bin %> <%= command.id %> --json',
   ];
 
   static flags = {
@@ -22,10 +23,6 @@ export default class PhaseTemplateList extends PMOCommand {
       description: 'Show only custom templates',
       exclusive: ['builtin'],
     }),
-    json: Flags.boolean({
-      description: 'Output as JSON',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -35,13 +32,13 @@ export default class PhaseTemplateList extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(PhaseTemplateList);
 
-    let filter: { isBuiltin?: boolean } | undefined;
-    if (flags.builtin) filter = { isBuiltin: true };
-    if (flags.custom) filter = { isBuiltin: false };
+    let builtinFilter: { isBuiltin?: boolean } | undefined;
+    if (flags.builtin) builtinFilter = { isBuiltin: true };
+    if (flags.custom) builtinFilter = { isBuiltin: false };
 
-    const templates = await this.storage.listPhaseTemplates(filter);
+    const templates = await this.storage.listPhaseTemplates(builtinFilter);
 
-    if (flags.json) {
+    if (shouldOutputJson(flags)) {
       this.log(JSON.stringify(templates, null, 2));
       return;
     }
@@ -51,10 +48,9 @@ export default class PhaseTemplateList extends PMOCommand {
       return;
     }
 
-    this.log(`\n📋 ${styles.emphasis('Phase Templates')}`);
+    this.log(`\n${styles.emphasis('Phase Templates')}`);
     this.log('═'.repeat(60));
 
-    // Group by builtin vs custom
     const builtinTemplates = templates.filter(t => t.isBuiltin);
     const customTemplates = templates.filter(t => !t.isBuiltin);
 
@@ -75,18 +71,11 @@ export default class PhaseTemplateList extends PMOCommand {
     }
 
     this.log('');
-    this.log(styles.muted('Apply a template: prlt phase template apply <template-id>'));
-    this.log('');
   }
 
   private printTemplate(template: PhaseTemplate): void {
-    this.log(`\n  ${styles.emphasis(template.name)} ${styles.muted(`(${template.id})`)}`);
-    if (template.description) {
-      this.log(`    ${styles.muted(template.description)}`);
-    }
-
-    // Group phases by category for display
     const categoryEmoji: Record<StateCategory, string> = {
+      triage: '📬',
       backlog: '📥',
       unstarted: '📋',
       started: '🚀',
@@ -94,19 +83,22 @@ export default class PhaseTemplateList extends PMOCommand {
       canceled: '🚫',
     };
 
-    const phasesByCategory = new Map<StateCategory, string[]>();
-    for (const phase of template.phases) {
-      const existing = phasesByCategory.get(phase.category) || [];
-      existing.push(phase.name);
-      phasesByCategory.set(phase.category, existing);
+    this.log(`  ${styles.emphasis(template.name)} ${styles.muted(`(${template.id})`)}`);
+    if (template.description) {
+      this.log(`    ${styles.muted(template.description)}`);
     }
-
-    const phaseParts: string[] = [];
-    for (const [category, names] of phasesByCategory) {
-      const emoji = categoryEmoji[category];
-      phaseParts.push(`${emoji} ${names.join(', ')}`);
+    if (template.phases && template.phases.length > 0) {
+      const phasesByCategory = new Map<StateCategory, string[]>();
+      for (const phase of template.phases) {
+        const existing = phasesByCategory.get(phase.category) || [];
+        existing.push(phase.name);
+        phasesByCategory.set(phase.category, existing);
+      }
+      const phaseParts: string[] = [];
+      for (const [category, names] of phasesByCategory) {
+        phaseParts.push(`${categoryEmoji[category]} ${names.join(', ')}`);
+      }
+      this.log(`    ${styles.muted(phaseParts.join(' → '))}`);
     }
-
-    this.log(`    ${styles.muted(phaseParts.join(' → '))}`);
   }
 }

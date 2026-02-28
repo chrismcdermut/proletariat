@@ -1,39 +1,43 @@
+/* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import {
+  exec,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  setupProductionSchema,
+  createTestProject,
+  createHQConfig,
+  createPMODirectories,
+  type TestEnvironment,
+} from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Phase Commands
  * Tests: prlt phase list, create, update, delete, move
  */
 describe('PMO Phase Commands E2E Tests', () => {
-  let testDir: string;
-  let originalCwd: string;
-  let dbPath: string;
+  let env: TestEnvironment;
   let db: Database.Database;
+  const pmoPath = 'pmo'; // relative path for settings
 
   beforeEach(() => {
-    originalCwd = process.cwd();
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-phase-e2e-'));
-    process.chdir(testDir);
+    env = createTestEnvironment('pmo-phase-e2e-');
 
-    const proletariatDir = path.join(testDir, '.proletariat');
-    fs.mkdirSync(proletariatDir, { recursive: true });
-    dbPath = path.join(proletariatDir, 'workspace.db');
+    // Use production schema (includes default phases)
+    db = setupProductionSchema(env.dbPath, pmoPath);
 
-    db = new Database(dbPath);
-    setupTestDatabase(db);
+    // Create default project
+    createTestProject(db, { id: 'default', name: 'Default Project' });
+
+    // Create HQ config and PMO directories
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath, 'default');
   });
 
   afterEach(() => {
     if (db) db.close();
-    process.chdir(originalCwd);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    cleanupTestEnvironment(env);
   });
 
   describe('prlt phase list', () => {
@@ -50,18 +54,20 @@ describe('PMO Phase Commands E2E Tests', () => {
     it('should show phase categories', () => {
       const output = exec('phase list');
 
-      // Categories are displayed in uppercase
-      expect(output).to.contain('BACKLOG');
-      expect(output).to.contain('UNSTARTED');
-      expect(output).to.contain('STARTED');
-      expect(output).to.contain('COMPLETED');
-      expect(output).to.contain('CANCELED');
+      // In non-TTY (test) env, output is JSON with lowercase categories
+      // In TTY (terminal), output is table with uppercase categories
+      expect(output.toLowerCase()).to.contain('backlog');
+      expect(output.toLowerCase()).to.contain('unstarted');
+      expect(output.toLowerCase()).to.contain('started');
+      expect(output.toLowerCase()).to.contain('completed');
+      expect(output.toLowerCase()).to.contain('canceled');
     });
 
     it('should indicate default phase', () => {
       const output = exec('phase list');
 
-      expect(output).to.contain('default');
+      // In JSON: "isDefault": true, in table: "(default)"
+      expect(output.toLowerCase()).to.match(/isdefault.*true|default/);
     });
 
     it('should filter by category', () => {
@@ -233,7 +239,8 @@ describe('PMO Phase Commands E2E Tests', () => {
 
       expect(output).to.contain('Moved phase');
       expect(output).to.contain('Started C');
-      expect(output).to.contain('position 0');
+      // Output format varies: may say "to position 0" or "from position X to position Y"
+      expect(output.toLowerCase()).to.contain('position');
 
       const phase = db.prepare('SELECT position FROM pmo_phases WHERE id = ?').get('started-c') as { position: number };
       expect(phase.position).to.equal(0);
@@ -245,183 +252,178 @@ describe('PMO Phase Commands E2E Tests', () => {
       expect(output.toLowerCase()).to.contain('not found');
     });
   });
+
+  describe('JSON Mode Tests', () => {
+    describe('prlt phase list --json', () => {
+      it('should output phases as JSON array', () => {
+        const output = exec('phase list --json');
+        const phases = JSON.parse(output);
+
+        expect(phases).to.be.an('array');
+        expect(phases.length).to.be.greaterThan(0);
+        expect(phases[0]).to.have.property('id');
+        expect(phases[0]).to.have.property('name');
+        expect(phases[0]).to.have.property('category');
+      });
+    });
+
+    describe('prlt phase create --json', () => {
+      it('should output name input prompt as JSON when name is missing', () => {
+        const output = exec('phase create --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'input');
+        expect(json.prompt).to.have.property('name', 'name');
+        expect(json.prompt).to.have.property('message');
+        expect(json).to.have.property('metadata');
+        expect(json.metadata).to.have.property('command', 'phase create');
+      });
+
+      it('should output category list prompt as JSON when name is provided but category is missing', () => {
+        const output = exec('phase create "New Phase" --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'category');
+        expect(json.prompt).to.have.property('choices');
+        expect(json.prompt.choices).to.be.an('array');
+        expect(json.prompt.choices.length).to.be.greaterThan(0);
+        // Each choice should have command field
+        expect(json.prompt.choices[0]).to.have.property('command');
+      });
+
+      it('should create phase when all required flags are provided', () => {
+        const output = exec('phase create "JSON Created" --category started --json');
+
+        // Command should complete successfully (no prompt output)
+        expect(output).to.contain('Created phase');
+        expect(output).to.contain('JSON Created');
+
+        const phase = db.prepare('SELECT * FROM pmo_phases WHERE name = ?').get('JSON Created') as { id: string };
+        expect(phase).to.not.be.undefined;
+      });
+    });
+
+    describe('prlt phase delete --json', () => {
+      beforeEach(() => {
+        exec('phase create "To Delete JSON" --category canceled');
+      });
+
+      it('should output confirmation prompt as JSON when --force is not used', () => {
+        const output = exec('phase delete to-delete-json --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'confirmed');
+        expect(json.prompt).to.have.property('choices');
+        expect(json.prompt.choices).to.be.an('array');
+        // Should have Yes/No options
+        expect(json.prompt.choices.some((c: { name: string }) => c.name === 'Yes')).to.be.true;
+        expect(json.prompt.choices.some((c: { name: string }) => c.name === 'No')).to.be.true;
+      });
+
+      it('should delete phase when --force is used with --json', () => {
+        const output = exec('phase delete to-delete-json --force --json');
+
+        expect(output).to.contain('Deleted phase');
+
+        const phase = db.prepare('SELECT * FROM pmo_phases WHERE id = ?').get('to-delete-json');
+        expect(phase).to.be.undefined;
+      });
+    });
+
+    describe('prlt phase update --json', () => {
+      it('should output phase selection prompt as JSON when no id is provided', () => {
+        const output = exec('phase update --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'phaseId');
+        expect(json.prompt).to.have.property('choices');
+        expect(json.prompt.choices).to.be.an('array');
+      });
+
+      it('should update phase when id and change flags are provided', () => {
+        const output = exec('phase update idea --name "Updated Idea" --json');
+
+        expect(output).to.contain('Updated phase');
+        expect(output).to.contain('Updated Idea');
+
+        const phase = db.prepare('SELECT name FROM pmo_phases WHERE id = ?').get('idea') as { name: string };
+        expect(phase.name).to.equal('Updated Idea');
+      });
+    });
+
+    describe('prlt phase move --json', () => {
+      beforeEach(() => {
+        exec('phase create "Move JSON A" --category started');
+        exec('phase create "Move JSON B" --category started');
+      });
+
+      it('should output phase selection prompt as JSON when no id is provided', () => {
+        const output = exec('phase move --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'phaseId');
+        expect(json.prompt).to.have.property('choices');
+      });
+
+      it('should output position selection prompt as JSON when id is provided but position is not', () => {
+        const output = exec('phase move move-json-a --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('prompt');
+        expect(json.prompt).to.have.property('type', 'list');
+        expect(json.prompt).to.have.property('name', 'position');
+        expect(json.prompt).to.have.property('choices');
+      });
+
+      it('should move phase when id and position are provided', () => {
+        const output = exec('phase move move-json-b --position 0 --json');
+
+        expect(output).to.contain('Moved phase');
+
+        const phase = db.prepare('SELECT position FROM pmo_phases WHERE id = ?').get('move-json-b') as { position: number };
+        expect(phase.position).to.equal(0);
+      });
+    });
+
+    describe('Error handling in JSON mode', () => {
+      it('should output error as JSON when phase not found in delete', () => {
+        const output = exec('phase delete non-existent --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('error');
+        expect(json.error).to.have.property('code', 'PHASE_NOT_FOUND');
+        expect(json.error).to.have.property('message');
+      });
+
+      it('should output error as JSON when phase not found in move', () => {
+        const output = exec('phase move non-existent --position 0 --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('error');
+        expect(json.error).to.have.property('code', 'PHASE_NOT_FOUND');
+        expect(json.error).to.have.property('message');
+      });
+
+      it('should output error as JSON when phase not found in update', () => {
+        const output = exec('phase update non-existent --name "New Name" --json');
+        const json = JSON.parse(output);
+
+        expect(json).to.have.property('error');
+        expect(json.error).to.have.property('code', 'PHASE_NOT_FOUND');
+        expect(json.error).to.have.property('message');
+      });
+    });
+  });
 });
 
 // Helper functions
 
-function setupTestDatabase(db: Database.Database) {
-  db.exec(`
-    -- Settings table
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Phases table (project lifecycle states)
-    CREATE TABLE IF NOT EXISTS pmo_phases (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Projects table
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      status TEXT DEFAULT 'active',
-      phase_id TEXT,
-      is_archived INTEGER NOT NULL DEFAULT 0,
-      target_date TEXT,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (phase_id) REFERENCES pmo_phases(id) ON DELETE SET NULL
-    );
-
-    -- Columns table
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    -- Workflow statuses table
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
-    -- Tickets table
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      branch TEXT,
-      priority TEXT,
-      category TEXT,
-      description TEXT,
-      owner TEXT,
-      assignee TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id)
-    );
-
-    -- Board tickets table
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id)
-    );
-
-    -- Workflow templates table
-    CREATE TABLE IF NOT EXISTS pmo_templates (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      description TEXT,
-      is_builtin INTEGER NOT NULL DEFAULT 0,
-      statuses TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Indexes
-    CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-  `);
-
-  // Seed default phases
-  const defaultPhases = [
-    { id: 'idea', name: 'Idea', category: 'backlog', position: 0, description: 'Project concept', isDefault: 1 },
-    { id: 'planned', name: 'Planned', category: 'unstarted', position: 0, description: 'Scheduled for work' },
-    { id: 'active', name: 'Active', category: 'started', position: 0, description: 'Work in progress' },
-    { id: 'completed', name: 'Completed', category: 'completed', position: 0, description: 'Finished' },
-    { id: 'canceled', name: 'Canceled', category: 'canceled', position: 0, description: 'Won\'t be done' },
-  ];
-
-  for (const phase of defaultPhases) {
-    db.prepare(`
-      INSERT INTO pmo_phases (id, name, category, position, description, is_default)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(phase.id, phase.name, phase.category, phase.position, phase.description, phase.isDefault || 0);
-  }
-
-  // Create default project
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, phase_id, is_archived)
-    VALUES ('default', 'Default Project', 'idea', 0)
-  `).run();
-
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('pmo_path', 'pmo')`).run();
-  db.prepare(`INSERT INTO pmo_settings (key, value) VALUES ('current_project', 'default')`).run();
-
-  // Create default columns
-  const columns = [
-    { id: 'backlog', name: 'Backlog', position: 0 },
-    { id: 'in_progress', name: 'In Progress', position: 1 },
-    { id: 'done', name: 'Done', position: 2 },
-  ];
-
-  for (const col of columns) {
-    db.prepare(`
-      INSERT INTO pmo_columns (id, project_id, name, position)
-      VALUES (?, 'default', ?, ?)
-    `).run(col.id, col.name, col.position);
-  }
-
-  // Seed default statuses for test project
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
-    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
-      VALUES (?, 'default', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
-  }
-
-  // Create HQ config file
-  const proletariatDir = path.join(process.cwd(), '.proletariat');
-  const configPath = path.join(proletariatDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({
-    type: 'hq',
-    name: 'test-hq',
-    hasPmo: true,
-  }), 'utf-8');
-
-  // Create PMO directory structure
-  const pmoPath = path.join(process.cwd(), 'pmo/projects/default');
-  fs.mkdirSync(pmoPath, { recursive: true });
-}

@@ -2,10 +2,14 @@ import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
+  BranchInfo,
   BRANCH_TYPES,
   listBranches,
   isGitRepo,
 } from '../../lib/branch/index.js'
+import { getWorkspaceRepoInfo } from '../../lib/repos/index.js'
+import { isNonTTY } from '../../lib/prompt-json.js'
+import { visualPadEnd } from '../../lib/string-utils.js'
 
 export default class BranchList extends PMOCommand {
   static description = 'List branches with conventional naming information'
@@ -44,13 +48,20 @@ export default class BranchList extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(BranchList)
 
-    // Check if in git repo
-    if (!isGitRepo()) {
-      this.error('Not in a git repository.')
+    // Default format to 'json' in non-TTY environments (piped output, CI, agents)
+    if (flags.format === 'table' && isNonTTY()) {
+      flags.format = 'json'
     }
 
-    // Get branches
-    let branches = listBranches(undefined, flags.all)
+    let branches: BranchInfo[]
+
+    if (isGitRepo()) {
+      // In a git repo - list branches for current repo
+      branches = listBranches(undefined, flags.all)
+    } else {
+      // Not in a git repo - list branches across all registered HQ repos
+      branches = this.listBranchesAcrossRepos(flags.all)
+    }
 
     // Filter by type
     if (flags.type) {
@@ -66,6 +77,9 @@ export default class BranchList extends PMOCommand {
       return
     }
 
+    // Check if we have multi-repo results
+    const hasRepoInfo = branches.some((b) => b.repo)
+
     // Output based on format
     switch (flags.format) {
       case 'json':
@@ -73,32 +87,56 @@ export default class BranchList extends PMOCommand {
         break
 
       case 'compact':
-        this.outputCompact(branches)
+        this.outputCompact(branches, hasRepoInfo)
         break
 
       case 'table':
       default:
-        this.outputTable(branches)
+        this.outputTable(branches, hasRepoInfo)
         break
     }
   }
 
-  private outputTable(branches: ReturnType<typeof listBranches>): void {
+  private listBranchesAcrossRepos(includeRemote: boolean): BranchInfo[] {
+    let repoInfo
+    try {
+      repoInfo = getWorkspaceRepoInfo()
+    } catch {
+      this.error('Not in a git repository and no HQ workspace found.')
+    }
+
+    const allBranches: BranchInfo[] = []
+
+    for (const repo of repoInfo.repositories) {
+      if (repo.status === 'missing') continue
+      const repoBranches = listBranches(repo.fullPath, includeRemote)
+      for (const branch of repoBranches) {
+        branch.repo = repo.name
+        allBranches.push(branch)
+      }
+    }
+
+    return allBranches
+  }
+
+  private outputTable(branches: BranchInfo[], hasRepoInfo = false): void {
     this.log('')
     this.log(styles.header(`🌿 Branches (${branches.length})`))
     this.log('')
 
     // Header
+    const repoHeader = hasRepoInfo ? visualPadEnd('Repo', 18) : ''
     this.log(
       styles.muted(
-        padEnd('Name', 35) +
-          padEnd('Type', 8) +
-          padEnd('Owner', 12) +
-          padEnd('Description', 25) +
+        repoHeader +
+          visualPadEnd('Name', 35) +
+          visualPadEnd('Type', 8) +
+          visualPadEnd('Owner', 12) +
+          visualPadEnd('Description', 25) +
           'Status'
       )
     )
-    this.log('─'.repeat(90))
+    this.log('─'.repeat(hasRepoInfo ? 108 : 90))
 
     // Rows
     for (const branch of branches) {
@@ -107,6 +145,7 @@ export default class BranchList extends PMOCommand {
       const typeDisplay = branch.type || '-'
       const ownerDisplay = branch.owner || '-'
       const descDisplay = branch.description || '-'
+      const repoCol = hasRepoInfo ? visualPadEnd((branch.repo || '-').substring(0, 16), 18) : ''
 
       let status = 'local'
       if (branch.tracking) {
@@ -118,10 +157,11 @@ export default class BranchList extends PMOCommand {
 
       this.log(
         marker +
-          nameStyle(padEnd(branch.name.substring(0, 33), 33)) +
-          padEnd(typeDisplay, 8) +
-          padEnd(ownerDisplay.substring(0, 10), 12) +
-          padEnd(descDisplay.substring(0, 23), 25) +
+          repoCol +
+          nameStyle(visualPadEnd(branch.name.substring(0, 33), 33)) +
+          visualPadEnd(typeDisplay, 8) +
+          visualPadEnd(ownerDisplay.substring(0, 10), 12) +
+          visualPadEnd(descDisplay.substring(0, 23), 25) +
           styles.muted(status)
       )
     }
@@ -131,22 +171,19 @@ export default class BranchList extends PMOCommand {
     this.log('')
   }
 
-  private outputCompact(branches: ReturnType<typeof listBranches>): void {
+  private outputCompact(branches: BranchInfo[], hasRepoInfo = false): void {
     this.log('')
 
     for (const branch of branches) {
       const marker = branch.current ? '* ' : '  '
       const icon = branch.type ? '🌿' : '  '
       const typeInfo = branch.type ? ` (${branch.type})` : ''
+      const repoPrefix = hasRepoInfo && branch.repo ? `[${branch.repo}] ` : ''
       const nameStyle = branch.current ? styles.success : (s: string) => s
 
-      this.log(`${icon} ${marker}${nameStyle(branch.name)}${styles.muted(typeInfo)}`)
+      this.log(`${icon} ${marker}${repoPrefix}${nameStyle(branch.name)}${styles.muted(typeInfo)}`)
     }
 
     this.log('')
   }
-}
-
-function padEnd(str: string, length: number): string {
-  return str.padEnd(length)
 }

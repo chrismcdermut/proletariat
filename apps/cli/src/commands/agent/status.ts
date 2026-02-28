@@ -1,17 +1,19 @@
-import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
+import { Args } from '@oclif/core';
 import { colors, format } from '../../lib/colors.js';
 import {
   getWorkspaceInfo,
-  getAgentStatus
+  getAgentStatus,
+  getAllAgentsStatus,
+  WorkspaceInfo,
+  formatAgentList,
+  resolveAgentDir
 } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
 export default class Status extends PMOCommand {
@@ -31,14 +33,6 @@ export default class Status extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
   };
 
   protected getPMOOptions() {
@@ -65,43 +59,77 @@ export default class Status extends PMOCommand {
 
     let agentName = args.name;
 
+    // In JSON mode with no agent specified, return all agent statuses
+    if (jsonMode && !agentName) {
+      const allStatuses = getAllAgentsStatus(workspaceInfo);
+      outputSuccessAsJson({
+        agents: allStatuses,
+      }, createMetadata('agent status', flags));
+    }
+
+    // Agent mode config for prompts
+    const agentConfig = jsonMode ? { flags, commandName: 'agent status' } : null;
+
     // Interactive mode if no agent specified
     if (!agentName) {
-      // In JSON mode, output agent selection prompt
-      if (jsonMode) {
-        const agentChoices = workspaceInfo.agents.map((agent: any) => ({ name: agent.name, value: agent.name }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'name', 'Select agent to view status:', agentChoices),
-          createMetadata('agent status', flags)
-        );
-        return;
+      // Group agents by type
+      const staffAgents = workspaceInfo.agents.filter(a => a.type === 'persistent');
+      const tempAgents = workspaceInfo.agents.filter(a => a.type === 'ephemeral');
+
+      // Build choices with command field for JSON mode
+      const choices: Array<{ name: string; value: string; command: string }> = [];
+
+      for (const agent of staffAgents) {
+        choices.push({ name: `👔 ${agent.name}`, value: agent.name, command: `prlt agent status ${agent.name} --machine` });
       }
 
-      const { selected } = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'selected',
-          message: 'Select agent to view status:',
-          choices: workspaceInfo.agents.map((agent: any) => ({
-            name: agent.name,
-            value: agent.name
-          }))
-        }
-      ]);
+      for (const agent of tempAgents) {
+        choices.push({ name: `⏱️  ${agent.name}`, value: agent.name, command: `prlt agent status ${agent.name} --machine` });
+      }
+
+      const { selected } = await this.prompt<{ selected: string }>([{
+        type: 'list',
+        name: 'selected',
+        message: 'Select agent to view status:',
+        choices,
+      }], agentConfig);
+
       agentName = selected;
     }
 
-    await this.showDetailedStatus(workspaceInfo, agentName!);
+    await this.showDetailedStatus(workspaceInfo, agentName!, jsonMode);
   }
 
-  private async showDetailedStatus(workspaceInfo: any, agentName: string): Promise<void> {
+  private async showDetailedStatus(workspaceInfo: WorkspaceInfo, agentName: string, jsonMode = false): Promise<void> {
     // Validate agent exists
-    const agent = workspaceInfo.agents.find((a: any) => a.name === agentName);
+    const agent = workspaceInfo.agents.find((a) => a.name === agentName);
     if (!agent) {
-      this.error(`Agent "${agentName}" not found. Available agents: ${workspaceInfo.agents.map((a: any) => a.name).join(', ')}`);
+      this.error(`Agent "${agentName}" not found. Available: ${formatAgentList(workspaceInfo.agents)}`);
     }
 
     const agentStatus = getAgentStatus(workspaceInfo, agentName);
+
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        agent: {
+          name: agentName,
+          type: agent.type,
+          exists: agentStatus.exists,
+          path: resolveAgentDir(workspaceInfo, agentName),
+          branch: agentStatus.branch,
+          repositories: agentStatus.repositories.map(r => ({
+            name: r.name,
+            status: r.status,
+            commitsAhead: r.commitsAhead,
+          })),
+          assignedTickets: agentStatus.assignedTickets,
+          completedTickets: agentStatus.completedTickets,
+        },
+      }, null, 2));
+      return;
+    }
 
     this.log(format.title(`🤖 Agent: ${agentName}`));
 
@@ -117,7 +145,7 @@ export default class Status extends PMOCommand {
     }
 
     // Location
-    this.log(`📍 Location: ${colors.path(`${workspaceInfo.agentsPath}/${agentName}`)}`);
+    this.log(`📍 Location: ${colors.path(resolveAgentDir(workspaceInfo, agentName))}`);
 
     // Branch info
     if (agentStatus.branch) {

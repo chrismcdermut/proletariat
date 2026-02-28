@@ -1,130 +1,122 @@
-import { Args, Flags } from '@oclif/core'
-import inquirer from 'inquirer'
-import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
-import { styles } from '../../../lib/styles.js'
+import { Args } from '@oclif/core';
+import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputSuccessAsJson,
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js'
+} from '../../../lib/prompt-json.js';
 
 export default class TicketLinkBlock extends PMOCommand {
-  static description = 'Add a blocking dependency (ticket is blocked by another)'
+  static description = 'Add a blocking dependency to a ticket';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002  # TKT-001 is blocked by TKT-002',
-    '<%= config.bin %> <%= command.id %> TKT-001         # Interactive selection',
-  ]
+    '<%= config.bin %> <%= command.id %> TKT-001',
+    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002',
+    '<%= config.bin %> <%= command.id %> TKT-001 --json',
+  ];
 
   static args = {
-    id: Args.string({
-      description: 'Ticket ID that will be blocked',
+    ticket: Args.string({
+      description: 'Ticket that will be blocked',
       required: true,
     }),
     blocker: Args.string({
-      description: 'Ticket ID that blocks this ticket',
+      description: 'Ticket that blocks (the blocker)',
       required: false,
     }),
-  }
+  };
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
-  }
+  };
 
   async execute(): Promise<void> {
-    const { args, flags } = await this.parse(TicketLinkBlock)
+    const { args, flags } = await this.parse(TicketLinkBlock);
+    const jsonMode = shouldOutputJson(flags);
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags)
+    const projectId = await this.requireProject();
 
-    // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
       if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('ticket link block', flags))
-        this.exit(1)
+        outputErrorAsJson(code, message, createMetadata('ticket link block', flags));
+        this.exit(1);
       }
-      this.error(message)
-    }
+      this.error(message);
+    };
 
-    const ticket = await this.storage.getTicket(args.id)
+    // Verify the target ticket exists
+    const ticket = await this.storage.getTicket(args.ticket);
     if (!ticket) {
-      return handleError('TICKET_NOT_FOUND', `Ticket not found: ${args.id}`)
+      return handleError('TICKET_NOT_FOUND', `Ticket not found: ${args.ticket}`);
     }
 
-    let blockerId = args.blocker
-
-    // If no blocker provided, prompt for selection
-    if (!blockerId) {
-      const projectId = (flags as { project?: string }).project
-      const allTickets = await this.storage.listTickets(projectId)
-      const otherTickets = allTickets.filter(t => t.id !== args.id)
+    // If blocker not provided, prompt for selection
+    if (!args.blocker) {
+      const tickets = await this.storage.listTickets(projectId);
+      const otherTickets = tickets.filter(t => t.id !== args.ticket);
 
       if (otherTickets.length === 0) {
-        if (jsonMode) {
-          outputErrorAsJson('NO_OTHER_TICKETS', 'No other tickets to create dependency with.', createMetadata('ticket link block', flags))
-          return
-        }
-        this.log(styles.muted('\nNo other tickets to create dependency with.'))
-        return
+        return handleError('NO_TICKETS', 'No other tickets to select as blocker.');
       }
 
-      // In JSON mode, output ticket selection prompt
+      const projectFlag = flags.project ? ` -P ${flags.project}` : '';
+      const choices = otherTickets.map(t => ({
+        name: `${t.id} - ${t.title}`,
+        value: t.id,
+        command: `prlt ticket link block ${args.ticket} ${t.id}${projectFlag} --json`,
+      }));
+      const message = `Select ticket that blocks ${args.ticket}:`;
+
       if (jsonMode) {
-        const ticketChoices = otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        }))
         outputPromptAsJson(
-          buildPromptConfig('list', 'blocker', `Select ticket that blocks ${args.id}:`, ticketChoices),
+          buildPromptConfig('list', 'blocker', message, choices),
           createMetadata('ticket link block', flags)
-        )
-        return
+        );
+        return;
       }
 
-      const { selected } = await inquirer.prompt([{
+      const { selected } = await this.prompt<{ selected: string }>([{
         type: 'list',
         name: 'selected',
-        message: `Select ticket that blocks ${args.id}:`,
-        choices: otherTickets.map(t => ({
-          name: `${t.id} - ${t.title} (${t.statusName || t.status})`,
-          value: t.id,
-        })),
-      }])
-      blockerId = selected
+        message,
+        choices,
+      }], null);
+
+      args.blocker = selected;
     }
 
-    const blockerTicket = await this.storage.getTicket(blockerId!)
+    // Verify blocker exists
+    const blockerTicket = await this.storage.getTicket(args.blocker!);
     if (!blockerTicket) {
-      this.error(`Ticket not found: ${blockerId}`)
+      return handleError('BLOCKER_NOT_FOUND', `Blocker ticket not found: ${args.blocker}`);
     }
 
+    // Create the blocking dependency
     try {
-      await this.storage.createTicketDependency(args.id, blockerId!, 'blocks')
-      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)))
+      await this.storage.createTicketDependency(args.ticket, args.blocker!, 'blocks');
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
 
-      this.log(styles.success(`\n✅ ${styles.emphasis(args.id)} is blocked by ${styles.emphasis(blockerId!)}`))
-      this.log(styles.muted(`   ${ticket.title}`))
-      this.log(styles.muted(`   blocked by: ${blockerTicket.title}`))
-    } catch (error) {
-      if (error instanceof Error) {
-        if (error.message.includes('already exists')) {
-          this.error('Dependency already exists')
-        }
-        if (error.message.includes('self-dependency')) {
-          this.error('Cannot create self-dependency')
-        }
+      if (jsonMode) {
+        outputSuccessAsJson({
+          ticketId: args.ticket,
+          blockerId: args.blocker,
+          type: 'blocks',
+        }, createMetadata('ticket link block', flags));
+        return;
       }
-      throw error
+
+      this.log(styles.success(`\n${args.ticket} is now blocked by ${args.blocker}`));
+      this.log(styles.muted(`  ${ticket.title}`));
+      this.log(styles.muted(`  blocked by: ${blockerTicket.title}`));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already exists')) {
+        return handleError('ALREADY_EXISTS', 'Blocking dependency already exists.');
+      }
+      throw error;
     }
   }
 }

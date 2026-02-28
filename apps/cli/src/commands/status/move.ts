@@ -1,14 +1,20 @@
 import { Flags, Args } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 import {
-  shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
+
+interface MoveFlags {
+  id?: string;
+  position?: number;
+  project?: string;
+  json?: boolean;
+  machine?: boolean;
+  [key: string]: unknown;
+}
 
 export default class StatusMove extends PMOCommand {
   static description = 'Reorder a status within its category';
@@ -28,14 +34,6 @@ export default class StatusMove extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
     position: Flags.integer({
       char: 'p',
       description: 'New position (0-indexed) within the category',
@@ -45,11 +43,18 @@ export default class StatusMove extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(StatusMove);
-    // This command requires project context
-    const projectId = await this.requireProject();
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // This command requires project context - get projectId (with JSON mode support)
+    const projectId = await this.requireProject({
+      jsonMode: jsonMode ? {
+        flags,
+        commandName: 'status move',
+        baseCommand: 'prlt status move',
+      } : undefined,
+    });
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -60,39 +65,43 @@ export default class StatusMove extends PMOCommand {
       this.error(message);
     };
 
-    // Get status ID - prompt if not provided
-    let statusId = args.id;
-
-    if (!statusId) {
-      const statuses = await this.storage.listStatuses(projectId);
-      if (statuses.length === 0) {
-        return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
-      }
-
-      // In JSON mode, output status selection prompt
-      if (jsonMode) {
-        const statusChoices = statuses.map(s => ({
-          name: `${s.name} (${s.category}, position ${s.position})`,
-          value: s.id,
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'id', 'Select status to move:', statusChoices),
-          createMetadata('status move', flags)
-        );
-        return;
-      }
-
-      const { selectedId } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedId',
-        message: 'Select status to move:',
-        choices: statuses.map(s => ({
-          name: `${s.name} (${s.category}, position ${s.position})`,
-          value: s.id,
-        })),
-      }]);
-      statusId = selectedId;
+    // Get the project's workflow ID
+    const project = await this.storage.getProject(projectId);
+    if (!project?.workflowId) {
+      return handleError('NO_WORKFLOW', `Project "${projectId}" has no workflow assigned.`);
     }
+
+    // Get all statuses for this workflow
+    const statuses = await this.storage.listStatuses(project.workflowId);
+    if (statuses.length === 0) {
+      return handleError('NO_STATUSES', 'No statuses found. Create a status first with "prlt status create".');
+    }
+
+    // Create FlagResolver for prompts
+    const resolver = new FlagResolver<MoveFlags>({
+      commandName: 'status move',
+      baseCommand: 'prlt status move',
+      jsonMode,
+      flags: { ...flags, id: args.id },
+      context: { projectId },
+    });
+
+    // Add status selection prompt
+    resolver.addPrompt({
+      flagName: 'id',
+      type: 'list',
+      message: 'Select status to move:',
+      choices: () => statuses.map(s => ({
+        name: `${s.name} (${s.category}, position ${s.position})`,
+        value: s.id,
+        command: `prlt status move ${s.id} --machine`,
+      })),
+      when: (ctx) => !ctx.flags.id,
+    });
+
+    // Resolve status ID
+    const resolved = await resolver.resolve();
+    const statusId = resolved.id;
 
     // Get existing status
     const existing = await this.storage.getStatus(statusId!);
@@ -100,39 +109,34 @@ export default class StatusMove extends PMOCommand {
       return handleError('STATUS_NOT_FOUND', `Status not found: ${statusId}`);
     }
 
-    // Get position - prompt if not provided
-    let newPosition = flags.position;
+    // Get statuses in the same category for position selection
+    const categoryStatuses = statuses.filter(s => s.category === existing.category);
 
-    if (newPosition === undefined) {
-      // Get statuses in the same category to show valid positions
-      const statuses = await this.storage.listStatuses(projectId);
-      const categoryStatuses = statuses.filter(s => s.category === existing.category);
+    // Create second resolver for position (needs status context)
+    const positionResolver = new FlagResolver<MoveFlags>({
+      commandName: 'status move',
+      baseCommand: 'prlt status move',
+      jsonMode,
+      flags: { ...flags, id: statusId },
+      context: { projectId, statusId, existing },
+    });
 
-      // In JSON mode, output position selection prompt
-      if (jsonMode) {
-        const positionChoices = categoryStatuses.map((_, idx) => ({
-          name: `Position ${idx}${idx === existing.position ? ' (current)' : ''}`,
-          value: String(idx),
-        }));
-        outputPromptAsJson(
-          buildPromptConfig('list', 'position', `New position within ${existing.category} (currently ${existing.position}):`, positionChoices),
-          createMetadata('status move', flags)
-        );
-        return;
-      }
+    // Add position selection prompt
+    positionResolver.addPrompt({
+      flagName: 'position',
+      type: 'list',
+      message: `New position within ${existing.category} (currently ${existing.position}):`,
+      choices: () => categoryStatuses.map((_, idx) => ({
+        name: `Position ${idx}${idx === existing.position ? ' (current)' : ''}`,
+        value: idx,
+        command: `prlt status move ${statusId} --position ${idx} --machine`,
+      })),
+      when: (ctx) => ctx.flags.position === undefined,
+    });
 
-      const { position } = await inquirer.prompt([{
-        type: 'list',
-        name: 'position',
-        message: `New position within ${existing.category} (currently ${existing.position}):`,
-        choices: categoryStatuses.map((_, idx) => ({
-          name: `Position ${idx}${idx === existing.position ? ' (current)' : ''}`,
-          value: idx,
-        })),
-        default: existing.position,
-      }]);
-      newPosition = position;
-    }
+    // Resolve position
+    const positionResolved = await positionResolver.resolve();
+    const newPosition = positionResolved.position;
 
     if (newPosition! < 0) {
       this.error('Position must be >= 0');

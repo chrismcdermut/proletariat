@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { exec } from './test-helpers.js';
+import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 
 /**
  * End-to-end tests for Cross-Entity Dependency Commands
@@ -42,12 +43,12 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     it('should link ticket to spec with args', () => {
       // Create a spec first
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('spec-001', '/specs/spec-001.md', 'Test Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('spec-001', 'Test Spec', 'active')
       `).run();
 
       // Create a ticket
-      exec('ticket create --title "Ticket for spec" --column "SHIP BL"');
+      exec('ticket create --title "Ticket for spec" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Ticket for spec') as { id: string };
 
       // Link ticket to spec
@@ -65,11 +66,11 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     it('should unlink spec from ticket', () => {
       // Create spec and ticket with link
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('spec-unlink', '/specs/spec-unlink.md', 'Spec to Unlink', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('spec-unlink', 'Spec to Unlink', 'active')
       `).run();
 
-      exec('ticket create --title "Ticket to unlink" --column "SHIP BL"');
+      exec('ticket create --title "Ticket to unlink" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Ticket to unlink') as { id: string };
 
       // Link first
@@ -87,11 +88,11 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
     it('should detect already linked to same spec', () => {
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('spec-same', '/specs/spec-same.md', 'Same Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('spec-same', 'Same Spec', 'active')
       `).run();
 
-      exec('ticket create --title "Same spec ticket" --column "SHIP BL"');
+      exec('ticket create --title "Same spec ticket" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Same spec ticket') as { id: string };
 
       // Link first
@@ -104,7 +105,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should error for non-existent spec', () => {
-      exec('ticket create --title "Bad spec ticket" --column "SHIP BL"');
+      exec('ticket create --title "Bad spec ticket" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bad spec ticket') as { id: string };
 
       const output = exec(`ticket spec ${ticket.id} NON-EXISTENT`);
@@ -117,8 +118,8 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     it('should link epic to spec with args', () => {
       // Create spec
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('epic-spec-001', '/specs/epic-spec-001.md', 'Epic Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('epic-spec-001', 'Epic Spec', 'active')
       `).run();
 
       // Create epic
@@ -141,8 +142,8 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     it('should unlink spec from epic', () => {
       // Create spec and epic with link
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('epic-unlink-spec', '/specs/epic-unlink.md', 'Epic Unlink Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('epic-unlink-spec', 'Epic Unlink Spec', 'active')
       `).run();
 
       db.prepare(`
@@ -161,8 +162,8 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
     it('should detect already linked to same spec', () => {
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('epic-same-spec', '/specs/epic-same.md', 'Same Epic Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('epic-same-spec', 'Same Epic Spec', 'active')
       `).run();
 
       db.prepare(`
@@ -177,8 +178,8 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
     it('should error for non-existent epic', () => {
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('orphan-spec', '/specs/orphan.md', 'Orphan Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('orphan-spec', 'Orphan Spec', 'active')
       `).run();
 
       const output = exec('epic spec NON-EXISTENT orphan-spec');
@@ -190,8 +191,8 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
   describe('prlt project spec', () => {
     it('should add spec to project with --add flag', () => {
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('proj-spec-001', '/specs/proj-spec.md', 'Project Spec', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('proj-spec-001', 'Project Spec', 'active')
       `).run();
 
       const output = exec('project spec test-project --add proj-spec-001');
@@ -211,8 +212,8 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     it('should remove spec from project with --remove flag', () => {
       // Add spec to project first
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('proj-remove-spec', '/specs/proj-remove.md', 'Spec to Remove', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('proj-remove-spec', 'Spec to Remove', 'active')
       `).run();
 
       db.prepare(`
@@ -235,10 +236,10 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
     it('should handle multiple specs per project', () => {
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
+        INSERT INTO pmo_specs (id, title, status)
         VALUES
-          ('multi-spec-1', '/specs/multi-1.md', 'Multi Spec 1', 'active'),
-          ('multi-spec-2', '/specs/multi-2.md', 'Multi Spec 2', 'active')
+          ('multi-spec-1', 'Multi Spec 1', 'active'),
+          ('multi-spec-2', 'Multi Spec 2', 'active')
       `).run();
 
       exec('project spec test-project --add multi-spec-1');
@@ -253,8 +254,8 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
     it('should detect already added spec', () => {
       db.prepare(`
-        INSERT INTO pmo_specs (id, path, title, status)
-        VALUES ('already-added', '/specs/already.md', 'Already Added', 'active')
+        INSERT INTO pmo_specs (id, title, status)
+        VALUES ('already-added', 'Already Added', 'active')
       `).run();
 
       exec('project spec test-project --add already-added');
@@ -280,7 +281,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
       // Add columns to target project
       const columns = [
-        { id: 'backlog', name: 'SHIP BL', position: 0 },
+        { id: 'backlog', name: 'Backlog', position: 0 },
         { id: 'in-progress', name: 'In Progress', position: 1 },
         { id: 'done', name: 'Done', position: 2 },
       ];
@@ -297,7 +298,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should move ticket to different project', () => {
-      exec('ticket create --title "Move me" --column "SHIP BL"');
+      exec('ticket create --title "Move me" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Move me') as { id: string };
 
       const output = exec(`ticket project ${ticket.id} target-project`);
@@ -312,7 +313,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should update board position when moving ticket', () => {
-      exec('ticket create --title "Board move" --column "SHIP BL"');
+      exec('ticket create --title "Board move" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Board move') as { id: string };
 
       exec(`ticket project ${ticket.id} target-project`);
@@ -326,7 +327,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should error if ticket is already in target project', () => {
-      exec('ticket create --title "Same project" --column "SHIP BL"');
+      exec('ticket create --title "Same project" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Same project') as { id: string };
 
       const output = exec(`ticket project ${ticket.id} test-project`);
@@ -341,7 +342,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should error for non-existent target project', () => {
-      exec('ticket create --title "Bad project" --column "SHIP BL"');
+      exec('ticket create --title "Bad project" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bad project') as { id: string };
 
       const output = exec(`ticket project ${ticket.id} NON-EXISTENT`);
@@ -360,7 +361,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
       // Add columns to target project
       const columns = [
-        { id: 'backlog', name: 'SHIP BL', position: 0 },
+        { id: 'backlog', name: 'Backlog', position: 0 },
         { id: 'in-progress', name: 'In Progress', position: 1 },
         { id: 'done', name: 'Done', position: 2 },
       ];
@@ -455,301 +456,28 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
 // Helper functions
 function setupTestDatabase(db: Database.Database) {
-  // Create complete PMO schema (matches schema.ts)
-  db.exec(`
-    -- Settings table
-    CREATE TABLE IF NOT EXISTS pmo_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Projects table
-    CREATE TABLE IF NOT EXISTS pmo_projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      template TEXT,
-      description TEXT,
-      initiative_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Initiatives table
-    CREATE TABLE IF NOT EXISTS pmo_initiatives (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      objective TEXT,
-      key_results TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Columns table
-    CREATE TABLE IF NOT EXISTS pmo_columns (
-      id TEXT NOT NULL,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      name TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, id)
-    );
-
-    -- Specs table (must be before tickets and epics due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_specs (
-      id TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      title TEXT,
-      overview TEXT,
-      status TEXT DEFAULT 'active',
-      spec_type TEXT DEFAULT 'domain',
-      domain TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Project-to-spec associations (many-to-many, specs are global living documents)
-    CREATE TABLE IF NOT EXISTS pmo_project_specs (
-      project_id TEXT NOT NULL REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (project_id, spec_id)
-    );
-
-    -- Spec abilities table
-    CREATE TABLE IF NOT EXISTS pmo_spec_abilities (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(spec_id, name)
-    );
-
-    -- Spec implementations table
-    CREATE TABLE IF NOT EXISTS pmo_spec_implementations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ability_id INTEGER NOT NULL REFERENCES pmo_spec_abilities(id) ON DELETE CASCADE,
-      modality TEXT NOT NULL,
-      signature TEXT NOT NULL,
-      UNIQUE(ability_id, modality)
-    );
-
-    -- Spec fields table
-    CREATE TABLE IF NOT EXISTS pmo_spec_fields (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      field_type TEXT NOT NULL,
-      required TEXT DEFAULT 'optional',
-      default_value TEXT,
-      description TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(spec_id, name)
-    );
-
-    -- Spec rules table
-    CREATE TABLE IF NOT EXISTS pmo_spec_rules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0
-    );
-
-    -- Spec relations table
-    CREATE TABLE IF NOT EXISTS pmo_spec_relations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      related_domain TEXT NOT NULL,
-      relationship TEXT,
-      UNIQUE(spec_id, related_domain)
-    );
-
-    -- Epics table (must be before tickets due to FK)
-    CREATE TABLE IF NOT EXISTS pmo_epics (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      status TEXT NOT NULL DEFAULT 'active',
-      position INTEGER NOT NULL DEFAULT 0,
-      file_path TEXT,
-      spec_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL
-    );
-
-    -- Workflow statuses table
-    CREATE TABLE IF NOT EXISTS pmo_statuses (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      color TEXT,
-      description TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      UNIQUE(project_id, name)
-    );
-
-    -- Tickets table
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL DEFAULT 'default',
-      title TEXT NOT NULL,
-      description TEXT,
-      priority TEXT,
-      category TEXT,
-      status TEXT NOT NULL DEFAULT 'backlog',
-      status_id TEXT,
-      owner TEXT,
-      assignee TEXT,
-      branch TEXT,
-      spec_id TEXT,
-      epic_id TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      last_synced_from_spec TIMESTAMP,
-      last_synced_from_board TIMESTAMP,
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (status_id) REFERENCES pmo_statuses(id),
-      FOREIGN KEY (spec_id) REFERENCES pmo_specs(id) ON DELETE SET NULL,
-      FOREIGN KEY (epic_id) REFERENCES pmo_epics(id) ON DELETE SET NULL
-    );
-
-    -- Board tickets table
-    CREATE TABLE IF NOT EXISTS pmo_board_tickets (
-      project_id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL,
-      column_id TEXT NOT NULL,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (project_id, ticket_id),
-      FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      FOREIGN KEY (project_id, column_id) REFERENCES pmo_columns(project_id, id) ON DELETE CASCADE
-    );
-
-    -- Subtasks table
-    CREATE TABLE IF NOT EXISTS pmo_subtasks (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      done INTEGER DEFAULT 0,
-      position INTEGER NOT NULL,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    -- Ticket metadata table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_metadata (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      key TEXT NOT NULL,
-      value TEXT,
-      PRIMARY KEY (ticket_id, key)
-    );
-
-    -- Ticket dependencies table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_dependencies (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      blocked_by_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, blocked_by_ticket_id),
-      CHECK (ticket_id != blocked_by_ticket_id)
-    );
-
-    -- Ticket affected paths table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_affected_paths (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      path_pattern TEXT NOT NULL,
-      path_type TEXT NOT NULL DEFAULT 'file',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    -- Ticket acceptance criteria table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_acceptance_criteria (
-      id TEXT NOT NULL,
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      criterion TEXT NOT NULL,
-      verifiable INTEGER DEFAULT 1,
-      verified INTEGER DEFAULT 0,
-      verified_at TIMESTAMP,
-      verified_by TEXT,
-      position INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (ticket_id, id)
-    );
-
-    -- Ticket specs table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_specs (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      spec_id TEXT NOT NULL REFERENCES pmo_specs(id) ON DELETE CASCADE,
-      PRIMARY KEY (ticket_id, spec_id)
-    );
-
-    -- Ticket assignments table
-    CREATE TABLE IF NOT EXISTS pmo_ticket_assignments (
-      ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
-      agent_name TEXT NOT NULL,
-      assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (ticket_id, agent_name)
-    );
-
-    -- Cache metadata table
-    CREATE TABLE IF NOT EXISTS pmo_cache_metadata (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-
-    -- Agent work table
-    CREATE TABLE IF NOT EXISTS agent_work (
-      id TEXT PRIMARY KEY,
-      ticket_id TEXT NOT NULL,
-      agent_name TEXT NOT NULL,
-      executor TEXT NOT NULL,
-      mode TEXT NOT NULL,
-      environment TEXT NOT NULL DEFAULT 'host',
-      display_mode TEXT NOT NULL DEFAULT 'terminal',
-      sandboxed INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'starting',
-      branch TEXT,
-      pid TEXT,
-      container_id TEXT,
-      session_id TEXT,
-      host TEXT,
-      log_path TEXT,
-      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      completed_at TIMESTAMP,
-      exit_code INTEGER,
-      FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
-    );
-
-    -- Indexes
-    CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status ON pmo_tickets(status);
-    CREATE INDEX IF NOT EXISTS idx_pmo_tickets_epic ON pmo_tickets(epic_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_epics_project ON pmo_epics(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_spec_abilities_spec ON pmo_spec_abilities(spec_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_project_specs_project ON pmo_project_specs(project_id);
-    CREATE INDEX IF NOT EXISTS idx_pmo_project_specs_spec ON pmo_project_specs(spec_id);
-  `);
+  // Use production PMO schema (ensures all columns including position, labels,
+  // depends_on_ticket_id, epic_id, etc.)
+  initializePMOTables(db);
 
   // Insert test data
   db.prepare(`
-    INSERT INTO pmo_projects (id, name, description)
-    VALUES ('test-project', 'Test Project', 'E2E test project')
+    INSERT INTO pmo_projects (id, name, description, workflow_id)
+    VALUES ('test-project', 'Test Project', 'E2E test project', 'default')
   `).run();
 
   db.prepare(`
-    INSERT INTO pmo_settings (key, value)
-    VALUES ('pmo_path', 'pmo'), ('current_project', 'test-project')
+    INSERT OR REPLACE INTO pmo_settings (key, value)
+    VALUES ('pmo_path', 'pmo')
+  `).run();
+  db.prepare(`
+    INSERT OR REPLACE INTO pmo_settings (key, value)
+    VALUES ('current_project', 'test-project')
   `).run();
 
+  // Legacy columns (kept for backwards compatibility with board_tickets tests)
   const columns = [
-    { id: 'backlog', name: 'SHIP BL', position: 0 },
+    { id: 'backlog', name: 'Backlog', position: 0 },
     { id: 'ready', name: 'Ready', position: 1 },
     { id: 'in-progress', name: 'In Progress', position: 2 },
     { id: 'in-review', name: 'In Review', position: 3 },
@@ -762,23 +490,6 @@ function setupTestDatabase(db: Database.Database) {
       INSERT INTO pmo_columns (id, project_id, name, position)
       VALUES (?, 'test-project', ?, ?)
     `).run(col.id, col.name, col.position);
-  }
-
-  // Workflow statuses (kanban template)
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 0 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 0 },
-    { id: 'status-in-review', name: 'In Review', category: 'started', position: 1 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 0 },
-    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 0 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_statuses (id, project_id, name, category, position, is_default)
-      VALUES (?, 'test-project', ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0);
   }
 
   // Create HQ config file (required for findPMO to work)

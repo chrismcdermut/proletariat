@@ -18,38 +18,35 @@ describe('prompt-json', () => {
     });
 
     it('returns false when stdout is a TTY', () => {
-      const originalIsTTY = process.stdout.isTTY;
+      const originalStdoutIsTTY = process.stdout.isTTY;
+      const originalStdinIsTTY = process.stdin.isTTY;
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
       expect(isNonTTY()).to.be.false;
-      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
     });
   });
 
   describe('shouldOutputJson', () => {
-    let originalIsTTY: boolean | undefined;
+    let originalStdoutIsTTY: boolean | undefined;
+    let originalStdinIsTTY: boolean | undefined;
 
     beforeEach(() => {
-      originalIsTTY = process.stdout.isTTY;
+      originalStdoutIsTTY = process.stdout.isTTY;
+      originalStdinIsTTY = process.stdin.isTTY;
       // Default to TTY mode for tests
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
     });
 
     afterEach(() => {
-      Object.defineProperty(process.stdout, 'isTTY', { value: originalIsTTY, configurable: true });
+      Object.defineProperty(process.stdout, 'isTTY', { value: originalStdoutIsTTY, configurable: true });
+      Object.defineProperty(process.stdin, 'isTTY', { value: originalStdinIsTTY, configurable: true });
     });
 
     it('returns true when json flag is true', () => {
       const flags: JsonFlags = { json: true };
-      expect(shouldOutputJson(flags)).to.be.true;
-    });
-
-    it('returns true when no-interactive flag is true', () => {
-      const flags: JsonFlags = { 'no-interactive': true };
-      expect(shouldOutputJson(flags)).to.be.true;
-    });
-
-    it('returns true when noInteractive flag is true', () => {
-      const flags: JsonFlags = { noInteractive: true };
       expect(shouldOutputJson(flags)).to.be.true;
     });
 

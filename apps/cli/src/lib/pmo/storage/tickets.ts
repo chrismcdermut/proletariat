@@ -1,132 +1,272 @@
 /**
  * Ticket operations for PMO.
+ * Tickets reference workflow statuses directly via status_id.
+ * Tickets have a position column for force-ranked ordering within a status.
+ * Positions use gapped integers (1000, 2000, 3000...) for stable reordering.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, sql, gt } from 'drizzle-orm'
+import {
+  pmoTickets,
+  pmoProjects,
+  pmoWorkflowStatuses,
+  pmoSubtasks,
+  pmoTicketMetadata,
+  pmoCategories,
+  pmoTicketLabels,
+  pmoLabels,
+  pmoLabelGroups,
+} from '../../database/drizzle-schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
 import { slugify, generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
-import { rowToTicket } from './helpers.js'
-import { getMaxTicketPosition } from './base.js'
-
-const T = PMO_TABLES
+import { rowToTicket, wrapSqliteError } from './helpers.js'
 
 export class TicketStorage {
   constructor(private ctx: StorageContext) {}
 
   /**
+   * Validate a category against the DB.
+   * Returns the valid category name if found, throws error if invalid.
+   */
+  private async validateCategory(category: string | null | undefined): Promise<string | null> {
+    if (!category) return null
+
+    const row = this.ctx.drizzle
+      .select({ name: pmoCategories.name })
+      .from(pmoCategories)
+      .where(and(
+        sql`LOWER(${pmoCategories.name}) = LOWER(${category})`,
+        eq(pmoCategories.type, 'ticket')
+      ))
+      .get()
+
+    if (!row) {
+      const validCategories = this.ctx.drizzle
+        .select({ name: pmoCategories.name })
+        .from(pmoCategories)
+        .where(eq(pmoCategories.type, 'ticket'))
+        .orderBy(asc(pmoCategories.position))
+        .all()
+
+      const validNames = validCategories.map(c => c.name).join(', ')
+      throw new PMOError(
+        'INVALID',
+        `Invalid category "${category}". Valid categories: ${validNames}`
+      )
+    }
+
+    return row.name
+  }
+
+  /**
+   * Resolve a project identifier to its actual ID.
+   * Tries multiple strategies:
+   * 1. Exact ID match
+   * 2. Case-insensitive ID match
+   * 3. Exact name match
+   * 4. Case-insensitive name match
+   * 5. Slugified name match
+   */
+  private resolveProjectId(identifier: string): string | null {
+    if (!identifier) return null
+
+    // 1. Exact ID match
+    const exactMatch = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, identifier))
+      .get()
+    if (exactMatch) return exactMatch.id
+
+    // 2. Case-insensitive ID match
+    const caseInsensitiveId = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(sql`LOWER(${pmoProjects.id}) = LOWER(${identifier})`)
+      .get()
+    if (caseInsensitiveId) return caseInsensitiveId.id
+
+    // 3. Exact name match
+    const nameMatch = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.name, identifier))
+      .get()
+    if (nameMatch) return nameMatch.id
+
+    // 4. Case-insensitive name match
+    const caseInsensitiveName = this.ctx.drizzle
+      .select({ id: pmoProjects.id })
+      .from(pmoProjects)
+      .where(sql`LOWER(${pmoProjects.name}) = LOWER(${identifier})`)
+      .get()
+    if (caseInsensitiveName) return caseInsensitiveName.id
+
+    // 5. Slugified name match
+    const allProjects = this.ctx.drizzle
+      .select({ id: pmoProjects.id, name: pmoProjects.name })
+      .from(pmoProjects)
+      .all()
+
+    const identifierLower = identifier.toLowerCase()
+    for (const project of allProjects) {
+      const projectSlug = slugify(project.name)
+      if (projectSlug === identifierLower || projectSlug === identifier) {
+        return project.id
+      }
+    }
+
+    return null
+  }
+
+  /**
    * Create a new ticket.
+   * Gets default status from the project's workflow.
    */
   async createTicket(projectId: string, ticket: CreateTicketInput): Promise<Ticket> {
     const id = ticket.id || generateEntityId(this.ctx.db, 'ticket')
     const title = ticket.title || 'Untitled'
-
-    // Get first column as default
-    const firstColumn = this.ctx.db.prepare(`
-      SELECT id FROM ${T.columns}
-      WHERE project_id = ?
-      ORDER BY position LIMIT 1
-    `).get(projectId) as { id: string } | undefined
-
-    if (!firstColumn) {
-      throw new PMOError('NOT_FOUND', 'No columns exist. Initialize board first.')
-    }
-
-    const columnId = firstColumn.id
-    const position = getMaxTicketPosition(this.ctx.db, projectId, columnId) + 1
     const now = Date.now()
     const specId = ticket.specId || null
 
-    // Get status_id
+    // Validate category against DB
+    const validatedCategory = await this.validateCategory(ticket.category)
+
+    // Get status_id from project's workflow
     let statusId = ticket.statusId
+
+    // Get the project's workflow
+    const project = this.ctx.drizzle
+      .select({ workflowId: pmoProjects.workflowId })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, projectId))
+      .get()
+
+    if (!project) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
+    }
+
+    const workflowId = project.workflowId || 'default'
+
+    // If statusName is provided, look up status by name
+    if (!statusId && ticket.statusName) {
+      const namedStatus = this.ctx.drizzle
+        .select({ id: pmoWorkflowStatuses.id })
+        .from(pmoWorkflowStatuses)
+        .where(and(
+          eq(pmoWorkflowStatuses.workflowId, workflowId),
+          sql`LOWER(${pmoWorkflowStatuses.name}) = LOWER(${ticket.statusName})`
+        ))
+        .get()
+
+      if (namedStatus) {
+        statusId = namedStatus.id
+      }
+    }
+
     if (!statusId) {
-      const defaultStatus = this.ctx.db.prepare(`
-        SELECT id FROM ${T.statuses}
-        WHERE project_id = ? AND is_default = 1
-      `).get(projectId) as { id: string } | undefined
+      // Get default status from workflow
+      const defaultStatus = this.ctx.drizzle
+        .select({ id: pmoWorkflowStatuses.id })
+        .from(pmoWorkflowStatuses)
+        .where(and(
+          eq(pmoWorkflowStatuses.workflowId, workflowId),
+          eq(pmoWorkflowStatuses.isDefault, true)
+        ))
+        .get()
 
       if (defaultStatus) {
         statusId = defaultStatus.id
       } else {
-        const firstStatus = this.ctx.db.prepare(`
-          SELECT id FROM ${T.statuses}
-          WHERE project_id = ?
-          ORDER BY
-            CASE category
+        // Fall back to first status in workflow (by category then position)
+        const firstStatus = this.ctx.drizzle
+          .select({ id: pmoWorkflowStatuses.id })
+          .from(pmoWorkflowStatuses)
+          .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+          .orderBy(
+            sql`CASE ${pmoWorkflowStatuses.category}
               WHEN 'backlog' THEN 1
               WHEN 'unstarted' THEN 2
               WHEN 'started' THEN 3
               WHEN 'completed' THEN 4
               WHEN 'canceled' THEN 5
-            END,
-            position ASC
-          LIMIT 1
-        `).get(projectId) as { id: string } | undefined
+            END`,
+            asc(pmoWorkflowStatuses.position)
+          )
+          .limit(1)
+          .get()
 
         if (firstStatus) {
           statusId = firstStatus.id
         } else {
           throw new PMOError(
             'NOT_FOUND',
-            'No statuses found. Apply a workflow template first.'
+            'No statuses found in workflow. Apply a workflow template first.'
           )
         }
       }
     }
 
+    // Get next position for the target status (append to end with gapped integer)
+    const maxPos = this.ctx.drizzle
+      .select({ maxPos: sql<number>`COALESCE(MAX(${pmoTickets.position}), 0)` })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.statusId, statusId!))
+      .get()
+    const position = (maxPos?.maxPos ?? 0) + 1000
+
     // Insert ticket
     const labels = ticket.labels || []
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.tickets} (
-        id, project_id, title, description, priority, category,
-        status_id, owner, assignee, spec_id, epic_id, labels,
-        created_at, updated_at, last_synced_from_spec, last_synced_from_board
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      projectId,
-      title,
-      ticket.description || null,
-      ticket.priority || null,
-      ticket.category || null,
-      statusId,
-      ticket.owner || null,
-      ticket.assignee || null,
-      specId,
-      ticket.epicId || null,
-      JSON.stringify(labels),
-      now,
-      now,
-      ticket.lastSyncedFromSpec || null,
-      ticket.lastSyncedFromBoard || null
-    )
-
-    // Insert into board_tickets
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.board_tickets} (project_id, ticket_id, column_id, position)
-      VALUES (?, ?, ?, ?)
-    `).run(projectId, id, columnId, position)
+    try {
+      const ticketValues: typeof pmoTickets.$inferInsert = {
+        id,
+        projectId,
+        title,
+        description: ticket.description || null,
+        priority: ticket.priority || null,
+        category: validatedCategory,
+        status: 'backlog',
+        statusId: statusId,
+        owner: ticket.owner || null,
+        assignee: ticket.assignee || null,
+        specId,
+        epicId: ticket.epicId || null,
+        labels: JSON.stringify(labels),
+        position,
+        createdAt: String(now),
+        updatedAt: String(now),
+        lastSyncedFromSpec: ticket.lastSyncedFromSpec ? String(ticket.lastSyncedFromSpec) : null,
+        lastSyncedFromBoard: ticket.lastSyncedFromBoard ? String(ticket.lastSyncedFromBoard) : null,
+      }
+      this.ctx.drizzle.insert(pmoTickets).values(ticketValues).run()
+    } catch (err) {
+      wrapSqliteError('Ticket', 'create', err)
+    }
 
     // Insert subtasks
     if (ticket.subtasks && ticket.subtasks.length > 0) {
-      const insertSubtask = this.ctx.db.prepare(`
-        INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
-        VALUES (?, ?, ?, ?, ?)
-      `)
-      ticket.subtasks.forEach((st, idx) => {
-        insertSubtask.run(st.id || slugify(st.title), id, st.title, st.done ? 1 : 0, idx)
-      })
+      for (const [idx, st] of ticket.subtasks.entries()) {
+        this.ctx.drizzle.insert(pmoSubtasks).values({
+          id: st.id || slugify(st.title),
+          ticketId: id,
+          title: st.title,
+          done: st.done || false,
+          position: idx,
+        }).run()
+      }
     }
 
     // Insert metadata
     if (ticket.metadata) {
-      const insertMeta = this.ctx.db.prepare(`
-        INSERT INTO ${T.ticket_metadata} (ticket_id, key, value)
-        VALUES (?, ?, ?)
-      `)
       for (const [key, value] of Object.entries(ticket.metadata)) {
-        insertMeta.run(id, key, value)
+        this.ctx.drizzle.insert(pmoTicketMetadata).values({
+          ticketId: id,
+          key,
+          value,
+        }).run()
       }
     }
 
@@ -145,19 +285,42 @@ export class TicketStorage {
   /**
    * Get a ticket by ID (internal).
    * Looks up by ticket ID only - no project scoping required since ticket IDs are globally unique.
+   * Joins workflow_statuses to get column name (status name is the column).
    */
   async getTicketById(id: string): Promise<Ticket | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT t.*, bt.column_id, bt.position, c.name as column_name
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
-      LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
-      WHERE LOWER(t.id) = LOWER(?)
-    `).get(id) as TicketRow | undefined
+    const rows = this.ctx.drizzle
+      .select({
+        id: pmoTickets.id,
+        project_id: pmoTickets.projectId,
+        title: pmoTickets.title,
+        description: pmoTickets.description,
+        priority: pmoTickets.priority,
+        category: pmoTickets.category,
+        status_id: pmoTickets.statusId,
+        owner: pmoTickets.owner,
+        assignee: pmoTickets.assignee,
+        branch: pmoTickets.branch,
+        spec_id: pmoTickets.specId,
+        epic_id: pmoTickets.epicId,
+        labels: pmoTickets.labels,
+        position: pmoTickets.position,
+        created_at: pmoTickets.createdAt,
+        updated_at: pmoTickets.updatedAt,
+        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
+        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
+        column_id: pmoWorkflowStatuses.id,
+        column_name: pmoWorkflowStatuses.name,
+        project_name: sql<string | null>`NULL`,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .where(sql`LOWER(${pmoTickets.id}) = LOWER(${id})`)
+      .all()
 
-    if (!row) return null
+    if (rows.length === 0) return null
+    const row = rows[0] as unknown as TicketRow
 
-    return rowToTicket(this.ctx.db, row)
+    return rowToTicket(this.ctx.drizzle, row)
   }
 
   /**
@@ -170,89 +333,63 @@ export class TicketStorage {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
-
-    if (changes.title !== undefined) {
-      updates.push('title = ?')
-      params.push(changes.title)
-    }
-    if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description)
-    }
-    if (changes.priority !== undefined) {
-      updates.push('priority = ?')
-      params.push(changes.priority)
-    }
+    // Validate category if being updated
+    let validatedCategory: string | null | undefined
     if (changes.category !== undefined) {
-      updates.push('category = ?')
-      params.push(changes.category)
+      validatedCategory = await this.validateCategory(changes.category)
     }
-    if (changes.statusId !== undefined) {
-      updates.push('status_id = ?')
-      params.push(changes.statusId)
-    }
-    if (changes.owner !== undefined) {
-      updates.push('owner = ?')
-      params.push(changes.owner)
-    }
-    if (changes.assignee !== undefined) {
-      updates.push('assignee = ?')
-      params.push(changes.assignee)
-    }
-    if (changes.branch !== undefined) {
-      updates.push('branch = ?')
-      params.push(changes.branch)
-    }
-    if (changes.specId !== undefined) {
-      updates.push('spec_id = ?')
-      params.push(changes.specId)
-    }
+
+    const updates: Partial<typeof pmoTickets.$inferInsert> = {}
+
+    if (changes.title !== undefined) updates.title = changes.title
+    if (changes.description !== undefined) updates.description = changes.description
+    if (changes.priority !== undefined) updates.priority = changes.priority
+    if (validatedCategory !== undefined) updates.category = validatedCategory
+    if (changes.statusId !== undefined) updates.statusId = changes.statusId
+    if (changes.owner !== undefined) updates.owner = changes.owner
+    if (changes.assignee !== undefined) updates.assignee = changes.assignee
+    if (changes.branch !== undefined) updates.branch = changes.branch
+    if (changes.specId !== undefined) updates.specId = changes.specId
     if (changes.lastSyncedFromSpec !== undefined) {
-      updates.push('last_synced_from_spec = ?')
-      params.push(changes.lastSyncedFromSpec)
+      updates.lastSyncedFromSpec = changes.lastSyncedFromSpec as unknown as string
     }
     if (changes.lastSyncedFromBoard !== undefined) {
-      updates.push('last_synced_from_board = ?')
-      params.push(changes.lastSyncedFromBoard)
+      updates.lastSyncedFromBoard = changes.lastSyncedFromBoard as unknown as string
     }
-    if (changes.labels !== undefined) {
-      updates.push('labels = ?')
-      params.push(JSON.stringify(changes.labels))
-    }
+    if (changes.labels !== undefined) updates.labels = JSON.stringify(changes.labels)
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?')
-      params.push(Date.now())
-      params.push(id)
-
-      this.ctx.db.prepare(`UPDATE ${T.tickets} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = String(Date.now())
+      this.ctx.drizzle
+        .update(pmoTickets)
+        .set(updates)
+        .where(eq(pmoTickets.id, id))
+        .run()
     }
 
     // Update subtasks if provided
     if (changes.subtasks !== undefined) {
-      this.ctx.db.prepare(`DELETE FROM ${T.subtasks} WHERE ticket_id = ?`).run(id)
-      const insertSubtask = this.ctx.db.prepare(`
-        INSERT INTO ${T.subtasks} (id, ticket_id, title, done, position)
-        VALUES (?, ?, ?, ?, ?)
-      `)
-      changes.subtasks.forEach((st, idx) => {
-        insertSubtask.run(st.id || slugify(st.title), id, st.title, st.done ? 1 : 0, idx)
-      })
+      this.ctx.drizzle.delete(pmoSubtasks).where(eq(pmoSubtasks.ticketId, id)).run()
+      for (const [idx, st] of changes.subtasks.entries()) {
+        this.ctx.drizzle.insert(pmoSubtasks).values({
+          id: st.id || slugify(st.title),
+          ticketId: id,
+          title: st.title,
+          done: st.done || false,
+          position: idx,
+        }).run()
+      }
     }
 
     // Update metadata if provided
     if (changes.metadata !== undefined) {
-      this.ctx.db.prepare(`DELETE FROM ${T.ticket_metadata} WHERE ticket_id = ?`).run(id)
-      const insertMeta = this.ctx.db.prepare(`
-        INSERT INTO ${T.ticket_metadata} (ticket_id, key, value)
-        VALUES (?, ?, ?)
-      `)
+      this.ctx.drizzle.delete(pmoTicketMetadata).where(eq(pmoTicketMetadata.ticketId, id)).run()
       for (const [key, value] of Object.entries(changes.metadata)) {
-        insertMeta.run(id, key, value)
+        this.ctx.drizzle.insert(pmoTicketMetadata).values({
+          ticketId: id,
+          key,
+          value,
+        }).run()
       }
     }
 
@@ -268,15 +405,18 @@ export class TicketStorage {
    * Update the timestamp for a specific project.
    */
   private updateProjectTimestamp(projectId: string): void {
-    this.ctx.db.prepare(`
-      UPDATE ${T.projects}
-      SET updated_at = ?
-      WHERE id = ?
-    `).run(Date.now(), projectId)
+    this.ctx.drizzle
+      .update(pmoProjects)
+      .set({ updatedAt: String(Date.now()) })
+      .where(eq(pmoProjects.id, projectId))
+      .run()
   }
 
   /**
-   * Move a ticket to a different column/position.
+   * Move a ticket to a different status (column).
+   * In the workflow-based system, columns ARE statuses.
+   * If position is provided, the ticket is placed at that position.
+   * Otherwise, the ticket is appended to the end of the target status.
    */
   async moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket> {
     const existing = await this.getTicketById(id)
@@ -284,89 +424,183 @@ export class TicketStorage {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    // Find target column
-    const targetColumn = this.ctx.db.prepare(`
-      SELECT id FROM ${T.columns}
-      WHERE project_id = ? AND (id = ? OR name = ?)
-    `).get(projectId, column, column) as { id: string } | undefined
+    // Get project's workflow
+    const project = this.ctx.drizzle
+      .select({ workflowId: pmoProjects.workflowId })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, projectId))
+      .get()
 
-    if (!targetColumn) {
-      throw new PMOError('NOT_FOUND', `Column not found: ${column}`)
+    if (!project) {
+      throw new PMOError('NOT_FOUND', `Project not found: ${projectId}`)
     }
 
-    const targetColumnId = targetColumn.id
-    const pos = position ?? getMaxTicketPosition(this.ctx.db, projectId, targetColumnId) + 1
+    const workflowId = project.workflowId || 'default'
 
-    // Get current position
-    const currentBoardPos = this.ctx.db.prepare(`
-      SELECT column_id, position FROM ${T.board_tickets}
-      WHERE project_id = ? AND ticket_id = ?
-    `).get(projectId, id) as { column_id: string; position: number } | undefined
+    // Find target status by ID or name
+    const targetStatus = this.ctx.drizzle
+      .select({ id: pmoWorkflowStatuses.id })
+      .from(pmoWorkflowStatuses)
+      .where(and(
+        eq(pmoWorkflowStatuses.workflowId, workflowId),
+        or(
+          eq(pmoWorkflowStatuses.id, column),
+          sql`LOWER(${pmoWorkflowStatuses.name}) = LOWER(${column})`
+        )
+      ))
+      .get()
 
-    if (!currentBoardPos) {
-      throw new PMOError('NOT_FOUND', `Board position not found for ticket: ${id}`)
+    if (!targetStatus) {
+      throw new PMOError('NOT_FOUND', `Status not found: ${column}`)
     }
 
-    // Adjust positions
-    if (currentBoardPos.column_id === targetColumnId) {
-      if (pos < currentBoardPos.position) {
-        this.ctx.db.prepare(`
-          UPDATE ${T.board_tickets}
-          SET position = position + 1
-          WHERE project_id = ? AND column_id = ? AND position >= ? AND position < ?
-        `).run(projectId, targetColumnId, pos, currentBoardPos.position)
-      } else if (pos > currentBoardPos.position) {
-        this.ctx.db.prepare(`
-          UPDATE ${T.board_tickets}
-          SET position = position - 1
-          WHERE project_id = ? AND column_id = ? AND position > ? AND position <= ?
-        `).run(projectId, targetColumnId, currentBoardPos.position, pos)
-      }
+    // Determine position: use provided or append to end
+    let newPosition: number
+    if (position !== undefined) {
+      newPosition = position
     } else {
-      // Moving to different column
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_tickets}
-        SET position = position - 1
-        WHERE project_id = ? AND column_id = ? AND position > ?
-      `).run(projectId, currentBoardPos.column_id, currentBoardPos.position)
-
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_tickets}
-        SET position = position + 1
-        WHERE project_id = ? AND column_id = ? AND position >= ?
-      `).run(projectId, targetColumnId, pos)
+      const maxPos = this.ctx.drizzle
+        .select({ maxPos: sql<number>`COALESCE(MAX(${pmoTickets.position}), 0)` })
+        .from(pmoTickets)
+        .where(eq(pmoTickets.statusId, targetStatus.id))
+        .get()
+      newPosition = (maxPos?.maxPos ?? 0) + 1000
     }
 
-    // Update board position
-    this.ctx.db.prepare(`
-      UPDATE ${T.board_tickets}
-      SET column_id = ?, position = ?
-      WHERE project_id = ? AND ticket_id = ?
-    `).run(targetColumnId, pos, projectId, id)
-
-    // Update status if matching
-    const matchingStatus = this.ctx.db.prepare(`
-      SELECT id FROM ${T.statuses}
-      WHERE project_id = ? AND LOWER(name) = LOWER(?)
-    `).get(projectId, column) as { id: string } | undefined
-
-    if (matchingStatus) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.tickets}
-        SET updated_at = ?, status_id = ?
-        WHERE id = ?
-      `).run(Date.now(), matchingStatus.id, id)
-    } else {
-      this.ctx.db.prepare(`
-        UPDATE ${T.tickets}
-        SET updated_at = ?
-        WHERE id = ?
-      `).run(Date.now(), id)
-    }
+    // Update ticket's status_id and position
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({
+        statusId: targetStatus.id,
+        position: newPosition,
+        updatedAt: String(Date.now()),
+      })
+      .where(eq(pmoTickets.id, id))
+      .run()
 
     this.ctx.updateBoardTimestamp(projectId)
 
     return (await this.getTicketById(id)) as Ticket
+  }
+
+  /**
+   * Reorder a ticket within its current status.
+   * Supports two modes:
+   * 1. Direct position: set ticket to a specific position value
+   * 2. After ticket: place ticket immediately after another ticket
+   */
+  async reorderTicket(id: string, opts: { position?: number; afterTicketId?: string }): Promise<Ticket> {
+    const existing = await this.getTicketById(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
+    }
+
+    let newPosition: number
+
+    if (opts.afterTicketId) {
+      // Place after the specified ticket
+      const afterTicket = await this.getTicketById(opts.afterTicketId)
+      if (!afterTicket) {
+        throw new PMOError('NOT_FOUND', `Ticket not found: ${opts.afterTicketId}`, opts.afterTicketId)
+      }
+
+      // The after ticket must be in the same status
+      if (afterTicket.statusId !== existing.statusId) {
+        throw new PMOError('INVALID', `Cannot reorder: ${opts.afterTicketId} is in a different status`)
+      }
+
+      const afterPosition = afterTicket.position ?? 0
+
+      // Find the next ticket after the target
+      const nextTicket = this.ctx.drizzle
+        .select({ position: pmoTickets.position })
+        .from(pmoTickets)
+        .where(and(
+          eq(pmoTickets.statusId, existing.statusId!),
+          gt(pmoTickets.position, afterPosition),
+          sql`${pmoTickets.id} != ${id}`
+        ))
+        .orderBy(asc(pmoTickets.position))
+        .limit(1)
+        .get()
+
+      if (nextTicket) {
+        // Place between afterTicket and nextTicket
+        const gap = nextTicket.position - afterPosition
+        if (gap > 1) {
+          newPosition = afterPosition + Math.floor(gap / 2)
+        } else {
+          // No gap - need to re-gap all tickets in this status
+          this.regapPositions(existing.statusId!, id)
+          // Re-read the after ticket position after regapping
+          const refreshedAfter = await this.getTicketById(opts.afterTicketId)
+          const refreshedAfterPos = refreshedAfter?.position ?? 0
+          const refreshedNext = this.ctx.drizzle
+            .select({ position: pmoTickets.position })
+            .from(pmoTickets)
+            .where(and(
+              eq(pmoTickets.statusId, existing.statusId!),
+              gt(pmoTickets.position, refreshedAfterPos),
+              sql`${pmoTickets.id} != ${id}`
+            ))
+            .orderBy(asc(pmoTickets.position))
+            .limit(1)
+            .get()
+          newPosition = refreshedNext
+            ? refreshedAfterPos + Math.floor((refreshedNext.position - refreshedAfterPos) / 2)
+            : refreshedAfterPos + 1000
+        }
+      } else {
+        // Append after the target (no tickets after it)
+        newPosition = afterPosition + 1000
+      }
+    } else if (opts.position !== undefined) {
+      newPosition = opts.position
+    } else {
+      throw new PMOError('INVALID', 'Must provide either position or after_ticket_id')
+    }
+
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({
+        position: newPosition,
+        updatedAt: String(Date.now()),
+      })
+      .where(eq(pmoTickets.id, id))
+      .run()
+
+    if (existing.projectId) {
+      this.ctx.updateBoardTimestamp(existing.projectId)
+    }
+
+    return (await this.getTicketById(id)) as Ticket
+  }
+
+  /**
+   * Re-gap positions for all tickets in a status using 1000-gaps.
+   * Optionally excludes a ticket (e.g., the one being moved).
+   */
+  private regapPositions(statusId: string, excludeTicketId?: string): void {
+    const conditions = [eq(pmoTickets.statusId, statusId)]
+    if (excludeTicketId) {
+      conditions.push(sql`${pmoTickets.id} != ${excludeTicketId}`)
+    }
+
+    const tickets = this.ctx.drizzle
+      .select({ id: pmoTickets.id })
+      .from(pmoTickets)
+      .where(and(...conditions))
+      .orderBy(asc(pmoTickets.position), asc(pmoTickets.createdAt))
+      .all()
+
+    this.ctx.drizzle.transaction((tx) => {
+      tickets.forEach((ticket, idx) => {
+        tx.update(pmoTickets)
+          .set({ position: (idx + 1) * 1000 })
+          .where(eq(pmoTickets.id, ticket.id))
+          .run()
+      })
+    })
   }
 
   /**
@@ -379,123 +613,156 @@ export class TicketStorage {
       throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
     }
 
-    // Use the ticket's actual project ID (required for board position management)
     const ticketProjectId = existing.projectId
     if (!ticketProjectId) {
       throw new PMOError('INVALID', `Ticket ${id} has no associated project`, id)
     }
 
-    // Get board position before deleting
-    const boardPos = this.ctx.db.prepare(`
-      SELECT column_id, position FROM ${T.board_tickets}
-      WHERE project_id = ? AND ticket_id = ?
-    `).get(ticketProjectId, id) as { column_id: string; position: number } | undefined
-
     // Delete ticket (by ID only, since IDs are globally unique)
-    const result = this.ctx.db.prepare(`
-      DELETE FROM ${T.tickets}
-      WHERE id = ?
-    `).run(id)
+    // Related data (subtasks, metadata) are deleted via CASCADE
+    try {
+      const result = this.ctx.drizzle
+        .delete(pmoTickets)
+        .where(eq(pmoTickets.id, id))
+        .run()
 
-    if (result.changes === 0) {
-      throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
+      if (result.changes === 0) {
+        throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
+      }
+    } catch (err) {
+      if (err instanceof PMOError) throw err
+      wrapSqliteError('Ticket', 'delete', err)
     }
 
-    // Shift positions in the ticket's actual project
-    if (boardPos) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_tickets}
-        SET position = position - 1
-        WHERE project_id = ? AND column_id = ? AND position > ?
-      `).run(ticketProjectId, boardPos.column_id, boardPos.position)
-    }
-
-    // Update board timestamp for the ticket's actual project
+    // Update board timestamp for the ticket's project
     this.updateProjectTimestamp(ticketProjectId)
   }
 
   /**
    * List tickets with optional filters.
-   * @param projectId - The project to filter by. Pass undefined to list all tickets across all projects.
+   * @param projectIdOrName - The project ID, name, or slug to filter by. Pass undefined to list all tickets across all projects.
    * @param filter - Additional filters to apply.
    */
-  async listTickets(projectId: string | undefined, filter?: TicketFilter): Promise<Ticket[]> {
-    const params: unknown[] = []
+  async listTickets(projectIdOrName: string | undefined, filter?: TicketFilter): Promise<Ticket[]> {
+    // Resolve project identifier to actual ID if provided
+    let resolvedProjectId: string | undefined
+    if (projectIdOrName !== undefined) {
+      resolvedProjectId = this.resolveProjectId(projectIdOrName) || undefined
+      // If resolution fails, use original value to allow normal "not found" behavior
+      if (!resolvedProjectId) {
+        resolvedProjectId = projectIdOrName
+      }
+    }
 
-    // Build the base query - determine project scope
-    let query = `
-      SELECT t.*, bt.column_id, bt.position, c.name as column_name, p.name as project_name
-      FROM ${T.tickets} t
-      LEFT JOIN ${T.board_tickets} bt ON t.id = bt.ticket_id AND t.project_id = bt.project_id
-      LEFT JOIN ${T.columns} c ON bt.project_id = c.project_id AND bt.column_id = c.id
-      LEFT JOIN ${T.statuses} s ON t.status_id = s.id
-      LEFT JOIN ${T.projects} p ON t.project_id = p.id
-      WHERE 1=1
-    `
+    // Build conditions array for dynamic WHERE clause
+    const conditions: ReturnType<typeof eq>[] = []
 
     // Apply project scoping
-    if (projectId !== undefined) {
-      query += ' AND t.project_id = ?'
-      params.push(projectId)
+    if (resolvedProjectId !== undefined) {
+      conditions.push(eq(pmoTickets.projectId, resolvedProjectId))
     }
-    // If projectId is undefined, list all tickets across all projects
 
     if (filter?.statusId) {
-      query += ' AND t.status_id = ?'
-      params.push(filter.statusId)
+      conditions.push(eq(pmoTickets.statusId, filter.statusId))
     }
     if (filter?.statusCategory) {
-      query += ' AND s.category = ?'
-      params.push(filter.statusCategory)
+      conditions.push(eq(pmoWorkflowStatuses.category, filter.statusCategory))
     }
     if (filter?.priority) {
-      query += ' AND t.priority = ?'
-      params.push(filter.priority)
+      conditions.push(eq(pmoTickets.priority, filter.priority))
     }
     if (filter?.category) {
-      query += ' AND t.category = ?'
-      params.push(filter.category)
+      conditions.push(eq(pmoTickets.category, filter.category))
     }
     if (filter?.owner) {
-      query += ' AND t.owner = ?'
-      params.push(filter.owner)
+      conditions.push(eq(pmoTickets.owner, filter.owner))
     }
     if (filter?.assignee) {
-      query += ' AND t.assignee = ?'
-      params.push(filter.assignee)
+      conditions.push(eq(pmoTickets.assignee, filter.assignee))
     }
     if (filter?.search) {
-      query += ' AND (t.title LIKE ? OR t.description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoTickets.title, `%${filter.search}%`),
+          like(pmoTickets.description, `%${filter.search}%`)
+        )!
+      )
     }
     if (filter?.spec) {
-      query += ' AND t.spec_id = ?'
-      params.push(filter.spec)
+      conditions.push(eq(pmoTickets.specId, filter.spec))
     }
     if (filter?.epic) {
-      query += ' AND t.epic_id = ?'
-      params.push(filter.epic)
+      conditions.push(eq(pmoTickets.epicId, filter.epic))
     }
     if (filter?.column) {
-      query += ' AND c.name = ?'
-      params.push(filter.column)
+      conditions.push(eq(pmoWorkflowStatuses.name, filter.column))
+    }
+    if (filter?.label) {
+      conditions.push(
+        sql`${pmoTickets.id} IN (
+          SELECT ${pmoTicketLabels.ticketId} FROM ${pmoTicketLabels}
+          JOIN ${pmoLabels} ON ${pmoTicketLabels.labelId} = ${pmoLabels.id}
+          WHERE LOWER(${pmoLabels.name}) = LOWER(${filter.label})
+        )`
+      )
+    }
+    if (filter?.labelGroup) {
+      conditions.push(
+        sql`${pmoTickets.id} IN (
+          SELECT ${pmoTicketLabels.ticketId} FROM ${pmoTicketLabels}
+          JOIN ${pmoLabels} ON ${pmoTicketLabels.labelId} = ${pmoLabels.id}
+          JOIN ${pmoLabelGroups} ON ${pmoLabels.groupId} = ${pmoLabelGroups.id}
+          WHERE LOWER(${pmoLabelGroups.name}) = LOWER(${filter.labelGroup})
+        )`
+      )
     }
 
-    // Order by project first when listing all projects, then by column and position
-    if (projectId === undefined) {
-      query += ' ORDER BY p.name, c.position, bt.position'
-    } else {
-      query += ' ORDER BY c.position, bt.position'
+    // Build order clause
+    const orderClauses = projectIdOrName === undefined
+      ? [asc(pmoProjects.name), asc(pmoWorkflowStatuses.position), asc(pmoTickets.position), asc(pmoTickets.createdAt)]
+      : [asc(pmoWorkflowStatuses.position), asc(pmoTickets.position), asc(pmoTickets.createdAt)]
+
+    let query = this.ctx.drizzle
+      .select({
+        id: pmoTickets.id,
+        project_id: pmoTickets.projectId,
+        title: pmoTickets.title,
+        description: pmoTickets.description,
+        priority: pmoTickets.priority,
+        category: pmoTickets.category,
+        status_id: pmoTickets.statusId,
+        owner: pmoTickets.owner,
+        assignee: pmoTickets.assignee,
+        branch: pmoTickets.branch,
+        spec_id: pmoTickets.specId,
+        epic_id: pmoTickets.epicId,
+        labels: pmoTickets.labels,
+        position: pmoTickets.position,
+        created_at: pmoTickets.createdAt,
+        updated_at: pmoTickets.updatedAt,
+        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
+        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
+        column_id: pmoWorkflowStatuses.id,
+        column_name: pmoWorkflowStatuses.name,
+        project_name: pmoProjects.name,
+      })
+      .from(pmoTickets)
+      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
+      .leftJoin(pmoProjects, eq(pmoTickets.projectId, pmoProjects.id))
+      .$dynamic()
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions))
     }
 
-    const rows = this.ctx.db.prepare(query).all(...params) as TicketRow[]
+    const rows = query.orderBy(...orderClauses).all() as unknown as TicketRow[]
 
-    return Promise.all(rows.map((row) => rowToTicket(this.ctx.db, row)))
+    return Promise.all(rows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**
    * Move a ticket to a different project.
-   * The ticket will be placed in the first column of the target project's board.
+   * The ticket will get the default status from the target project's workflow.
    */
   async moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket> {
     const existing = await this.getTicketById(ticketId)
@@ -508,97 +775,77 @@ export class TicketStorage {
       throw new PMOError('INVALID', `Ticket ${ticketId} has no associated project`, ticketId)
     }
 
-    // Check if target project exists
-    const targetProject = this.ctx.db.prepare(`
-      SELECT id FROM ${T.projects} WHERE id = ?
-    `).get(newProjectId) as { id: string } | undefined
+    // Check if target project exists and get its workflow
+    const targetProject = this.ctx.drizzle
+      .select({ id: pmoProjects.id, workflowId: pmoProjects.workflowId })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.id, newProjectId))
+      .get()
 
     if (!targetProject) {
       throw new PMOError('NOT_FOUND', `Project not found: ${newProjectId}`, newProjectId)
     }
 
-    // Get first column of target project
-    const firstColumn = this.ctx.db.prepare(`
-      SELECT id FROM ${T.columns}
-      WHERE project_id = ?
-      ORDER BY position LIMIT 1
-    `).get(newProjectId) as { id: string } | undefined
+    const workflowId = targetProject.workflowId || 'default'
 
-    if (!firstColumn) {
-      throw new PMOError('NOT_FOUND', `No columns exist in project: ${newProjectId}`)
-    }
-
-    // Get old board position before updating
-    const oldBoardPos = this.ctx.db.prepare(`
-      SELECT column_id, position FROM ${T.board_tickets}
-      WHERE project_id = ? AND ticket_id = ?
-    `).get(oldProjectId, ticketId) as { column_id: string; position: number } | undefined
-
-    // Get max position in target column
-    const maxPos = this.ctx.db.prepare(`
-      SELECT MAX(position) as max FROM ${T.board_tickets}
-      WHERE project_id = ? AND column_id = ?
-    `).get(newProjectId, firstColumn.id) as { max: number | null }
-    const newPosition = (maxPos.max ?? -1) + 1
-
-    // Get default status for target project
+    // Get default status for target project's workflow
     let newStatusId: string | undefined
-    const defaultStatus = this.ctx.db.prepare(`
-      SELECT id FROM ${T.statuses}
-      WHERE project_id = ? AND is_default = 1
-    `).get(newProjectId) as { id: string } | undefined
+    const defaultStatus = this.ctx.drizzle
+      .select({ id: pmoWorkflowStatuses.id })
+      .from(pmoWorkflowStatuses)
+      .where(and(
+        eq(pmoWorkflowStatuses.workflowId, workflowId),
+        eq(pmoWorkflowStatuses.isDefault, true)
+      ))
+      .get()
 
     if (defaultStatus) {
       newStatusId = defaultStatus.id
     } else {
-      // Get first status in target project
-      const firstStatus = this.ctx.db.prepare(`
-        SELECT id FROM ${T.statuses}
-        WHERE project_id = ?
-        ORDER BY
-          CASE category
+      // Get first status in workflow
+      const firstStatus = this.ctx.drizzle
+        .select({ id: pmoWorkflowStatuses.id })
+        .from(pmoWorkflowStatuses)
+        .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+        .orderBy(
+          sql`CASE ${pmoWorkflowStatuses.category}
             WHEN 'backlog' THEN 1
             WHEN 'unstarted' THEN 2
             WHEN 'started' THEN 3
             WHEN 'completed' THEN 4
             WHEN 'canceled' THEN 5
-          END,
-          position ASC
-        LIMIT 1
-      `).get(newProjectId) as { id: string } | undefined
+          END`,
+          asc(pmoWorkflowStatuses.position)
+        )
+        .limit(1)
+        .get()
 
       if (firstStatus) {
         newStatusId = firstStatus.id
       }
     }
 
-    // Update ticket's project_id and status_id
+    // Get next position for the target status
+    const targetStatusId = newStatusId || existing.statusId
+    const maxPos = this.ctx.drizzle
+      .select({ maxPos: sql<number>`COALESCE(MAX(${pmoTickets.position}), 0)` })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.statusId, targetStatusId!))
+      .get()
+    const newTicketPosition = (maxPos?.maxPos ?? 0) + 1000
+
+    // Update ticket's project_id, status_id, and position
     const now = Date.now()
-    this.ctx.db.prepare(`
-      UPDATE ${T.tickets}
-      SET project_id = ?, status_id = ?, updated_at = ?
-      WHERE id = ?
-    `).run(newProjectId, newStatusId || existing.statusId, now, ticketId)
-
-    // Update board_tickets: delete old entry and insert new one
-    this.ctx.db.prepare(`
-      DELETE FROM ${T.board_tickets}
-      WHERE project_id = ? AND ticket_id = ?
-    `).run(oldProjectId, ticketId)
-
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.board_tickets} (project_id, ticket_id, column_id, position)
-      VALUES (?, ?, ?, ?)
-    `).run(newProjectId, ticketId, firstColumn.id, newPosition)
-
-    // Shift positions in old project's column
-    if (oldBoardPos) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.board_tickets}
-        SET position = position - 1
-        WHERE project_id = ? AND column_id = ? AND position > ?
-      `).run(oldProjectId, oldBoardPos.column_id, oldBoardPos.position)
-    }
+    this.ctx.drizzle
+      .update(pmoTickets)
+      .set({
+        projectId: newProjectId,
+        statusId: targetStatusId,
+        position: newTicketPosition,
+        updatedAt: String(now),
+      })
+      .where(eq(pmoTickets.id, ticketId))
+      .run()
 
     // Update timestamps for both projects
     this.updateProjectTimestamp(oldProjectId)

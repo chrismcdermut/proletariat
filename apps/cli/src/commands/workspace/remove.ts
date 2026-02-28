@@ -1,6 +1,7 @@
-import { Command, Args, Flags } from '@oclif/core';
+import { Args } from '@oclif/core';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
+import { PromptCommand } from '../../lib/prompt-command.js';
+import { machineOutputFlags } from '../../lib/pmo/index.js';
 import {
   findWorkspacesByName,
   findWorkspaceByPath,
@@ -10,13 +11,11 @@ import {
 } from '../../lib/machine-config.js';
 import {
   shouldOutputJson,
-  outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
-  buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
-export default class WorkspaceRemove extends Command {
+export default class WorkspaceRemove extends PromptCommand {
   static description = 'Unregister a workspace from the machine config (does NOT delete files)';
 
   static examples = [
@@ -32,35 +31,16 @@ export default class WorkspaceRemove extends Command {
   };
 
   static flags = {
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
+    ...machineOutputFlags,
   };
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkspaceRemove);
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags);
-
-    // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
-      if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('workspace remove', flags));
-        this.exit(1);
-      }
-      this.error(message);
-    };
-
     const input = args.nameOrPath;
 
     // Resolve workspace path
-    const workspacePath = await this.resolveWorkspacePath(input, jsonMode, flags);
+    const workspacePath = await this.resolveWorkspacePath(input, flags);
 
     // Check if this is the active workspace
     const activeWorkspace = getActiveWorkspace();
@@ -82,7 +62,7 @@ export default class WorkspaceRemove extends Command {
     }
   }
 
-  private async resolveWorkspacePath(input: string, jsonMode = false, flags: Record<string, unknown> = {}): Promise<string> {
+  private async resolveWorkspacePath(input: string, flags: Record<string, unknown> = {}): Promise<string> {
     // First, try to find by path
     const normalizedPath = normalizePath(input);
     const byPath = findWorkspaceByPath(normalizedPath);
@@ -94,7 +74,7 @@ export default class WorkspaceRemove extends Command {
     const matches = findWorkspacesByName(input);
 
     if (matches.length === 0) {
-      if (jsonMode) {
+      if (shouldOutputJson(flags as { json?: boolean })) {
         outputErrorAsJson('WORKSPACE_NOT_FOUND', `Workspace not found: ${input}`, createMetadata('workspace remove', flags));
         this.exit(1);
       }
@@ -105,33 +85,26 @@ export default class WorkspaceRemove extends Command {
       return matches[0].path;
     }
 
-    // Build choices once, use for both JSON and interactive modes
+    // Build choices with command field for agent navigation
     const workspaceChoices = matches.map((w) => ({
       name: `${w.name} - ${w.path}`,
       value: w.path,
+      command: `prlt workspace remove "${w.path}" --json`,
     }));
-    const message = `Multiple workspaces found with name "${input}". Which workspace do you want to remove?`;
 
-    // In JSON mode, output workspace selection prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'workspacePath', message, workspaceChoices),
-        createMetadata('workspace remove', flags)
-      );
-      this.exit(0);
-    }
+    const jsonModeConfig = { flags: flags as Record<string, unknown> & { json?: boolean }, commandName: 'workspace remove' };
 
-    // Multiple workspaces with same name - prompt user to choose
-    this.log(chalk.yellow(`Multiple workspaces found with name "${input}":`));
-
-    const { selected } = await inquirer.prompt([
+    // this.prompt() handles both modes:
+    // - JSON mode: outputs prompt config as JSON and exits
+    // - Interactive mode: shows inquirer menu
+    const { selected } = await this.prompt<{ selected: string }>([
       {
         type: 'list',
         name: 'selected',
-        message: 'Which workspace do you want to remove?',
+        message: `Multiple workspaces found with name "${input}". Which workspace do you want to remove?`,
         choices: workspaceChoices,
       },
-    ]);
+    ], jsonModeConfig);
 
     return selected;
   }

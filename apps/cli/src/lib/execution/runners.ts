@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- runner implementations require cohesive logic */
 /**
  * Execution Runners
  *
@@ -18,6 +19,7 @@ import {
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
 } from './types.js'
+import { getSetTitleCommands } from '../terminal.js'
 
 // =============================================================================
 // Terminal Title Helpers
@@ -28,8 +30,9 @@ import {
  * Format: "{ticketId}-{action}-{agentName}"
  * Example: "TKT-347-implement-altman"
  */
-function buildSessionName(context: ExecutionContext): string {
-  const action = context.actionName || 'work'
+export function buildSessionName(context: ExecutionContext): string {
+  // Sanitize action name: replace spaces and special chars with hyphens for shell safety
+  const action = (context.actionName || 'work').replace(/\s+/g, '-')
   const agent = context.agentName || 'agent'
   return `${context.ticketId}-${action}-${agent}`
 }
@@ -43,35 +46,158 @@ function buildTmuxWindowName(context: ExecutionContext): string {
   return buildSessionName(context)
 }
 
+// getSetTitleCommands is now imported from '../terminal.js'
+
+// =============================================================================
+// Control Mode Helpers (iTerm -CC integration)
+// =============================================================================
+
+import type { TerminalApp } from './types.js'
+
 /**
- * Generate shell commands to set the terminal tab/window title.
- * Uses ANSI escape sequences that work across most terminal emulators.
+ * Check if tmux control mode (-CC) should be used.
+ * Control mode is only used with iTerm when controlMode is enabled in config.
  *
- * \033]0;Title\007 - Sets both window and tab title (most compatible)
- * \033]1;Title\007 - Sets tab title only (iTerm2, some others)
- * \033]2;Title\007 - Sets window title only
+ * When control mode is active:
+ * - iTerm handles scrolling, selection, and gestures natively
+ * - tmux mouse mode should be disabled to avoid conflicts
  */
-function getSetTitleCommands(title: string): string {
-  // Escape any special characters in the title
-  const safeTitle = title.replace(/[\\'"]/g, '')
-  return `
-# Set terminal tab/window title
-echo -ne "\\033]0;${safeTitle}\\007"
-echo -ne "\\033]1;${safeTitle}\\007"
-`
+export function shouldUseControlMode(terminalApp: TerminalApp, controlModeEnabled: boolean): boolean {
+  return terminalApp === 'iTerm' && controlModeEnabled
+}
+
+/**
+ * Build the tmux mouse option string for session creation.
+ * Enables mouse mode for scroll support in tmux.
+ * To select text or switch tabs, hold Shift or Option to bypass tmux.
+ */
+export function buildTmuxMouseOption(_useControlMode: boolean): string {
+  return ' \\; set-option -g mouse on'
+}
+
+/**
+ * Build the tmux attach command based on control mode.
+ * Uses -u -CC flags for iTerm control mode (native scrolling/selection).
+ * -u forces UTF-8 mode which is required for proper iTerm integration.
+ * Uses regular attach otherwise.
+ */
+export function buildTmuxAttachCommand(useControlMode: boolean, includeUnicodeFlag: boolean = false): string {
+  const unicodeFlag = includeUnicodeFlag ? '-u ' : ''
+  if (useControlMode) {
+    // Always use -u with -CC for proper iTerm integration
+    return `tmux -u -CC attach`
+  }
+  return `tmux ${unicodeFlag}attach`
+}
+
+/**
+ * Configure iTerm tmux preferences for control mode.
+ * - windowMode: whether tmux -CC opens windows as tabs or new windows
+ * - autoHide: automatically bury/hide the control session (the terminal where -CC was run)
+ * @param mode - 'tab' for tabs in current window, 'window' for new windows
+ */
+export function configureITermTmuxPreferences(mode: 'tab' | 'window'): void {
+  try {
+    // OpenTmuxWindowsIn: 0=native windows, 1=new window, 2=tabs in existing window
+    const windowModeValue = mode === 'tab' ? 2 : 1
+    execSync(`defaults write com.googlecode.iterm2 OpenTmuxWindowsIn -int ${windowModeValue}`, { stdio: 'pipe' })
+
+    // AutoHideTmuxClientSession: hide the control channel terminal so it doesn't clutter
+    execSync(`defaults write com.googlecode.iterm2 AutoHideTmuxClientSession -bool true`, { stdio: 'pipe' })
+  } catch {
+    // Non-fatal - preference setting failed but execution can continue
+  }
+}
+
+// Legacy alias for backwards compatibility
+export function configureITermTmuxWindowMode(mode: 'tab' | 'window'): void {
+  configureITermTmuxPreferences(mode)
+}
+
+// =============================================================================
+// Docker Credential Helpers
+// =============================================================================
+
+const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials'
+
+/**
+ * Check if the claude-credentials Docker volume exists.
+ */
+export function credentialsVolumeExists(): boolean {
+  try {
+    execSync(`docker volume inspect ${CLAUDE_CREDENTIALS_VOLUME}`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if valid Claude OAuth credentials exist in the Docker volume.
+ * Returns true if OAuth credentials are stored (even if access token is expired,
+ * since Claude Code handles refresh internally using stored refresh tokens).
+ *
+ * NOTE: This intentionally does NOT check for ANTHROPIC_API_KEY. If the user
+ * has an API key but no OAuth credentials, we want to prompt them to set up
+ * OAuth (which uses their Max subscription) rather than silently burning API credits.
+ */
+export function dockerCredentialsExist(): boolean {
+  try {
+    const result = execSync(
+      `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
+      { stdio: 'pipe', encoding: 'utf-8' }
+    )
+
+    const creds = JSON.parse(result)
+    // Check if OAuth credentials exist. Don't check expiration because
+    // access tokens are short-lived but Claude Code handles token refresh
+    // internally using stored refresh tokens.
+    if (creds.claudeAiOauth?.accessToken) {
+      return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Get Docker credential info for display.
+ * Returns expiration date and subscription type if available.
+ */
+export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?: string } | null {
+  try {
+    const result = execSync(
+      `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
+      { stdio: 'pipe', encoding: 'utf-8' }
+    )
+
+    const creds = JSON.parse(result)
+    if (creds.claudeAiOauth?.expiresAt) {
+      return {
+        expiresAt: new Date(creds.claudeAiOauth.expiresAt),
+        subscriptionType: creds.claudeAiOauth.subscriptionType,
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 // =============================================================================
 // Executor Commands
 // =============================================================================
 
-function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
+export function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
   switch (executor) {
     case 'claude-code':
       if (skipPermissions) {
         // Skip permissions - agent runs autonomously without prompting
         // Note: NO -p flag - we want interactive mode for streaming output in terminal
-        return { cmd: 'claude', args: ['--dangerously-skip-permissions', prompt] }
+        // --permission-mode bypassPermissions: skips the "trust this folder" dialog
+        // --dangerously-skip-permissions: skips tool permission checks
+        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
       }
       // Manual mode - will prompt for each action (still interactive, no -p)
       return { cmd: 'claude', args: [prompt] }
@@ -85,10 +211,104 @@ function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissi
     default:
       if (skipPermissions) {
         // Note: NO -p flag - we want interactive mode for streaming output
-        return { cmd: 'claude', args: ['--dangerously-skip-permissions', prompt] }
+        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
       }
       return { cmd: 'claude', args: [prompt] }
   }
+}
+
+/**
+ * Check if an executor is Claude Code.
+ * Used to gate Claude-specific flags and configuration.
+ */
+export function isClaudeExecutor(executor: ExecutorType): boolean {
+  return executor === 'claude-code'
+}
+
+/**
+ * Get the display name for an executor type.
+ */
+export function getExecutorDisplayName(executor: ExecutorType): string {
+  switch (executor) {
+    case 'claude-code': return 'Claude Code'
+    case 'codex': return 'Codex'
+    case 'aider': return 'Aider'
+    case 'custom': return 'Custom'
+    default: return 'Claude Code'
+  }
+}
+
+/**
+ * Get the npm package name for an executor (for container installation).
+ */
+export function getExecutorPackage(executor: ExecutorType): string | null {
+  switch (executor) {
+    case 'claude-code': return '@anthropic-ai/claude-code'
+    case 'codex': return '@openai/codex'
+    case 'aider': return null  // aider is Python-based, installed via pip
+    case 'custom': return null
+    default: return '@anthropic-ai/claude-code'
+  }
+}
+
+export interface PreflightResult {
+  ok: boolean
+  error?: string
+}
+
+/**
+ * Check executor binary availability on host.
+ */
+export function checkExecutorOnHost(executor: ExecutorType): PreflightResult {
+  const { cmd } = getExecutorCommand(executor, 'preflight')
+  try {
+    execSync(`command -v ${cmd}`, { stdio: 'pipe' })
+    return { ok: true }
+  } catch {
+    const pkg = getExecutorPackage(executor)
+    const installHint = pkg ? `Install it with: npm install -g ${pkg}` : 'Install and configure the executor binary.'
+    return {
+      ok: false,
+      error: `${getExecutorDisplayName(executor)} CLI not found on host (missing "${cmd}"). ${installHint}`,
+    }
+  }
+}
+
+/**
+ * Check executor binary availability inside a container.
+ */
+export function checkExecutorInContainer(executor: ExecutorType, containerId: string): PreflightResult {
+  const { cmd } = getExecutorCommand(executor, 'preflight')
+  try {
+    execSync(`docker exec ${containerId} sh -lc 'command -v ${cmd}'`, { stdio: 'pipe' })
+    return { ok: true }
+  } catch {
+    const pkg = getExecutorPackage(executor)
+    const installHint = pkg ? `Container image is missing ${pkg}.` : `Container image is missing "${cmd}".`
+    return {
+      ok: false,
+      error: `${getExecutorDisplayName(executor)} CLI not found in container (missing "${cmd}"). ${installHint}`,
+    }
+  }
+}
+
+/**
+ * Run executor preflight checks for the target environment.
+ */
+export function runExecutorPreflight(
+  environment: ExecutionEnvironment,
+  executor: ExecutorType,
+  options?: { containerId?: string }
+): PreflightResult {
+  if (environment === 'host') {
+    return checkExecutorOnHost(executor)
+  }
+
+  if (environment === 'devcontainer' && options?.containerId) {
+    return checkExecutorInContainer(executor, options.containerId)
+  }
+
+  return { ok: true }
 }
 
 function buildPrompt(context: ExecutionContext): string {
@@ -141,6 +361,11 @@ function buildPrompt(context: ExecutionContext): string {
   // Note: Branch setup (fetch + checkout/create) is now handled programmatically
   // in work/start.ts before the agent spawns, so no prompt instructions needed
 
+  // Additional instructions from --message flag (appended to any action)
+  if (context.customMessage) {
+    prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
+  }
+
   // END HOOK - Action-specific completion instructions
   prompt += `\n---\n\n## When Complete\n\n`
 
@@ -187,6 +412,9 @@ function buildPrompt(context: ExecutionContext): string {
       prompt += `When you have completed the task, provide a summary of what you did.`
     }
   }
+
+  // Universal stop instruction - prevents Claude Code from making additional API calls after task completion
+  prompt += `\n\n---\n\n**STOP:** After providing your final summary, your task is complete. Do not take any further actions, do not verify your work again, and do not continue the conversation. Simply output your summary and stop.`
 
   return prompt
 }
@@ -237,7 +465,7 @@ export async function runHost(
   const prompt = buildPrompt(context)
   // Terminal - use sandboxed setting
   const skipPermissions = !config.sandboxed
-  const { cmd } = getExecutorCommand(executor, prompt, skipPermissions)
+  const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
 
   // Write command to temp script to avoid shell escaping issues
   // Use HQ .proletariat/scripts if available, otherwise fallback to home dir
@@ -253,12 +481,24 @@ export async function runHost(
   // Write prompt to separate file to avoid any shell escaping issues
   fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
 
-  // Build flags based on config
-  const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
-  // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
-  const printFlag = config.outputMode === 'print' ? '-p ' : ''
+  // Build the executor command using getExecutorCommand() output
+  // For Claude Code, we also support outputMode and additional flags
+  // For non-Claude executors, we use the command as-is from getExecutorCommand()
+  let executorInvocation: string
+  if (isClaudeExecutor(executor)) {
+    // Build flags based on config - Claude-specific flags
+    const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
+    // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
+    const printFlag = config.outputMode === 'print' ? '-p ' : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"`
+  } else {
+    // Non-Claude executors: build command from getExecutorCommand() args
+    // Replace the prompt in args with a file read to avoid shell escaping
+    const argsWithFile = args.map(a => a === prompt ? '"$(cat "$PROMPT_PATH")"' : `"${a}"`)
+    executorInvocation = `${cmd} ${argsWithFile.join(' ')}`
+  }
 
-  // Build script that runs claude and keeps shell open after completion
+  // Build script that runs executor and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
@@ -268,7 +508,7 @@ ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
 cd "${context.worktreePath}"
-${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"
+${executorInvocation}
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
@@ -285,9 +525,15 @@ exec $SHELL
 
     const terminalApp = config.terminal.app
 
+    // Check if we should use iTerm control mode (-CC)
+    // When using -CC, iTerm handles scrolling/selection natively, so we DON'T set mouse on
+    // Without -CC, we need mouse on for tmux to handle scrolling
+    const useControlMode = shouldUseControlMode(terminalApp, config.tmux.controlMode)
+
     // Step 1: Create host tmux session (detached)
-    // Enable mouse mode for native scrolling
-    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}" \\; set-option -g mouse on \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    // Only enable mouse mode if NOT using control mode (control mode lets iTerm handle mouse natively)
+    const mouseOption = buildTmuxMouseOption(useControlMode)
+    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
 
     try {
       execSync(tmuxCmd, { stdio: 'pipe' })
@@ -298,7 +544,7 @@ exec $SHELL
       }
     }
 
-    // Step 2: Open terminal tab attached to tmux session (unless background mode)
+    // Step 2: Open terminal tab attached to tmux session (unless background or foreground mode)
     if (displayMode === 'background') {
       return {
         success: true,
@@ -306,39 +552,139 @@ exec $SHELL
       }
     }
 
-    // NOTE: Don't use tmux -CC here. While -CC gives native iTerm scrolling,
-    // it also causes iTerm to create new windows for tmux sessions.
-    // Regular tmux attach inside an iTerm tab works well with mouse mode enabled.
-    // User can reattach with `prlt session attach` which offers -CC option.
-    // Use clear before attach to ensure clean display
-    const attachCmd = `clear && tmux attach -t \\"${sessionName}\\"`
+    // Foreground mode: attach to tmux session in current terminal (blocking)
+    if (displayMode === 'foreground') {
+      try {
+        // Clear screen and attach - this blocks until user detaches or claude exits
+        // Use -CC for iTerm when control mode is enabled
+        const fgTmuxAttach = buildTmuxAttachCommand(useControlMode)
+        execSync(`clear && ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
+        return {
+          success: true,
+          sessionId: sessionName,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to attach to tmux session: ${error instanceof Error ? error.message : error}`,
+        }
+      }
+    }
 
-    switch (terminalApp) {
-      case 'iTerm':
-        // iTerm2 - new tab in current window
-        // Write the tmux attach command directly (no script file needed)
+    // Use tmux -CC (control mode) for iTerm when enabled in config
+    // -CC gives native iTerm scrolling, selection, and gesture support
+    // Without -CC, use regular attach (relies on mouse mode for scrolling)
+    const tmuxAttach = buildTmuxAttachCommand(useControlMode)
+    const attachCmd = `clear && ${tmuxAttach} -t \\"${sessionName}\\"`
+
+    // For iTerm with control mode, create a new tab and run -CC attach there
+    // This avoids interfering with the terminal where prlt is running
+    if (terminalApp === 'iTerm' && useControlMode) {
+      // Configure iTerm to open tmux windows as tabs or windows based on user preference
+      configureITermTmuxWindowMode(config.tmux.windowMode)
+
+      const openInBackground = config.terminal.openInBackground ?? true
+
+      if (openInBackground) {
+        // Open tab without stealing focus - save frontmost app and restore after
+        execSync(`osascript -e '
+          set frontApp to path to frontmost application as text
+          tell application "iTerm"
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "tmux -u -CC attach -t \\"${sessionName}\\""
+              end tell
+            end tell
+          end tell
+          tell application frontApp to activate
+        '`)
+      } else {
         execSync(`osascript -e '
           tell application "iTerm"
             activate
-            if (count of windows) = 0 then
-              create window with default profile
-              delay 0.3
-              tell current session of current window
-                set name to "${windowTitle}"
-                write text "${attachCmd}"
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "tmux -u -CC attach -t \\"${sessionName}\\""
               end tell
-            else
-              tell current window
-                set newTab to (create tab with default profile)
+            end tell
+          end tell
+        '`)
+      }
+      return {
+        success: true,
+        sessionId: sessionName,
+      }
+    }
+
+    // Check if we should open in background (don't steal focus)
+    const openInBackground = config.terminal.openInBackground ?? true
+
+    switch (terminalApp) {
+      case 'iTerm':
+        // Without control mode, create a new tab and attach normally
+        // When openInBackground is true, save frontmost app and restore after
+        if (openInBackground) {
+          execSync(`osascript -e '
+            -- Save the currently active application and window
+            tell application "System Events"
+              set frontApp to name of first application process whose frontmost is true
+              set frontAppBundle to bundle identifier of first application process whose frontmost is true
+            end tell
+
+            tell application "iTerm"
+              if (count of windows) = 0 then
+                create window with default profile
                 delay 0.3
-                tell current session of newTab
+                tell current session of current window
                   set name to "${windowTitle}"
                   write text "${attachCmd}"
                 end tell
-              end tell
-            end if
-          end tell
-        '`)
+              else
+                tell current window
+                  set newTab to (create tab with default profile)
+                  delay 0.3
+                  tell current session of newTab
+                    set name to "${windowTitle}"
+                    write text "${attachCmd}"
+                  end tell
+                end tell
+              end if
+            end tell
+
+            -- Restore focus to the original application
+            delay 0.2
+            tell application "System Events"
+              set frontmost of process frontApp to true
+            end tell
+            delay 0.1
+            do shell script "open -b " & quoted form of frontAppBundle
+          '`)
+        } else {
+          execSync(`osascript -e '
+            tell application "iTerm"
+              activate
+              if (count of windows) = 0 then
+                create window with default profile
+                delay 0.3
+                tell current session of current window
+                  set name to "${windowTitle}"
+                  write text "${attachCmd}"
+                end tell
+              else
+                tell current window
+                  set newTab to (create tab with default profile)
+                  delay 0.3
+                  tell current session of newTab
+                    set name to "${windowTitle}"
+                    write text "${attachCmd}"
+                  end tell
+                end tell
+              end if
+            end tell
+          '`)
+        }
         break
 
       case 'Ghostty':
@@ -388,18 +734,31 @@ exec $SHELL
       case 'Terminal':
       default:
         // macOS Terminal.app - new tab
-        execSync(`osascript -e '
-          tell application "Terminal"
-            activate
-            tell application "System Events"
-              tell process "Terminal"
-                keystroke "t" using command down
-              end tell
+        // Note: Terminal.app with System Events keystrokes requires activation for Cmd+T
+        // But we can use 'do script' which opens a new window without activation if needed
+        if (openInBackground) {
+          // Open in background: use 'do script' which creates a new window without activating
+          execSync(`osascript -e '
+            tell application "Terminal"
+              do script "${attachCmd}"
+              set custom title of front window to "${windowTitle}"
             end tell
-            delay 0.3
-            do script "${attachCmd}" in front window
-          end tell
-        '`)
+          '`)
+        } else {
+          // Bring to front: use traditional Cmd+T for new tab
+          execSync(`osascript -e '
+            tell application "Terminal"
+              activate
+              tell application "System Events"
+                tell process "Terminal"
+                  keystroke "t" using command down
+                end tell
+              end tell
+              delay 0.3
+              do script "${attachCmd}" in front window
+            end tell
+          '`)
+        }
         break
     }
 
@@ -416,25 +775,488 @@ exec $SHELL
 }
 
 // =============================================================================
+// GitHub Token Check
+// =============================================================================
+
+/**
+ * Check if GitHub token is available for git push operations.
+ * Checks environment variables first, then tries gh auth token.
+ * Returns the token if available, null otherwise.
+ */
+export function getGitHubToken(): string | null {
+  // Check environment variables first
+  if (process.env.GITHUB_TOKEN) {
+    return process.env.GITHUB_TOKEN
+  }
+  if (process.env.GH_TOKEN) {
+    return process.env.GH_TOKEN
+  }
+
+  // Try to get token from gh CLI
+  try {
+    const token = execSync('gh auth token', { encoding: 'utf-8', stdio: 'pipe' }).trim()
+    if (token) {
+      return token
+    }
+  } catch {
+    // gh auth token failed - user not logged in
+  }
+
+  return null
+}
+
+/**
+ * Check if GitHub token is available.
+ * Returns true if token is available via env vars or gh CLI.
+ */
+export function isGitHubTokenAvailable(): boolean {
+  return getGitHubToken() !== null
+}
+
+// =============================================================================
 // Docker Status Check
 // =============================================================================
 
 /**
  * Check if Docker daemon is running.
  * Returns true if Docker is available and responsive.
+ * Uses retry logic to handle slow Docker Desktop startup.
  */
 export function isDockerRunning(): boolean {
+  const maxRetries = 3
+  const timeout = 10000 // 10 seconds
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      execSync('docker info', { stdio: 'pipe', timeout })
+      return true
+    } catch {
+      if (attempt === maxRetries) {
+        return false
+      }
+      // Brief pause before retry
+    }
+  }
+  return false
+}
+
+/**
+ * Check if the devcontainer CLI is installed.
+ * Returns true if the CLI is available, false otherwise.
+ * @deprecated No longer required - we use raw Docker commands now
+ */
+export function isDevcontainerCliInstalled(): boolean {
+  // Always return true since we no longer require devcontainer CLI
+  // We use raw Docker commands instead
+  return true
+}
+
+// =============================================================================
+// Docker Container Management (Raw Docker, no devcontainer CLI)
+// =============================================================================
+
+/**
+ * Get the container name for an agent.
+ * Format: prlt-agent-{agentName}
+ */
+export function getAgentContainerName(agentName: string): string {
+  // Sanitize agent name for Docker container naming (alphanumeric, dash, underscore only)
+  const sanitized = agentName.replace(/[^a-zA-Z0-9_-]/g, '-')
+  return `prlt-agent-${sanitized}`
+}
+
+// Alias for internal use
+const getContainerName = getAgentContainerName
+
+/**
+ * Get the image name for an agent.
+ * Format: prlt-agent-{agentName}:latest
+ */
+function getImageName(agentName: string): string {
+  const sanitized = agentName.replace(/[^a-zA-Z0-9_-]/g, '-')
+  return `prlt-agent-${sanitized}:latest`
+}
+
+/**
+ * Check if a Docker container exists (running or stopped).
+ */
+export function containerExists(containerName: string): boolean {
   try {
-    execSync('docker info', { stdio: 'pipe', timeout: 5000 })
+    execSync(`docker container inspect ${containerName}`, { stdio: 'pipe' })
     return true
-  } catch (err) {
-    console.debug('[runners:docker] Docker not running:', err)
+  } catch {
     return false
   }
 }
 
+/**
+ * Check if a Docker container is running.
+ */
+export function isContainerRunning(containerName: string): boolean {
+  try {
+    const status = execSync(
+      `docker container inspect -f '{{.State.Running}}' ${containerName}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim()
+    return status === 'true'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Get the container ID for a running container.
+ */
+export function getContainerId(containerName: string): string | null {
+  try {
+    const containerId = execSync(
+      `docker container inspect -f '{{.Id}}' ${containerName}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim()
+    return containerId ? containerId.substring(0, 12) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Build Docker image for an agent from its Dockerfile.
+ */
+function buildDockerImage(agentDir: string, imageName: string, buildArgs: Record<string, string> = {}): boolean {
+  const dockerfilePath = path.join(agentDir, '.devcontainer', 'Dockerfile')
+  if (!fs.existsSync(dockerfilePath)) {
+    console.debug(`[runners:docker] Dockerfile not found at ${dockerfilePath}`)
+    return false
+  }
+
+  try {
+    // Build --build-arg flags
+    const buildArgFlags = Object.entries(buildArgs)
+      .map(([key, value]) => `--build-arg ${key}="${value}"`)
+      .join(' ')
+
+    const buildCmd = `docker build -t ${imageName} -f "${dockerfilePath}" ${buildArgFlags} "${path.join(agentDir, '.devcontainer')}"`
+    console.debug(`[runners:docker] Building image: ${buildCmd}`)
+    execSync(buildCmd, { stdio: 'pipe' })
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to build image:`, error)
+    return false
+  }
+}
+
+/**
+ * Check if a Docker image exists.
+ */
+function imageExists(imageName: string): boolean {
+  try {
+    execSync(`docker image inspect ${imageName}`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Create and start a Docker container for an agent.
+ * Uses raw Docker commands instead of devcontainer CLI.
+ */
+function createDockerContainer(
+  context: ExecutionContext,
+  containerName: string,
+  imageName: string,
+  config: ExecutionConfig,
+  executor: ExecutorType = 'claude-code'
+): boolean {
+  // Build mount flags
+  // KEY: Use a named Docker volume for Claude credentials - this is how devcontainer.json
+  // was handling it. The volume persists across containers, so login once = logged in everywhere.
+  // This avoids corruption from concurrent writes to host filesystem.
+  //
+  // TKT-801: Use :cached mount option to reduce grpcfuse contention on Docker Desktop.
+  // This improves performance and helps prevent kernel panics when multiple containers
+  // mount the same paths concurrently.
+  const mounts: string[] = [
+    // Agent workspace
+    `-v "${context.agentDir}:/workspace:cached"`,
+    // HQ .proletariat directory (for database access) - use :cached to reduce contention
+    ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat:cached"`] : []),
+    // PMO path - use :cached to reduce contention
+    ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo:cached"`] : []),
+    // Mount parent repos for git worktree resolution - use :cached to reduce contention
+    // NOTE: Cannot use :ro because git worktrees share the object store with parent repo.
+    // Commits write to parent's .git/objects/ and refs update in .git/worktrees/<name>/
+    // Worktree .git files reference paths like /Users/.../repos/{repoName}/.git/worktrees/name
+    // These mounts make those paths accessible inside the container at /hq/repos/{repoName}
+    ...(context.repoWorktrees || []).map(
+      repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:cached"`
+    ),
+    // Claude credentials - shared named volume (login once, all containers share)
+    // Only needed for Claude Code executor
+    ...(isClaudeExecutor(executor) ? [`-v "claude-credentials:/home/node/.claude"`] : []),
+  ]
+
+  // Build environment flags
+  const hasWorktrees = context.repoWorktrees && context.repoWorktrees.length > 0
+  const firewallAllowlistDomains = [...new Set((config.firewall?.allowlistDomains || [])
+    .map(domain => domain.trim().toLowerCase())
+    .filter(domain => /^[a-z0-9.-]+$/.test(domain)))]
+  const envVars: string[] = [
+    `-e DEVCONTAINER=true`,
+    `-e PRLT_HQ_PATH=/hq`,
+    `-e PRLT_AGENT_NAME="${context.agentName}"`,
+    `-e PRLT_HOST_PATH="${context.agentDir}"`,
+    // Only pass ANTHROPIC_API_KEY if the user explicitly chose to use it (no OAuth creds).
+    // Claude Code prefers API key over OAuth, so passing it would cause agents to burn
+    // API credits instead of using Max subscription.
+    ...(context.useApiKey && process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
+    ...(process.env.GITHUB_TOKEN ? [`-e GITHUB_TOKEN="${process.env.GITHUB_TOKEN}"`] : []),
+    ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
+    ...(firewallAllowlistDomains.length > 0 ? [`-e PRLT_EXTRA_ALLOWLIST_DOMAINS="${firewallAllowlistDomains.join(',')}"`] : []),
+    // NOTE: Do NOT pass CLAUDE_CODE_OAUTH_TOKEN - it overrides credentials file
+    // and setup-token generates invalid tokens. Use "prlt agent auth" instead.
+    // Set mount mode to worktree if we have repo worktrees - triggers git wrapper setup
+    ...(hasWorktrees ? [`-e PRLT_MOUNT_MODE=worktree`] : []),
+  ]
+
+  // Resource limits
+  const resourceFlags = [
+    `--memory=${config.devcontainer.memory}`,
+    `--cpus=${config.devcontainer.cpus}`,
+  ]
+
+  // Security flags - these provide the sandboxing
+  const securityFlags = [
+    '--cap-add=NET_ADMIN',   // For firewall setup
+    '--cap-add=NET_RAW',     // For firewall setup
+    // Note: After firewall is set up, the container is network-restricted
+  ]
+
+  try {
+    const createCmd = [
+      'docker run -d',
+      `--name ${containerName}`,
+      '--user node',
+      '-w /workspace',
+      ...mounts,
+      ...envVars,
+      ...resourceFlags,
+      ...securityFlags,
+      imageName,
+      'sleep infinity',  // Keep container running
+    ].join(' ')
+
+    console.debug(`[runners:docker] Creating container: ${createCmd}`)
+    execSync(createCmd, { stdio: 'pipe' })
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to create container:`, error)
+    return false
+  }
+}
+
+/**
+ * Run the post-start setup commands in a container.
+ * This includes firewall initialization, prlt setup, and Claude settings.
+ * @param containerId - Docker container ID
+ * @param sandboxed - Whether running in safe mode (true) or danger mode (false)
+ * @param executor - Which executor is being used (determines Claude-specific setup)
+ */
+function runContainerSetup(containerId: string, sandboxed: boolean = true, executor: ExecutorType = 'claude-code'): boolean {
+  try {
+    // Run firewall init (requires sudo since we're running as node user)
+    execSync(
+      `docker exec ${containerId} sudo /usr/local/bin/init-firewall.sh`,
+      { stdio: 'pipe' }
+    )
+    // Run prlt setup
+    execSync(
+      `docker exec ${containerId} /usr/local/bin/setup-prlt.sh`,
+      { stdio: 'pipe' }
+    )
+  } catch (error) {
+    console.debug(`[runners:docker] Container setup scripts failed:`, error)
+    // Continue - setup might partially work
+  }
+
+  // Configure pnpm to use container-local store to prevent contention
+  // Multiple agents sharing the same pnpm store causes hangs and ERR_PNPM errors (TKT-718)
+  // Each container gets its own store at /tmp/pnpm-store for reliability
+  try {
+    execSync(
+      `docker exec ${containerId} pnpm config set store-dir /tmp/pnpm-store`,
+      { stdio: 'pipe' }
+    )
+    console.debug(`[runners:docker] Configured pnpm store-dir to /tmp/pnpm-store`)
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to configure pnpm store (pnpm may not be installed):`, error)
+    // Non-fatal - pnpm may not be installed in all containers
+  }
+
+  // Copy Claude settings file (.claude.json) from host to container
+  // Only needed for Claude Code executor - other executors have their own config
+  if (isClaudeExecutor(executor)) {
+    // This is needed for Claude Code to recognize settings and bypass prompts
+    // Note: Auth tokens are in the claude-credentials volume at /home/node/.claude/.credentials.json
+    // But settings (.claude.json) need to be at /home/node/.claude.json (outside the .claude dir)
+    try {
+      const hostClaudeJson = path.join(os.homedir(), '.claude.json')
+      let settings: Record<string, unknown> = {}
+
+      if (fs.existsSync(hostClaudeJson)) {
+        // Read host file content as base
+        const content = fs.readFileSync(hostClaudeJson, 'utf-8')
+        try {
+          settings = JSON.parse(content)
+        } catch {
+          console.debug('[runners:docker] Failed to parse host .claude.json, using empty settings')
+        }
+      }
+
+      // Only set bypassPermissionsModeAccepted when user chose danger mode (!sandboxed)
+      // This doesn't modify the host file - only the container copy
+      if (!sandboxed) {
+        settings.bypassPermissionsModeAccepted = true
+      }
+
+      // Skip first-run onboarding (theme picker, tips, etc.) for automated agents
+      // These flags indicate Claude Code has been run before
+      settings.numStartups = settings.numStartups || 1
+      settings.hasCompletedOnboarding = true
+      settings.theme = settings.theme || 'dark'
+      // Ensure tipsHistory exists to prevent tip prompts
+      if (!settings.tipsHistory || typeof settings.tipsHistory !== 'object') {
+        settings.tipsHistory = {}
+      }
+      const tips = settings.tipsHistory as Record<string, number>
+      tips['new-user-warmup'] = tips['new-user-warmup'] || 1
+
+      // Pipe settings via stdin to avoid ARG_MAX limits with large .claude.json files
+      const settingsJson = JSON.stringify(settings)
+      // Write to container at /home/node/.claude.json using stdin piping
+      execSync(
+        `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
+        { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
+      )
+      console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${!sandboxed})`)
+    } catch (error) {
+      console.debug('[runners:docker] Failed to copy .claude.json to container:', error)
+      // Non-fatal - Claude will just prompt for settings
+    }
+
+    // NOTE: Auth credentials come from the claude-credentials volume.
+    // Run "prlt agent auth" to set up authentication (one-time).
+    // Do NOT sync CLAUDE_CODE_OAUTH_TOKEN env var - it causes issues
+    // (setup-token generates invalid tokens, and env var overrides valid credentials file).
+  } else {
+    console.debug(`[runners:docker] Skipping .claude.json settings injection for ${executor} executor`)
+  }
+
+  return true
+}
+
+/**
+ * Ensure a Docker container is running for the agent.
+ * Reuses running containers to preserve in-progress work (TKT-1028).
+ * Only destroys and recreates stopped containers.
+ * Builds image and creates container if needed.
+ * Returns the container ID if successful, null otherwise.
+ */
+function ensureDockerContainer(
+  context: ExecutionContext,
+  config: ExecutionConfig,
+  executor: ExecutorType = 'claude-code'
+): string | null {
+  const containerName = getContainerName(context.agentName)
+  const imageName = getImageName(context.agentName)
+
+  // TKT-1028: Reuse running containers instead of destroying them.
+  // This preserves in-progress tmux sessions and avoids killing running agents.
+  // Only destroy stopped containers (which have stale mounts anyway).
+  if (containerExists(containerName)) {
+    if (isContainerRunning(containerName)) {
+      // Container is running - reuse it to preserve any in-progress work.
+      // Note: runContainerSetup is skipped for reused containers since they
+      // were already set up when first created. GitHub token and credentials
+      // are refreshed by the caller (runDevcontainer).
+      const containerId = getContainerId(containerName)
+      if (containerId) {
+        console.debug(`[runners:docker] Reusing running container ${containerName} (${containerId}), skipping setup`)
+        return containerId
+      }
+    }
+
+    // Container exists but is stopped - remove and recreate for fresh mounts
+    console.debug(`[runners:docker] Removing stopped container ${containerName} to create fresh one`)
+    try {
+      execSync(`docker rm -f ${containerName}`, { stdio: 'pipe' })
+    } catch {
+      // Ignore removal errors
+    }
+  }
+
+  // Build image if it doesn't exist
+  if (!imageExists(imageName)) {
+    console.debug(`[runners:docker] Building image ${imageName}`)
+    const buildArgs: Record<string, string> = {
+      TZ: 'America/Los_Angeles',
+      PRLT_REGISTRY: 'npm',
+      PRLT_VERSION: 'latest',
+    }
+    if (!buildDockerImage(context.agentDir, imageName, buildArgs)) {
+      return null
+    }
+  }
+
+  // Create and start container
+  console.debug(`[runners:docker] Creating container ${containerName}`)
+  if (!createDockerContainer(context, containerName, imageName, config, executor)) {
+    return null
+  }
+
+  const containerId = getContainerId(containerName)
+  if (!containerId) {
+    return null
+  }
+
+  // Run post-start setup (firewall, prlt, Claude settings)
+  // Pass sandboxed config to determine whether to set bypassPermissionsModeAccepted
+  // Pass executor to skip Claude-specific setup for non-Claude executors
+  console.debug(`[runners:docker] Running container setup (sandboxed=${config.sandboxed}, executor=${executor})`)
+  if (!runContainerSetup(containerId, config.sandboxed, executor)) {
+    console.debug(`[runners:docker] Setup failed, but continuing...`)
+    // Don't fail completely - setup might partially work
+  }
+
+  // NOTE: Claude credentials are copied to workspace before container creation
+  // (see copyClaudeCredentials call in runDevcontainer)
+
+  return containerId
+}
+
+/**
+ * Copy Claude Code credentials (~/.claude.json) into the agent directory.
+ * This makes the subscription credentials available inside the devcontainer
+ * since the agent directory is mounted at /workspace.
+ *
+ * This was the original working approach before the raw Docker refactor.
+ */
+function copyClaudeCredentials(agentDir: string): void {
+  const sourceFile = path.join(os.homedir(), '.claude.json')
+  const destFile = path.join(agentDir, '.claude.json')
+
+  if (fs.existsSync(sourceFile)) {
+    try {
+      fs.copyFileSync(sourceFile, destFile)
+      console.debug('[runners:credentials] Copied .claude.json to workspace')
+    } catch (err) {
+      console.debug('[runners:credentials] Failed to copy .claude.json:', err)
+    }
+  }
+}
+
 // =============================================================================
-// Devcontainer Runner
+// Devcontainer Runner (now uses raw Docker)
 // =============================================================================
 
 /**
@@ -492,37 +1314,11 @@ function writePromptFile(context: ExecutionContext): { hostPath: string; contain
 
 /**
  * Build the command to run Claude inside the container.
- * Uses devcontainer exec which handles user context and working directory automatically.
+ * Uses docker exec for direct container access.
  * Uses a prompt file to avoid shell escaping issues.
  */
-/**
- * Get the container ID for a devcontainer workspace.
- */
-function getDevcontainerContainerId(agentDir: string): string | null {
-  try {
-    // devcontainer up outputs JSON with container ID
-    const result = execSync(
-      `devcontainer up --workspace-folder "${agentDir}" 2>/dev/null | tail -1`,
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-    )
-    const json = JSON.parse(result.trim())
-    return json.containerId || null
-  } catch (err) {
-    console.debug('[runners:devcontainer] devcontainer up failed, trying docker ps fallback:', err)
-    try {
-      const containerId = execSync(
-        `docker ps -q --filter "label=devcontainer.local_folder=${agentDir}"`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim()
-      return containerId || null
-    } catch (fallbackErr) {
-      console.debug('[runners:devcontainer] docker ps fallback also failed:', fallbackErr)
-      return null
-    }
-  }
-}
 
-function buildDevcontainerCommand(
+export function buildDevcontainerCommand(
   context: ExecutionContext,
   executor: ExecutorType,
   promptFile: string,
@@ -531,74 +1327,50 @@ function buildDevcontainerCommand(
   sandboxed: boolean = true,
   displayMode: DisplayMode = 'terminal'
 ): string {
-  // Get base command (just 'claude' for claude-code)
-  let baseCmd: string
-  switch (executor) {
-    case 'claude-code':
-      baseCmd = 'claude'
-      break
-    case 'codex':
-      baseCmd = 'codex'
-      break
-    case 'aider':
-      baseCmd = 'aider'
-      break
-    default:
-      baseCmd = 'claude'
-  }
-
   // Calculate the relative path from agentDir to worktreePath for cd
   const relativePath = path.relative(context.agentDir, context.worktreePath)
   const cdCmd = relativePath ? `cd /workspace/${relativePath} && ` : ''
 
-  // Build Claude flags based on output mode and sandboxed setting
-  // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
-  // - print: Uses -p flag, outputs final result only (better for logs/automation)
-  const printFlag = outputMode === 'print' ? '-p ' : ''
-  // sandboxed=true means safe mode (no --dangerously-skip-permissions)
-  // sandboxed=false means danger mode (use --dangerously-skip-permissions)
-  const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
-
-  // Build the claude command
-  const claudeCmd = `${cdCmd}${baseCmd} ${permissionsFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
-
-  // If we have a container ID, use docker exec for streaming
-  if (containerId) {
-    // Use -it flags only for terminal/foreground modes where a TTY is available
-    // Background mode runs without a TTY, so -it flags would cause "not a TTY" error
-    const ttyFlags = displayMode === 'background' ? '' : '-it '
-
-    // Direct mode - run claude directly (tmux setup is handled by runDevcontainerInTmux)
-    return `docker exec ${ttyFlags}${containerId} bash -c '${claudeCmd}'`
+  // Build executor command using the centralized getExecutorCommand()
+  // This ensures all runners use consistent executor invocation
+  let executorCmd: string
+  if (isClaudeExecutor(executor)) {
+    // Claude-specific flags based on output mode and sandboxed setting
+    // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
+    // - print: Uses -p flag, outputs final result only (better for logs/automation)
+    const printFlag = outputMode === 'print' ? '-p ' : ''
+    // sandboxed=true means safe mode (no --dangerously-skip-permissions)
+    // sandboxed=false means danger mode (use --dangerously-skip-permissions)
+    // --permission-mode bypassPermissions: skips the "trust this folder" dialog
+    const bypassTrustFlag = '--permission-mode bypassPermissions '
+    const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
+    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})"`
+  } else {
+    // Non-Claude executors: use getExecutorCommand() to get correct command and args
+    const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, false)
+    // Replace the placeholder prompt with a file read for shell safety
+    const argsStr = args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
+    executorCmd = `${cmd} ${argsStr}`
   }
 
-  // Fallback to devcontainer exec (no streaming, but works)
-  return `devcontainer exec --workspace-folder "${context.agentDir}" bash -c '${claudeCmd}'`
-}
+  // Build the full command with cd, executor invocation, and cleanup
+  const fullCmd = `${cdCmd}${executorCmd} && rm -f ${promptFile}`
 
-/**
- * Copy Claude Code credentials (~/.claude.json) into the agent directory.
- * This makes the subscription credentials available inside the devcontainer
- * since the agent directory is mounted at /workspace.
- */
-function copyClaudeCredentials(agentDir: string): void {
-  const sourceFile = path.join(os.homedir(), '.claude.json')
-  const destFile = path.join(agentDir, '.claude.json')
+  // Use docker exec for running commands in the container
+  // Use -it flags only for terminal/foreground modes where a TTY is available
+  // Background mode runs without a TTY, so -it flags would cause "not a TTY" error
+  const ttyFlags = displayMode === 'background' ? '' : '-it '
 
-  if (fs.existsSync(sourceFile)) {
-    try {
-      fs.copyFileSync(sourceFile, destFile)
-    } catch (err) {
-      console.debug('[runners:credentials] Failed to copy .claude.json:', err)
-    }
-  }
+  // Direct mode - run executor directly (tmux setup is handled by runDevcontainerInTmux)
+  return `docker exec ${ttyFlags}${containerId} bash -c '${fullCmd}'`
 }
 
 
+
 /**
- * Run command inside a devcontainer.
- * Uses the devcontainer CLI to start/exec in a VS Code devcontainer.
- * Provides filesystem isolation - agent can only access mounted worktrees.
+ * Run command inside a Docker container.
+ * Uses raw Docker commands for filesystem isolation - no devcontainer CLI required.
+ * Agent can only access mounted worktrees and configured paths.
  *
  * @param displayMode - How to display output (terminal, foreground, background, tmux)
  * @param sessionManager - How to manage the session inside the container (tmux, direct)
@@ -608,33 +1380,21 @@ export async function runDevcontainer(
   executor: ExecutorType,
   config: ExecutionConfig,
   displayMode: DisplayMode = 'terminal',
-  sessionManager: SessionManager = 'direct'
+  sessionManager: SessionManager = 'tmux'  // Default to tmux for session persistence
 ): Promise<RunnerResult> {
-  // Devcontainer config is in the agent directory, not the worktree
-  // (worktree may be a subdirectory like agents/altman/textdeck)
+  // Docker config is in the agent directory (still uses .devcontainer for Dockerfile)
   const devcontainerPath = path.join(context.agentDir, '.devcontainer')
-  const devcontainerJson = path.join(devcontainerPath, 'devcontainer.json')
+  const dockerfile = path.join(devcontainerPath, 'Dockerfile')
 
-  // Check if devcontainer config exists
-  if (!fs.existsSync(devcontainerJson)) {
+  // Check if Dockerfile exists
+  if (!fs.existsSync(dockerfile)) {
     return {
       success: false,
-      error: `No devcontainer.json found at ${devcontainerPath}. Run 'prlt agent add' to set up the agent with devcontainer config.`,
+      error: `No Dockerfile found at ${devcontainerPath}. Run 'prlt agent add' to set up the agent with Docker config.`,
     }
   }
 
   try {
-    // Check devcontainer CLI is installed
-    try {
-      execSync('which devcontainer', { stdio: 'pipe' })
-    } catch (err) {
-      console.debug('[runners:devcontainer] devcontainer CLI not found:', err)
-      return {
-        success: false,
-        error: 'devcontainer CLI not found. Install with: npm install -g @devcontainers/cli',
-      }
-    }
-
     // Check if Docker is running
     if (!isDockerRunning()) {
       return {
@@ -643,69 +1403,57 @@ export async function runDevcontainer(
       }
     }
 
-    // Copy Claude credentials into agent directory so container can access them
-    copyClaudeCredentials(context.agentDir)
-
-    // Set environment variables for devcontainer mounts
-    // PRLT_HQ_PATH: allows agent to access the HQ database and run `prlt ticket complete`
-    // PRLT_PMO_PATH: allows agent to access the PMO (can be anywhere, e.g., /hq/repos/myrepo/pmo)
-    // PRLT_REPO_PATH: mounts the entire proletariat repo into the container (until prlt is on npm)
-    const env = { ...process.env }
-    if (context.hqPath) {
-      env.PRLT_HQ_PATH = context.hqPath
-    }
-    if (context.pmoPath) {
-      env.PRLT_PMO_PATH = context.pmoPath
-    }
-
     // Ensure GitHub token is available for git push operations
     // Try to get token from gh CLI if not already in environment
-    if (!env.GITHUB_TOKEN && !env.GH_TOKEN) {
+    if (!process.env.GITHUB_TOKEN && !process.env.GH_TOKEN) {
       try {
         const token = execSync('gh auth token', { encoding: 'utf-8', stdio: 'pipe' }).trim()
         if (token) {
-          env.GITHUB_TOKEN = token
-          env.GH_TOKEN = token
+          process.env.GITHUB_TOKEN = token
+          process.env.GH_TOKEN = token
         }
       } catch (err) {
-        console.debug('[runners:devcontainer] gh auth token failed:', err)
-      }
-    }
-    // Set repo path to the proletariat monorepo (auto-detect from current CLI location)
-    // We mount the entire repo so node_modules resolution works correctly
-    if (!env.PRLT_REPO_PATH) {
-      // Get the directory where this CLI is running from (apps/cli)
-      const cliDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', '..')
-      // Go up to the monorepo root (repos/proletariat)
-      const repoDir = path.resolve(cliDir, '..', '..')
-      if (fs.existsSync(path.join(repoDir, 'apps', 'cli', 'bin', 'run.js'))) {
-        env.PRLT_REPO_PATH = repoDir
+        console.debug('[runners:docker] gh auth token failed:', err)
       }
     }
 
-    // Start or reuse container (devcontainer up is idempotent)
-    // Use agentDir as the workspace folder since that's where .devcontainer is
-    try {
-      execSync(`devcontainer up --workspace-folder "${context.agentDir}"`, {
-        stdio: 'pipe',
-        env,
-      })
-    } catch (error) {
+    // Copy Claude credentials into agent directory so container can access them
+    // Only needed for Claude Code executor
+    if (isClaudeExecutor(executor)) {
+      // This was the original working approach - credentials at /workspace/.claude.json
+      copyClaudeCredentials(context.agentDir)
+    }
+
+    // Start or reuse container using raw Docker commands
+    // No devcontainer CLI required!
+    const containerId = ensureDockerContainer(context, config, executor)
+    if (!containerId) {
       return {
         success: false,
-        error: `Failed to start devcontainer: ${error instanceof Error ? error.message : error}`,
+        error: 'Failed to start Docker container. Check Docker logs for details.',
       }
     }
 
     // Write prompt to file in worktree (accessible by container)
     const { hostPath: promptHostPath, containerPath: promptFile } = writePromptFile(context)
 
-    // Get container ID for docker exec (enables streaming output with TTY)
-    const containerId = getDevcontainerContainerId(context.agentDir)
+    // Inject fresh GitHub token into container (containers may be reused with stale/empty tokens)
+    // This ensures git push works even if the container was created before token was available
+    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+    if (containerId && githubToken) {
+      try {
+        // Write token to file and configure git credential helper
+        execSync(`docker exec ${containerId} bash -c 'echo "${githubToken}" > /home/node/.github-token && chmod 600 /home/node/.github-token && git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/node/.github-token)\\"; }; f" && git config --global url."https://github.com/".insteadOf "git@github.com:"'`, {
+          stdio: 'pipe',
+        })
+      } catch {
+        // Non-fatal - token injection failed but execution can continue
+      }
+    }
 
-    // Build the devcontainer exec command (just runs claude directly)
+    // Build the docker exec command (just runs claude directly)
     // tmux session setup is handled by runDevcontainerInTmux, not buildDevcontainerCommand
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId || undefined, config.outputMode, config.sandboxed, displayMode)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId, config.outputMode, config.sandboxed, displayMode)
 
     // Execute based on display mode
     // When sessionManager is 'tmux', always use tmux inside container for session persistence
@@ -743,8 +1491,9 @@ export async function runDevcontainer(
     }
 
     // Set sessionId when using tmux inside the container
+    // Use buildSessionName to match the actual tmux session name format: {ticketId}-{action}-{agentName}
     if (result.success && sessionManager === 'tmux') {
-      const sessionId = context.ticketId.replace(/[^a-zA-Z0-9-]/g, '-')
+      const sessionId = buildSessionName(context)
       result.sessionId = sessionId
 
       // For terminal display mode, verify the tmux session was actually created
@@ -755,8 +1504,8 @@ export async function runDevcontainer(
 
         // Check if tmux session exists inside the container
         try {
-          const checkResult = execSync(
-            `docker exec ${containerId} tmux has-session -t ${sessionId} 2>&1`,
+          execSync(
+            `docker exec ${containerId} tmux has-session -t "${sessionId}" 2>&1`,
             { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
           )
           // Session exists - success
@@ -828,21 +1577,66 @@ exec $SHELL
 `
   fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
+  // Check if we should open in background (don't steal focus)
+  const openInBackground = config.terminal.openInBackground ?? true
+
   try {
     switch (terminalApp) {
       case 'iTerm':
         // Run script file directly - iTerm will execute it with proper TTY
-        execSync(`osascript -e '
-          tell application "iTerm"
-            activate
-            tell current window
-              set newTab to (create tab with default profile)
-              tell current session of newTab
-                write text "${scriptPath}"
-              end tell
+        // When openInBackground is true, save frontmost app and restore after
+        if (openInBackground) {
+          execSync(`osascript -e '
+            -- Save the currently active application and window
+            tell application "System Events"
+              set frontApp to name of first application process whose frontmost is true
+              set frontAppBundle to bundle identifier of first application process whose frontmost is true
             end tell
-          end tell
-        '`)
+
+            tell application "iTerm"
+              if (count of windows) = 0 then
+                create window with default profile
+                tell current session of current window
+                  write text "${scriptPath}"
+                end tell
+              else
+                tell current window
+                  set newTab to (create tab with default profile)
+                  tell current session of newTab
+                    write text "${scriptPath}"
+                  end tell
+                end tell
+              end if
+            end tell
+
+            -- Restore focus to the original application
+            delay 0.2
+            tell application "System Events"
+              set frontmost of process frontApp to true
+            end tell
+            delay 0.1
+            do shell script "open -b " & quoted form of frontAppBundle
+          '`)
+        } else {
+          execSync(`osascript -e '
+            tell application "iTerm"
+              activate
+              if (count of windows) = 0 then
+                create window with default profile
+                tell current session of current window
+                  write text "${scriptPath}"
+                end tell
+              else
+                tell current window
+                  set newTab to (create tab with default profile)
+                  tell current session of newTab
+                    write text "${scriptPath}"
+                  end tell
+                end tell
+              end if
+            end tell
+          '`)
+        }
         break
 
       case 'Ghostty':
@@ -892,18 +1686,28 @@ exec $SHELL
       case 'Terminal':
       default:
         // Use source to preserve TTY for docker exec
-        execSync(`osascript -e '
-          tell application "Terminal"
-            activate
-            tell application "System Events"
-              tell process "Terminal"
-                keystroke "t" using command down
-              end tell
+        if (openInBackground) {
+          // Open in background: use 'do script' which creates a new window without activating
+          execSync(`osascript -e '
+            tell application "Terminal"
+              do script "source ${scriptPath}"
             end tell
-            delay 0.3
-            do script "source ${scriptPath}" in front window
-          end tell
-        '`)
+          '`)
+        } else {
+          // Bring to front: use traditional Cmd+T for new tab
+          execSync(`osascript -e '
+            tell application "Terminal"
+              activate
+              tell application "System Events"
+                tell process "Terminal"
+                  keystroke "t" using command down
+                end tell
+              end tell
+              delay 0.3
+              do script "source ${scriptPath}" in front window
+            end tell
+          '`)
+        }
         break
     }
 
@@ -973,6 +1777,11 @@ async function runDevcontainerInTmux(
   const sessionName = buildTmuxWindowName(context)
   const windowTitle = buildWindowTitle(context)
 
+  // Check if we should use iTerm control mode (-CC)
+  // When using -CC, iTerm handles scrolling/selection natively, so we DON'T set mouse on
+  const terminalApp = config.terminal.app
+  const useControlMode = shouldUseControlMode(terminalApp, config.tmux.controlMode)
+
   try {
     // Get container ID - prefer passed value, fallback to extracting from command
     // The devcontainerCmd is like: docker exec [-it] <containerId> bash -c '...'
@@ -991,13 +1800,31 @@ async function runDevcontainerInTmux(
       }
     }
 
+    // Check if tmux is available inside the container
+    try {
+      execSync(`docker exec ${actualContainerId} which tmux`, { stdio: 'pipe' })
+    } catch {
+      return {
+        success: false,
+        error: `tmux is not installed in the devcontainer. ` +
+          `Add 'tmux' to your devcontainer's Dockerfile (e.g., apt-get install -y tmux) ` +
+          `or use the default prlt devcontainer template which includes tmux.`,
+      }
+    }
+
     // Step 1: Start tmux session INSIDE the container (detached)
     // Extract the claude command from the devcontainer command
     const cmdMatch = devcontainerCmd.match(/bash -c '(.+)'$/)
     const claudeCmd = cmdMatch ? cmdMatch[1] : devcontainerCmd
 
     // Create a script inside the container that runs claude and keeps shell open
+    // TERM must be set for Claude's TUI to render properly
+    // Unset CI to prevent Claude from detecting CI environment which suppresses TUI output
+    // Note: We keep DEVCONTAINER set so prlt workspace detection works correctly
     const tmuxScript = `#!/bin/bash
+export TERM=xterm-256color
+export COLORTERM=truecolor
+unset CI
 echo "🚀 Starting: ${sessionName}"
 echo ""
 ${claudeCmd}
@@ -1005,29 +1832,77 @@ echo ""
 echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec bash
 `
-    const base64Script = Buffer.from(tmuxScript).toString('base64')
     const scriptPath = `/tmp/prlt-${sessionName}.sh`
 
     // Write script and start tmux session inside container
+    // IMPORTANT: We create the session with bash first, then send keys to run the script.
+    // This ensures bash is running interactively (required for Claude's TUI to render).
+    // If we pass the script as the session command, bash runs non-interactively and Claude won't show TUI.
     // -n sets the window name (shows in iTerm tab title with -CC mode)
     // sessionName is already ticket-action-agent format
-    // Enable mouse mode for native scrolling (trackpad/mouse wheel works without -CC mode)
+    // Only enable mouse mode if NOT using control mode (control mode lets iTerm handle mouse natively)
     // set-titles on + set-titles-string: makes tmux set terminal title to window name
-    const setupCmd = `echo ${base64Script} | base64 -d > ${scriptPath} && chmod +x ${scriptPath} && tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}" \\; set-option -g mouse on \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    const mouseOption = buildTmuxMouseOption(useControlMode)
 
+    // Step 1: Write the script to the container via stdin piping to avoid ARG_MAX limits
     try {
-      execSync(`docker exec ${actualContainerId} bash -c '${setupCmd}'`, { stdio: 'pipe' })
+      execSync(`docker exec -i ${actualContainerId} bash -c 'cat > ${scriptPath} && chmod +x ${scriptPath}'`, {
+        input: tmuxScript,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
     } catch (error) {
       return {
         success: false,
-        error: `Failed to start tmux inside container: ${error instanceof Error ? error.message : error}`,
+        error: `Failed to write script to container: ${error instanceof Error ? error.message : error}`,
       }
     }
 
-    // Step 2: Open iTerm tab that attaches directly to container's tmux
-    // Skip this step for background mode - just return success after tmux session is created
+    // TKT-1028: If a tmux session with the same name already exists (e.g., same
+    // ticket+action spawned again in a reused container), kill the old session first.
+    try {
+      execSync(`docker exec ${actualContainerId} tmux has-session -t "${sessionName}" 2>&1`, { stdio: 'pipe' })
+      // Session exists - kill it before creating a new one
+      console.debug(`[runners:tmux] Killing existing tmux session "${sessionName}" in container`)
+      try {
+        execSync(`docker exec ${actualContainerId} tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' })
+      } catch {
+        // Ignore kill errors
+      }
+    } catch {
+      // Session doesn't exist - that's the normal case
+    }
+
+    // Step 2: Create tmux session running the script directly
+    // Pass the script as the session command (like host runner does) instead of using send-keys.
+    // The send-keys approach had a race condition where keys could be lost if bash hadn't
+    // fully initialized, causing background mode to create empty sessions without running claude.
+    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "bash ${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    try {
+      execSync(`docker exec ${actualContainerId} bash -c '${createSessionCmd}'`, { stdio: 'pipe' })
+    } catch (error) {
+      return {
+        success: false,
+        error: `Failed to create tmux session inside container: ${error instanceof Error ? error.message : error}`,
+      }
+    }
+
+    // Step 3: Handle display mode
+    // For background mode, return success after tmux session is created
     // User can reattach later with `prlt session attach`
     if (displayMode === 'background') {
+      // Verify the tmux session was actually created (brief delay to let tmux start)
+      await new Promise(resolve => setTimeout(resolve, 500))
+      try {
+        execSync(
+          `docker exec ${actualContainerId} tmux has-session -t "${sessionName}" 2>&1`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+      } catch {
+        return {
+          success: false,
+          error: `Failed to verify tmux session "${sessionName}" inside container. The session may not have started correctly.`,
+        }
+      }
       return {
         success: true,
         containerId: actualContainerId,
@@ -1035,12 +1910,78 @@ exec bash
       }
     }
 
-    // NOTE: We don't use tmux -CC (control mode) here because we're already
-    // creating a tab via AppleScript. Using -CC would cause iTerm to create
-    // another window for the tmux session (double windows).
-    // Users can reattach with `prlt session attach` which uses -CC for native scrolling.
-    const attachCmd = `docker exec -it ${actualContainerId} tmux -u attach -t "${sessionName}"`
+    // For foreground mode: attach to container's tmux session in current terminal (blocking)
+    if (displayMode === 'foreground') {
+      try {
+        // Clear screen and attach - this blocks until user detaches or claude exits
+        // Use -CC for iTerm when control mode is enabled
+        const fgTmuxAttach = buildTmuxAttachCommand(useControlMode, true)
+        execSync(`clear && docker exec -it ${actualContainerId} ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
+        return {
+          success: true,
+          containerId: actualContainerId,
+          sessionId: sessionName,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to attach to container tmux session: ${error instanceof Error ? error.message : error}`,
+        }
+      }
+    }
 
+    // Use tmux -CC (control mode) for iTerm when enabled in config
+    // -CC gives native iTerm scrolling, selection, and gesture support
+    // Without -CC, use regular attach (relies on mouse mode for scrolling)
+    const tmuxAttach = buildTmuxAttachCommand(useControlMode, true)
+    const attachCmd = `docker exec -it ${actualContainerId} ${tmuxAttach} -t "${sessionName}"`
+
+    // Open terminal and run the attach command
+    const terminalApp = config.terminal.app
+
+    // For iTerm with control mode, create a new tab and run -CC attach there
+    // This avoids interfering with the terminal where prlt is running
+    if (terminalApp === 'iTerm' && useControlMode) {
+      // Configure iTerm to open tmux windows as tabs or windows based on user preference
+      configureITermTmuxWindowMode(config.tmux.windowMode)
+
+      const openInBackground = config.terminal.openInBackground ?? true
+
+      if (openInBackground) {
+        // Open tab without stealing focus - save frontmost app and restore after
+        execSync(`osascript -e '
+          set frontApp to path to frontmost application as text
+          tell application "iTerm"
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+              end tell
+            end tell
+          end tell
+          tell application frontApp to activate
+        '`)
+      } else {
+        execSync(`osascript -e '
+          tell application "iTerm"
+            activate
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+              end tell
+            end tell
+          end tell
+        '`)
+      }
+      return {
+        success: true,
+        containerId: actualContainerId,
+        sessionId: sessionName,
+      }
+    }
+
+    // For all other cases, create a script file and open in a new tab
     const baseDir = context.hqPath
       ? path.join(context.hqPath, '.proletariat', 'scripts')
       : path.join(os.homedir(), '.proletariat', 'scripts')
@@ -1062,33 +2003,69 @@ exec $SHELL
 `
     fs.writeFileSync(hostScriptPath, hostScript, { mode: 0o755 })
 
-    // Open iTerm tab and run the attach script
-    const terminalApp = config.terminal.app
+    // Check if we should open in background (don't steal focus)
+    const openInBackground = config.terminal.openInBackground ?? true
 
     switch (terminalApp) {
       case 'iTerm':
-        // Create new tab in existing window, or create new window if none exists
-        // Set tab name via AppleScript for reliable naming
-        execSync(`osascript -e '
-          tell application "iTerm"
-            activate
-            if (count of windows) = 0 then
-              create window with default profile
-              tell current session of current window
-                set name to "${windowTitle}"
-                write text "${hostScriptPath}"
-              end tell
-            else
-              tell current window
-                create tab with default profile
-                tell current session
+        // Without control mode, create a new tab and attach normally
+        // When openInBackground is true, save frontmost app and restore after
+        if (openInBackground) {
+          execSync(`osascript -e '
+            -- Save the currently active application and window
+            tell application "System Events"
+              set frontApp to name of first application process whose frontmost is true
+              set frontAppBundle to bundle identifier of first application process whose frontmost is true
+            end tell
+
+            tell application "iTerm"
+              if (count of windows) = 0 then
+                create window with default profile
+                tell current session of current window
                   set name to "${windowTitle}"
                   write text "${hostScriptPath}"
                 end tell
-              end tell
-            end if
-          end tell
-        '`)
+              else
+                tell current window
+                  create tab with default profile
+                  tell current session
+                    set name to "${windowTitle}"
+                    write text "${hostScriptPath}"
+                  end tell
+                end tell
+              end if
+            end tell
+
+            -- Restore focus to the original application
+            delay 0.2
+            tell application "System Events"
+              set frontmost of process frontApp to true
+            end tell
+            delay 0.1
+            do shell script "open -b " & quoted form of frontAppBundle
+          '`)
+        } else {
+          execSync(`osascript -e '
+            tell application "iTerm"
+              activate
+              if (count of windows) = 0 then
+                create window with default profile
+                tell current session of current window
+                  set name to "${windowTitle}"
+                  write text "${hostScriptPath}"
+                end tell
+              else
+                tell current window
+                  create tab with default profile
+                  tell current session
+                    set name to "${windowTitle}"
+                    write text "${hostScriptPath}"
+                  end tell
+                end tell
+              end if
+            end tell
+          '`)
+        }
         break
 
       case 'Ghostty':
@@ -1109,18 +2086,28 @@ exec $SHELL
 
       case 'Terminal':
       default:
-        execSync(`osascript -e '
-          tell application "Terminal"
-            activate
-            tell application "System Events"
-              tell process "Terminal"
-                keystroke "t" using command down
-              end tell
+        if (openInBackground) {
+          // Open in background: use 'do script' which creates a new window without activating
+          execSync(`osascript -e '
+            tell application "Terminal"
+              do script "${hostScriptPath}"
             end tell
-            delay 0.3
-            do script "${hostScriptPath}" in front window
-          end tell
-        '`)
+          '`)
+        } else {
+          // Bring to front: use traditional Cmd+T for new tab
+          execSync(`osascript -e '
+            tell application "Terminal"
+              activate
+              tell application "System Events"
+                tell process "Terminal"
+                  keystroke "t" using command down
+                end tell
+              end tell
+              delay 0.3
+              do script "${hostScriptPath}" in front window
+            end tell
+          '`)
+        }
         break
     }
 
@@ -1133,91 +2120,6 @@ exec $SHELL
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to start tmux session in container',
-    }
-  }
-}
-
-/**
- * Legacy: Run devcontainer in host-side tmux (kept for non-container modes)
- */
-async function runDevcontainerInHostTmux(
-  context: ExecutionContext,
-  devcontainerCmd: string,
-  config: ExecutionConfig
-): Promise<RunnerResult> {
-  const sessionName = config.tmux.session
-  const windowName = buildTmuxWindowName(context)
-
-  try {
-    // Check if tmux is available on host
-    execSync('which tmux', { stdio: 'pipe' })
-
-    // Write command to temp script
-    const baseDir = context.hqPath
-      ? path.join(context.hqPath, '.proletariat', 'scripts')
-      : path.join(os.homedir(), '.proletariat', 'scripts')
-    fs.mkdirSync(baseDir, { recursive: true })
-    const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${Date.now()}.sh`)
-
-    const windowTitle = buildWindowTitle(context)
-    const setTitleCmds = getSetTitleCommands(windowTitle)
-
-    const scriptContent = `#!/bin/bash
-${setTitleCmds}
-echo "🚀 Starting ticket execution: ${context.ticketId}"
-${devcontainerCmd}
-rm -f "${scriptPath}"
-exec $SHELL
-`
-    fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
-
-    // Check if session exists
-    let sessionExists = false
-    try {
-      execSync(`tmux has-session -t ${sessionName}`, { stdio: 'pipe' })
-      sessionExists = true
-    } catch (err) {
-      console.debug(`[runners:hostTmux] Session ${sessionName} does not exist:`, err)
-      sessionExists = false
-    }
-
-    const targetPane = `${sessionName}:${windowName}`
-
-    if (!sessionExists) {
-      execSync(
-        `tmux new-session -d -s ${sessionName} -n "${windowName}"`,
-        { stdio: 'pipe' }
-      )
-    } else if (config.tmux.layout === 'window') {
-      // Create new window in existing session (starts with shell)
-      execSync(
-        `tmux new-window -t ${sessionName} -n "${windowName}"`,
-        { stdio: 'pipe' }
-      )
-    } else {
-      // Split existing pane (starts with shell)
-      execSync(
-        `tmux split-window -t ${sessionName} -h`,
-        { stdio: 'pipe' }
-      )
-    }
-
-    // Send the script command to the shell - execute directly (not source)
-    // Using exec replaces the shell, ensuring proper TTY passthrough
-    execSync(
-      `tmux send-keys -t "${targetPane}" 'exec ${scriptPath}' Enter`,
-      { stdio: 'pipe' }
-    )
-
-    return {
-      success: true,
-      containerId: `devcontainer-${context.agentName}`,
-      sessionId: `${sessionName}:${windowName}`,
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to start tmux session',
     }
   }
 }
@@ -1262,10 +2164,19 @@ export async function runDocker(
       dockerCmd += ` --cpus ${config.docker.cpus}`
     }
 
-    // Escape prompt for shell
+    // Build executor command using getExecutorCommand() for correct invocation
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
+    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, !config.sandboxed)
+
+    // For Claude Code in Docker, use --print for non-interactive output
+    // Non-Claude executors use their native command format from getExecutorCommand()
     dockerCmd += ` ${config.docker.image}`
-    dockerCmd += ` claude --print '${escapedPrompt}'`
+    if (isClaudeExecutor(executor)) {
+      dockerCmd += ` ${cmd} --print '${escapedPrompt}'`
+    } else {
+      const argsStr = args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
+      dockerCmd += ` ${cmd} ${argsStr}`
+    }
 
     const containerId = execSync(dockerCmd, { encoding: 'utf-8' }).trim()
 
@@ -1326,9 +2237,18 @@ export async function runVm(
       execSync(`ssh ${sshOpts} ${user}@${targetHost} "${gitPullCmd}"`, { stdio: 'pipe' })
     }
 
-    // Execute on remote
+    // Execute on remote using executor-appropriate command
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const remoteCmd = `cd ${remoteWorkspace} && claude --print '${escapedPrompt}'`
+    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, !config.sandboxed)
+
+    // Build the remote command based on executor type
+    let remoteCmd: string
+    if (isClaudeExecutor(executor)) {
+      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} --print '${escapedPrompt}'`
+    } else {
+      const argsStr = executorArgs.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
+      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} ${argsStr}`
+    }
     const sshCmd = `ssh ${sshOpts} ${user}@${targetHost} "nohup ${remoteCmd} > /tmp/work-${context.ticketId}.log 2>&1 &"`
 
     execSync(sshCmd, { stdio: 'pipe' })

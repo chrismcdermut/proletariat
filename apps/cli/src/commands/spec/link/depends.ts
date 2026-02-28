@@ -1,86 +1,111 @@
-import { Args, Flags } from '@oclif/core'
-import inquirer from 'inquirer'
-import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
-import { styles } from '../../../lib/styles.js'
+import { Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { styles } from '../../../lib/styles.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-} from '../../../lib/prompt-json.js'
+} from '../../../lib/prompt-json.js';
 
 export default class SpecLinkDepends extends PMOCommand {
-  static description = 'Add a depends_on dependency (spec requires another to be completed first)'
-  static examples = ['<%= config.bin %> <%= command.id %> my-feature other-spec']
+  static description = 'Add a dependency between specs';
+
+  static examples = [
+    '<%= config.bin %> <%= command.id %> SPEC-001 SPEC-002',
+    '<%= config.bin %> <%= command.id %> SPEC-001 --machine',
+  ];
 
   static args = {
-    id: Args.string({ description: 'Spec ID that depends on another', required: true }),
-    target: Args.string({ description: 'Spec ID that this spec depends on', required: false }),
-  }
+    spec: Args.string({
+      description: 'Source spec ID (the one that depends on another)',
+      required: true,
+    }),
+    target: Args.string({
+      description: 'Target spec ID (the one depended upon)',
+      required: false,
+    }),
+  };
+
   static flags = {
     ...pmoBaseFlags,
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
-      default: false,
-    }),
+  };
+
+  protected getPMOOptions() {
+    return { promptIfMultiple: false };
   }
 
   async execute(): Promise<void> {
-    const { args, flags } = await this.parse(SpecLinkDepends)
+    const { args, flags } = await this.parse(SpecLinkDepends);
+    const jsonMode = shouldOutputJson(flags);
 
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags)
-
-    // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
       if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('spec link depends', flags))
-        this.exit(1)
+        outputErrorAsJson(code, message, createMetadata('spec link depends', flags));
+        this.exit(1);
       }
-      this.error(message)
+      this.error(message);
+    };
+
+    // Verify source spec exists
+    const sourceSpec = await this.storage.getSpec(args.spec);
+    if (!sourceSpec) {
+      return handleError('SPEC_NOT_FOUND', `Spec not found: ${args.spec}`);
     }
 
-    const spec = await this.storage.getSpec(args.id)
-    if (!spec) return handleError('SPEC_NOT_FOUND', `Spec not found: ${args.id}`)
+    // If target not provided, prompt for selection
+    if (!args.target) {
+      const specs = await this.storage.listSpecs();
+      const otherSpecs = specs.filter(s => s.id !== args.spec);
 
-    let targetId = args.target
-    if (!targetId) {
-      const allSpecs = await this.storage.listSpecs()
-      const otherSpecs = allSpecs.filter(s => s.id !== args.id)
       if (otherSpecs.length === 0) {
-        if (jsonMode) {
-          outputErrorAsJson('NO_OTHER_SPECS', 'No other specs.', createMetadata('spec link depends', flags))
-          return
-        }
-        this.log(styles.muted('\nNo other specs.'))
-        return
+        return handleError('NO_SPECS', 'No other specs to select as dependency.');
       }
 
-      // In JSON mode, output spec selection prompt
+      const choices = otherSpecs.map(s => ({
+        name: `${s.id} - ${s.title}`,
+        value: s.id,
+        command: `prlt spec link depends ${args.spec} ${s.id} --json`,
+      }));
+      const message = `Select spec that ${args.spec} depends on:`;
+
       if (jsonMode) {
-        const specChoices = otherSpecs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id }))
         outputPromptAsJson(
-          buildPromptConfig('list', 'target', `Select spec that ${args.id} depends on:`, specChoices),
+          buildPromptConfig('list', 'target', message, choices),
           createMetadata('spec link depends', flags)
-        )
-        return
+        );
+        return;
       }
 
-      const { selected } = await inquirer.prompt([{ type: 'list', name: 'selected', message: `Select spec that ${args.id} depends on:`,
-        choices: otherSpecs.map(s => ({ name: `${s.id} - ${s.title}`, value: s.id })) }])
-      targetId = selected
+      const { selected } = await this.prompt<{ selected: string }>([{
+        type: 'list',
+        name: 'selected',
+        message,
+        choices,
+      }], null);
+
+      args.target = selected;
     }
 
-    const targetSpec = await this.storage.getSpec(targetId!)
-    if (!targetSpec) this.error(`Spec not found: ${targetId}`)
+    // Verify target spec exists
+    const targetSpec = await this.storage.getSpec(args.target!);
+    if (!targetSpec) {
+      return handleError('TARGET_NOT_FOUND', `Spec not found: ${args.target}`);
+    }
 
-    await this.storage.createSpecDependency(args.id, targetId!, 'depends_on')
-    this.log(styles.success(`\n✅ ${styles.emphasis(args.id)} depends on ${styles.emphasis(targetId!)}`))
-    this.log(styles.muted(`   ${spec.title} depends on: ${targetSpec.title}`))
+    // Create the dependency
+    try {
+      await this.storage.createSpecDependency(args.spec, args.target!, 'depends_on');
+
+      this.log(styles.success(`\n${args.spec} now depends on ${args.target}`));
+      this.log(styles.muted(`  ${sourceSpec.title}`));
+      this.log(styles.muted(`  depends on: ${targetSpec.title}`));
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('already exists')) {
+        return handleError('ALREADY_EXISTS', 'Dependency already exists.');
+      }
+      throw error;
+    }
   }
 }

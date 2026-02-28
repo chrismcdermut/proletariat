@@ -1,17 +1,22 @@
 import { Flags, Args } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import inquirer from 'inquirer';
-import { createBoardContent, createSpecFolders, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { createBoardContent, createSpecFolders, PMOCommand, pmoBaseFlags, BUILTIN_TEMPLATES } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputSuccessAsJson,
+  outputDryRunSuccessAsJson,
+  outputDryRunErrorsAsJson,
   createMetadata,
   buildFormPromptConfig,
   FormField,
 } from '../../lib/prompt-json.js';
+
+// Build template options dynamically from shared definitions
+const TEMPLATE_IDS = BUILTIN_TEMPLATES.map(t => t.id);
 
 export default class ProjectCreate extends PMOCommand {
   static description = 'Create a new project in the PMO';
@@ -20,6 +25,7 @@ export default class ProjectCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> "My New Project"',
     '<%= config.bin %> <%= command.id %> --name "Mobile App" --description "iOS and Android app"',
     '<%= config.bin %> <%= command.id %> -i  # Interactive mode',
+    '<%= config.bin %> <%= command.id %> --name "Test" --dry-run --json  # Validate without creating',
   ];
 
   static args = {
@@ -33,7 +39,7 @@ export default class ProjectCreate extends PMOCommand {
     ...pmoBaseFlags,
     name: Flags.string({
       char: 'n',
-      description: 'Project name',
+      description: 'Project name [required for non-interactive]',
     }),
     id: Flags.string({
       description: 'Custom project ID (auto-generated from name if not provided)',
@@ -45,7 +51,7 @@ export default class ProjectCreate extends PMOCommand {
     template: Flags.string({
       char: 't',
       description: 'Workflow template',
-      options: ['kanban', 'linear', 'bug-smash', '5-tool-founder', 'gtm'],
+      options: TEMPLATE_IDS,
       default: 'kanban',
     }),
     interactive: Flags.boolean({
@@ -53,12 +59,8 @@ export default class ProjectCreate extends PMOCommand {
       description: 'Interactive mode',
       default: false,
     }),
-    json: Flags.boolean({
-      description: 'Output prompt configuration as JSON (for AI agents/scripts)',
-      default: false,
-    }),
-    'no-interactive': Flags.boolean({
-      description: 'Alias for --json flag',
+    'dry-run': Flags.boolean({
+      description: 'Validate inputs without creating project (use with --json for structured output)',
       default: false,
     }),
   };
@@ -82,14 +84,11 @@ export default class ProjectCreate extends PMOCommand {
     };
 
     if (flags.interactive || (!args.name && !flags.name)) {
-      // Build choices once - single source of truth
-      const templateChoices = [
-        { name: 'Kanban - Backlog → To Do → In Progress → Done', value: 'kanban' },
-        { name: 'Linear - Backlog, Triage, Todo, In Progress, In Review, Done', value: 'linear' },
-        { name: 'Bug Smash - Reported → Confirmed → Fixing → Verifying → Fixed', value: 'bug-smash' },
-        { name: '5-Tool Founder - Ideas → Next Up → Building → Shipping → Shipped', value: '5-tool-founder' },
-        { name: 'GTM - Ideation → Planning → In Development → Ready to Launch → Launched', value: 'gtm' },
-      ];
+      // Build choices dynamically from shared template definitions
+      const templateChoices = BUILTIN_TEMPLATES.map(t => ({
+        name: `${t.name} - ${t.statuses.map(s => s.name).join(' → ')}`,
+        value: t.id,
+      }));
 
       // Define fields once - single source of truth for both JSON and interactive modes
       const fields: FormField[] = [
@@ -122,7 +121,45 @@ export default class ProjectCreate extends PMOCommand {
     // Check if project already exists
     const existing = await this.storage.getProject(projectId);
     if (existing) {
+      if (flags['dry-run']) {
+        if (jsonMode) {
+          outputDryRunErrorsAsJson(
+            [{ field: 'id', error: `Project "${projectId}" already exists` }],
+            createMetadata('project create', flags)
+          );
+        }
+      }
       this.error(`Project "${projectId}" already exists.`);
+    }
+
+    // Get the statuses from the workflow (for dry-run preview)
+    const statuses = await this.storage.listStatuses(projectData.template);
+
+    // Handle dry-run: show what would be created without actually creating
+    if (flags['dry-run']) {
+      const wouldCreate = {
+        id: projectId,
+        name: projectData.name,
+        template: projectData.template,
+        statuses: statuses.map(s => s.name),
+        ...(projectData.description && { description: projectData.description }),
+      };
+
+      if (jsonMode) {
+        outputDryRunSuccessAsJson('project', wouldCreate, createMetadata('project create', flags));
+      }
+
+      // Human-readable dry-run output
+      this.log(styles.warning('\n[DRY RUN] Would create project:'));
+      this.log(styles.muted(`   ID: ${projectId}`));
+      this.log(styles.muted(`   Name: ${projectData.name}`));
+      this.log(styles.muted(`   Template: ${projectData.template}`));
+      this.log(styles.muted(`   Statuses: ${statuses.map(s => s.name).join(' → ')}`));
+      if (projectData.description) {
+        this.log(styles.muted(`   Description: ${projectData.description}`));
+      }
+      this.log(styles.muted('\n(No project was created)'));
+      return;
     }
 
     // Create project in database
@@ -145,8 +182,21 @@ export default class ProjectCreate extends PMOCommand {
     // Create spec folders in project directory
     const specsPath = createSpecFolders(this.pmoPath, projectId);
 
-    // Get the statuses that were created
-    const statuses = await this.storage.listStatuses(projectId);
+    // In JSON mode, output success with project details
+    if (jsonMode) {
+      outputSuccessAsJson(
+        {
+          id: project.id,
+          name: project.name,
+          template: projectData.template,
+          statuses: statuses.map(s => s.name),
+          boardPath: path.relative(process.cwd(), boardPath),
+          specsPath: path.relative(process.cwd(), specsPath),
+        },
+        createMetadata('project create', flags)
+      );
+      return;
+    }
 
     this.log(styles.success(`\nCreated project "${styles.emphasis(project.name)}"`));
     this.log(styles.muted(`  ID: ${project.id}`));
@@ -168,7 +218,7 @@ export default class ProjectCreate extends PMOCommand {
     template: string;
   }> {
     // Build inquirer prompts from fields, adding validators and dynamic defaults
-    const answers = await inquirer.prompt<{
+    const answers = await this.prompt<{
       name: string;
       id: string;
       description: string;
@@ -176,13 +226,13 @@ export default class ProjectCreate extends PMOCommand {
     }>(fields.map(field => ({
       ...field,
       validate: field.name === 'name'
-        ? ((input: string) => input.length > 0 || 'Name is required')
+        ? ((input: unknown) => String(input).length > 0 || 'Name is required')
         : undefined,
       // Dynamic default for id based on name
       default: field.name === 'id'
         ? ((answers: { name: string }) => slugify(answers.name))
         : field.default,
-    })));
+    })), null);
 
     return {
       name: answers.name,

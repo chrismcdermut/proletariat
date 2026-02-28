@@ -1,12 +1,14 @@
 import { Args, Command, Flags } from '@oclif/core'
-import { execSync, spawn } from 'child_process'
-import * as path from 'path'
+import { execSync, spawn } from 'node:child_process'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId } from '../../lib/docker/resolve.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class DockerLogs extends Command {
   static description = 'View logs from a container (by execution ID, agent name, or container ID)'
@@ -19,6 +21,7 @@ export default class DockerLogs extends Command {
   ]
 
   static flags = {
+    ...machineOutputFlags,
     follow: Flags.boolean({
       char: 'f',
       description: 'Follow log output',
@@ -45,6 +48,7 @@ export default class DockerLogs extends Command {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(DockerLogs)
+    const jsonMode = shouldOutputJson(flags)
 
     if (!isDockerRunning()) {
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
@@ -94,9 +98,11 @@ export default class DockerLogs extends Command {
 
       dockerArgs.push(result.containerId)
 
-      this.log(`\n${styles.header(`Logs for ${result.displayName}`)}`)
-      this.log(styles.muted(`Container: ${result.containerId}`))
-      this.log('─'.repeat(60) + '\n')
+      if (!jsonMode) {
+        this.log(`\n${styles.header(`Logs for ${result.displayName}`)}`)
+        this.log(styles.muted(`Container: ${result.containerId}`))
+        this.log('─'.repeat(60) + '\n')
+      }
 
       db.close()
 
