@@ -203,3 +203,127 @@ export class ExternalIssueError extends Error {
     this.name = 'ExternalIssueError'
   }
 }
+
+// =============================================================================
+// Adapter-level Error
+// =============================================================================
+
+/**
+ * Error codes for adapter-level operations (config, auth, payload, request).
+ */
+export type ExternalIssueAdapterErrorCode =
+  | 'MISSING_CONFIG'
+  | 'AUTH_FAILED'
+  | 'BAD_PAYLOAD'
+  | 'REQUEST_FAILED'
+
+/**
+ * Typed error for external issue adapter operations.
+ *
+ * Covers config, auth, payload, and request failures that occur
+ * when interacting with a specific external issue source.
+ */
+export class ExternalIssueAdapterError extends Error {
+  constructor(
+    public readonly code: ExternalIssueAdapterErrorCode,
+    message: string,
+    public readonly causeDetail?: unknown,
+  ) {
+    super(message)
+    this.name = 'ExternalIssueAdapterError'
+  }
+}
+
+// =============================================================================
+// Normalized Issue Envelope (PMO-ready)
+// =============================================================================
+
+/**
+ * Source metadata nested object for traceability.
+ */
+export interface IssueSourceMetadata {
+  /** Which external system the issue came from */
+  name: IssueSource
+
+  /** Unique identifier in the external system (e.g., Linear UUID) */
+  externalId: string
+
+  /** Human-readable key in the external system (e.g., "ENG-123") */
+  externalKey: string
+
+  /** URL to view the issue in the external system */
+  url: string
+
+  /** Original raw payload from the external system */
+  raw: Record<string, unknown>
+}
+
+/**
+ * PMO-ready normalized issue envelope.
+ *
+ * Wraps a canonical IssueEnvelope with PMO-oriented fields (e.g., category)
+ * and a nested source metadata object for ergonomic access in commands.
+ *
+ * Produced by normalizing an IssueEnvelope into the shape expected by
+ * PMO ticket creation and the spawn context pipeline.
+ */
+export interface NormalizedIssueEnvelope {
+  /** Nested source metadata for traceability */
+  source: IssueSourceMetadata
+
+  /** Issue title / summary */
+  title: string
+
+  /** Issue description (markdown or plain text) */
+  description: string
+
+  /** Labels / tags applied to the issue */
+  labels: string[]
+
+  /** Priority level (normalized to P0-P3 scale, or null) */
+  priority: string | null
+
+  /** Current status name in the external system */
+  status: string
+
+  /** Project key in the external system */
+  projectKey: string
+
+  /** Assignee display name or identifier */
+  assignee: string | null
+
+  /** PMO ticket category derived from source metadata (e.g., "feature") */
+  category: string | null
+
+  /** Source-native work item kind when available */
+  itemType?: string | null
+}
+
+/**
+ * Convert a canonical IssueEnvelope to a NormalizedIssueEnvelope.
+ *
+ * Deterministic: same input always produces same output.
+ */
+export function toNormalizedEnvelope(
+  envelope: IssueEnvelope,
+  category?: string | null,
+): NormalizedIssueEnvelope {
+  return {
+    source: {
+      name: envelope.source,
+      externalId: envelope.external_id,
+      externalKey: envelope.external_key,
+      url: envelope.url,
+      raw: envelope.raw,
+    },
+    title: envelope.title,
+    description: envelope.description,
+    labels: envelope.labels,
+    priority: envelope.priority,
+    status: envelope.status,
+    projectKey: envelope.project_key,
+    assignee: envelope.assignee,
+    category: category ?? null,
+    itemType: envelope.item_type ?? null,
+  }
+}

@@ -15,8 +15,13 @@ export {
   type IssueValidationResult,
   type ExternalIssueAdapter,
   type ExternalIssueErrorCode,
+  type ExternalIssueAdapterErrorCode,
+  type NormalizedIssueEnvelope,
+  type IssueSourceMetadata,
   ISSUE_SOURCES,
   ExternalIssueError,
+  ExternalIssueAdapterError,
+  toNormalizedEnvelope,
 } from './types.js'
 
 // Validation

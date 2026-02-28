@@ -1,5 +1,7 @@
 import {
   ExternalIssueAdapterError,
+  toNormalizedEnvelope,
+  type IssueEnvelope,
   type NormalizedIssueEnvelope,
 } from './types.js'
 
@@ -70,7 +72,7 @@ export interface LinearAdapterConfig {
   apiUrl?: string
 }
 
-function priorityFromLinear(value: number | null | undefined): string | undefined {
+function priorityFromLinear(value: number | null | undefined): string | null {
   switch (value) {
     case 1:
       return 'P0'
@@ -81,7 +83,7 @@ function priorityFromLinear(value: number | null | undefined): string | undefine
     case 4:
       return 'P3'
     default:
-      return undefined
+      return null
   }
 }
 
@@ -117,7 +119,10 @@ function ensureLinearIssueShape(issue: LinearIssueNode): asserts issue is Requir
   }
 }
 
-export function normalizeLinearIssue(rawIssue: unknown): NormalizedIssueEnvelope {
+/**
+ * Normalize a raw Linear API issue node into a canonical IssueEnvelope.
+ */
+export function normalizeLinearIssue(rawIssue: unknown): IssueEnvelope {
   if (!rawIssue || typeof rawIssue !== 'object') {
     throw new ExternalIssueAdapterError('BAD_PAYLOAD', 'Linear issue payload is invalid.', rawIssue)
   }
@@ -129,37 +134,50 @@ export function normalizeLinearIssue(rawIssue: unknown): NormalizedIssueEnvelope
     .map(label => label.name?.trim())
     .filter((name): name is string => Boolean(name))
 
+  const [projectKey] = issue.identifier.split('-')
+
   return {
+    source: 'linear',
+    external_id: issue.id,
+    external_key: issue.identifier,
     title: issue.title,
-    description: issue.description || undefined,
-    priority: priorityFromLinear(issue.priority),
-    category: labels[0],
-    statusName: issue.state?.name,
+    description: issue.description || '',
     labels,
-    source: {
-      source: 'linear',
-      externalKey: issue.identifier,
-      externalId: issue.id,
-      url: issue.url,
-      raw: rawIssue,
-    },
+    priority: priorityFromLinear(issue.priority),
+    status: issue.state?.name || 'Unknown',
+    url: issue.url,
+    project_key: projectKey || 'UNKNOWN',
+    assignee: null,
+    item_type: 'issue',
+    raw: rawIssue as Record<string, unknown>,
   }
 }
 
+/**
+ * Normalize a raw Linear issue into a PMO-ready NormalizedIssueEnvelope.
+ */
+export function normalizeLinearIssueToEnvelope(rawIssue: unknown): NormalizedIssueEnvelope {
+  const envelope = normalizeLinearIssue(rawIssue)
+  return toNormalizedEnvelope(envelope, 'feature')
+}
+
+/**
+ * Build a PMO ticket description from a NormalizedIssueEnvelope.
+ */
 export function buildLinearTicketDescription(envelope: NormalizedIssueEnvelope): string {
-  const body = envelope.description?.trim()
+  const body = envelope.description.trim()
   const metadataLines = [
-    `- Source: ${envelope.source.source}`,
+    `- Source: ${envelope.source.name}`,
     `- External key: ${envelope.source.externalKey}`,
     `- External id: ${envelope.source.externalId}`,
     `- URL: ${envelope.source.url}`,
-    `- Status: ${envelope.statusName || 'Unknown'}`,
+    `- Status: ${envelope.status}`,
     `- Priority: ${envelope.priority || 'Unset'}`,
     `- Labels: ${envelope.labels.length > 0 ? envelope.labels.join(', ') : 'None'}`,
   ]
 
   const parts = [
-    body || '',
+    body,
     '## External Issue Context',
     metadataLines.join('\n'),
   ].filter(Boolean)
@@ -167,9 +185,12 @@ export function buildLinearTicketDescription(envelope: NormalizedIssueEnvelope):
   return parts.join('\n\n')
 }
 
+/**
+ * Build ticket metadata from a NormalizedIssueEnvelope for traceability.
+ */
 export function buildLinearMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
   return {
-    external_source: envelope.source.source,
+    external_source: envelope.source.name,
     external_key: envelope.source.externalKey,
     external_id: envelope.source.externalId,
     external_url: envelope.source.url,
@@ -177,12 +198,15 @@ export function buildLinearMetadata(envelope: NormalizedIssueEnvelope): Record<s
   }
 }
 
+/**
+ * Build a spawn context message from a NormalizedIssueEnvelope.
+ */
 export function buildLinearSpawnContextMessage(
   envelope: NormalizedIssueEnvelope,
   additionalMessage?: string,
 ): string {
   const lines = [
-    `External issue source: ${envelope.source.source}`,
+    `External issue source: ${envelope.source.name}`,
     `External issue key: ${envelope.source.externalKey}`,
     `External issue id: ${envelope.source.externalId}`,
     `External issue URL: ${envelope.source.url}`,
@@ -195,6 +219,9 @@ export function buildLinearSpawnContextMessage(
   return lines.join('\n')
 }
 
+/**
+ * Build a CLI command string for selecting a specific Linear issue.
+ */
 export function buildLinearIssueChoiceCommand(issueIdentifier: string, projectId?: string): string {
   let command = `prlt work linear --issue ${issueIdentifier} --json`
   if (projectId) {
@@ -203,6 +230,9 @@ export function buildLinearIssueChoiceCommand(issueIdentifier: string, projectId
   return command
 }
 
+/**
+ * Fetch and normalize Linear issues into NormalizedIssueEnvelopes.
+ */
 export async function listLinearIssues(
   configInput: LinearAdapterConfig,
   options?: {
@@ -262,5 +292,5 @@ export async function listLinearIssues(
     )
   }
 
-  return nodes.map(normalizeLinearIssue)
+  return nodes.map(normalizeLinearIssueToEnvelope)
 }

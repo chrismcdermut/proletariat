@@ -7,8 +7,6 @@ import {
 } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
-  outputErrorAsJson,
-  createMetadata,
 } from '../../lib/prompt-json.js'
 import {
   ExternalIssueAdapterError,
@@ -113,14 +111,6 @@ export default class WorkLinear extends PMOCommand {
     }),
   }
 
-  private handleError(code: string, message: string, flags: Record<string, unknown>): never {
-    if (shouldOutputJson(flags)) {
-      outputErrorAsJson(code, message, createMetadata('work linear', flags))
-      this.exit(1)
-    }
-    this.error(message)
-  }
-
   private async findLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
     const tickets = await this.storage.listTickets(projectId)
     return tickets.find((ticket) => {
@@ -141,8 +131,8 @@ export default class WorkLinear extends PMOCommand {
       const updated = await this.storage.updateTicket(existing.id, {
         title: envelope.title,
         description,
-        priority: envelope.priority,
-        category: envelope.category,
+        priority: envelope.priority ?? undefined,
+        category: envelope.category ?? undefined,
         labels: envelope.labels,
         metadata: {
           ...existing.metadata,
@@ -155,8 +145,8 @@ export default class WorkLinear extends PMOCommand {
     return this.storage.createTicket(projectId, {
       title: envelope.title,
       description,
-      priority: envelope.priority,
-      category: envelope.category,
+      priority: envelope.priority ?? undefined,
+      category: envelope.category ?? undefined,
       labels: envelope.labels,
       metadata,
     })
@@ -181,21 +171,22 @@ export default class WorkLinear extends PMOCommand {
       issues = await listLinearIssues({
         team,
       }, { limit: flags.limit })
-    } catch (error) {
+    } catch (error: unknown) {
       if (error instanceof ExternalIssueAdapterError) {
-        return this.handleError(error.code, error.message, flags)
+        return this.handleError(error.code, error.message, { jsonMode, commandName: 'work linear', flags })
       }
-      return this.handleError('LINEAR_REQUEST_FAILED', 'Failed to fetch Linear issues.', flags)
+      const msg = error instanceof Error ? error.message : 'Failed to fetch Linear issues.'
+      return this.handleError('LINEAR_REQUEST_FAILED', msg, { jsonMode, commandName: 'work linear', flags })
     }
 
     if (issues.length === 0) {
-      return this.handleError('NO_LINEAR_ISSUES', 'No active Linear issues found for the configured team.', flags)
+      return this.handleError('NO_LINEAR_ISSUES', 'No active Linear issues found for the configured team.', { jsonMode, commandName: 'work linear', flags })
     }
 
     let selectedIssue = issues.find(issue => issue.source.externalKey === flags.issue)
     if (!selectedIssue) {
       if (flags.issue) {
-        return this.handleError('LINEAR_ISSUE_NOT_FOUND', `Linear issue "${flags.issue}" was not found.`, flags)
+        return this.handleError('LINEAR_ISSUE_NOT_FOUND', `Linear issue "${flags.issue}" was not found.`, { jsonMode, commandName: 'work linear', flags })
       }
 
       const selectedKey = await this.selectFromList({
@@ -216,7 +207,7 @@ export default class WorkLinear extends PMOCommand {
 
       selectedIssue = issues.find(issue => issue.source.externalKey === selectedKey)
       if (!selectedIssue) {
-        return this.handleError('LINEAR_ISSUE_NOT_FOUND', `Linear issue "${selectedKey}" was not found.`, flags)
+        return this.handleError('LINEAR_ISSUE_NOT_FOUND', `Linear issue "${selectedKey}" was not found.`, { jsonMode, commandName: 'work linear', flags })
       }
     }
 
@@ -242,4 +233,3 @@ export default class WorkLinear extends PMOCommand {
     await this.config.runCommand('work:start', args)
   }
 }
-
