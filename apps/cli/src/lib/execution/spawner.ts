@@ -12,7 +12,7 @@ import Database from 'better-sqlite3'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
-import { WorkspaceInfo } from '../agents/commands.js'
+import { WorkspaceInfo, resolveAgentDir } from '../agents/commands.js'
 import { findHQRoot } from '../repos/index.js'
 import { hasGitHubRemote } from '../repos/git.js'
 import { ExecutionStorage } from './storage.js'
@@ -295,8 +295,8 @@ export async function spawnAgentForTicket(
   const log = options.log || (() => {})
   const executor = options.executor || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
-  // Determine agent directory and worktree path
-  const agentDir = path.join(workspaceInfo.agentsPath, agentName)
+  // Determine agent directory and worktree path (handles staff and temp agents)
+  const agentDir = resolveAgentDir(workspaceInfo, agentName)
   if (!fs.existsSync(agentDir)) {
     return {
       success: false,

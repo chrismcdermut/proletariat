@@ -5,7 +5,8 @@ import {
   getAgentStatus,
   getAllAgentsStatus,
   WorkspaceInfo,
-  formatAgentList
+  formatAgentList,
+  resolveAgentDir
 } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
@@ -116,7 +117,7 @@ export default class Status extends PMOCommand {
           name: agentName,
           type: agent.type,
           exists: agentStatus.exists,
-          path: `${workspaceInfo.agentsPath}/${agentName}`,
+          path: resolveAgentDir(workspaceInfo, agentName),
           branch: agentStatus.branch,
           repositories: agentStatus.repositories.map(r => ({
             name: r.name,
@@ -144,7 +145,7 @@ export default class Status extends PMOCommand {
     }
 
     // Location
-    this.log(`📍 Location: ${colors.path(`${workspaceInfo.agentsPath}/${agentName}`)}`);
+    this.log(`📍 Location: ${colors.path(resolveAgentDir(workspaceInfo, agentName))}`);
 
     // Branch info
     if (agentStatus.branch) {

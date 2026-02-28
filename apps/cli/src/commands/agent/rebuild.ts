@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { colors } from '../../lib/colors.js';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, resolveAgentDir } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { isDockerRunning } from '../../lib/execution/runners.js';
 import {
@@ -97,8 +97,7 @@ export default class AgentRebuild extends PMOCommand {
 
     this.log(colors.primary(`🔨 Rebuilding agent: ${agentName}\n`));
 
-    const agentsPath = path.join(workspaceInfo.path, 'agents', 'staff');
-    const agentDir = path.join(agentsPath, agentName);
+    const agentDir = resolveAgentDir(workspaceInfo, agentName);
 
     try {
       this.log(colors.textSecondary('  Building devcontainer...'));

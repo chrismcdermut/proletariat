@@ -4,7 +4,8 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import {
   getWorkspaceInfo,
-  getAllAgentsStatus
+  getAllAgentsStatus,
+  resolveAgentDir
 } from '../../lib/agents/commands.js';
 import { shouldOutputJson } from '../../lib/prompt-json.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
@@ -93,7 +94,7 @@ export default class List extends Command {
             this.log(chalk.white(`   Completed: ${agentStatus.completedTickets.length} ticket(s)`));
           }
         } else {
-          const agentDir = path.join(workspaceInfo.agentsPath, agentStatus.name);
+          const agentDir = resolveAgentDir(workspaceInfo, agentStatus.name);
           const dirExists = fs.existsSync(agentDir);
 
           if (dirExists) {

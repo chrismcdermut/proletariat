@@ -3,7 +3,7 @@ import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { getWorkspaceInfo, resolveAgentDir } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import {
@@ -183,7 +183,7 @@ export default class WorkWatch extends PMOCommand {
 
       // Check if any agent has devcontainer
       const hasDevcontainer = workspaceInfo.agents.some(agent => {
-        const agentDir = path.join(workspaceInfo.agentsPath, agent.name)
+        const agentDir = resolveAgentDir(workspaceInfo, agent.name)
         return hasDevcontainerConfig(agentDir)
       })
 

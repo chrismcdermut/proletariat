@@ -37,6 +37,45 @@ import { getGitIdentity } from '../pr/index.js';
 import { getPMOContext } from '../pmo/index.js';
 
 /**
+ * Resolve the directory for an agent, cascading through resolution strategies.
+ * Handles both staff (persistent) and temp (ephemeral) agents.
+ *
+ * Resolution order:
+ * 1. Check agent's worktree_path from DB (most reliable)
+ * 2. Check ephemeral directory if agent type is ephemeral
+ * 3. Check both directories on disk as fallback
+ * 4. Fall back to staff path (caller handles missing dir error)
+ */
+export function resolveAgentDir(workspaceInfo: WorkspaceInfo, agentName: string): string {
+  const agent = workspaceInfo.agents.find(a => a.name === agentName)
+
+  // 1. Check DB worktree_path (most reliable - set during agent creation)
+  if (agent?.worktree_path) {
+    const fullWorktreePath = path.join(workspaceInfo.path, agent.worktree_path)
+    // worktree_path may point to repo subdir (e.g. agents/staff/altman/proletariat)
+    // Go up to the agent dir level
+    const agentDir = path.dirname(fullWorktreePath)
+    if (fs.existsSync(agentDir)) return agentDir
+  }
+
+  // 2. Check ephemeral directory if agent type is ephemeral
+  if (agent?.type === 'ephemeral') {
+    const ephemeralDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName)
+    if (fs.existsSync(ephemeralDir)) return ephemeralDir
+  }
+
+  // 3. Check both directories on disk (handles DB inconsistencies)
+  const tempDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, agentName)
+  if (fs.existsSync(tempDir)) return tempDir
+
+  const staffDir = path.join(workspaceInfo.agentsPath, agentName)
+  if (fs.existsSync(staffDir)) return staffDir
+
+  // 4. Fall back to staff path - caller will handle the missing dir error
+  return staffDir
+}
+
+/**
  * Format a list of agents for display in error messages.
  * Truncates long lists to avoid overwhelming output.
  */
@@ -238,15 +277,8 @@ export function getAgentStatus(workspaceInfo: WorkspaceInfo, agentName: string):
   // Get worktrees from database to find actual agent location
   const worktrees = getAgentWorktrees(workspaceInfo.path, agentName);
 
-  // Derive agent directory from worktree path, or fall back to default
-  let agentDir = path.join(workspaceInfo.agentsPath, agentName);
-  if (worktrees.length > 0) {
-    // worktree_path is like "agents/staff/altman/proletariat-altman"
-    // Agent dir is the parent: "agents/staff/altman"
-    const worktreePath = worktrees[0].worktree_path;
-    const agentDirRelative = path.dirname(worktreePath);
-    agentDir = path.join(workspaceInfo.path, agentDirRelative);
-  }
+  // Resolve agent directory (handles both staff and temp agents)
+  const agentDir = resolveAgentDir(workspaceInfo, agentName);
 
   const dirExists = fs.existsSync(agentDir);
 
@@ -409,7 +441,7 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
 
   for (const agentName of agentNames) {
     try {
-      const agentDir = path.join(workspaceInfo.agentsPath, agentName);
+      const agentDir = resolveAgentDir(workspaceInfo, agentName);
 
       // Stop and remove Docker container if it exists
       try {

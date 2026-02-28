@@ -1,7 +1,7 @@
 import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import { colors } from '../../lib/colors.js';
-import { getWorkspaceInfo, formatAgentList } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, formatAgentList, resolveAgentDir } from '../../lib/agents/commands.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
@@ -98,7 +98,7 @@ export default class Visit extends PMOCommand {
     }
 
     // Calculate path to agent directory
-    const agentDir = path.join(workspaceInfo.agentsPath, agentName!);
+    const agentDir = resolveAgentDir(workspaceInfo, agentName!);
     const relativePath = path.relative(process.cwd(), agentDir);
 
     // Display navigation command
