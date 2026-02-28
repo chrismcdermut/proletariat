@@ -319,6 +319,28 @@ prlt work spawn --all --dry-run
 prlt work spawn TKT-001 TKT-002 --create-pr   # Ensure PRs are created
 ```
 
+#### `prlt work linear`
+
+List/select Linear issues, create or update linked internal ticket context, and spawn work using `work start`.
+
+```bash
+prlt work linear [options]
+
+Options:
+  --team <key>           Linear team key (fallback: PRLT_LINEAR_TEAM)
+  --issue <id>           Linear issue identifier (e.g., ENG-123)
+  --limit <n>            Number of issues to fetch (default: 20)
+  --action <action>      Work action for spawn (default: implement)
+  --display <mode>       terminal | background | foreground
+  --skip-permissions     Use danger mode
+  --create-pr            Create PR when work is ready
+  --yes                  Skip downstream confirmation prompts
+
+# Examples
+prlt work linear --team ENG
+prlt work linear --team ENG --issue ENG-123 --yes --display terminal --skip-permissions
+```
+
 #### `prlt work list`
 
 List active work.
