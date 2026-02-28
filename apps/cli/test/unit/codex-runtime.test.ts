@@ -40,6 +40,17 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
         expect(result.args).to.include(testPrompt)
       })
 
+      it('should include --effort high when skip permissions enabled (TKT-1134)', () => {
+        const result = getExecutorCommand('claude-code', testPrompt, true)
+        expect(result.args).to.include('--effort')
+        expect(result.args).to.include('high')
+      })
+
+      it('should not include --effort when skip permissions disabled', () => {
+        const result = getExecutorCommand('claude-code', testPrompt, false)
+        expect(result.args).to.not.include('--effort')
+      })
+
       it('should return claude command without skip permissions', () => {
         const result = getExecutorCommand('claude-code', testPrompt, false)
         expect(result.cmd).to.equal('claude')

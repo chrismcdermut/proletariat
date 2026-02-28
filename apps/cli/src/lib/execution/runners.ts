@@ -198,7 +198,8 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
         // Note: NO -p flag - we want interactive mode for streaming output in terminal
         // --permission-mode bypassPermissions: skips the "trust this folder" dialog
         // --dangerously-skip-permissions: skips tool permission checks
-        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
+        // --effort high: skips the effort level prompt (TKT-1134)
+        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', '--effort', 'high', prompt] }
       }
       // Manual mode - will prompt for each action (still interactive, no -p)
       return { cmd: 'claude', args: [prompt] }
@@ -212,7 +213,8 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
     default:
       if (skipPermissions) {
         // Note: NO -p flag - we want interactive mode for streaming output
-        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', prompt] }
+        // --effort high: skips the effort level prompt (TKT-1134)
+        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', '--effort', 'high', prompt] }
       }
       return { cmd: 'claude', args: [prompt] }
   }
@@ -491,7 +493,9 @@ export async function runHost(
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
     const printFlag = config.outputMode === 'print' ? '-p ' : ''
-    executorInvocation = `${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"`
+    // --effort high: skips the effort level prompt for automated agents (TKT-1134)
+    const effortFlag = skipPermissions ? '--effort high ' : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}"$(cat "$PROMPT_PATH")"`
   } else {
     // Non-Claude executors: build command from getExecutorCommand() args
     // Replace the prompt in args with a file read to avoid shell escaping
@@ -1155,6 +1159,24 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true, execu
       }
       const tips = settings.tipsHistory as Record<string, number>
       tips['new-user-warmup'] = tips['new-user-warmup'] || 1
+      // Dismiss the effort level callout so agents aren't prompted (TKT-1134)
+      settings.effortCalloutDismissed = true
+
+      // Pre-accept the "trust this folder" dialog for /workspace (TKT-1134)
+      // Claude Code stores trust per-project under projects[path].hasTrustDialogAccepted
+      // Without this, agents get stuck on the workspace safety prompt
+      if (!settings.projects || typeof settings.projects !== 'object') {
+        settings.projects = {}
+      }
+      const projects = settings.projects as Record<string, Record<string, unknown>>
+      // Accept trust for /workspace and root / to cover all container working directories
+      for (const projectPath of ['/workspace', '/']) {
+        if (!projects[projectPath]) {
+          projects[projectPath] = {}
+        }
+        projects[projectPath].hasTrustDialogAccepted = true
+        projects[projectPath].hasCompletedProjectOnboarding = true
+      }
 
       // Pipe settings via stdin to avoid ARG_MAX limits with large .claude.json files
       const settingsJson = JSON.stringify(settings)
@@ -1164,8 +1186,17 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true, execu
         { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
       )
       console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${!sandboxed})`)
+
+      // Write ~/.claude/settings.json to skip the dangerous mode permission prompt (TKT-1134)
+      // This prevents Claude Code from prompting about permission mode on first run
+      const claudeSettings = JSON.stringify({ skipDangerousModePermissionPrompt: true })
+      execSync(
+        `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
+        { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }
+      )
+      console.debug(`[runners:docker] Wrote ~/.claude/settings.json to container`)
     } catch (error) {
-      console.debug('[runners:docker] Failed to copy .claude.json to container:', error)
+      console.debug('[runners:docker] Failed to copy Claude settings to container:', error)
       // Non-fatal - Claude will just prompt for settings
     }
 
@@ -1401,7 +1432,9 @@ export function buildDevcontainerCommand(
     // --permission-mode bypassPermissions: skips the "trust this folder" dialog
     const bypassTrustFlag = '--permission-mode bypassPermissions '
     const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
-    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${printFlag}"$(cat ${promptFile})"`
+    // --effort high: skips the effort level prompt for automated agents (TKT-1134)
+    const effortFlag = '--effort high '
+    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}"$(cat ${promptFile})"`
   } else {
     // Non-Claude executors: use getExecutorCommand() to get correct command and args
     const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, false)
