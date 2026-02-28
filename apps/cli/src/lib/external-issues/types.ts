@@ -1,8 +1,9 @@
 /**
  * External Issue Adapter Types
  *
- * Canonical types for normalizing issues from external sources (Linear, Jira)
- * into a shared IssueEnvelope format that can be mapped to spawn context.
+ * Canonical types for normalizing issues from external sources
+ * (Linear, Jira, and planned providers) into a shared IssueEnvelope format
+ * that can be mapped to spawn context.
  */
 
 // =============================================================================
@@ -11,23 +12,26 @@
 
 /**
  * Supported external issue sources.
+ *
+ * Includes currently supported providers (Linear, Jira) and the
+ * near-term adapter targets (Monday, Asana, Basecamp).
  */
-export type IssueSource = 'linear' | 'jira'
+export type IssueSource = 'linear' | 'jira' | 'monday' | 'asana' | 'basecamp'
 
 /**
  * All valid issue sources as a const array.
  */
-export const ISSUE_SOURCES = ['linear', 'jira'] as const
+export const ISSUE_SOURCES = ['linear', 'jira', 'monday', 'asana', 'basecamp'] as const
 
 // =============================================================================
 // IssueEnvelope - Canonical External Issue Format
 // =============================================================================
 
 /**
- * Canonical envelope for external issues.
+ * Canonical envelope for external issues/work items.
  *
- * Normalizes issues from different sources (Linear, Jira) into a shared
- * structure that can be deterministically mapped to spawn context.
+ * Normalizes issues from different sources into a shared structure that can be
+ * deterministically mapped to spawn context.
  *
  * Source-specific fields are preserved in the `raw` payload.
  */
@@ -64,6 +68,13 @@ export interface IssueEnvelope {
 
   /** Assignee display name or identifier */
   assignee: string | null
+
+  /**
+   * Source-native work item kind when available (e.g., issue, ticket, task).
+   * Optional to preserve compatibility with adapters that do not expose a
+   * stable item kind.
+   */
+  item_type?: string | null
 
   /** Original source-specific payload (preserved for source-specific logic) */
   raw: Record<string, unknown>

@@ -62,6 +62,23 @@ describe('External Issues', () => {
       }
     });
 
+    it('accepts a valid Monday envelope', () => {
+      const result = validateIssueEnvelope(
+        makeEnvelope({
+          source: 'monday',
+          external_id: '987654321',
+          external_key: 'MON-987654321',
+          url: 'https://monday.com/boards/123/pulses/987654321',
+          project_key: 'BOARD-123',
+          raw: { id: '987654321', board_id: '123' },
+        })
+      );
+      expect(result.valid).to.equal(true);
+      if (result.valid) {
+        expect(result.envelope.source).to.equal('monday');
+      }
+    });
+
     it('accepts envelope with null priority', () => {
       const result = validateIssueEnvelope(makeEnvelope({ priority: null }));
       expect(result.valid).to.equal(true);
@@ -216,6 +233,20 @@ describe('External Issues', () => {
         }
       });
 
+      it('accepts planned sources as valid values', () => {
+        for (const source of ['asana', 'basecamp'] as const) {
+          const result = validateIssueEnvelope(
+            makeEnvelope({
+              source,
+              external_id: `${source}-123`,
+              external_key: `${source.toUpperCase()}-123`,
+              url: `https://example.com/${source}/123`,
+            })
+          );
+          expect(result.valid).to.equal(true);
+        }
+      });
+
       it('rejects non-string source', () => {
         const data = { ...makeEnvelope(), source: 42 };
         const result = validateIssueEnvelope(data);
@@ -261,6 +292,15 @@ describe('External Issues', () => {
         }
       });
 
+      it('rejects non-string, non-null item_type when provided', () => {
+        const data = { ...makeEnvelope(), item_type: 123 };
+        const result = validateIssueEnvelope(data);
+        expect(result.valid).to.equal(false);
+        if (!result.valid) {
+          expect(result.errors.some((e) => e.field === 'item_type' && e.code === 'INVALID_FIELD_TYPE')).to.be.true;
+        }
+      });
+
       it('rejects array as raw payload', () => {
         const data = { ...makeEnvelope(), raw: [1, 2, 3] };
         const result = validateIssueEnvelope(data);
@@ -296,6 +336,14 @@ describe('External Issues', () => {
         expect(result.valid).to.equal(false);
         if (!result.valid) {
           expect(result.errors.some((e) => e.field === 'status' && e.code === 'EMPTY_FIELD')).to.be.true;
+        }
+      });
+
+      it('rejects empty item_type when provided', () => {
+        const result = validateIssueEnvelope(makeEnvelope({ item_type: '  ' }));
+        expect(result.valid).to.equal(false);
+        if (!result.valid) {
+          expect(result.errors.some((e) => e.field === 'item_type' && e.code === 'EMPTY_FIELD')).to.be.true;
         }
       });
     });
@@ -340,13 +388,16 @@ describe('External Issues', () => {
   // ISSUE_SOURCES Constant
   // ===========================================================================
   describe('ISSUE_SOURCES', () => {
-    it('contains linear and jira', () => {
+    it('contains currently supported and planned sources', () => {
       expect(ISSUE_SOURCES).to.include('linear');
       expect(ISSUE_SOURCES).to.include('jira');
+      expect(ISSUE_SOURCES).to.include('monday');
+      expect(ISSUE_SOURCES).to.include('asana');
+      expect(ISSUE_SOURCES).to.include('basecamp');
     });
 
-    it('has exactly 2 sources', () => {
-      expect(ISSUE_SOURCES).to.have.length(2);
+    it('has exactly 5 known sources', () => {
+      expect(ISSUE_SOURCES).to.have.length(5);
     });
   });
 
@@ -397,6 +448,16 @@ describe('External Issues', () => {
     it('includes status in prompt', () => {
       const ctx = mapToSpawnContext(makeEnvelope());
       expect(ctx.prompt).to.include('In Progress');
+    });
+
+    it('includes item type in prompt when provided', () => {
+      const ctx = mapToSpawnContext(makeEnvelope({ item_type: 'ticket' }));
+      expect(ctx.prompt).to.include('**Item Type:** ticket');
+    });
+
+    it('omits item type line when not provided', () => {
+      const ctx = mapToSpawnContext(makeEnvelope());
+      expect(ctx.prompt).not.to.include('**Item Type:**');
     });
 
     it('includes priority when set', () => {
@@ -503,6 +564,16 @@ describe('External Issues', () => {
       it('omits external_assignee when null', () => {
         const ctx = mapToSpawnContext(makeEnvelope({ assignee: null }));
         expect(ctx.metadata).not.to.have.property('external_assignee');
+      });
+
+      it('includes external_item_type when set', () => {
+        const ctx = mapToSpawnContext(makeEnvelope({ item_type: 'issue' }));
+        expect(ctx.metadata['external_item_type']).to.equal('issue');
+      });
+
+      it('omits external_item_type when not set', () => {
+        const ctx = mapToSpawnContext(makeEnvelope());
+        expect(ctx.metadata).not.to.have.property('external_item_type');
       });
 
       it('includes external_labels as comma-separated string', () => {

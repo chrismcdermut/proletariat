@@ -38,6 +38,11 @@ function buildPrompt(envelope: IssueEnvelope): string {
   lines.push(`# ${envelope.title}`)
   lines.push('')
   lines.push(`**Source:** ${envelope.source} (${envelope.external_key})`)
+
+  if (envelope.item_type) {
+    lines.push(`**Item Type:** ${envelope.item_type}`)
+  }
+
   lines.push(`**Status:** ${envelope.status}`)
 
   if (envelope.priority) {
@@ -92,6 +97,10 @@ function buildMetadata(envelope: IssueEnvelope): Record<string, string> {
 
   if (envelope.labels.length > 0) {
     metadata['external_labels'] = envelope.labels.join(',')
+  }
+
+  if (envelope.item_type) {
+    metadata['external_item_type'] = envelope.item_type
   }
 
   return metadata

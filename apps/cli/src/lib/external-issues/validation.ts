@@ -36,6 +36,7 @@ const REQUIRED_STRING_FIELDS = [
  * - `labels` is an array of strings
  * - `priority` is a string or null
  * - `assignee` is a string or null
+ * - `item_type` is optional, but if present must be a non-empty string or null
  * - `raw` is a plain object
  *
  * @param input - Untyped input to validate
@@ -167,6 +168,23 @@ export function validateIssueEnvelope(input: unknown): IssueValidationResult {
       field: 'assignee',
       message: 'assignee must be a string or null',
     })
+  }
+
+  // Validate item_type (optional: string or null)
+  if ('item_type' in data && data.item_type !== undefined) {
+    if (data.item_type !== null && typeof data.item_type !== 'string') {
+      errors.push({
+        code: 'INVALID_FIELD_TYPE',
+        field: 'item_type',
+        message: 'item_type must be a string or null',
+      })
+    } else if (typeof data.item_type === 'string' && data.item_type.trim() === '') {
+      errors.push({
+        code: 'EMPTY_FIELD',
+        field: 'item_type',
+        message: 'item_type must not be empty when provided',
+      })
+    }
   }
 
   // Validate raw
