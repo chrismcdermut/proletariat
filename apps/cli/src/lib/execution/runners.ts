@@ -20,6 +20,7 @@ import {
   DEFAULT_EXECUTION_CONFIG,
 } from './types.js'
 import { getSetTitleCommands } from '../terminal.js'
+import { readDevcontainerJson } from './devcontainer.js'
 
 // =============================================================================
 // Terminal Title Helpers
@@ -856,6 +857,24 @@ export function isDevcontainerCliInstalled(): boolean {
 // =============================================================================
 
 /**
+ * Get the host's installed prlt CLI version.
+ * Returns the semver version string (e.g., "0.3.35") or null if not available.
+ * Used to ensure containers run the same prlt version as the host (TKT-1029).
+ */
+function getHostPrltVersion(): string | null {
+  try {
+    const output = execSync('prlt --version', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim()
+    const match = output.match(/(\d+\.\d+\.\d+)/)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Get the container name for an agent.
  * Format: prlt-agent-{agentName}
  */
@@ -966,7 +985,8 @@ function createDockerContainer(
   containerName: string,
   imageName: string,
   config: ExecutionConfig,
-  executor: ExecutorType = 'claude-code'
+  executor: ExecutorType = 'claude-code',
+  prltInfo?: { registry: string; version: string }
 ): boolean {
   // Build mount flags
   // KEY: Use a named Docker volume for Claude credentials - this is how devcontainer.json
@@ -1017,6 +1037,11 @@ function createDockerContainer(
     // and setup-token generates invalid tokens. Use "prlt agent auth" instead.
     // Set mount mode to worktree if we have repo worktrees - triggers git wrapper setup
     ...(hasWorktrees ? [`-e PRLT_MOUNT_MODE=worktree`] : []),
+    // Pass prlt version info for setup-prlt.sh to verify/update at container start (TKT-1029)
+    ...(prltInfo ? [
+      `-e PRLT_REGISTRY="${prltInfo.registry}"`,
+      `-e PRLT_VERSION="${prltInfo.version}"`,
+    ] : []),
   ]
 
   // Resource limits
@@ -1195,22 +1220,54 @@ function ensureDockerContainer(
     }
   }
 
-  // Build image if it doesn't exist
-  if (!imageExists(imageName)) {
-    console.debug(`[runners:docker] Building image ${imageName}`)
-    const buildArgs: Record<string, string> = {
-      TZ: 'America/Los_Angeles',
-      PRLT_REGISTRY: 'npm',
-      PRLT_VERSION: 'latest',
+  // Build image with version-aware cache busting (TKT-1029)
+  // Read build args from devcontainer.json instead of hardcoding
+  const devcontainerJson = readDevcontainerJson(context.agentDir)
+  const buildArgs: Record<string, string> = {
+    TZ: devcontainerJson?.build?.args?.TZ || 'America/Los_Angeles',
+    PRLT_REGISTRY: devcontainerJson?.build?.args?.PRLT_REGISTRY || 'npm',
+  }
+
+  // Resolve the specific prlt version to install (TKT-1029)
+  // When the configured version is a tag like "latest", resolve it to the host's
+  // actual prlt version. This serves two purposes:
+  // 1. Ensures the container runs the same version as the host
+  // 2. Enables Docker layer cache busting when the host version changes
+  //    (Docker caches "latest" as a static string, so the layer never rebuilds)
+  const configuredVersion = devcontainerJson?.build?.args?.PRLT_VERSION || 'latest'
+  const isTagVersion = ['latest', 'dev', 'next'].includes(configuredVersion)
+  const hostPrltVersion = isTagVersion ? getHostPrltVersion() : null
+
+  if (hostPrltVersion) {
+    buildArgs.PRLT_VERSION = hostPrltVersion
+    console.debug(`[runners:docker] Using host prlt version ${hostPrltVersion} for image build`)
+  } else {
+    buildArgs.PRLT_VERSION = configuredVersion
+  }
+
+  // Always run docker build - Docker layer caching makes this efficient when
+  // nothing has changed. When PRLT_VERSION changes (e.g., "0.3.29" -> "0.3.35"),
+  // the changed build arg invalidates the cache from that layer forward,
+  // ensuring the new version gets installed.
+  console.debug(`[runners:docker] Building image ${imageName} (PRLT_VERSION=${buildArgs.PRLT_VERSION})`)
+  if (!buildDockerImage(context.agentDir, imageName, buildArgs)) {
+    if (!imageExists(imageName)) {
+      return null  // No image at all, can't proceed
     }
-    if (!buildDockerImage(context.agentDir, imageName, buildArgs)) {
-      return null
-    }
+    // Build failed but old image exists - continue with setup-prlt.sh as fallback
+    console.debug(`[runners:docker] Build failed but existing image found, continuing with runtime update`)
+  }
+
+  // Pass resolved prlt version info to the container environment (TKT-1029)
+  // This allows setup-prlt.sh to verify/update prlt without querying npm registry
+  const prltInfo = {
+    registry: buildArgs.PRLT_REGISTRY,
+    version: buildArgs.PRLT_VERSION,
   }
 
   // Create and start container
   console.debug(`[runners:docker] Creating container ${containerName}`)
-  if (!createDockerContainer(context, containerName, imageName, config, executor)) {
+  if (!createDockerContainer(context, containerName, imageName, config, executor, prltInfo)) {
     return null
   }
 

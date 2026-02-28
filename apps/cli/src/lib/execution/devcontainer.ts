@@ -607,6 +607,8 @@ configure_git_identity
 
 # Check if prlt is already installed globally (via npm)
 # TKT-954: Also check for updates - Docker layer caching may have installed an older version
+# TKT-1029: Don't exit early - continue to workspace dependency installation
+PRLT_CONFIGURED=false
 if command -v prlt &> /dev/null; then
     PRLT_PATH=$(which prlt)
     if [[ "$PRLT_PATH" == "/home/node/.npm-global/bin/prlt" ]]; then
@@ -629,12 +631,12 @@ if command -v prlt &> /dev/null; then
         else
             echo "prlt v\${CURRENT_VERSION} is up to date"
         fi
-        exit 0
+        PRLT_CONFIGURED=true
     fi
 fi
 
-# Check if mounted prlt exists at /opt/prlt
-if [ -d "/opt/prlt/apps/cli" ]; then
+# Check if mounted prlt exists at /opt/prlt (skip if already configured via npm)
+if [ "$PRLT_CONFIGURED" = "false" ] && [ -d "/opt/prlt/apps/cli" ]; then
     echo "Setting up mounted prlt..."
 
     PRLT_LOCAL="/home/node/.prlt-local"
@@ -682,7 +684,7 @@ WRAPPER_EOF
     # Create prltdev symlink for consistency with dev environment
     ln -sf "$WRAPPER" /home/node/.npm-global/bin/prltdev
     echo "prlt wrapper ready at $WRAPPER (also available as prltdev)"
-else
+elif [ "$PRLT_CONFIGURED" = "false" ]; then
     echo "No mounted prlt found, skipping setup"
 fi
 
