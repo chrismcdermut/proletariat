@@ -38,6 +38,7 @@ const CONFIG_KEYS = {
   dockerNetwork: 'execution.docker.network',
   dockerMemory: 'execution.docker.memory',
   dockerCpus: 'execution.docker.cpus',
+  firewallAllowlistDomains: 'execution.firewall.allowlist_domains',
   vmDefaultHost: 'execution.vm.default_host',
   vmUser: 'execution.vm.user',
   vmKeyPath: 'execution.vm.key_path',
@@ -166,6 +167,28 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     config.docker = { ...config.docker, cpus: parseInt(dockerCpus, 10) }
   }
 
+  // Load firewall allowlist domains
+  const firewallAllowlistDomains = getSetting(db, CONFIG_KEYS.firewallAllowlistDomains)
+  if (firewallAllowlistDomains) {
+    let parsed: string[] = []
+    try {
+      const jsonValue = JSON.parse(firewallAllowlistDomains)
+      if (Array.isArray(jsonValue)) {
+        parsed = jsonValue
+          .filter((domain): domain is string => typeof domain === 'string')
+          .map(domain => domain.trim())
+          .filter(Boolean)
+      }
+    } catch {
+      // Backward-compatible fallback: comma-separated string
+      parsed = firewallAllowlistDomains
+        .split(',')
+        .map(domain => domain.trim())
+        .filter(Boolean)
+    }
+    config.firewall = { ...config.firewall, allowlistDomains: parsed }
+  }
+
   // Load VM settings
   const vmDefaultHost = getSetting(db, CONFIG_KEYS.vmDefaultHost)
   if (vmDefaultHost) {
@@ -222,6 +245,14 @@ export function saveTmuxControlMode(db: Database.Database, enabled: boolean): vo
  */
 export function saveTerminalOpenInBackground(db: Database.Database, enabled: boolean): void {
   setSetting(db, CONFIG_KEYS.terminalOpenInBackground, enabled.toString())
+}
+
+/**
+ * Save extra firewall allowlist domains.
+ */
+export function saveFirewallAllowlistDomains(db: Database.Database, domains: string[]): void {
+  const cleaned = [...new Set(domains.map(domain => domain.trim()).filter(Boolean))]
+  setSetting(db, CONFIG_KEYS.firewallAllowlistDomains, JSON.stringify(cleaned))
 }
 
 /**

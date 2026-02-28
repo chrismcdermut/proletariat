@@ -355,6 +355,9 @@ export interface ExecutionConfig {
     memory?: string
     cpus?: number
   }
+  firewall: {
+    allowlistDomains: string[]  // Additional domains to allow in container firewall
+  }
   vm: {
     defaultHost?: string
     user: string
@@ -401,6 +404,9 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   docker: {
     image: 'claude-code:latest',
     network: 'host',
+  },
+  firewall: {
+    allowlistDomains: [],
   },
   vm: {
     user: 'agent',

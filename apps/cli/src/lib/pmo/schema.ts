@@ -47,6 +47,8 @@ export const PMO_TABLES = {
   label_groups: 'pmo_label_groups',
   labels: 'pmo_labels',
   ticket_labels: 'pmo_ticket_labels',
+  // Linear integration tables
+  linear_issue_map: 'pmo_linear_issue_map',  // Linear issue ↔ PMO ticket mapping
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -522,6 +524,21 @@ export const PMO_TABLE_SCHEMAS = {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (roadmap_id, project_id)
     )`,
+
+  // Linear integration: issue ↔ PMO ticket mapping
+  linear_issue_map: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.linear_issue_map} (
+      pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      linear_issue_id TEXT NOT NULL,
+      linear_identifier TEXT NOT NULL,
+      linear_team_key TEXT NOT NULL,
+      linear_url TEXT NOT NULL,
+      sync_direction TEXT NOT NULL DEFAULT 'inbound',
+      last_synced_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (pmo_ticket_id),
+      UNIQUE (linear_issue_id)
+    )`,
 } as const;
 
 // =============================================================================
@@ -586,6 +603,9 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_labels_builtin ON ${PMO_TABLES.labels}(is_builtin);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_labels_ticket ON ${PMO_TABLES.ticket_labels}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_labels_label ON ${PMO_TABLES.ticket_labels}(label_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_linear_id ON ${PMO_TABLES.linear_issue_map}(linear_issue_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_identifier ON ${PMO_TABLES.linear_issue_map}(linear_identifier);
+  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_team ON ${PMO_TABLES.linear_issue_map}(linear_team_key);
 `;
 
 // =============================================================================
@@ -631,6 +651,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.ticket_labels,  // Ticket-label junction table
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
   PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
+  PMO_TABLE_SCHEMAS.linear_issue_map,  // Linear issue ↔ PMO ticket mapping
   // Legacy tables (kept for migration, will be dropped after data migrated)
   PMO_TABLE_SCHEMAS.columns,  // DEPRECATED
   PMO_TABLE_SCHEMAS.board_tickets,  // DEPRECATED

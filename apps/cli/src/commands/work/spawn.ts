@@ -8,9 +8,9 @@ import {
   getTicketTmuxSession,
   killTmuxSession
 } from '../../lib/agents/commands.js'
-import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
-import { PermissionMode } from '../../lib/execution/types.js'
-import { getCreatePrDefault } from '../../lib/execution/config.js'
+import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, getExecutorDisplayName } from '../../lib/execution/runners.js'
+import { PermissionMode, ExecutorType } from '../../lib/execution/types.js'
+import { getCreatePrDefault, loadExecutionConfig } from '../../lib/execution/config.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -26,6 +26,13 @@ import {
   type DietConfig,
 } from '../../lib/pmo/diet.js'
 import type { Ticket } from '../../lib/pmo/types.js'
+import {
+  LinearClient,
+  LinearMapper,
+  isLinearConfigured,
+  loadLinearConfig,
+} from '../../lib/linear/index.js'
+import type { LinearIssueFilter } from '../../lib/linear/types.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -45,6 +52,10 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --count 10 --diet --action groom  # Diet-balanced',
     '<%= config.bin %> <%= command.id %> --count 5 --category ship --action implement  # Filtered by category',
     '<%= config.bin %> <%= command.id %> --count 5 --priority P0 --action implement  # Filtered by priority',
+    '<%= config.bin %> <%= command.id %> --from-linear                      # Pull Linear issues → PMO → spawn',
+    '<%= config.bin %> <%= command.id %> --from-linear ENG-123 ENG-124      # Pull specific Linear issues → spawn',
+    '<%= config.bin %> <%= command.id %> --from-linear --linear-team ENG    # Pull from specific team',
+    '<%= config.bin %> <%= command.id %> --from-linear --linear-state "In Progress"  # Filter by state',
     '<%= config.bin %> <%= command.id %> --count 10 --diet --category ship,grow --action groom  # Combined',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 --create-pr  # Create PR when work is ready',
   ]
@@ -163,6 +174,28 @@ export default class WorkSpawn extends PMOCommand {
     status: Flags.string({
       description: 'Filter tickets by status name (e.g., Backlog, Ready)',
     }),
+    // Linear integration flags
+    'from-linear': Flags.boolean({
+      description: 'Pull issues from Linear, mirror into PMO, then spawn agents',
+      default: false,
+    }),
+    'linear-team': Flags.string({
+      description: 'Linear team key to pull issues from (e.g., ENG)',
+      dependsOn: ['from-linear'],
+    }),
+    'linear-state': Flags.string({
+      description: 'Filter Linear issues by state name (e.g., "In Progress")',
+      dependsOn: ['from-linear'],
+    }),
+    'linear-label': Flags.string({
+      description: 'Filter Linear issues by label name',
+      dependsOn: ['from-linear'],
+    }),
+    'linear-limit': Flags.integer({
+      description: 'Maximum number of Linear issues to pull',
+      default: 20,
+      dependsOn: ['from-linear'],
+    }),
   }
 
   async execute(): Promise<void> {
@@ -191,7 +224,125 @@ export default class WorkSpawn extends PMOCommand {
     }
 
     // Parse ticket IDs from args (everything after flags)
-    const ticketIdArgs = argv as string[]
+    let ticketIdArgs = argv as string[]
+
+    // =========================================================================
+    // --from-linear: Pull Linear issues → mirror into PMO → spawn from PMO
+    // =========================================================================
+    if (flags['from-linear']) {
+      const db = this.storage.getDatabase()
+
+      if (!isLinearConfigured(db)) {
+        return handleError('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear auth" first.')
+      }
+
+      const linearConfig = loadLinearConfig(db)!
+      const linearClient = new LinearClient(linearConfig.apiKey)
+      const mapper = new LinearMapper(db)
+
+      // Determine project first (needed for ticket creation)
+      const linearProjectId = await this.requireProject({
+        jsonMode: jsonMode ? {
+          flags,
+          commandName: 'work spawn',
+          baseCommand: 'prlt work spawn --from-linear',
+        } : undefined,
+      })
+
+      // Get project workflow statuses for mapping
+      const workflow = await this.storage.getProjectWorkflow(linearProjectId)
+      if (!workflow) {
+        return handleError('NO_WORKFLOW', 'Project has no workflow configured.')
+      }
+      const statuses = await this.storage.listStatuses(workflow.id)
+
+      // Check if args are Linear identifiers (e.g., ENG-123)
+      const linearIdentifiers = ticketIdArgs.filter((id) => /^[A-Z]+-\d+$/i.test(id))
+      const pmoTicketIds: string[] = []
+
+      if (linearIdentifiers.length > 0) {
+        // Fetch and import specific Linear issues
+        if (!jsonMode) {
+          this.log(styles.muted(`Pulling ${linearIdentifiers.length} issue(s) from Linear...`))
+        }
+
+        for (const identifier of linearIdentifiers) {
+          // eslint-disable-next-line no-await-in-loop
+          const issue = await linearClient.getIssueByIdentifier(identifier)
+          if (!issue) {
+            if (!jsonMode) this.warn(`Linear issue not found: ${identifier}`)
+            continue
+          }
+          // eslint-disable-next-line no-await-in-loop
+          const { ticketId, created } = await mapper.importIssue(issue, linearProjectId, this.storage, statuses)
+          pmoTicketIds.push(ticketId)
+          if (!jsonMode) {
+            const action = created ? 'Imported' : 'Already imported'
+            this.log(styles.muted(`  ${action}: ${identifier} → ${ticketId}`))
+          }
+        }
+      } else {
+        // Fetch issues using filters
+        const filter: LinearIssueFilter = {
+          teamKey: flags['linear-team'] ?? linearConfig.defaultTeamKey,
+          stateName: flags['linear-state'],
+          labelName: flags['linear-label'],
+          limit: flags['linear-limit'],
+        }
+
+        if (!jsonMode) {
+          this.log(styles.muted(`Pulling issues from Linear (team: ${filter.teamKey ?? 'all'})...`))
+        }
+
+        const issues = await linearClient.listIssues(filter)
+
+        if (issues.length === 0) {
+          if (jsonMode) {
+            outputSuccessAsJson({
+              imported: 0,
+              spawned: 0,
+              message: 'No matching Linear issues found.',
+            }, createMetadata('work spawn', flags))
+            return
+          }
+          this.log(styles.muted('No matching Linear issues found.'))
+          return
+        }
+
+        if (!jsonMode) {
+          this.log(styles.muted(`Found ${issues.length} issue(s). Importing into PMO...`))
+        }
+
+        const result = await mapper.importIssues(issues, linearProjectId, this.storage, statuses)
+
+        if (!jsonMode) {
+          if (result.imported > 0) this.log(styles.success(`  Imported: ${result.imported}`))
+          if (result.skipped > 0) this.log(styles.muted(`  Already imported: ${result.skipped}`))
+          if (result.errors.length > 0) this.log(styles.error(`  Errors: ${result.errors.length}`))
+        }
+
+        // Collect all PMO ticket IDs (both new and existing)
+        for (const issue of issues) {
+          const existing = mapper.getByLinearId(issue.id)
+          if (existing) {
+            pmoTicketIds.push(existing.pmoTicketId)
+          }
+        }
+      }
+
+      if (pmoTicketIds.length === 0) {
+        return handleError('NO_LINEAR_ISSUES', 'No Linear issues were imported. Nothing to spawn.')
+      }
+
+      if (!jsonMode) {
+        this.log('')
+        this.log(styles.header(`Spawning agents for ${pmoTicketIds.length} imported ticket(s)...`))
+        this.log('')
+      }
+
+      // Replace ticket args with the imported PMO ticket IDs
+      ticketIdArgs = pmoTicketIds
+    }
 
     // Try to infer project from ticket IDs if provided
     let projectId: string | undefined
@@ -1013,6 +1164,9 @@ export default class WorkSpawn extends PMOCommand {
       }
 
       // Batch mode settings - prompt once for all tickets
+      const executionConfig = loadExecutionConfig(db)
+      const effectiveExecutor = (flags.executor as ExecutorType | undefined) || executionConfig.defaultExecutor
+      const executorName = getExecutorDisplayName(effectiveExecutor)
       let batchDisplay = flags.display
       let batchOutput = flags.output
       // Track permission mode - default to 'safe', check flag to determine if prompting needed
@@ -1390,7 +1544,7 @@ export default class WorkSpawn extends PMOCommand {
           permissionResolver.addPrompt({
             flagName: 'permissionMode',
             type: 'list',
-            message: 'Permission mode for Claude Code:',
+            message: `Permission mode for ${executorName}:`,
             default: 'danger',
             choices: () => [
               { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
