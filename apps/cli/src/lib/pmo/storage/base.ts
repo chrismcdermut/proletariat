@@ -904,11 +904,14 @@ After reviewing, determine your verdict:
 - **REQUEST_CHANGES**: There are issues that must be fixed before merging
 - **COMMENT**: General feedback, no blocking issues but some suggestions
 
-Do NOT modify any code. This is a read-only review.
+Do NOT modify any code. Do NOT attempt to fix any issues. This is a read-only review — report your findings only.
+If you identify issues that need fixing, describe them in your review. A separate action (Review & Fix) will handle fixes.
 
 ${PRLT_COMMANDS_COMMON}
 ${PRLT_COMMANDS_REVIEW}`,
       endPrompt: `When you have finished reviewing, post your review on the PR using \`gh pr review\`.
+
+**CRITICAL: Do NOT modify any code. Do NOT attempt to fix any issues you find. Your ONLY job is to report findings.**
 
 Choose the appropriate command based on your verdict:
 
@@ -956,7 +959,14 @@ COMMENT - Some suggestions but no blocking issues."
 
 Format the body with: what looks good, concerns (if any), suggested improvements (if any), and your verdict.
 
-No commits are needed for code review.`,
+No commits are needed for code review.
+
+**After posting your review**, if you found issues that need fixing, log them on the ticket so another action can address them:
+\`\`\`bash
+prlt ticket edit <TICKET_ID> --add-subtask "Fix: <description of issue>"
+\`\`\`
+
+**STOP:** After posting your review and logging any findings, your task is complete. Do not take any further actions, do not attempt to fix any issues, do not type additional instructions, and do not continue the conversation. Simply output your summary and use \`/exit\` to end the session.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: false,
       position: 4,
