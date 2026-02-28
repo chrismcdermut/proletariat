@@ -580,6 +580,8 @@ export async function runHost(
   const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
   // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
   const printFlag = config.outputMode === 'print' ? '-p ' : ''
+  // --effort high: skips the effort level prompt for automated agents (TKT-1134)
+  const effortFlag = skipPermissions ? '--effort high ' : ''
 
   // Build script that runs claude and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
@@ -593,7 +595,7 @@ ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
 cd "${context.worktreePath}"
-${cmd} ${permissionsFlag}${printFlag}"$(cat "$PROMPT_PATH")"
+${cmd} ${permissionsFlag}${effortFlag}${printFlag}"$(cat "$PROMPT_PATH")"
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
