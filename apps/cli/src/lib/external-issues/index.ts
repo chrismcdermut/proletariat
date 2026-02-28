@@ -29,3 +29,9 @@ export {
 export {
   mapToSpawnContext,
 } from './mapper.js'
+
+// Adapters
+export {
+  LinearIssueAdapter,
+  JiraIssueAdapter,
+} from './adapters.js'

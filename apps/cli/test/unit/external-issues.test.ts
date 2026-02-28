@@ -5,8 +5,9 @@ import {
   mapToSpawnContext,
   ExternalIssueError,
   ISSUE_SOURCES,
+  LinearIssueAdapter,
+  JiraIssueAdapter,
   type IssueEnvelope,
-  type IssueValidationResult,
 } from '../../src/lib/external-issues/index.js';
 
 /**
@@ -59,23 +60,6 @@ describe('External Issues', () => {
       expect(result.valid).to.equal(true);
       if (result.valid) {
         expect(result.envelope.source).to.equal('jira');
-      }
-    });
-
-    it('accepts a valid Monday envelope', () => {
-      const result = validateIssueEnvelope(
-        makeEnvelope({
-          source: 'monday',
-          external_id: '987654321',
-          external_key: 'MON-987654321',
-          url: 'https://monday.com/boards/123/pulses/987654321',
-          project_key: 'BOARD-123',
-          raw: { id: '987654321', board_id: '123' },
-        })
-      );
-      expect(result.valid).to.equal(true);
-      if (result.valid) {
-        expect(result.envelope.source).to.equal('monday');
       }
     });
 
@@ -233,20 +217,6 @@ describe('External Issues', () => {
         }
       });
 
-      it('accepts planned sources as valid values', () => {
-        for (const source of ['asana', 'basecamp'] as const) {
-          const result = validateIssueEnvelope(
-            makeEnvelope({
-              source,
-              external_id: `${source}-123`,
-              external_key: `${source.toUpperCase()}-123`,
-              url: `https://example.com/${source}/123`,
-            })
-          );
-          expect(result.valid).to.equal(true);
-        }
-      });
-
       it('rejects non-string source', () => {
         const data = { ...makeEnvelope(), source: 42 };
         const result = validateIssueEnvelope(data);
@@ -388,16 +358,13 @@ describe('External Issues', () => {
   // ISSUE_SOURCES Constant
   // ===========================================================================
   describe('ISSUE_SOURCES', () => {
-    it('contains currently supported and planned sources', () => {
+    it('contains currently supported sources', () => {
       expect(ISSUE_SOURCES).to.include('linear');
       expect(ISSUE_SOURCES).to.include('jira');
-      expect(ISSUE_SOURCES).to.include('monday');
-      expect(ISSUE_SOURCES).to.include('asana');
-      expect(ISSUE_SOURCES).to.include('basecamp');
     });
 
-    it('has exactly 5 known sources', () => {
-      expect(ISSUE_SOURCES).to.have.length(5);
+    it('has exactly 2 known sources', () => {
+      expect(ISSUE_SOURCES).to.have.length(2);
     });
   });
 
@@ -427,6 +394,144 @@ describe('External Issues', () => {
     it('is an instance of Error', () => {
       const err = new ExternalIssueError('SOURCE_NOT_SUPPORTED', 'Unsupported');
       expect(err).to.be.instanceOf(Error);
+    });
+  });
+
+  // ===========================================================================
+  // Adapters
+  // ===========================================================================
+  describe('adapters', () => {
+    describe('LinearIssueAdapter', () => {
+      it('normalizes a Linear issue payload', () => {
+        const adapter = new LinearIssueAdapter();
+        const raw = {
+          id: 'lin-id-1',
+          identifier: 'ENG-77',
+          title: 'Handle 500 in auth callback',
+          description: 'Improve error handling in callback path',
+          labels: [{ name: 'bug' }, 'auth'],
+          priority: 2,
+          state: { name: 'Todo' },
+          url: 'https://linear.app/proletariat/issue/ENG-77',
+          team: { key: 'ENG' },
+          assignee: { name: 'Casey' },
+        };
+
+        const envelope = adapter.normalize(raw);
+        expect(envelope.source).to.equal('linear');
+        expect(envelope.external_id).to.equal('lin-id-1');
+        expect(envelope.external_key).to.equal('ENG-77');
+        expect(envelope.priority).to.equal('P1');
+        expect(envelope.project_key).to.equal('ENG');
+        expect(envelope.labels).to.deep.equal(['bug', 'auth']);
+        expect(envelope.raw).to.deep.equal(raw);
+      });
+
+      it('throws typed normalize errors for missing required fields', () => {
+        const adapter = new LinearIssueAdapter();
+        try {
+          adapter.normalize({ identifier: 'ENG-77' });
+          expect.fail('should have thrown');
+        } catch (err) {
+          expect(err).to.be.instanceOf(ExternalIssueError);
+          const issueErr = err as ExternalIssueError;
+          expect(issueErr.code).to.equal('NORMALIZE_FAILED');
+          expect(issueErr.source).to.equal('linear');
+          expect(issueErr.validationErrors?.some((e) => e.field === 'external_id')).to.equal(true);
+        }
+      });
+
+      it('throws typed fetch errors when no fetcher is configured', async () => {
+        const adapter = new LinearIssueAdapter();
+        try {
+          await adapter.fetchByKey('ENG-77');
+          expect.fail('should have thrown');
+        } catch (err) {
+          expect(err).to.be.instanceOf(ExternalIssueError);
+          const issueErr = err as ExternalIssueError;
+          expect(issueErr.code).to.equal('FETCH_FAILED');
+          expect(issueErr.source).to.equal('linear');
+        }
+      });
+    });
+
+    describe('JiraIssueAdapter', () => {
+      it('normalizes a Jira issue payload', () => {
+        const adapter = new JiraIssueAdapter();
+        const raw = {
+          id: '10001',
+          key: 'PROJ-456',
+          self: 'https://myorg.atlassian.net/rest/api/3/issue/10001',
+          fields: {
+            summary: 'Fix webhook retries',
+            description: {
+              type: 'doc',
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [{ type: 'text', text: 'Retry transient failures' }],
+                },
+              ],
+            },
+            labels: ['backend', 'webhook'],
+            priority: { name: 'High' },
+            status: { name: 'In Progress' },
+            project: { key: 'PROJ' },
+            issuetype: { name: 'Task' },
+            assignee: { displayName: 'Jordan' },
+          },
+        };
+
+        const envelope = adapter.normalize(raw);
+        expect(envelope.source).to.equal('jira');
+        expect(envelope.external_id).to.equal('10001');
+        expect(envelope.external_key).to.equal('PROJ-456');
+        expect(envelope.url).to.equal('https://myorg.atlassian.net/browse/PROJ-456');
+        expect(envelope.priority).to.equal('P1');
+        expect(envelope.item_type).to.equal('Task');
+        expect(envelope.description).to.include('Retry transient failures');
+        expect(envelope.raw).to.deep.equal(raw);
+      });
+
+      it('throws typed normalize errors for missing required fields', () => {
+        const adapter = new JiraIssueAdapter();
+        try {
+          adapter.normalize({ id: '10001', fields: { summary: 'x' } });
+          expect.fail('should have thrown');
+        } catch (err) {
+          expect(err).to.be.instanceOf(ExternalIssueError);
+          const issueErr = err as ExternalIssueError;
+          expect(issueErr.code).to.equal('NORMALIZE_FAILED');
+          expect(issueErr.source).to.equal('jira');
+          expect(issueErr.validationErrors?.some((e) => e.field === 'external_key')).to.equal(true);
+        }
+      });
+
+      it('uses configured fetcher and normalizes query results', async () => {
+        const adapter = new JiraIssueAdapter({
+          fetchByQuery: async () => [
+            {
+              id: '10002',
+              key: 'PROJ-457',
+              self: 'https://myorg.atlassian.net/rest/api/3/issue/10002',
+              fields: {
+                summary: 'Document rollback flow',
+                description: 'Add docs for rollback process',
+                labels: ['docs'],
+                priority: { name: 'Low' },
+                status: { name: 'Todo' },
+                project: { key: 'PROJ' },
+                assignee: null,
+              },
+            },
+          ],
+        });
+
+        const envelopes = await adapter.fetchByQuery({ jql: 'project=PROJ' });
+        expect(envelopes).to.have.length(1);
+        expect(envelopes[0].external_key).to.equal('PROJ-457');
+        expect(envelopes[0].priority).to.equal('P3');
+      });
     });
   });
 

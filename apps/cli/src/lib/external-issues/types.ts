@@ -2,7 +2,7 @@
  * External Issue Adapter Types
  *
  * Canonical types for normalizing issues from external sources
- * (Linear, Jira, and planned providers) into a shared IssueEnvelope format
+ * (Linear and Jira) into a shared IssueEnvelope format
  * that can be mapped to spawn context.
  */
 
@@ -13,15 +13,13 @@
 /**
  * Supported external issue sources.
  *
- * Includes currently supported providers (Linear, Jira) and the
- * near-term adapter targets (Monday, Asana, Basecamp).
  */
-export type IssueSource = 'linear' | 'jira' | 'monday' | 'asana' | 'basecamp'
+export type IssueSource = 'linear' | 'jira'
 
 /**
  * All valid issue sources as a const array.
  */
-export const ISSUE_SOURCES = ['linear', 'jira', 'monday', 'asana', 'basecamp'] as const
+export const ISSUE_SOURCES = ['linear', 'jira'] as const
 
 // =============================================================================
 // IssueEnvelope - Canonical External Issue Format
@@ -157,7 +155,7 @@ export interface ExternalIssueAdapter {
    * @returns Validated IssueEnvelope
    * @throws ExternalIssueError if the raw data cannot be normalized
    */
-  normalize(raw: Record<string, unknown>): IssueEnvelope
+  normalize(raw: unknown): IssueEnvelope
 
   /**
    * Fetch and normalize a single issue by its external key.
