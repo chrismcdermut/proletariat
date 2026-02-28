@@ -276,6 +276,52 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
   )
 
   strictTool(server,
+    'work_review',
+    'Run automated review-fix pipeline on a ticket: spawns review agent, checks results, auto-spawns fix agent if issues found, re-reviews until clean or max cycles reached. Requires ticket to have a PR.',
+    {
+      ticket_id: z.string().describe('Ticket ID to review'),
+      max_cycles: z.number().optional().describe('Maximum review-fix cycles (default: 3)'),
+      skip_permissions: z.boolean().optional().describe('Skip permission prompts (default: false)'),
+      environment: z.enum(['devcontainer', 'host']).optional().describe('Execution environment (default: devcontainer)'),
+    },
+    async (params) => {
+      try {
+        const args: string[] = [params.ticket_id, '--auto']
+
+        if (params.max_cycles) {
+          args.push('--max-cycles', String(params.max_cycles))
+        }
+
+        if (params.skip_permissions) {
+          args.push('--skip-permissions')
+        }
+
+        if (params.environment === 'host') {
+          args.push('--run-on-host')
+        }
+
+        const cmd = `prlt work review ${args.join(' ')}`
+        const output = ctx.runCommand(cmd)
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: true,
+              ticketId: params.ticket_id,
+              command: cmd,
+              output,
+              message: `Review pipeline started for ${params.ticket_id}`,
+            }, null, 2),
+          }],
+        }
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
     'work_spawn',
     'Spawn work on a ticket using the full CLI pipeline (agent selection, Docker build, container creation, branch setup, tmux session). Shells out to "prlt work spawn" — works whenever prlt is installed, no workspace context needed in-process.',
     {
