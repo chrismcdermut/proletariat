@@ -12,6 +12,7 @@ import {
   saveTerminalOpenInBackground,
   saveTmuxControlMode,
   saveShell,
+  saveCreatePrDefault,
 } from '../../lib/execution/config.js'
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
 import {
@@ -117,6 +118,7 @@ export default class Config extends PromptCommand {
             defaultEnvironment: config.defaultEnvironment,
             outputMode: config.outputMode,
             sandboxed: config.sandboxed,
+            createPrDefault: config.createPrDefault ?? null,
           }, createMetadata('config', flags))
         } else {
           this.log('')
@@ -138,6 +140,7 @@ export default class Config extends PromptCommand {
           this.log(`  defaultEnvironment: ${config.defaultEnvironment}`)
           this.log(`  outputMode:       ${config.outputMode}`)
           this.log(`  sandboxed:        ${config.sandboxed}`)
+          this.log(`  createPrDefault:  ${config.createPrDefault ?? 'not set (will prompt)'}`)
           this.log('')
         }
         db.close()
@@ -310,6 +313,9 @@ export default class Config extends PromptCommand {
         break
       case 'tmux.controlmode':
         saveTmuxControlMode(db, value.toLowerCase() === 'true')
+        break
+      case 'execution.create_pr_default':
+        saveCreatePrDefault(db, value.toLowerCase() === 'true')
         break
       default:
         if (jsonMode) {

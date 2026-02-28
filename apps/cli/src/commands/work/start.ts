@@ -334,7 +334,14 @@ export default class WorkStart extends PMOCommand {
         if (allFlagsProvided && !flags.yes) {
           // All flags provided but no --yes: return confirmation_needed with plan
           const metadata = createMetadata('work start', flags)
-          metadata.resolvedPRMode = flags['create-pr'] ? 'create-pr' : 'no-pr'
+          // Resolve PR mode using same priority as execution: flags > workspace config > default
+          const earlyConfigPrDefault = getCreatePrDefault(db)
+          const earlyResolvedPr = flags['create-pr'] ? 'create-pr'
+            : flags['no-pr'] ? 'no-pr'
+            : earlyConfigPrDefault === true ? 'create-pr'
+            : earlyConfigPrDefault === false ? 'no-pr'
+            : 'no-pr'
+          metadata.resolvedPRMode = earlyResolvedPr
 
           // Build the confirm command with --yes
           let confirmCmd = `prlt work start ${ticketId}`

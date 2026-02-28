@@ -180,14 +180,14 @@ export default class WorkSpawn extends PMOCommand {
       this.error(message)
     }
 
+    // Check for conflicting PR flags (before deprecation warning to fail fast)
+    if (flags['create-pr'] && flags['no-pr']) {
+      this.error('--create-pr and --no-pr are mutually exclusive')
+    }
+
     // Deprecation guidance for --no-pr
     if (flags['no-pr']) {
       this.warn('--no-pr is deprecated. Omit --create-pr instead (PR creation is off by default). --no-pr will continue to work.')
-    }
-
-    // Check for conflicting PR flags
-    if (flags['create-pr'] && flags['no-pr']) {
-      this.error('--create-pr and --no-pr are mutually exclusive')
     }
 
     // Parse ticket IDs from args (everything after flags)
