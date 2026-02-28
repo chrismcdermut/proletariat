@@ -573,6 +573,50 @@ Example (WRONG - do not do this):
 `.trim()
 
 /**
+ * prlt CLI command reference sections for action prompts.
+ * Each action gets a tailored set of commands relevant to its workflow.
+ */
+const PRLT_COMMANDS_COMMON = `
+## prlt CLI Reference
+
+Use these commands to interact with the ticket system. Always use the global \`prlt\` command.
+
+| Command | Description |
+|---------|-------------|
+| \`prlt ticket show <id>\` | View full ticket details (description, AC, subtasks, labels) |
+| \`prlt ticket edit <id> [flags]\` | Update ticket fields (see flags below) |
+| \`prlt ticket list\` | List tickets on the board |
+| \`prlt whoami\` | Show current agent/user identity |
+
+### Common \`ticket edit\` flags
+| Flag | Description |
+|------|-------------|
+| \`--title "..."\` | Update title |
+| \`--description "..."\` | Update description |
+| \`--priority P0\\|P1\\|P2\\|P3\` | Set priority |
+| \`--category <type>\` | Set category (feature, bug, refactor, etc.) |
+| \`--add-ac "..."\` | Add acceptance criterion |
+| \`--clear-ac\` | Clear all acceptance criteria |
+| \`--add-subtask "..."\` | Add a subtask |
+| \`--clear-subtasks\` | Clear all subtasks |
+| \`--add-label "..."\` | Add a label |
+| \`--remove-label "..."\` | Remove a label |
+| \`--assignee <name>\` | Set assignee |
+| \`--owner <name>\` | Set owner |`
+
+const PRLT_COMMANDS_CODE = `
+| \`prlt commit "message"\` | Create a commit with ticket ID from branch name |
+| \`prlt work ready <id> --pr\` | Mark ticket ready for review and create a PR |`
+
+const PRLT_COMMANDS_REVIEW = `
+| \`prlt ticket move <id>\` | Move ticket to a different column |
+| \`prlt ticket complete <id>\` | Mark ticket as complete (move to Done) |`
+
+const PRLT_COMMANDS_RESOLVE = `
+| \`prlt ticket resolve <id>\` | Interactive resolution of ambiguity questions |
+| \`prlt work resolve <id>\` | Agent-assisted resolution of ambiguity questions |`
+
+/**
  * Seed built-in work actions.
  */
 export function seedBuiltinActions(db: Database.Database): void {
@@ -613,6 +657,15 @@ When questions are added:
 If NO ambiguities are found, add the \`ready\` label instead.
 
 **AI Agent Tip:** When running \`prlt\` commands without all required arguments, use \`--json\` to receive interactive prompts as structured JSON.
+
+### Additional prlt Commands
+| Command | Description |
+|---------|-------------|
+| \`prlt ticket show <id>\` | View full ticket details |
+| \`prlt ticket list\` | List tickets on the board |
+| \`prlt whoami\` | Show current agent/user identity |
+| \`prlt ticket resolve <id>\` | Interactive resolution of ambiguity questions |
+| \`prlt work resolve <id>\` | Agent-assisted resolution of ambiguity questions |
 
 ## Ticket Schema Reference
 
@@ -710,7 +763,10 @@ For each question:
 ## Important
 - This is an INTERACTIVE session - always ask the human before writing answers
 - If the ticket has acceptance criteria or subtasks that need updating based on answers, update those too
-- After resolving, move the ticket to the Ready column if all questions are answered`,
+- After resolving, move the ticket to the Ready column if all questions are answered
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_RESOLVE}`,
       endPrompt: `After resolving all questions:
 1. Update the ticket description with answers below each question
 2. Remove the \`needs-clarification\` label and add \`ready\` label
@@ -753,7 +809,10 @@ prlt commit "implement user validation"
 git push
 \`\`\`
 
-When complete, the ticket should be ready for code review.`,
+When complete, the ticket should be ready for code review.
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}`,
       endPrompt: `When complete:
 1. **Commit your work** in each repository directory you modified:
    \`\`\`bash
@@ -799,7 +858,10 @@ Continue working on this ticket from where you left off.
 
 \`\`\`bash
 git add -A && prlt commit "your change" && git push
-\`\`\``,
+\`\`\`
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}`,
       endPrompt: `When complete:
 1. **Commit your work** in each repository directory you modified:
    \`\`\`bash
@@ -844,7 +906,10 @@ After reviewing, determine your verdict:
 - **COMMENT**: General feedback, no blocking issues but some suggestions
 
 Do NOT modify any code. Do NOT attempt to fix any issues. This is a read-only review — report your findings only.
-If you identify issues that need fixing, describe them in your review. A separate action will handle fixes.`,
+If you identify issues that need fixing, describe them in your review. A separate action (Review & Fix) will handle fixes.
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_REVIEW}`,
       endPrompt: `When you have finished reviewing, post your review on the PR using \`gh pr review\`.
 
 **CRITICAL: Do NOT modify any code. Do NOT attempt to fix any issues you find. Your ONLY job is to report findings.**
@@ -897,7 +962,12 @@ Format the body with: what looks good, concerns (if any), suggested improvements
 
 No commits are needed for code review.
 
-**STOP:** After posting your review and providing a brief summary of your findings and verdict, your task is complete. Do not take any further actions, do not attempt to fix any issues, and do not continue the conversation. Simply output your summary and stop.`,
+**After posting your review**, if you found issues that need fixing, log them on the ticket so another action can address them:
+\`\`\`bash
+prlt ticket edit <TICKET_ID> --add-subtask "Fix: <description of issue>"
+\`\`\`
+
+**STOP:** After posting your review and logging any findings, your task is complete. Do not take any further actions, do not attempt to fix any issues, do not type additional instructions, and do not continue the conversation. Simply output your summary and use \`/exit\` to end the session.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: false,
       position: 4,
@@ -925,7 +995,11 @@ Review this ticket's implementation thoroughly and fix any issues found:
 
 \`\`\`bash
 git add -A && prlt commit "fix: address code review findings" && git push
-\`\`\``,
+\`\`\`
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}
+${PRLT_COMMANDS_REVIEW}`,
       endPrompt: `When you have finished reviewing and fixing:
 
 1. **If issues were found and fixed**, post a review summary and push your fixes:
@@ -995,7 +1069,10 @@ Address the feedback on this ticket's pull request:
 
 \`\`\`bash
 git add -A && prlt commit "fix: address PR review feedback" && git push
-\`\`\``,
+\`\`\`
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}`,
       endPrompt: `After addressing all feedback:
 
 1. **Commit your changes**:
@@ -1204,7 +1281,10 @@ Write comprehensive tests for this ticket's implementation:
 
 \`\`\`bash
 git add -A && prlt commit "add tests for X" && git push
-\`\`\``,
+\`\`\`
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_CODE}`,
       endPrompt: `When complete:
 1. **Commit your tests**:
    \`\`\`bash

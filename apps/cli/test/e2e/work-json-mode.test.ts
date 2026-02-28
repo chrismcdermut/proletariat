@@ -823,6 +823,18 @@ describe('Work Commands JSON Mode', () => {
       expect(json.result.ticketsSelected.map(t => t.id)).to.include('TKT-020');
       expect(json.result.ticketsSelected.map(t => t.id)).to.include('TKT-021');
     });
+
+    it('should include --executor codex in spawn confirmation command (smoke)', () => {
+      const output = exec('work spawn TKT-020 -P test-project --action implement --display terminal --skip-permissions --executor codex --json');
+      const json = extractJson<{
+        type: string;
+        confirm_command: string;
+      }>(output);
+
+      expect(json.type).to.equal('confirmation_needed');
+      expect(json.confirm_command).to.include('--executor codex');
+      expect(json.confirm_command).to.include('work spawn TKT-020');
+    });
   });
 
   // ===========================================================================
