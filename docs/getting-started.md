@@ -188,6 +188,7 @@ gh pr merge
 | Create ticket | `prlt ticket create` |
 | List tickets | `prlt ticket list` |
 | Start work | `prlt work start TKT-001` |
+| Spawn from Linear | `prlt work linear --team ENG --issue ENG-123` |
 | View board | `prlt board` |
 | Check PR | `prlt pr status TKT-001` |
 
