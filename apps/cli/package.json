@@ -110,7 +110,7 @@
     "directory": "apps/cli"
   },
   "scripts": {
-    "postinstall": "npm rebuild better-sqlite3 || echo 'WARNING: npm rebuild better-sqlite3 failed. Native binding may be missing.'",
+    "postinstall": "npm rebuild better-sqlite3 && node ./bin/validate-better-sqlite3.cjs",
     "build": "shx rm -rf dist && tsc -b",
     "rebuild": "pnpm install && pnpm build",
     "clean": "shx rm -rf dist",

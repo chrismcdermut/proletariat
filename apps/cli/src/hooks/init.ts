@@ -1,4 +1,5 @@
 import { Hook } from '@oclif/core'
+import { validateBetterSqlite3NativeBinding } from '../lib/database/native-validation.js'
 import { readMachineConfig } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
 
@@ -11,11 +12,9 @@ import { findHQRoot } from '../lib/workspace.js'
  * - AND they're not currently inside a valid HQ directory
  */
 const hook: Hook<'init'> = async function ({ id, argv, config }) {
-  // Skip for commands that work without an HQ
+  // Commands that work without an HQ still run native module checks.
   const hqOptionalCommands = ['init', 'commit', 'claude', 'pmo:init']
-  if (id && hqOptionalCommands.some(cmd => id === cmd || id.startsWith(cmd + ':'))) {
-    return
-  }
+  const isHqOptionalCommand = !!id && hqOptionalCommands.some(cmd => id === cmd || id.startsWith(cmd + ':'))
 
   // Skip when running under oclif tooling (manifest, readme generation)
   // These run commands to scan metadata and should not trigger the init flow
@@ -33,6 +32,10 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
+  if (shouldValidateNativeModules(id)) {
+    await validateBetterSqlite3NativeBinding({ context: `command "${id}"` })
+  }
+
   // Skip for help-related commands/flags
   // When user runs just `prlt` with no args, id is undefined
   if (!id || id === 'help') {
@@ -48,7 +51,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   }
 
   // For all other commands, check if first-time user
-  if (isFirstTimeUser()) {
+  if (!isHqOptionalCommand && isFirstTimeUser()) {
     const chalk = await import('chalk')
     console.log(chalk.default.yellow('\n⚠️  No headquarters found. Let\'s set one up first.\n'))
 
@@ -60,6 +63,21 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     console.log(chalk.default.blue(`\n✅ Setup complete! You can now run: prlt ${id}\n`))
     process.exit(0)
   }
+}
+
+function shouldValidateNativeModules(id?: string): boolean {
+  if (!id) {
+    return false
+  }
+
+  return !(
+    id === 'help' ||
+    id.startsWith('help:') ||
+    id === 'plugins' ||
+    id.startsWith('plugins:') ||
+    id === 'autocomplete' ||
+    id.startsWith('autocomplete:')
+  )
 }
 
 /**
