@@ -1249,7 +1249,7 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true): bool
     )
     console.debug(`[runners:docker] Wrote ~/.claude/settings.json to container`)
   } catch (error) {
-    console.debug('[runners:docker] Failed to copy .claude.json to container:', error)
+    console.debug('[runners:docker] Failed to copy Claude settings to container:', error)
     // Non-fatal - Claude will just prompt for settings
   }
 
@@ -1437,19 +1437,22 @@ function buildDevcontainerCommand(
   const relativePath = path.relative(context.agentDir, context.worktreePath)
   const cdCmd = relativePath ? `cd /workspace/${relativePath} && ` : ''
 
-  // Build Claude flags based on output mode and sandboxed setting
+  // Build flags based on executor type and settings
+  // Claude-specific flags are only applied when running claude-code executor
+  const isClaudeExecutor = executor === 'claude-code' || executor === 'custom' || !['codex', 'aider'].includes(executor)
+
   // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
   // - print: Uses -p flag, outputs final result only (better for logs/automation)
-  const printFlag = outputMode === 'print' ? '-p ' : ''
+  const printFlag = isClaudeExecutor && outputMode === 'print' ? '-p ' : ''
   // sandboxed=true means safe mode (no --dangerously-skip-permissions)
   // sandboxed=false means danger mode (use --dangerously-skip-permissions)
   // --permission-mode bypassPermissions: skips the "trust this folder" dialog
-  const bypassTrustFlag = '--permission-mode bypassPermissions '
-  const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
+  const bypassTrustFlag = isClaudeExecutor ? '--permission-mode bypassPermissions ' : ''
+  const permissionsFlag = isClaudeExecutor && !sandboxed ? '--dangerously-skip-permissions ' : ''
   // --effort high: skips the effort level prompt for automated agents (TKT-1134)
-  const effortFlag = '--effort high '
+  const effortFlag = isClaudeExecutor ? '--effort high ' : ''
 
-  // Build the claude command
+  // Build the executor command
   const claudeCmd = `${cdCmd}${baseCmd} ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}"$(cat ${promptFile})" && rm -f ${promptFile}`
 
   // Use docker exec for running commands in the container
