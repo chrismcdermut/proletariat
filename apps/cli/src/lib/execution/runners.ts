@@ -32,8 +32,11 @@ import { readDevcontainerJson } from './devcontainer.js'
  * Example: "TKT-347-implement-altman"
  */
 export function buildSessionName(context: ExecutionContext): string {
-  // Sanitize action name: replace spaces and special chars with hyphens for shell safety
-  const action = (context.actionName || 'work').replace(/\s+/g, '-')
+  // Sanitize action name: strip non-alphanumeric chars for shell/tmux safety (& breaks paths)
+  const action = (context.actionName || 'work')
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
   const agent = context.agentName || 'agent'
   return `${context.ticketId}-${action}-${agent}`
 }
