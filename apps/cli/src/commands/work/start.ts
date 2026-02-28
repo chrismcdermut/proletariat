@@ -1353,8 +1353,16 @@ export default class WorkStart extends PMOCommand {
 
       // Prompt for permissions mode (all environments)
       // Use FlagResolver to handle both JSON mode and interactive prompts consistently
+      // Non-code-modifying actions (review, review-comment, groom) default to safe mode
+      // to prevent agents from performing destructive operations like merging PRs
+      const actionModifiesCode = context.modifiesCode !== false
+      const defaultPermissionMode = actionModifiesCode ? 'danger' : 'safe'
+
       if (flags['permission-mode']) {
         sandboxed = flags['permission-mode'] === 'safe'
+      } else if (!actionModifiesCode) {
+        // Non-code-modifying actions automatically use safe mode
+        sandboxed = true
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
@@ -1373,7 +1381,7 @@ export default class WorkStart extends PMOCommand {
           flagName: 'permission-mode',
           type: 'list',
           message: `Permission mode for ${executorName}${containerNote}:`,
-          default: 'danger',
+          default: defaultPermissionMode,
           choices: () => [
             { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
             { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
@@ -2236,9 +2244,11 @@ export default class WorkStart extends PMOCommand {
     const useDevcontainer = hasDevcontainer && !flags['run-on-host']
 
     // Non-interactive defaults
+    // Non-code-modifying actions default to safe mode to prevent destructive operations
     const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
     const displayMode: DisplayMode = 'terminal'
-    const sandboxed = flags['permission-mode'] === 'safe'
+    const actionModifiesCode = context.modifiesCode !== false
+    const sandboxed = flags['permission-mode'] === 'safe' || (!flags['permission-mode'] && !actionModifiesCode)
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 
