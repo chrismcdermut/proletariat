@@ -95,6 +95,10 @@ export interface OutputMetadata {
   timestamp?: string
   /** Resolved PR mode after flag precedence ('create-pr' | 'no-pr') */
   resolvedPRMode?: string
+  /** Source of the resolved PR mode (e.g., 'flag --create-pr', 'workspace config', 'interactive prompt') */
+  prModeSource?: string
+  /** Warning message when PR creation is disabled for code-modifying actions */
+  prWarning?: string
 }
 
 /**
