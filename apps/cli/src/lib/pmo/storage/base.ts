@@ -847,7 +847,7 @@ Do NOT modify any code. Do NOT attempt to fix any issues. This is a read-only re
 If you identify issues that need fixing, describe them in your review. A separate action will handle fixes.`,
       endPrompt: `When you have finished reviewing, post your review on the PR using \`gh pr review\`.
 
-**CRITICAL: Do NOT modify any code. Do NOT attempt to fix any issues you find. Your ONLY job is to report findings. After posting your review, provide a summary and you are done.**
+**CRITICAL: Do NOT modify any code. Do NOT attempt to fix any issues you find. Your ONLY job is to report findings.**
 
 Choose the appropriate command based on your verdict:
 
@@ -895,9 +895,9 @@ COMMENT - Some suggestions but no blocking issues."
 
 Format the body with: what looks good, concerns (if any), suggested improvements (if any), and your verdict.
 
-No commits are needed for code review. Do NOT make any code changes or attempt to fix issues — only report them in your review.
+No commits are needed for code review.
 
-After posting your review, provide a brief summary of your findings and verdict.`,
+**STOP:** After posting your review and providing a brief summary of your findings and verdict, your task is complete. Do not take any further actions, do not attempt to fix any issues, and do not continue the conversation. Simply output your summary and stop.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: false,
       position: 4,
