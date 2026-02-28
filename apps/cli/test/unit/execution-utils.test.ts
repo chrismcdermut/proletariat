@@ -361,10 +361,10 @@ describe('Execution Utils', () => {
     })
 
     describe('codex executor', () => {
-      it('should return codex command with --prompt flag', () => {
+      it('should return codex command with danger flag and --prompt when skipPermissions=true', () => {
         const result = getExecutorCommand('codex', testPrompt)
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--prompt', testPrompt])
+        expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', '--prompt', testPrompt])
       })
 
       it('should NOT include Claude-specific flags', () => {
@@ -374,10 +374,11 @@ describe('Execution Utils', () => {
         expect(result.args).to.not.include('bypassPermissions')
       })
 
-      it('should ignore skipPermissions parameter', () => {
+      it('should apply skipPermissions parameter using Codex-native flag', () => {
         const resultTrue = getExecutorCommand('codex', testPrompt, true)
         const resultFalse = getExecutorCommand('codex', testPrompt, false)
-        expect(resultTrue.args).to.deep.equal(resultFalse.args)
+        expect(resultTrue.args).to.include('--dangerously-bypass-approvals-and-sandbox')
+        expect(resultFalse.args).to.deep.equal(['--prompt', testPrompt])
       })
     })
 
