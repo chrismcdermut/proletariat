@@ -577,11 +577,13 @@ export async function runHost(
   fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
 
   // Build flags based on config
-  const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
+  // Claude-specific flags are only applied when running claude-code executor
+  const isClaudeCmd = cmd === 'claude'
+  const permissionsFlag = isClaudeCmd && skipPermissions ? '--dangerously-skip-permissions ' : ''
   // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
-  const printFlag = config.outputMode === 'print' ? '-p ' : ''
+  const printFlag = isClaudeCmd && config.outputMode === 'print' ? '-p ' : ''
   // --effort high: skips the effort level prompt for automated agents (TKT-1134)
-  const effortFlag = skipPermissions ? '--effort high ' : ''
+  const effortFlag = isClaudeCmd && skipPermissions ? '--effort high ' : ''
 
   // Build script that runs claude and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
