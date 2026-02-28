@@ -44,6 +44,7 @@ const CONFIG_KEYS = {
   vmSyncMethod: 'execution.vm.sync_method',
   coderName: 'coder.name',
   authMethod: 'execution.auth_method',
+  createPrDefault: 'execution.create_pr_default',
 }
 
 /**
@@ -125,6 +126,12 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const authMethod = getSetting(db, CONFIG_KEYS.authMethod)
   if (authMethod) {
     config.authMethod = authMethod as AuthMethod
+  }
+
+  // Load create PR default preference
+  const createPrDefault = getSetting(db, CONFIG_KEYS.createPrDefault)
+  if (createPrDefault !== null) {
+    config.createPrDefault = createPrDefault === 'true'
   }
 
   // Load tmux settings
@@ -239,6 +246,24 @@ export function getAuthMethod(db: Database.Database): AuthMethod | null {
  */
 export function clearAuthMethod(db: Database.Database): void {
   db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(CONFIG_KEYS.authMethod)
+}
+
+/**
+ * Get saved PR creation default preference.
+ * Returns null if no preference has been saved (user should be prompted).
+ */
+export function getCreatePrDefault(db: Database.Database): boolean | null {
+  const value = getSetting(db, CONFIG_KEYS.createPrDefault)
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return null
+}
+
+/**
+ * Save PR creation default preference.
+ */
+export function saveCreatePrDefault(db: Database.Database, createPr: boolean): void {
+  setSetting(db, CONFIG_KEYS.createPrDefault, createPr.toString())
 }
 
 /**
