@@ -716,6 +716,19 @@ describe('Devcontainer', () => {
 
         expect(script).to.include('api.anthropic.com')
       })
+
+      it('should include runtime extra allowlist domain handling', () => {
+        const script = generateFirewallScript('codex')
+
+        expect(script).to.include('PRLT_EXTRA_ALLOWLIST_DOMAINS')
+      })
+
+      it('should include additional user-configured domains', () => {
+        const script = generateFirewallScript('codex', ['api.staging.example.com', 'foo.bar'])
+
+        expect(script).to.include('add_domain "api.staging.example.com"')
+        expect(script).to.include('add_domain "foo.bar"')
+      })
     })
 
     describe('createDevcontainerConfig with codex executor', () => {

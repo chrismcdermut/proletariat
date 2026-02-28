@@ -12,6 +12,7 @@ import {
   saveTerminalOpenInBackground,
   saveTmuxControlMode,
   saveShell,
+  saveFirewallAllowlistDomains,
 } from '../../lib/execution/config.js'
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
 import {
@@ -31,6 +32,7 @@ export default class Config extends PromptCommand {
     '<%= config.bin %> <%= command.id %> --json             # Output current config as JSON',
     '<%= config.bin %> <%= command.id %> --set terminal.app iTerm',
     '<%= config.bin %> <%= command.id %> --set terminal.openInBackground true',
+    '<%= config.bin %> <%= command.id %> --set firewall.allowlistDomains "api.staging.example.com"',
     '<%= config.bin %> <%= command.id %> --setting terminal.app --json  # Show terminal app choices',
   ]
 
@@ -117,6 +119,9 @@ export default class Config extends PromptCommand {
             defaultEnvironment: config.defaultEnvironment,
             outputMode: config.outputMode,
             sandboxed: config.sandboxed,
+            firewall: {
+              allowlistDomains: config.firewall.allowlistDomains,
+            },
           }, createMetadata('config', flags))
         } else {
           this.log('')
@@ -138,6 +143,7 @@ export default class Config extends PromptCommand {
           this.log(`  defaultEnvironment: ${config.defaultEnvironment}`)
           this.log(`  outputMode:       ${config.outputMode}`)
           this.log(`  sandboxed:        ${config.sandboxed}`)
+          this.log(`  firewall.allowlistDomains: ${config.firewall.allowlistDomains.join(', ') || '(none)'}`)
           this.log('')
         }
         db.close()
@@ -157,6 +163,7 @@ export default class Config extends PromptCommand {
         { name: `Open Tabs in Background: ${config.terminal.openInBackground}`, value: 'terminal.openInBackground', command: 'prlt config --setting terminal.openInBackground --json' },
         { name: `Shell: ${config.shell}`, value: 'shell', command: 'prlt config --setting shell --json' },
         { name: `Tmux Control Mode (iTerm -CC): ${config.tmux.controlMode}`, value: 'tmux.controlMode', command: 'prlt config --setting tmux.controlMode --json' },
+        { name: `Firewall allowlist domains: ${config.firewall.allowlistDomains.length || 0}`, value: 'firewall.allowlistDomains', command: 'prlt config --setting firewall.allowlistDomains --json' },
       ]
 
       const { setting } = await this.prompt<{ setting: string }>([
@@ -171,6 +178,8 @@ export default class Config extends PromptCommand {
             settingChoices[2],
             new inquirer.Separator('── Tmux ──'),
             settingChoices[3],
+            new inquirer.Separator('── Execution ──'),
+            settingChoices[4],
             new inquirer.Separator(),
             { name: 'Exit', value: '__exit__' },
           ],
@@ -285,6 +294,25 @@ export default class Config extends PromptCommand {
         break
       }
 
+      case 'firewall.allowlistDomains': {
+        const { domainsInput } = await this.prompt<{ domainsInput: string }>([
+          {
+            type: 'input',
+            name: 'domainsInput',
+            message: 'Extra firewall allowlist domains (comma-separated, leave empty to clear):',
+            default: config.firewall.allowlistDomains.join(', '),
+          },
+        ], jsonModeConfig)
+
+        const domains = domainsInput
+          .split(',')
+          .map(domain => domain.trim())
+          .filter(Boolean)
+        saveFirewallAllowlistDomains(db, domains)
+        this.log(styles.success(`Firewall allowlist domains set (${domains.length})`))
+        break
+      }
+
       default: {
         const jsonMode = shouldOutputJson(jsonModeConfig?.flags ?? {})
         if (jsonMode) {
@@ -311,6 +339,14 @@ export default class Config extends PromptCommand {
       case 'tmux.controlmode':
         saveTmuxControlMode(db, value.toLowerCase() === 'true')
         break
+      case 'firewall.allowlistdomains': {
+        const domains = value
+          .split(',')
+          .map(domain => domain.trim())
+          .filter(Boolean)
+        saveFirewallAllowlistDomains(db, domains)
+        break
+      }
       default:
         if (jsonMode) {
           outputErrorAsJson('UNKNOWN_KEY', `Unknown config key: ${key}`, createMetadata('config', {}))

@@ -938,6 +938,9 @@ function createDockerContainer(
 
   // Build environment flags
   const hasWorktrees = context.repoWorktrees && context.repoWorktrees.length > 0
+  const firewallAllowlistDomains = [...new Set((config.firewall?.allowlistDomains || [])
+    .map(domain => domain.trim().toLowerCase())
+    .filter(domain => /^[a-z0-9.-]+$/.test(domain)))]
   const envVars: string[] = [
     `-e DEVCONTAINER=true`,
     `-e PRLT_HQ_PATH=/hq`,
@@ -949,6 +952,7 @@ function createDockerContainer(
     ...(context.useApiKey && process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
     ...(process.env.GITHUB_TOKEN ? [`-e GITHUB_TOKEN="${process.env.GITHUB_TOKEN}"`] : []),
     ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
+    ...(firewallAllowlistDomains.length > 0 ? [`-e PRLT_EXTRA_ALLOWLIST_DOMAINS="${firewallAllowlistDomains.join(',')}"`] : []),
     // NOTE: Do NOT pass CLAUDE_CODE_OAUTH_TOKEN - it overrides credentials file
     // and setup-token generates invalid tokens. Use "prlt agent auth" instead.
     // Set mount mode to worktree if we have repo worktrees - triggers git wrapper setup

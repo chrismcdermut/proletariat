@@ -271,7 +271,13 @@ WORKDIR /workspace
  * Whitelists only necessary domains for the configured executor.
  * Claude Code requires api.anthropic.com; Codex requires api.openai.com.
  */
-export function generateFirewallScript(executor?: ExecutorType): string {
+export function generateFirewallScript(executor?: ExecutorType, extraAllowedDomains: string[] = []): string {
+  const extraDomainCommands = [...new Set(extraAllowedDomains
+    .map(domain => domain.trim().toLowerCase())
+    .filter(domain => /^[a-z0-9.-]+$/.test(domain)))]
+    .map(domain => `add_domain "${domain}"`)
+    .join('\n')
+
   return `#!/bin/bash
 set -e
 
@@ -366,6 +372,19 @@ add_domain "npmjs.com"
 add_domain "nodejs.org"
 add_domain "update.code.visualstudio.com"
 add_domain "vscode.download.prss.microsoft.com"
+${extraDomainCommands ? `# Additional user-configured allowlist domains
+${extraDomainCommands}` : ''}
+
+# Runtime allowlist domains (comma-separated), e.g. PRLT_EXTRA_ALLOWLIST_DOMAINS=api.staging.example.com
+if [ -n "\${PRLT_EXTRA_ALLOWLIST_DOMAINS:-}" ]; then
+    IFS=',' read -ra EXTRA_DOMAINS <<< "$PRLT_EXTRA_ALLOWLIST_DOMAINS"
+    for domain in "\${EXTRA_DOMAINS[@]}"; do
+        domain="\${domain//[[:space:]]/}"
+        if [ -n "$domain" ]; then
+            add_domain "$domain"
+        fi
+    done
+fi
 
 # Allow traffic to whitelisted IPs
 iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
@@ -719,7 +738,7 @@ export function createDevcontainerConfig(options: DevcontainerOptions, config?: 
   fs.writeFileSync(dockerfilePath, dockerfile)
 
   // Generate and write firewall script (executor-aware for API domain whitelisting)
-  const firewallScript = generateFirewallScript(options.executor)
+  const firewallScript = generateFirewallScript(options.executor, config?.firewall.allowlistDomains ?? [])
   const firewallScriptPath = path.join(devcontainerDir, 'init-firewall.sh')
   fs.writeFileSync(firewallScriptPath, firewallScript, { mode: 0o755 })
 
