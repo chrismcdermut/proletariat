@@ -8,8 +8,9 @@ import {
   getTicketTmuxSession,
   killTmuxSession
 } from '../../lib/agents/commands.js'
-import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
-import { PermissionMode } from '../../lib/execution/types.js'
+import { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, getExecutorDisplayName } from '../../lib/execution/runners.js'
+import { PermissionMode, ExecutorType } from '../../lib/execution/types.js'
+import { loadExecutionConfig } from '../../lib/execution/config.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -1007,6 +1008,9 @@ export default class WorkSpawn extends PMOCommand {
       }
 
       // Batch mode settings - prompt once for all tickets
+      const executionConfig = loadExecutionConfig(db)
+      const effectiveExecutor = (flags.executor as ExecutorType | undefined) || executionConfig.defaultExecutor
+      const executorName = getExecutorDisplayName(effectiveExecutor)
       let batchDisplay = flags.display
       let batchOutput = flags.output
       // Track permission mode - default to 'safe', check flag to determine if prompting needed
@@ -1381,7 +1385,7 @@ export default class WorkSpawn extends PMOCommand {
           permissionResolver.addPrompt({
             flagName: 'permissionMode',
             type: 'list',
-            message: 'Permission mode for Claude Code:',
+            message: `Permission mode for ${executorName}:`,
             default: 'danger',
             choices: () => [
               { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
