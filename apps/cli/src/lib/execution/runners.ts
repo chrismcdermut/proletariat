@@ -129,6 +129,7 @@ export function buildTmuxScript(sessionName: string, claudeCmd: string, displayM
 export TERM=xterm-256color
 export COLORTERM=truecolor
 unset CI
+unset CLAUDECODE
 echo "🚀 Starting: ${sessionName}"
 echo ""
 ${claudeCmd}
@@ -141,6 +142,7 @@ kill 1
 export TERM=xterm-256color
 export COLORTERM=truecolor
 unset CI
+unset CLAUDECODE
 echo "🚀 Starting: ${sessionName}"
 echo ""
 ${claudeCmd}
@@ -581,6 +583,8 @@ export async function runHost(
   const setTitleCmds = getSetTitleCommands(windowTitle)
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
+unset CI
+unset CLAUDECODE
 SCRIPT_PATH="${scriptPath}"
 PROMPT_PATH="${promptPath}"
 ${setTitleCmds}
