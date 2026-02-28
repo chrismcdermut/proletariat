@@ -904,7 +904,16 @@ After reviewing, determine your verdict:
 - **REQUEST_CHANGES**: There are issues that must be fixed before merging
 - **COMMENT**: General feedback, no blocking issues but some suggestions
 
-Do NOT modify any code. Do NOT attempt to fix any issues. This is a read-only review — report your findings only.
+## STRICT RULES - READ CAREFULLY
+
+- **DO NOT** merge the PR (\`gh pr merge\` is FORBIDDEN)
+- **DO NOT** push any code (\`git push\` is FORBIDDEN)
+- **DO NOT** run tests or test suites
+- **DO NOT** modify, edit, or write any code files
+- **DO NOT** create commits
+- Your ONLY output should be a \`gh pr review\` comment
+- This is a **read-only** review — read the diff, analyze it, post your review, and stop
+
 If you identify issues that need fixing, describe them in your review. A separate action (Review & Fix) will handle fixes.
 
 ${PRLT_COMMANDS_COMMON}
@@ -959,7 +968,7 @@ COMMENT - Some suggestions but no blocking issues."
 
 Format the body with: what looks good, concerns (if any), suggested improvements (if any), and your verdict.
 
-No commits are needed for code review.
+**REMINDER:** Do NOT merge the PR. Do NOT run tests. Do NOT modify code. Only post the review comment above.
 
 **After posting your review**, if you found issues that need fixing, log them on the ticket so another action can address them:
 \`\`\`bash
@@ -970,6 +979,76 @@ prlt ticket edit <TICKET_ID> --add-subtask "Fix: <description of issue>"
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: false,
       position: 4,
+    },
+    {
+      id: 'review-comment',
+      name: 'Review Comment',
+      description: 'Post review comments on a PR without merging, testing, or modifying code',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Review Comment
+
+Read the PR diff, analyze the changes, and post a GitHub review comment. That is your ONLY job.
+
+## STRICT RULES - READ CAREFULLY
+
+You are a **read-only** reviewer. You MUST follow these rules:
+
+- **DO NOT** run \`gh pr merge\` — merging is FORBIDDEN
+- **DO NOT** run \`git push\` — pushing is FORBIDDEN
+- **DO NOT** run tests or test suites of any kind
+- **DO NOT** modify, edit, or write any code files
+- **DO NOT** create commits or branches
+- **DO NOT** run any commands that change repository state
+- Your **ONLY** permitted write operation is \`gh pr review\` to post your comment
+
+## What To Do
+
+1. Read the PR diff to understand the changes
+2. Analyze the code for bugs, issues, style, and correctness
+3. Post your review using \`gh pr review\` with the appropriate verdict
+4. **STOP** — do nothing else after posting the review
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_REVIEW}`,
+      endPrompt: `Post your review on the PR using \`gh pr review\`. This is the ONLY action you should take.
+
+**If approving:**
+\`\`\`bash
+gh pr review --approve --body "## Review
+
+### Summary
+- ...
+
+APPROVED - Looks good to merge."
+\`\`\`
+
+**If requesting changes:**
+\`\`\`bash
+gh pr review --request-changes --body "## Review
+
+### Issues
+- ...
+
+REQUEST CHANGES - Please address the above."
+\`\`\`
+
+**If commenting:**
+\`\`\`bash
+gh pr review --comment --body "## Review
+
+### Feedback
+- ...
+
+COMMENT - Some suggestions, no blockers."
+\`\`\`
+
+**CRITICAL REMINDER:** After posting your review, STOP. Do NOT merge the PR. Do NOT run tests. Do NOT modify code. Do NOT push anything. Your job is done after the \`gh pr review\` command.`,
+      suggestedForCategories: ['completed'],
+      modifiesCode: false,
+      position: 5,
     },
     {
       id: 'review-fix',
@@ -1030,7 +1109,7 @@ ${PRLT_COMMANDS_REVIEW}`,
    \`\`\``,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: true,
-      position: 5,
+      position: 6,
     },
     {
       id: 'revise',
@@ -1094,7 +1173,7 @@ The PR will be updated automatically with your pushed changes.`,
       suggestedForCategories: ['completed'],
       defaultMoveToCategory: 'started',
       modifiesCode: true,
-      position: 6,
+      position: 7,
     },
     {
       id: 'explore-cli',
@@ -1255,7 +1334,7 @@ tmux_kill_session({ session: "qa-test" })
 \`\`\``,
       suggestedForCategories: [],
       modifiesCode: false,
-      position: 8,
+      position: 9,
     },
     {
       id: 'test',
@@ -1300,7 +1379,7 @@ ${PRLT_COMMANDS_CODE}`,
 **IMPORTANT:** Use the global \`prlt\` command.`,
       suggestedForCategories: ['started', 'completed'],
       modifiesCode: true,
-      position: 7,
+      position: 8,
     },
   ]
 

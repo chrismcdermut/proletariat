@@ -1532,28 +1532,36 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for permissions mode if not explicitly set via --skip-permissions flag
+        // Non-code-modifying actions (review, review-comment, groom) default to safe mode
+        // to prevent agents from performing destructive operations like merging PRs
+        const spawnActionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!flags['skip-permissions']) {
-          // Use FlagResolver for permission mode
-          const permissionResolver = new FlagResolver<{ permissionMode?: string }>({
-            commandName: 'work spawn',
-            baseCommand: 'prlt work spawn',
-            jsonMode,
-            flags: {},
-          })
+          if (!spawnActionModifiesCode) {
+            // Non-code-modifying actions automatically use safe mode
+            batchPermissionMode = 'safe'
+          } else {
+            // Use FlagResolver for permission mode
+            const permissionResolver = new FlagResolver<{ permissionMode?: string }>({
+              commandName: 'work spawn',
+              baseCommand: 'prlt work spawn',
+              jsonMode,
+              flags: {},
+            })
 
-          permissionResolver.addPrompt({
-            flagName: 'permissionMode',
-            type: 'list',
-            message: `Permission mode for ${executorName}:`,
-            default: 'danger',
-            choices: () => [
-              { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
-              { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
-            ],
-          })
+            permissionResolver.addPrompt({
+              flagName: 'permissionMode',
+              type: 'list',
+              message: `Permission mode for ${executorName}:`,
+              default: 'danger',
+              choices: () => [
+                { name: '⚠️  danger - Skip permission checks (faster, container provides isolation)', value: 'danger' },
+                { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe' },
+              ],
+            })
 
-          const permissionResult = await permissionResolver.resolve()
-          batchPermissionMode = permissionResult.permissionMode as PermissionMode
+            const permissionResult = await permissionResolver.resolve()
+            batchPermissionMode = permissionResult.permissionMode as PermissionMode
+          }
         }
 
         // Prompt for PR creation if not provided AND action modifies code
