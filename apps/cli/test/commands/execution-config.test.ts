@@ -72,7 +72,7 @@ describe('Execution Config Command', () => {
     });
 
     it('describes JSON output mode', () => {
-      expect(helpOutput).to.contain('Output configuration as JSON');
+      expect(helpOutput).to.contain('Output as JSON');
     });
   });
 

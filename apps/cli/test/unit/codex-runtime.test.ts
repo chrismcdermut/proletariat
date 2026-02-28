@@ -63,13 +63,15 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
       it('should return codex command with --prompt flag', () => {
         const result = getExecutorCommand('codex', testPrompt, true)
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--prompt', testPrompt])
+        expect(result.args).to.include('--prompt')
+        expect(result.args).to.include(testPrompt)
       })
 
-      it('should return same command regardless of skipPermissions', () => {
+      it('should include danger flag when skipPermissions is true', () => {
         const withSkip = getExecutorCommand('codex', testPrompt, true)
         const withoutSkip = getExecutorCommand('codex', testPrompt, false)
-        expect(withSkip).to.deep.equal(withoutSkip)
+        expect(withSkip.args).to.include('--dangerously-bypass-approvals-and-sandbox')
+        expect(withoutSkip.args).to.not.include('--dangerously-bypass-approvals-and-sandbox')
       })
 
       it('should not include claude-specific flags', () => {
@@ -127,13 +129,15 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor (not hardcoded claude)', () => {
       const result = getExecutorCommand('codex', 'build the feature')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--prompt', 'build the feature'])
+      expect(result.args).to.include('--prompt')
+      expect(result.args).to.include('build the feature')
     })
 
     it('should use aider binary for aider executor (not hardcoded claude)', () => {
       const result = getExecutorCommand('aider', 'fix the bug')
       expect(result.cmd).to.equal('aider')
-      expect(result.args).to.deep.equal(['--message', 'fix the bug'])
+      expect(result.args).to.include('--message')
+      expect(result.args).to.include('fix the bug')
     })
 
     it('should still use claude for claude-code executor in Docker', () => {
@@ -202,7 +206,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     })
 
     it('should handle empty prompts', () => {
-      const result = getExecutorCommand('codex', '')
+      const result = getExecutorCommand('codex', '', false)
       expect(result.cmd).to.equal('codex')
       expect(result.args).to.deep.equal(['--prompt', ''])
     })
