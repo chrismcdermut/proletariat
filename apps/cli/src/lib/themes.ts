@@ -110,26 +110,42 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
   {
     id: 'billionaires',
     name: 'billionaires',
-    displayName: 'Billionaires & Tech Elite',
+    displayName: 'Billionaires',
     description: 'The ultra-wealthy work for you',
     persistentDir: 'staff',
     ephemeralDir: 'temp',
     names: [
-      // Tech founders & executives
-      'altman', 'andreesen', 'bezos', 'branson', 'brin', 'buffett',
-      'cook', 'dalio', 'dario', 'dorsey', 'ellison', 'gates', 'huang',
-      'iger', 'jobs', 'kalanick', 'karpathy', 'lecun', 'ma', 'musk',
-      'nadella', 'page', 'pichai', 'sandberg', 'schultz', 'sutskever',
-      'thiel', 'wojcicki', 'zuck',
-      // More tech leaders
-      'ballmer', 'benioff', 'chesky', 'collison', 'dell', 'durov',
-      'fink', 'fridman', 'grove', 'hastings', 'hoffman', 'horowitz',
-      'hurd', 'ive', 'khosla', 'knight', 'kutcher', 'levie', 'levinson',
-      'lynch', 'marcus', 'mayer', 'mcnealy', 'morin', 'neumann',
-      'omidyar', 'packard', 'parker', 'powell', 'rabois', 'rometty',
-      'ross', 'schmidt', 'sequoia', 'siebel', 'silbermann', 'sinofsky',
-      'spiegel', 'spolsky', 'sweeney', 'systrom', 'torvalds', 'wales',
-      'wozniak', 'yang', 'yegge', 'zhang', 'zhong'
+      'altman', 'andreesen', 'ballmer', 'benioff', 'bezos', 'branson',
+      'brin', 'buffett', 'chesky', 'collison', 'cook', 'dalio',
+      'dario', 'dell', 'dorsey', 'durov', 'ellison', 'fink',
+      'gates', 'hastings', 'hoffman', 'horowitz', 'huang', 'jobs',
+      'kalanick', 'khosla', 'knight', 'levinson', 'ma', 'mcnealy',
+      'musk', 'nadella', 'neumann', 'omidyar', 'page', 'parker',
+      'pichai', 'sandberg', 'schmidt', 'schultz', 'siebel',
+      'silbermann', 'spiegel', 'sweeney', 'systrom', 'thiel',
+      'wozniak', 'yang', 'zuck'
+    ]
+  },
+  {
+    id: 'cracked-engineers',
+    name: 'cracked-engineers',
+    displayName: 'Cracked Engineers',
+    description: 'AI researchers, engineers, and tech legends',
+    persistentDir: 'staff',
+    ephemeralDir: 'temp',
+    names: [
+      // AI researchers
+      'karpathy', 'lecun', 'sutskever',
+      // Engineers & creators
+      'sinofsky', 'spolsky', 'torvalds', 'yegge',
+      // Investors & operators (non-billionaire)
+      'grove', 'kutcher', 'rabois', 'ross',
+      // Podcasters & educators
+      'fridman',
+      // Other tech figures
+      'hurd', 'iger', 'ive', 'levie', 'lynch', 'marcus', 'mayer',
+      'morin', 'powell', 'rometty', 'wales', 'wojcicki', 'zhang',
+      'zhong'
     ]
   },
   {
