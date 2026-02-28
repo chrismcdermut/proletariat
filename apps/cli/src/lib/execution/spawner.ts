@@ -18,7 +18,7 @@ import { hasGitHubRemote } from '../repos/git.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId } from './runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import {
   DisplayMode,
@@ -551,13 +551,28 @@ export async function spawnAgentForTicket(
         log(`Marking orphaned execution ${staleExec.id} as stopped (container not running)`)
         executionStorage.updateStatus(staleExec.id, 'stopped')
       }
-    } else {
-      // Container is running — mark executions whose containerId doesn't match
+    } else if (staleExecutions.length > 0) {
+      // Container IS running — check for specific orphan scenarios:
+      // 1. containerId mismatch (container was recreated since execution started)
+      // 2. Same session name as incoming spawn (tmux session will be replaced)
+      // 3. Dead tmux sessions (crashed or killed externally)
       const currentContainerId = getContainerId(containerName)
-      if (currentContainerId) {
-        for (const staleExec of staleExecutions) {
-          if (staleExec.containerId && staleExec.containerId !== currentContainerId) {
-            log(`Marking orphaned execution ${staleExec.id} as stopped (containerId mismatch: ${staleExec.containerId} vs ${currentContainerId})`)
+      const incomingSessionName = buildSessionName(context)
+
+      for (const staleExec of staleExecutions) {
+        if (staleExec.containerId && currentContainerId && staleExec.containerId !== currentContainerId) {
+          log(`Marking orphaned execution ${staleExec.id} as stopped (containerId mismatch)`)
+          executionStorage.updateStatus(staleExec.id, 'stopped')
+        } else if (staleExec.sessionId === incomingSessionName) {
+          // Same session name — will be killed when the new tmux session is created
+          log(`Marking execution ${staleExec.id} as stopped (session will be replaced)`)
+          executionStorage.updateStatus(staleExec.id, 'stopped')
+        } else if (staleExec.sessionId && currentContainerId) {
+          // Different session — verify it still exists in the container
+          try {
+            execSync(`docker exec ${currentContainerId} tmux has-session -t "${staleExec.sessionId}"`, { stdio: 'pipe' })
+          } catch {
+            log(`Marking orphaned execution ${staleExec.id} as stopped (tmux session gone)`)
             executionStorage.updateStatus(staleExec.id, 'stopped')
           }
         }
