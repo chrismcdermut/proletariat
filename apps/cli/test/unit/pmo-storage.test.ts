@@ -5,6 +5,8 @@ import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 
+const PROJECT_ID = 'default';
+
 describe('PMO SQLite Storage', () => {
   let testDir: string;
   let storage: SQLiteStorage;
@@ -20,13 +22,13 @@ describe('PMO SQLite Storage', () => {
     storage = new SQLiteStorage(dbPath);
 
     // Initialize board with columns
-    await storage.init({
+    await storage.init(PROJECT_ID, {
       name: 'Test Board',
       columns: ['Backlog', 'In Progress', 'Done'],
     });
 
     // Apply default workflow template (required for ticket creation)
-    await storage.applyTemplate('default', 'kanban');
+    await storage.applyTemplate(PROJECT_ID, 'kanban');
   });
 
   afterEach(async () => {
@@ -38,7 +40,7 @@ describe('PMO SQLite Storage', () => {
 
   describe('Board Operations', () => {
     it('initializes board with columns', async () => {
-      const board = await storage.getBoard();
+      const board = await storage.getBoard(PROJECT_ID);
 
       expect(board.name).to.equal('Test Board');
       expect(board.columns).to.have.length(3);
@@ -48,7 +50,7 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('generates board markdown', async () => {
-      const markdown = await storage.getBoardMarkdown();
+      const markdown = await storage.getBoardMarkdown(PROJECT_ID);
 
       expect(markdown).to.include('kanban-plugin');
       expect(markdown).to.include('## Backlog');
@@ -59,61 +61,61 @@ describe('PMO SQLite Storage', () => {
 
   describe('Column Operations', () => {
     it('creates a new column', async () => {
-      await storage.createColumn('Review', 2);
+      await storage.createColumn(PROJECT_ID, 'Review', 2);
 
-      const board = await storage.getBoard();
+      const board = await storage.getBoard(PROJECT_ID);
       expect(board.columns).to.have.length(4);
       const reviewCol = board.columns.find(c => c.name === 'Review');
       expect(reviewCol).to.not.be.undefined;
     });
 
     it('renames a column', async () => {
-      const board = await storage.getBoard();
+      const board = await storage.getBoard(PROJECT_ID);
       const backlogCol = board.columns.find(c => c.name === 'Backlog');
 
-      await storage.renameColumn(backlogCol!.id, 'Todo');
+      await storage.renameColumn(PROJECT_ID, backlogCol!.id, 'Todo');
 
-      const updated = await storage.getBoard();
+      const updated = await storage.getBoard(PROJECT_ID);
       expect(updated.columns[0].name).to.equal('Todo');
     });
 
     it('moves a column to a new position', async () => {
-      const board = await storage.getBoard();
+      const board = await storage.getBoard(PROJECT_ID);
       const doneCol = board.columns.find(c => c.name === 'Done');
 
-      await storage.moveColumn(doneCol!.id, 0);
+      await storage.moveColumn(PROJECT_ID, doneCol!.id, 0);
 
-      const updated = await storage.getBoard();
+      const updated = await storage.getBoard(PROJECT_ID);
       expect(updated.columns[0].name).to.equal('Done');
     });
 
     it('deletes a column', async () => {
-      const board = await storage.getBoard();
+      const board = await storage.getBoard(PROJECT_ID);
       const doneCol = board.columns.find(c => c.name === 'Done');
 
-      await storage.deleteColumn(doneCol!.id);
+      await storage.deleteColumn(PROJECT_ID, doneCol!.id);
 
-      const updated = await storage.getBoard();
+      const updated = await storage.getBoard(PROJECT_ID);
       expect(updated.columns).to.have.length(2);
     });
   });
 
   describe('Ticket Operations', () => {
     it('creates a ticket', async () => {
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(PROJECT_ID, {
         title: 'Implement feature',
         statusName: 'Backlog',
-        priority: 'URGENT',
+        priority: 'P0',
       });
 
       expect(ticket.id).to.match(/^TKT-\d{3,}$/);
       expect(ticket.title).to.equal('Implement feature');
       expect(ticket.statusName).to.equal('Backlog');
-      expect(ticket.priority).to.equal('URGENT');
+      expect(ticket.priority).to.equal('P0');
     });
 
     it('creates ticket with custom id', async () => {
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(PROJECT_ID, {
         id: 'my-custom-id',
         title: 'Custom ticket',
         statusName: 'Backlog',
@@ -123,7 +125,7 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('retrieves a ticket', async () => {
-      const created = await storage.createTicket({
+      const created = await storage.createTicket(PROJECT_ID, {
         title: 'Implement feature',
         statusName: 'Backlog',
       });
@@ -140,44 +142,44 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('updates a ticket', async () => {
-      const created = await storage.createTicket({
+      const created = await storage.createTicket(PROJECT_ID, {
         title: 'Original title',
         statusName: 'Backlog',
       });
 
       const updated = await storage.updateTicket(created.id, {
         title: 'Updated title',
-        priority: 'HIGH',
+        priority: 'P1',
       });
 
       expect(updated.title).to.equal('Updated title');
-      expect(updated.priority).to.equal('HIGH');
+      expect(updated.priority).to.equal('P1');
     });
 
     it('moves a ticket to a different column', async () => {
-      const created = await storage.createTicket({
+      const created = await storage.createTicket(PROJECT_ID, {
         title: 'My ticket',
         statusName: 'Backlog',
       });
 
-      const moved = await storage.moveTicket(created.id, 'In Progress');
+      const moved = await storage.moveTicket(PROJECT_ID, created.id, 'In Progress');
 
       expect(moved.statusName).to.equal('In Progress');
     });
 
     it('moves a ticket to a specific position', async () => {
-      await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
-      await storage.createTicket({ title: 'Ticket 2', statusName: 'Backlog' });
-      const ticket3 = await storage.createTicket({ title: 'Ticket 3', statusName: 'Backlog' });
+      await storage.createTicket(PROJECT_ID, { title: 'Ticket 1', statusName: 'Backlog' });
+      await storage.createTicket(PROJECT_ID, { title: 'Ticket 2', statusName: 'Backlog' });
+      const ticket3 = await storage.createTicket(PROJECT_ID, { title: 'Ticket 3', statusName: 'Backlog' });
 
-      await storage.moveTicket(ticket3.id, 'Backlog', 0);
+      await storage.moveTicket(PROJECT_ID, ticket3.id, 'Backlog', 0);
 
-      const tickets = await storage.listTickets({ column: 'Backlog' });
+      const tickets = await storage.listTickets(PROJECT_ID, { column: 'Backlog' });
       expect(tickets[0].id).to.equal(ticket3.id);
     });
 
     it('deletes a ticket', async () => {
-      const created = await storage.createTicket({
+      const created = await storage.createTicket(PROJECT_ID, {
         title: 'To delete',
         statusName: 'Backlog',
       });
@@ -189,45 +191,47 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('lists all tickets', async () => {
-      await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
-      await storage.createTicket({ title: 'Ticket 2', statusName: 'In Progress' });
+      await storage.createTicket(PROJECT_ID, { title: 'Ticket 1', statusName: 'Backlog' });
+      await storage.createTicket(PROJECT_ID, { title: 'Ticket 2', statusName: 'In Progress' });
 
-      const tickets = await storage.listTickets();
+      const tickets = await storage.listTickets(PROJECT_ID);
       expect(tickets).to.have.length(2);
     });
 
     it('lists tickets filtered by column', async () => {
-      await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
-      await storage.createTicket({ title: 'Ticket 2', statusName: 'In Progress' });
+      await storage.createTicket(PROJECT_ID, { title: 'Ticket 1', statusName: 'Backlog' });
+      const ticket2 = await storage.createTicket(PROJECT_ID, { title: 'Ticket 2', statusName: 'Backlog' });
+      // Move ticket 2 to 'In Progress' column
+      await storage.moveTicket(PROJECT_ID, ticket2.id, 'In Progress');
 
-      const tickets = await storage.listTickets({ column: 'Backlog' });
+      const tickets = await storage.listTickets(PROJECT_ID, { column: 'Backlog' });
       expect(tickets).to.have.length(1);
       expect(tickets[0].title).to.equal('Ticket 1');
     });
 
     it('lists tickets filtered by priority', async () => {
-      await storage.createTicket({ title: 'Urgent bug', statusName: 'Backlog', priority: 'URGENT' });
-      await storage.createTicket({ title: 'Feature', statusName: 'Backlog', priority: 'LOW' });
+      await storage.createTicket(PROJECT_ID, { title: 'Urgent bug', statusName: 'Backlog', priority: 'P0' });
+      await storage.createTicket(PROJECT_ID, { title: 'Feature', statusName: 'Backlog', priority: 'P3' });
 
-      const tickets = await storage.listTickets({ priority: 'URGENT' });
+      const tickets = await storage.listTickets(PROJECT_ID, { priority: 'P0' });
       expect(tickets).to.have.length(1);
       expect(tickets[0].title).to.equal('Urgent bug');
     });
 
     it('lists tickets filtered by category', async () => {
-      await storage.createTicket({ title: 'Bug 1', statusName: 'Backlog', category: 'bug' });
-      await storage.createTicket({ title: 'Feature 1', statusName: 'Backlog', category: 'feature' });
+      await storage.createTicket(PROJECT_ID, { title: 'Bug 1', statusName: 'Backlog', category: 'bug' });
+      await storage.createTicket(PROJECT_ID, { title: 'Feature 1', statusName: 'Backlog', category: 'feature' });
 
-      const tickets = await storage.listTickets({ category: 'bug' });
+      const tickets = await storage.listTickets(PROJECT_ID, { category: 'bug' });
       expect(tickets).to.have.length(1);
       expect(tickets[0].title).to.equal('Bug 1');
     });
 
     it('searches tickets by title/description', async () => {
-      await storage.createTicket({ title: 'Fix login bug', statusName: 'Backlog', description: 'Users cannot log in' });
-      await storage.createTicket({ title: 'Add feature', statusName: 'Backlog', description: 'New dashboard' });
+      await storage.createTicket(PROJECT_ID, { title: 'Fix login bug', statusName: 'Backlog', description: 'Users cannot log in' });
+      await storage.createTicket(PROJECT_ID, { title: 'Add feature', statusName: 'Backlog', description: 'New dashboard' });
 
-      const results = await storage.listTickets({ search: 'login' });
+      const results = await storage.listTickets(PROJECT_ID, { search: 'login' });
       expect(results).to.have.length(1);
       expect(results[0].title).to.equal('Fix login bug');
     });
@@ -237,7 +241,7 @@ describe('PMO SQLite Storage', () => {
     let mainTicketId: string;
 
     beforeEach(async () => {
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(PROJECT_ID, {
         title: 'Main ticket',
         statusName: 'Backlog',
       });
@@ -307,7 +311,7 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('links spec to ticket', async () => {
-      const ticket = await storage.createTicket({ title: 'My ticket', statusName: 'Backlog' });
+      const ticket = await storage.createTicket(PROJECT_ID, { title: 'My ticket', statusName: 'Backlog' });
       await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
 
       await storage.linkTicketToSpec(ticket.id, 'spec-1');
@@ -318,14 +322,14 @@ describe('PMO SQLite Storage', () => {
     });
 
     it('gets tickets for a spec', async () => {
-      const ticket1 = await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
-      const ticket2 = await storage.createTicket({ title: 'Ticket 2', statusName: 'Backlog' });
+      const ticket1 = await storage.createTicket(PROJECT_ID, { title: 'Ticket 1', statusName: 'Backlog' });
+      const ticket2 = await storage.createTicket(PROJECT_ID, { title: 'Ticket 2', statusName: 'Backlog' });
       await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
 
       await storage.linkTicketToSpec(ticket1.id, 'spec-1');
       await storage.linkTicketToSpec(ticket2.id, 'spec-1');
 
-      const tickets = await storage.getTicketsForSpec('spec-1');
+      const tickets = await storage.getTicketsForSpec(PROJECT_ID, 'spec-1');
       expect(tickets).to.have.length(2);
     });
   });
@@ -390,9 +394,9 @@ describe('PMO SQLite Storage', () => {
         updatedAt: new Date(),
       };
 
-      await newStorage.rebuildFromBoard(board);
+      newStorage.rebuildFromBoard(board);
 
-      const retrieved = await newStorage.getBoard();
+      const retrieved = await newStorage.getBoard('imported-board');
       expect(retrieved.name).to.equal('Imported Board');
       expect(retrieved.columns).to.have.length(2);
       expect(retrieved.columns[0].tickets).to.have.length(1);
@@ -408,9 +412,9 @@ describe('PMO SQLite Storage', () => {
     let ticket3Id: string;
 
     beforeEach(async () => {
-      const ticket1 = await storage.createTicket({ title: 'Ticket 1', statusName: 'Backlog' });
-      const ticket2 = await storage.createTicket({ title: 'Ticket 2', statusName: 'Backlog' });
-      const ticket3 = await storage.createTicket({ title: 'Ticket 3', statusName: 'Backlog' });
+      const ticket1 = await storage.createTicket(PROJECT_ID, { title: 'Ticket 1', statusName: 'Backlog' });
+      const ticket2 = await storage.createTicket(PROJECT_ID, { title: 'Ticket 2', statusName: 'Backlog' });
+      const ticket3 = await storage.createTicket(PROJECT_ID, { title: 'Ticket 3', statusName: 'Backlog' });
       ticket1Id = ticket1.id;
       ticket2Id = ticket2.id;
       ticket3Id = ticket3.id;
@@ -519,7 +523,7 @@ describe('PMO SQLite Storage', () => {
     it('checks if ticket is not blocked (blocker complete)', async () => {
       await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
       // Find a status with 'completed' category
-      const statuses = await storage.listStatuses('default');
+      const statuses = await storage.listStatuses(PROJECT_ID);
       const doneStatus = statuses.find(s => s.category === 'completed');
       expect(doneStatus).to.not.be.undefined;
       await storage.updateTicket(ticket2Id, { statusId: doneStatus!.id });
@@ -716,6 +720,67 @@ describe('PMO SQLite Storage', () => {
       const allDeps = await migratedStorage.listTicketDependencies('TKT-001');
       expect(allDeps).to.have.length(2);
 
+      // Verify we can create duplicates dependencies too
+      await migratedStorage.createTicketDependency('TKT-001', 'TKT-002', 'duplicates');
+      const allDeps2 = await migratedStorage.listTicketDependencies('TKT-001');
+      expect(allDeps2).to.have.length(3);
+
+      await migratedStorage.close();
+    });
+
+    it('handles migration with multiple existing blocking relationships', async () => {
+      const oldDbPath = path.join(testDir, 'old-multi.db');
+      const oldDb = new Database(oldDbPath);
+      oldDb.pragma('journal_mode = WAL');
+      oldDb.pragma('foreign_keys = ON');
+
+      // Create minimal schema
+      oldDb.exec(`
+        CREATE TABLE pmo_phases (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, category TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, color TEXT, description TEXT, is_default INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, template TEXT, description TEXT, status TEXT NOT NULL DEFAULT 'active', phase_id TEXT, is_archived INTEGER NOT NULL DEFAULT 0, target_date TIMESTAMP, initiative_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_specs (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT DEFAULT 'draft', type TEXT, tags TEXT, depends_on TEXT, problem TEXT, solution TEXT, decisions TEXT, not_now TEXT, ui_ux TEXT, acceptance_criteria TEXT, open_questions TEXT, requirements_functional TEXT, requirements_technical TEXT, context TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_epics (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'active', position INTEGER NOT NULL DEFAULT 0, file_path TEXT, spec_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_tickets (id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT 'default', title TEXT NOT NULL, description TEXT, priority TEXT, category TEXT, status TEXT NOT NULL DEFAULT 'backlog', status_id TEXT, owner TEXT, assignee TEXT, branch TEXT, spec_id TEXT, epic_id TEXT, labels TEXT NOT NULL DEFAULT '[]', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_synced_from_spec TIMESTAMP, last_synced_from_board TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_ticket_dependencies (ticket_id TEXT NOT NULL, blocked_by_ticket_id TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (ticket_id, blocked_by_ticket_id), CHECK (ticket_id != blocked_by_ticket_id))
+      `);
+
+      // Insert test data with multiple blocking relationships
+      oldDb.exec(`INSERT INTO pmo_projects (id, name) VALUES ('default', 'Default')`);
+      oldDb.exec(`INSERT INTO pmo_tickets (id, project_id, title) VALUES ('TKT-001', 'default', 'Ticket 1')`);
+      oldDb.exec(`INSERT INTO pmo_tickets (id, project_id, title) VALUES ('TKT-002', 'default', 'Ticket 2')`);
+      oldDb.exec(`INSERT INTO pmo_tickets (id, project_id, title) VALUES ('TKT-003', 'default', 'Ticket 3')`);
+      oldDb.exec(`INSERT INTO pmo_ticket_dependencies (ticket_id, blocked_by_ticket_id) VALUES ('TKT-001', 'TKT-002')`);
+      oldDb.exec(`INSERT INTO pmo_ticket_dependencies (ticket_id, blocked_by_ticket_id) VALUES ('TKT-001', 'TKT-003')`);
+      oldDb.exec(`INSERT INTO pmo_ticket_dependencies (ticket_id, blocked_by_ticket_id) VALUES ('TKT-003', 'TKT-002')`);
+
+      oldDb.close();
+
+      // Open with SQLiteStorage which should trigger migration
+      const migratedStorage = new SQLiteStorage(oldDbPath);
+
+      // Verify all blocking dependencies were preserved
+      const deps1 = await migratedStorage.listTicketDependencies('TKT-001');
+      expect(deps1).to.have.length(2);
+      expect(deps1.every(d => d.dependencyType === 'blocks')).to.be.true;
+
+      const deps3 = await migratedStorage.listTicketDependencies('TKT-003');
+      expect(deps3).to.have.length(1);
+      expect(deps3[0].dependsOnTicketId).to.equal('TKT-002');
+
+      // Verify blockers work correctly after migration
+      const blockers = await migratedStorage.getTicketBlockers('TKT-001');
+      expect(blockers).to.have.length(2);
+
       await migratedStorage.close();
     });
   });
@@ -770,8 +835,8 @@ describe('PMO SQLite Storage', () => {
     let epic2Id: string;
 
     beforeEach(async () => {
-      const epic1 = await storage.createEpic({ title: 'Epic 1' });
-      const epic2 = await storage.createEpic({ title: 'Epic 2' });
+      const epic1 = await storage.createEpic(PROJECT_ID, { title: 'Epic 1' });
+      const epic2 = await storage.createEpic(PROJECT_ID, { title: 'Epic 2' });
       epic1Id = epic1.id;
       epic2Id = epic2.id;
     });
@@ -826,42 +891,33 @@ describe('PMO SQLite Storage', () => {
   });
 
   describe('Cross-Project Ticket Operations', () => {
-    let project1Id: string;
-    let project2Id: string;
+    const project1Id = PROJECT_ID;
+    const project2Id = 'project-2';
 
     beforeEach(async () => {
       // Create a second project
-      const project2 = await storage.createProject({
-        id: 'project-2',
+      await storage.createProject({
+        id: project2Id,
         name: 'Second Project',
         template: 'kanban',
       });
-      project2Id = project2.id;
-      project1Id = storage.getCurrentProjectId();
 
-      // Initialize the second project's board (use same columns as project 1)
-      storage.setCurrentProject(project2Id);
-      await storage.init({
+      // Initialize the second project's board
+      await storage.init(project2Id, {
         name: 'Second Board',
         columns: ['Backlog', 'In Progress', 'Done'],
       });
       await storage.applyTemplate(project2Id, 'kanban');
-
-      // Switch back to the first project
-      storage.setCurrentProject(project1Id);
     });
 
     it('retrieves a ticket by ID without project scoping', async () => {
       // Create ticket in project 1
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(project1Id, {
         title: 'Cross-project ticket',
         statusName: 'Backlog',
       });
 
-      // Switch to project 2
-      storage.setCurrentProject(project2Id);
-
-      // Should still be able to get the ticket
+      // Should be able to get the ticket (getTicket doesn't need projectId)
       const retrieved = await storage.getTicket(ticket.id);
       expect(retrieved).to.not.be.null;
       expect(retrieved!.title).to.equal('Cross-project ticket');
@@ -870,58 +926,50 @@ describe('PMO SQLite Storage', () => {
 
     it('updates a ticket by ID without project scoping', async () => {
       // Create ticket in project 1
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(project1Id, {
         title: 'Original title',
         statusName: 'Backlog',
       });
 
-      // Switch to project 2
-      storage.setCurrentProject(project2Id);
-
-      // Should still be able to update the ticket
+      // Should be able to update the ticket
       const updated = await storage.updateTicket(ticket.id, {
         title: 'Updated title',
-        priority: 'HIGH',
+        priority: 'P1',
       });
 
       expect(updated.title).to.equal('Updated title');
-      expect(updated.priority).to.equal('HIGH');
+      expect(updated.priority).to.equal('P1');
     });
 
     it('deletes a ticket by ID without project scoping', async () => {
       // Create ticket in project 1
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(project1Id, {
         title: 'To be deleted',
         statusName: 'Backlog',
       });
 
-      // Switch to project 2
-      storage.setCurrentProject(project2Id);
-
-      // Should still be able to delete the ticket
+      // Should be able to delete the ticket
       await storage.deleteTicket(ticket.id);
 
       const retrieved = await storage.getTicket(ticket.id);
       expect(retrieved).to.be.null;
     });
 
-    it('lists tickets across all projects with allProjects flag', async () => {
+    it('lists tickets across all projects with undefined projectId', async () => {
       // Create ticket in project 1
-      storage.setCurrentProject(project1Id);
-      await storage.createTicket({
+      await storage.createTicket(project1Id, {
         title: 'Project 1 ticket',
         statusName: 'Backlog',
       });
 
       // Create ticket in project 2
-      storage.setCurrentProject(project2Id);
-      await storage.createTicket({
+      await storage.createTicket(project2Id, {
         title: 'Project 2 ticket',
         statusName: 'Backlog',
       });
 
-      // List all tickets
-      const allTickets = await storage.listTickets({ allProjects: true });
+      // List all tickets (undefined projectId = all projects)
+      const allTickets = await storage.listTickets(undefined);
       expect(allTickets).to.have.length(2);
 
       const titles = allTickets.map(t => t.title);
@@ -929,31 +977,28 @@ describe('PMO SQLite Storage', () => {
       expect(titles).to.include('Project 2 ticket');
     });
 
-    it('lists tickets in specific project with projectId filter', async () => {
+    it('lists tickets in specific project with projectId', async () => {
       // Create ticket in project 1
-      storage.setCurrentProject(project1Id);
-      await storage.createTicket({
+      await storage.createTicket(project1Id, {
         title: 'Project 1 ticket',
         statusName: 'Backlog',
       });
 
       // Create ticket in project 2
-      storage.setCurrentProject(project2Id);
-      await storage.createTicket({
+      await storage.createTicket(project2Id, {
         title: 'Project 2 ticket',
         statusName: 'Backlog',
       });
 
       // List only project 1 tickets
-      const project1Tickets = await storage.listTickets({ projectId: project1Id });
+      const project1Tickets = await storage.listTickets(project1Id);
       expect(project1Tickets).to.have.length(1);
       expect(project1Tickets[0].title).to.equal('Project 1 ticket');
     });
 
     it('moves ticket to a different project', async () => {
       // Create ticket in project 1
-      storage.setCurrentProject(project1Id);
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(project1Id, {
         title: 'To be moved',
         statusName: 'Backlog',
       });
@@ -966,40 +1011,34 @@ describe('PMO SQLite Storage', () => {
       expect(movedTicket.projectId).to.equal(project2Id);
 
       // Verify the ticket is now in project 2
-      storage.setCurrentProject(project2Id);
-      const project2Tickets = await storage.listTickets();
+      const project2Tickets = await storage.listTickets(project2Id);
       expect(project2Tickets).to.have.length(1);
       expect(project2Tickets[0].id).to.equal(ticket.id);
 
       // Verify ticket is not in project 1
-      storage.setCurrentProject(project1Id);
-      const project1Tickets = await storage.listTickets();
+      const project1Tickets = await storage.listTickets(project1Id);
       expect(project1Tickets).to.have.length(0);
     });
 
     it('places moved ticket in first column of target project', async () => {
       // Create ticket in project 1
-      storage.setCurrentProject(project1Id);
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(project1Id, {
         title: 'To be moved',
         statusName: 'In Progress', // Start in middle column
       });
 
       // Move to project 2
-      const movedTicket = await storage.moveTicketToProject(ticket.id, project2Id);
+      await storage.moveTicketToProject(ticket.id, project2Id);
 
-      // Should be in first column of project 2 (Todo)
-      // Get the board to check column
-      storage.setCurrentProject(project2Id);
-      const board = await storage.getBoard();
+      // Should be in first column of project 2
+      const board = await storage.getBoard(project2Id);
       const firstColumn = board.columns[0];
       const ticketInBoard = firstColumn.tickets.find(t => t.id === ticket.id);
       expect(ticketInBoard).to.not.be.undefined;
     });
 
     it('throws error when moving to non-existent project', async () => {
-      storage.setCurrentProject(project1Id);
-      const ticket = await storage.createTicket({
+      const ticket = await storage.createTicket(project1Id, {
         title: 'Test ticket',
         statusName: 'Backlog',
       });
