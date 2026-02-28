@@ -18,7 +18,7 @@ import {
   Shell,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, isDockerRunning, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
+import { runExecution, isDockerRunning, isDevcontainerCliInstalled, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, getShell, hasTerminalPreference, hasShellPreference } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
@@ -303,12 +303,15 @@ export default class WorkRevise extends PMOCommand {
         displayMode = flags.mode as DisplayMode
       }
 
+      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+      const executorName = getExecutorDisplayName(executor)
+
       // Permission mode
       const { permissionMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
-          message: 'Permission mode for Claude Code:',
+          message: `Permission mode for ${executorName}:`,
           choices: [
             { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger', command: `prlt work revise ${ticketId} --json` },
             { name: 'safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt work revise ${ticketId} --json` },
@@ -317,8 +320,6 @@ export default class WorkRevise extends PMOCommand {
         },
       ], reviseJsonModeConfig)
       sandboxed = permissionMode === 'safe'
-
-      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
       // Show execution info
       this.log('')
