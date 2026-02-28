@@ -547,11 +547,20 @@ export async function spawnAgentForTicket(
   // Load execution config (use passed config or load from db)
   const executionConfig = options.executionConfig || loadExecutionConfig(db)
   executionConfig.sandboxed = sandboxed
-  // Use print mode for background, interactive for terminal/tmux
-  executionConfig.outputMode = displayMode === 'background' ? 'print' : 'interactive'
 
   // Run execution
-  const sessionManager = options.sessionManager || 'direct'
+  // Default to tmux for session persistence (enables peek/poke/attach)
+  const sessionManager = options.sessionManager || 'tmux'
+
+  // Determine output mode:
+  // - Devcontainer with tmux: always interactive (no -p flag) so Claude runs with TUI
+  //   inside tmux, enabling session peek/poke/attach for Docker agents
+  // - Otherwise: print mode for background (logs only), interactive for terminal/tmux
+  if (environment === 'devcontainer' && sessionManager === 'tmux') {
+    executionConfig.outputMode = 'interactive'
+  } else {
+    executionConfig.outputMode = displayMode === 'background' ? 'print' : 'interactive'
+  }
   const result = await runExecution(environment, context, executor, executionConfig, {
     displayMode,
     sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
