@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
+import Database from 'better-sqlite3'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
@@ -13,6 +14,8 @@ import {
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
+import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
 import { ORCHESTRATOR_SESSION_NAME } from './start.js'
 
 /**
@@ -116,6 +119,25 @@ export default class OrchestratorAttach extends PromptCommand {
     this.log('')
     this.log(styles.info(`Attaching to orchestrator session: ${ORCHESTRATOR_SESSION_NAME}`))
 
+    // Determine if we should use tmux control mode (-u -CC) for iTerm
+    let useControlMode = false
+    try {
+      const workspaceInfo = getWorkspaceInfo()
+      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
+      const db = new Database(dbPath)
+      try {
+        const config = loadExecutionConfig(db)
+        const termApp = detectTerminalApp()
+        if (termApp === 'iTerm') {
+          useControlMode = shouldUseControlMode('iTerm', config.tmux.controlMode)
+        }
+      } finally {
+        db.close()
+      }
+    } catch {
+      // Not in a workspace or DB not available - fall back to no control mode
+    }
+
     if (flags['new-tab']) {
       // Determine terminal app: explicit flag > auto-detect > error
       const terminalApp = flags.terminal ?? detectTerminalApp()
@@ -124,26 +146,28 @@ export default class OrchestratorAttach extends PromptCommand {
         this.log(styles.muted('Falling back to direct tmux attach in current terminal.'))
         this.log(styles.muted('Tip: Use --terminal <app> to specify your terminal (iTerm, Terminal, Ghostty).'))
         this.log('')
-        this.attachInCurrentTerminal()
+        this.attachInCurrentTerminal(useControlMode)
         return
       }
-      await this.openInNewTab(terminalApp)
+      await this.openInNewTab(terminalApp, useControlMode)
     } else {
-      this.attachInCurrentTerminal()
+      this.attachInCurrentTerminal(useControlMode)
     }
   }
 
-  private attachInCurrentTerminal(): void {
+  private attachInCurrentTerminal(useControlMode: boolean): void {
     try {
-      execSync(`tmux attach -t "${ORCHESTRATOR_SESSION_NAME}"`, { stdio: 'inherit' })
+      const tmuxAttach = buildTmuxAttachCommand(useControlMode)
+      execSync(`${tmuxAttach} -t "${ORCHESTRATOR_SESSION_NAME}"`, { stdio: 'inherit' })
     } catch {
       this.error(`Failed to attach to orchestrator session "${ORCHESTRATOR_SESSION_NAME}"`)
     }
   }
 
-  private async openInNewTab(terminalApp: string): Promise<void> {
+  private async openInNewTab(terminalApp: string, useControlMode: boolean): Promise<void> {
     const title = 'Orchestrator'
-    const attachCmd = `tmux attach -t "${ORCHESTRATOR_SESSION_NAME}"`
+    const tmuxAttach = buildTmuxAttachCommand(useControlMode)
+    const attachCmd = `${tmuxAttach} -t "${ORCHESTRATOR_SESSION_NAME}"`
 
     const baseDir = path.join(os.homedir(), '.proletariat', 'scripts')
     fs.mkdirSync(baseDir, { recursive: true })
