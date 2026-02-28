@@ -661,7 +661,7 @@ describe('PMO SQLite Storage', () => {
     it('checks if ticket is not blocked (blocker complete)', async () => {
       await storage.createTicketDependency(ticket1Id, ticket2Id, 'blocks');
       // Find a status with 'completed' category
-      const statuses = await storage.listStatuses('default');
+      const statuses = await storage.listStatuses(projectId);
       const doneStatus = statuses.find(s => s.category === 'completed');
       expect(doneStatus).to.not.be.undefined;
       await storage.updateTicket(ticket2Id, { statusId: doneStatus!.id });
@@ -726,6 +726,20 @@ describe('PMO SQLite Storage', () => {
       const deps = await storage.listTicketDependencies(ticket1Id);
       const relatesDeps = deps.filter(d => d.dependencyType === 'relates_to');
       expect(relatesDeps).to.have.length(1);
+    });
+
+    it('deletes relates_to dependency from reverse side', async () => {
+      // Create A relates_to B (stored as ticket1 -> ticket2)
+      await storage.createTicketDependency(ticket1Id, ticket2Id, 'relates_to');
+
+      // Delete from ticket2's perspective (reverse direction)
+      await storage.deleteTicketDependency(ticket2Id, ticket1Id, 'relates_to');
+
+      // Should be gone from both sides
+      const deps1 = await storage.listTicketDependencies(ticket1Id);
+      expect(deps1.filter(d => d.dependencyType === 'relates_to')).to.have.length(0);
+      const deps2 = await storage.listTicketDependencies(ticket2Id);
+      expect(deps2.filter(d => d.dependencyType === 'relates_to')).to.have.length(0);
     });
   });
 
@@ -857,6 +871,67 @@ describe('PMO SQLite Storage', () => {
       await migratedStorage.createTicketDependency('TKT-001', 'TKT-002', 'relates_to');
       const allDeps = await migratedStorage.listTicketDependencies('TKT-001');
       expect(allDeps).to.have.length(2);
+
+      // Verify we can create duplicates dependencies too
+      await migratedStorage.createTicketDependency('TKT-001', 'TKT-002', 'duplicates');
+      const allDeps2 = await migratedStorage.listTicketDependencies('TKT-001');
+      expect(allDeps2).to.have.length(3);
+
+      await migratedStorage.close();
+    });
+
+    it('handles migration with multiple existing blocking relationships', async () => {
+      const oldDbPath = path.join(testDir, 'old-multi.db');
+      const oldDb = new Database(oldDbPath);
+      oldDb.pragma('journal_mode = WAL');
+      oldDb.pragma('foreign_keys = ON');
+
+      // Create minimal schema
+      oldDb.exec(`
+        CREATE TABLE pmo_phases (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, category TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, color TEXT, description TEXT, is_default INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, template TEXT, description TEXT, status TEXT NOT NULL DEFAULT 'active', phase_id TEXT, is_archived INTEGER NOT NULL DEFAULT 0, target_date TIMESTAMP, initiative_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_specs (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT DEFAULT 'draft', type TEXT, tags TEXT, depends_on TEXT, problem TEXT, solution TEXT, decisions TEXT, not_now TEXT, ui_ux TEXT, acceptance_criteria TEXT, open_questions TEXT, requirements_functional TEXT, requirements_technical TEXT, context TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_epics (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'active', position INTEGER NOT NULL DEFAULT 0, file_path TEXT, spec_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_tickets (id TEXT PRIMARY KEY, project_id TEXT NOT NULL DEFAULT 'default', title TEXT NOT NULL, description TEXT, priority TEXT, category TEXT, status TEXT NOT NULL DEFAULT 'backlog', status_id TEXT, owner TEXT, assignee TEXT, branch TEXT, spec_id TEXT, epic_id TEXT, labels TEXT NOT NULL DEFAULT '[]', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_synced_from_spec TIMESTAMP, last_synced_from_board TIMESTAMP)
+      `);
+      oldDb.exec(`
+        CREATE TABLE pmo_ticket_dependencies (ticket_id TEXT NOT NULL, blocked_by_ticket_id TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (ticket_id, blocked_by_ticket_id), CHECK (ticket_id != blocked_by_ticket_id))
+      `);
+
+      // Insert test data with multiple blocking relationships
+      oldDb.exec(`INSERT INTO pmo_projects (id, name) VALUES ('default', 'Default')`);
+      oldDb.exec(`INSERT INTO pmo_tickets (id, project_id, title) VALUES ('TKT-001', 'default', 'Ticket 1')`);
+      oldDb.exec(`INSERT INTO pmo_tickets (id, project_id, title) VALUES ('TKT-002', 'default', 'Ticket 2')`);
+      oldDb.exec(`INSERT INTO pmo_tickets (id, project_id, title) VALUES ('TKT-003', 'default', 'Ticket 3')`);
+      oldDb.exec(`INSERT INTO pmo_ticket_dependencies (ticket_id, blocked_by_ticket_id) VALUES ('TKT-001', 'TKT-002')`);
+      oldDb.exec(`INSERT INTO pmo_ticket_dependencies (ticket_id, blocked_by_ticket_id) VALUES ('TKT-001', 'TKT-003')`);
+      oldDb.exec(`INSERT INTO pmo_ticket_dependencies (ticket_id, blocked_by_ticket_id) VALUES ('TKT-003', 'TKT-002')`);
+
+      oldDb.close();
+
+      // Open with SQLiteStorage which should trigger migration
+      const migratedStorage = new SQLiteStorage(oldDbPath);
+
+      // Verify all blocking dependencies were preserved
+      const deps1 = await migratedStorage.listTicketDependencies('TKT-001');
+      expect(deps1).to.have.length(2);
+      expect(deps1.every(d => d.dependencyType === 'blocks')).to.be.true;
+
+      const deps3 = await migratedStorage.listTicketDependencies('TKT-003');
+      expect(deps3).to.have.length(1);
+      expect(deps3[0].dependsOnTicketId).to.equal('TKT-002');
+
+      // Verify blockers work correctly after migration
+      const blockers = await migratedStorage.getTicketBlockers('TKT-001');
+      expect(blockers).to.have.length(2);
 
       await migratedStorage.close();
     });

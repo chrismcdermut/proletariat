@@ -3,9 +3,8 @@ import { expect } from 'chai'
 import {
   getExecutorCommand,
   buildSessionName,
-  buildTmuxScript,
 } from '../../src/lib/execution/runners.js'
-import type { ExecutionContext, ExecutorType, DisplayMode } from '../../src/lib/execution/types.js'
+import type { ExecutionContext, ExecutorType } from '../../src/lib/execution/types.js'
 
 /**
  * Unit tests for Codex executor behavior across all runtime environments.
@@ -214,28 +213,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     })
   })
 
-  describe('tmux script with codex commands', () => {
-    it('should include codex command in background mode script', () => {
-      const claudeCmd = 'codex --prompt "$(cat /tmp/prompt.txt)"'
-      const script = buildTmuxScript('TKT-1083-implement-agent', claudeCmd, 'background')
-      expect(script).to.include(claudeCmd)
-      expect(script).to.include('kill 1')
-    })
-
-    it('should include codex command in terminal mode script', () => {
-      const claudeCmd = 'codex --prompt "$(cat /tmp/prompt.txt)"'
-      const script = buildTmuxScript('TKT-1083-implement-agent', claudeCmd, 'terminal')
-      expect(script).to.include(claudeCmd)
-      expect(script).to.include('exec bash')
-    })
-
-    it('should include codex command in foreground mode script', () => {
-      const claudeCmd = 'codex --prompt "$(cat /tmp/prompt.txt)"'
-      const script = buildTmuxScript('TKT-1083-implement-agent', claudeCmd, 'foreground')
-      expect(script).to.include(claudeCmd)
-      expect(script).to.include('exec bash')
-    })
-  })
+  // buildTmuxScript tests removed - function was removed from runners.ts
 
   describe('Executor consistency across runtimes', () => {
     /**

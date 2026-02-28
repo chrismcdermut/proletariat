@@ -83,6 +83,21 @@ export class DependencyStorage {
 
     const result = this.ctx.db.prepare(query).run(...params)
     if (result.changes === 0) {
+      // For relates_to, try the reverse direction since the relationship is symmetric
+      const reverseType = dependencyType ?? 'relates_to'
+      if (reverseType === 'relates_to') {
+        let reverseQuery = `DELETE FROM ${T.ticket_dependencies} WHERE ticket_id = ? AND depends_on_ticket_id = ?`
+        const reverseParams: unknown[] = [dependsOnTicketId, ticketId]
+        if (dependencyType) {
+          reverseQuery += ' AND dependency_type = ?'
+          reverseParams.push(dependencyType)
+        }
+        const reverseResult = this.ctx.db.prepare(reverseQuery).run(...reverseParams)
+        if (reverseResult.changes === 0) {
+          throw new PMOError('NOT_FOUND', 'Dependency not found')
+        }
+        return
+      }
       throw new PMOError('NOT_FOUND', 'Dependency not found')
     }
   }

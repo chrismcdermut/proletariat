@@ -410,7 +410,7 @@ export async function spawnAgentForTicket(
   // Executor preflight check (TKT-1082): verify binary is available before proceeding
   // For host environment, check immediately. For devcontainer, check happens after container start.
   if (environment === 'host') {
-    const preflight = runExecutorPreflight(executor, environment)
+    const preflight = runExecutorPreflight(environment, executor)
     if (!preflight.ok) {
       return {
         success: false,
