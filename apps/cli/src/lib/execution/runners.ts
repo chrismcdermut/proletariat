@@ -1243,7 +1243,7 @@ function writePromptFile(context: ExecutionContext): { hostPath: string; contain
  * Uses a prompt file to avoid shell escaping issues.
  */
 
-function buildDevcontainerCommand(
+export function buildDevcontainerCommand(
   context: ExecutionContext,
   executor: ExecutorType,
   promptFile: string,

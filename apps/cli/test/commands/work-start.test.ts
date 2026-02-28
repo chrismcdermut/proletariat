@@ -90,7 +90,7 @@ describe('Work Start Command', () => {
     });
 
     it('describes permission mode correctly', () => {
-      expect(helpOutput).to.contain('Permission mode for Claude Code');
+      expect(helpOutput).to.match(/Permission mode.*selected executor/s);
       // The description is split across lines in help output
       expect(helpOutput).to.contain('danger');
       expect(helpOutput).to.contain('safe');

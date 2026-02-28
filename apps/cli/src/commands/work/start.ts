@@ -167,7 +167,7 @@ export default class WorkStart extends PMOCommand {
       default: false,
     }),
     'permission-mode': Flags.string({
-      description: 'Permission mode for Claude Code (danger=skip checks, safe=require approval)',
+      description: 'Permission mode for selected executor (danger=skip checks, safe=require approval)',
       options: ['danger', 'safe'],
     }),
     'skip-permissions': Flags.boolean({

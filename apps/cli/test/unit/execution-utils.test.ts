@@ -8,6 +8,7 @@ import {
   buildTmuxMouseOption,
   buildTmuxAttachCommand,
   getExecutorCommand,
+  buildDevcontainerCommand,
   isClaudeExecutor,
   getExecutorDisplayName,
   getExecutorPackage,
@@ -302,6 +303,36 @@ describe('Execution Utils', () => {
   // =============================================================================
   // TKT-1005: Executor-aware command building tests
   // =============================================================================
+
+  describe('buildDevcontainerCommand (TKT-1005)', () => {
+    const makeContext = (overrides: Partial<ExecutionContext> = {}): ExecutionContext => ({
+      ticketId: 'TKT-1005',
+      ticketTitle: 'Codex wiring test',
+      agentName: 'test-agent',
+      agentDir: '/tmp/agent',
+      worktreePath: '/tmp/agent/repo',
+      branch: 'TKT-1005/test',
+      ...overrides,
+    })
+
+    it('should generate codex command with --prompt and no Claude-only flags', () => {
+      const command = buildDevcontainerCommand(
+        makeContext(),
+        'codex',
+        '/workspace/repo/.prlt-prompt.txt',
+        'abc123',
+        'interactive',
+        true,
+        'background'
+      )
+
+      expect(command).to.include('docker exec')
+      expect(command).to.include('codex --prompt "$(cat /workspace/repo/.prlt-prompt.txt)"')
+      expect(command).to.not.include('--permission-mode bypassPermissions')
+      expect(command).to.not.include('--dangerously-skip-permissions')
+      expect(command).to.not.include(' -p ')
+    })
+  })
 
   describe('getExecutorCommand (TKT-1005)', () => {
     const testPrompt = 'Test prompt for agent'
