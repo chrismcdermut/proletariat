@@ -23,11 +23,6 @@ import {
 } from '../../lib/pr/index.js'
 
 /**
- * Default polling interval for checking agent completion (in ms).
- */
-const POLL_INTERVAL_MS = 10_000
-
-/**
  * Maximum poll duration before giving up (30 minutes).
  */
 const MAX_POLL_DURATION_MS = 30 * 60 * 1000
@@ -87,6 +82,11 @@ export default class WorkReview extends PMOCommand {
     'poll-interval': Flags.integer({
       description: 'Polling interval in seconds to check agent completion (default: 10)',
       default: 10,
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Force spawn even if ticket has running executions',
+      default: false,
     }),
   }
 
@@ -164,14 +164,12 @@ export default class WorkReview extends PMOCommand {
 
       // Find the PR - either from ticket metadata or by branch
       let prUrl = ticket.metadata?.pr_url as string | undefined
-      let prBranch = ticket.metadata?.pr_branch as string | undefined
 
       if (!prUrl && ticket.branch) {
         // Try to find PR by branch
         const prInfo = getPRForBranch(ticket.branch)
         if (prInfo) {
           prUrl = prInfo.url
-          prBranch = ticket.branch
         }
       }
 
@@ -362,7 +360,8 @@ export default class WorkReview extends PMOCommand {
     if (flags['skip-permissions']) startArgs.push('--skip-permissions')
     else startArgs.push('--permission-mode', 'danger')
     if (flags.session) startArgs.push('--session', flags.session as string)
-    if (flags.force) startArgs.push('--force')
+    // Always pass --force for pipeline (multiple agents may work on same ticket across cycles)
+    startArgs.push('--force')
 
     // Pass project if available
     const projectId = (flags as { project?: string }).project
