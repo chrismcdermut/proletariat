@@ -37,13 +37,48 @@ This guide covers common issues and their solutions when using Proletariat.
 **Solution**:
 
 ```bash
-# Clear npm cache and reinstall
-npm cache clean --force
+# Check active runtime (Node version, ABI, platform, arch)
+node -p "process.version + ' abi=' + process.versions.modules + ' ' + process.platform + '-' + process.arch"
+
+# Rebuild native modules for the active runtime
+npm rebuild better-sqlite3
+
+# Validate native binding can load
+node -e "const Database=require('better-sqlite3'); const db=new Database(':memory:'); db.close(); console.log('better-sqlite3 OK')"
+```
+
+If the validation still fails, reinstall with the same Node runtime used to run `prlt`:
+
+```bash
 npm uninstall -g @proletariat/cli
 npm install -g @proletariat/cli
+```
 
-# If still failing, rebuild native modules
-npm rebuild better-sqlite3
+#### Supported Node + Native Binary Combinations
+
+`prlt` supports Node majors: `20`, `22`, `23`, `24`, `25`.
+
+The `better-sqlite3` binary must match all of:
+
+1. Node major + ABI (`process.versions.modules`)
+2. Platform (`darwin`, `linux`)
+3. Architecture (`arm64`, `x64`)
+
+Common valid runtime targets:
+
+- `darwin-arm64`
+- `darwin-x64`
+- `linux-arm64`
+- `linux-x64`
+
+If your terminal architecture differs from your Node architecture (for example Rosetta shell with ARM Node), rebuild under the runtime you actually use to run `prlt`.
+
+### Install-Time Native Validation
+
+`apps/cli` now validates `better-sqlite3` during `postinstall`:
+
+```bash
+npm rebuild better-sqlite3 && node ./bin/validate-better-sqlite3.cjs
 ```
 
 ### Permission Denied During Install
