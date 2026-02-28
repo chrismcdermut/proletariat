@@ -204,7 +204,10 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
       // Manual mode - will prompt for each action (still interactive, no -p)
       return { cmd: 'claude', args: [prompt] }
     case 'codex':
-      return { cmd: 'codex', args: ['--prompt', prompt] }
+      // Codex has its own danger-mode flag; do not use Claude flags here.
+      return skipPermissions
+        ? { cmd: 'codex', args: ['--dangerously-bypass-approvals-and-sandbox', '--prompt', prompt] }
+        : { cmd: 'codex', args: ['--prompt', prompt] }
     case 'aider':
       return { cmd: 'aider', args: ['--message', prompt] }
     case 'custom':
@@ -1437,7 +1440,7 @@ export function buildDevcontainerCommand(
     executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}"$(cat ${promptFile})"`
   } else {
     // Non-Claude executors: use getExecutorCommand() to get correct command and args
-    const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, false)
+    const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, !sandboxed)
     // Replace the placeholder prompt with a file read for shell safety
     const argsStr = args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
     executorCmd = `${cmd} ${argsStr}`
