@@ -18,7 +18,7 @@ import { hasGitHubRemote } from '../repos/git.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight } from './runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import {
   DisplayMode,
@@ -529,6 +529,23 @@ export async function spawnAgentForTicket(
         }
       } catch (error) {
         log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)
+      }
+    }
+  }
+
+  // TKT-1028: Clean up orphaned execution records before creating a new one.
+  // If the agent's container doesn't exist or isn't running, any "running"/"starting"
+  // execution records for this agent are orphans — their container was destroyed
+  // or crashed. Mark them as "stopped" to prevent downstream issues like
+  // `prlt docker logs` failing with "multiple running containers".
+  if (environment === 'devcontainer') {
+    const containerName = getAgentContainerName(agentName)
+    const containerRunning = isContainerRunning(containerName)
+    if (!containerRunning) {
+      const staleExecutions = executionStorage.getAgentRunningExecutions(agentName)
+      for (const staleExec of staleExecutions) {
+        log(`Marking orphaned execution ${staleExec.id} as stopped (container not running)`)
+        executionStorage.updateStatus(staleExec.id, 'stopped', undefined, 'Container no longer running')
       }
     }
   }
