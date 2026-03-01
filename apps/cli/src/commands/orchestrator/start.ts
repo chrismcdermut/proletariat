@@ -186,8 +186,6 @@ export default class OrchestratorStart extends PromptCommand {
 
     // Resolve action prompt
     let actionPrompt = flags.prompt
-    let actionName = 'orchestrate'
-
     if (flags.action && !actionPrompt) {
       // Load action from DB
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
@@ -198,7 +196,6 @@ export default class OrchestratorStart extends PromptCommand {
           const row = db.prepare('SELECT prompt, name FROM actions WHERE id = ? OR name = ?').get(flags.action, flags.action) as { prompt: string; name: string } | undefined
           if (row) {
             actionPrompt = row.prompt
-            actionName = row.name
           } else {
             if (jsonMode) {
               outputErrorAsJson('ACTION_NOT_FOUND', `Action "${flags.action}" not found.`, createMetadata('orchestrator start', flags))

@@ -5,7 +5,7 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { isGitRepo, isTicketId } from '../../lib/branch/index.js'
-import { findWorktreesByBranch as findDbWorktreesByBranch, AgentWorktree } from '../../lib/database/index.js'
+import { findWorktreesByBranch as findDbWorktreesByBranch } from '../../lib/database/index.js'
 
 interface WorktreeInfo {
   path: string

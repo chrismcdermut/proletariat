@@ -75,7 +75,7 @@ const skipSuite = !hasTmux() || !hasPrlt();
   let session: InteractiveTestSession;
   const hqPath = getHqPath();
 
-  beforeEach(function () {
+  beforeEach(() => {
     session = new InteractiveTestSession({
       env: { PRLT_HQ_PATH: hqPath },
       defaultTimeout: MENU_TIMEOUT,
@@ -83,7 +83,7 @@ const skipSuite = !hasTmux() || !hasPrlt();
     session.start();
   });
 
-  afterEach(function () {
+  afterEach(() => {
     if (session) {
       session.stop();
     }

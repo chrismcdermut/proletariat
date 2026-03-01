@@ -10,8 +10,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
-import { findHQRoot } from '../../lib/workspace.js';
-import { getWorkspaceDbPath } from '../../lib/workspace.js';
+import { findHQRoot , getWorkspaceDbPath } from '../../lib/workspace.js';
 import { saveAuthMethod } from '../../lib/execution/config.js';
 import Database from 'better-sqlite3';
 

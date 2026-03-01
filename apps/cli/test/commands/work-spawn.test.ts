@@ -38,27 +38,6 @@ function runCli(args: string[]): string {
   }
 }
 
-// Helper to run CLI and capture stderr (for error testing)
-function runCliWithError(args: string[]): { stdout: string; stderr: string; exitCode: number } {
-  const binPath = path.join(root, 'bin', 'run.js');
-  try {
-    const stdout = execSync(`node ${binPath} ${args.join(' ')}`, {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: getIsolatedEnv(),
-    });
-    return { stdout, stderr: '', exitCode: 0 };
-  } catch (error: unknown) {
-    const err = error as { stdout?: string; stderr?: string; status?: number };
-    return {
-      stdout: err.stdout || '',
-      stderr: err.stderr || '',
-      exitCode: err.status || 1,
-    };
-  }
-}
-
 /**
  * Tests for work spawn command
  * TKT-1095: Consolidated PR flags

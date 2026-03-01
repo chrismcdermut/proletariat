@@ -228,8 +228,6 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     })
   })
 
-  // buildTmuxScript tests removed - function was removed from runners.ts
-
   describe('Executor consistency across runtimes', () => {
     /**
      * Verifies that all four runtime environments now use the same

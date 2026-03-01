@@ -6,7 +6,6 @@ import {
   validateJsonEnvelope,
   JSON_ENVELOPE_TYPES,
   JSON_ENVELOPE_REQUIRED_FIELDS,
-  type JsonEnvelopeType,
   type PromptJsonOutput,
   type SuccessJsonOutput,
   type ErrorJsonOutput,

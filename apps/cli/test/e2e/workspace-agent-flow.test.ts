@@ -2,8 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync } from 'node:child_process';
-import { filterOutput, getIsolatedEnv, getBinPath, extractJson, execAsHuman, execAsAgent } from './test-helpers.js';
+import { extractJson, execAsHuman, execAsAgent } from './test-helpers.js';
 
 /**
  * Response type for JSON prompt output from workspace commands with --json flag.

@@ -198,13 +198,7 @@ describe('FlagResolver', () => {
 
   describe('getCommand callback (TKT-974)', () => {
     it('should allow getCommand to override auto-generated commands', () => {
-      const resolver = new FlagResolver<{ environment?: string }>({
-        commandName: 'work start',
-        baseCommand: 'prlt work start TKT-100',
-        jsonMode: false,
-        flags: {},
-      });
-
+      // FlagResolver instantiation removed - test validates getCommand logic only
       const getCommand = (value: unknown) => {
         const base = 'prlt work start TKT-100';
         if (value === 'host') return `${base} --run-on-host --json`;

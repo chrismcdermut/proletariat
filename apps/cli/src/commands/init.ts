@@ -119,7 +119,7 @@ export default class Init extends Command {
     // If --name not provided, output a prompt so agents can supply it
     if (!flags.name) {
       outputPromptAsJson(
-        buildPromptConfig('input', 'name', 'Enter a name for your headquarters:', undefined, undefined),
+        buildPromptConfig('input', 'name', 'Enter a name for your headquarters:'),
         createMetadata('init', flags as Record<string, unknown>),
       );
     }

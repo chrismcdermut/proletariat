@@ -1838,6 +1838,7 @@ export default class WorkStart extends PMOCommand {
         } else {
           this.log('')
           this.log(styles.success(`✓ Work started (${execution.id})`))
+          this.log(styles.muted(`   PR mode: ${createPR ? 'create-pr' : 'no-pr'}`))
           this.log('')
           this.log(styles.muted('Commands:'))
           this.log(styles.muted(`  prlt work status              View work status`))
