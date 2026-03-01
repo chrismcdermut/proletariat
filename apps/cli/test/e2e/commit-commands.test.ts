@@ -137,7 +137,7 @@ describe('Commit Command E2E Tests', () => {
       fs.writeFileSync('stage-me.ts', 'staged content');
       fs.writeFileSync('leave-me.ts', 'unstaged content');
 
-      const output = exec('commit -s stage-me.ts "add staged file"');
+      const output = exec('commit "add staged file" -s stage-me.ts');
 
       expect(output).to.contain('Committed');
 
@@ -155,7 +155,7 @@ describe('Commit Command E2E Tests', () => {
       fs.writeFileSync('file2.ts', 'content2');
       fs.writeFileSync('file3.ts', 'content3');
 
-      const output = exec('commit -s file1.ts -s file2.ts "add two files"');
+      const output = exec('commit "add two files" -s file1.ts -s file2.ts');
 
       expect(output).to.contain('Committed');
 
