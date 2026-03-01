@@ -502,24 +502,26 @@ export default class Commit extends PromptCommand {
     }
 
     // Check if there are staged changes
+    let hasStagedChanges = true
     try {
       const staged = execSync('git diff --cached --name-only', {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
       }).trim()
-
-      if (!staged) {
-        this.error(
-          'No staged changes to commit.\n\n' +
-          'Stage your changes first:\n' +
-          '  git add <files>\n' +
-          '  git add -A\n\n' +
-          'Or use --all flag:\n' +
-          '  prlt commit --all "your message"'
-        )
-      }
+      hasStagedChanges = staged.length > 0
     } catch {
       // Ignore errors checking staged changes
+    }
+
+    if (!hasStagedChanges) {
+      this.error(
+        'No staged changes to commit.\n\n' +
+        'Stage your changes first:\n' +
+        '  git add <files>\n' +
+        '  git add -A\n\n' +
+        'Or use --all flag:\n' +
+        '  prlt commit --all "your message"'
+      )
     }
 
     // Create commit

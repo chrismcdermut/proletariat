@@ -52,9 +52,11 @@ const CONFIG_VERSION = '1.0.0';
 
 /**
  * Get the path to the machine-level config directory (~/.proletariat/).
+ * Uses process.env.HOME when set (for testability), falling back to os.homedir().
  */
 export function getMachineConfigDir(): string {
-  return path.join(os.homedir(), '.proletariat');
+  const home = process.env.HOME || os.homedir();
+  return path.join(home, '.proletariat');
 }
 
 /**
@@ -82,9 +84,10 @@ export function ensureMachineConfigDir(): void {
  * - Removes trailing slashes
  */
 export function normalizePath(inputPath: string): string {
-  // Expand ~ to home directory
+  // Expand ~ to home directory (respect process.env.HOME for testability)
+  const home = process.env.HOME || os.homedir();
   let resolved = inputPath.startsWith('~')
-    ? path.join(os.homedir(), inputPath.slice(1))
+    ? path.join(home, inputPath.slice(1))
     : inputPath;
 
   // Make absolute
