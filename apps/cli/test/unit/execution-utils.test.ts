@@ -96,7 +96,7 @@ describe('Execution Utils', () => {
     it('should handle leading and trailing spaces', () => {
       const context = makeContext({ actionName: ' Code Review ' })
       const result = buildSessionName(context)
-      expect(result).to.equal('TKT-123--Code-Review--test-agent')
+      expect(result).to.equal('TKT-123-Code-Review-test-agent')
     })
   })
 

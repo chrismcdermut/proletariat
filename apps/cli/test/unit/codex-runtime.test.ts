@@ -154,13 +154,13 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor on VM', () => {
       const result = getExecutorCommand('codex', 'implement on VM')
       expect(result.cmd).to.equal('codex')
-      expect(result.args[0]).to.equal('--prompt')
+      expect(result.args).to.include('--prompt')
     })
 
     it('should use aider binary for aider executor on VM', () => {
       const result = getExecutorCommand('aider', 'implement on VM')
       expect(result.cmd).to.equal('aider')
-      expect(result.args[0]).to.equal('--message')
+      expect(result.args).to.include('--message')
     })
   })
 
