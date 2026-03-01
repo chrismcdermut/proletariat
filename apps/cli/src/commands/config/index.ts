@@ -102,11 +102,10 @@ export default class Config extends PromptCommand {
 
       // Handle --list or --json flag without --setting (just show config)
       // Also handle non-TTY mode without explicit flags - output config as readable list
-      const isExplicitJsonMode = (flags.json === true || flags.machine === true)
-      const shouldShowConfigList = flags.list || (isExplicitJsonMode && !flags.setting) || (isNonTTY() && !flags.setting && !flags.set?.length)
+      const shouldShowConfigList = flags.list || (jsonMode && !flags.setting) || (isNonTTY() && !flags.setting && !flags.set?.length)
 
       if (shouldShowConfigList) {
-        if (isExplicitJsonMode) {
+        if (jsonMode) {
           outputSuccessAsJson({
             terminal: {
               app: config.terminal.app,

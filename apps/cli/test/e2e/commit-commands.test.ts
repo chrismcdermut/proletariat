@@ -316,16 +316,17 @@ describe('Commit Command E2E Tests', () => {
 
   describe('branch format edge cases', () => {
     it('should work with old-style branch format', () => {
-      // Switch to old-style branch
+      // Switch to old-style branch (legacy format without ticket ID)
       execSync('git checkout -b feat/chris/old-style-branch', { stdio: 'pipe' });
 
       fs.writeFileSync('old-style.ts', 'content');
       execSync('git add old-style.ts', { stdio: 'pipe' });
 
-      // Should fail because branch doesn't match new format
+      // Legacy format feat/owner/description is valid — commits without ticket ID
       const output = exec('commit "test message"');
 
-      expect(output).to.contain('Could not parse branch name');
+      expect(output).to.contain('Committed');
+      expect(output).to.contain('test message');
     });
 
     it('should allow --ticket flag to bypass branch parsing for ticket ID', () => {

@@ -616,6 +616,17 @@ export function getBinPath(): string {
 }
 
 /**
+ * Check if a command string contains flags that request JSON output.
+ * When these flags are present, we should NOT force text mode.
+ */
+function wantsJsonOutput(cmd: string): boolean {
+  return /\s--json\b/.test(cmd) ||
+         /\s--list\b/.test(cmd) ||
+         /\s--machine\b/.test(cmd) ||
+         /\s-m\b/.test(cmd);
+}
+
+/**
  * Executes a CLI command in the isolated test environment.
  *
  * This function:
@@ -634,9 +645,9 @@ export function exec(cmd: string): string {
       cwd: process.cwd(),
       env: {
         ...getIsolatedEnv(),
-        // Force text output in exec() since these tests assert on human-readable text.
-        // Tests that want JSON output should use execProduction() with --machine/--json.
-        PRLT_FORCE_TEXT: '1',
+        // Force text output unless the command explicitly requests JSON via flags.
+        // Commands with --json, --list, or --machine need JSON mode to work.
+        ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
       },
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
     });
@@ -671,7 +682,7 @@ export function execWithFilter(cmd: string): string {
       cwd: process.cwd(),
       env: {
         ...getIsolatedEnv(),
-        PRLT_FORCE_TEXT: '1',
+        ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
       },
     });
     return filterOutput(result);
@@ -730,7 +741,7 @@ export function execRaw(cmd: string): string {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...getIsolatedEnv(),
-        PRLT_FORCE_TEXT: '1',
+        ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
       },
     });
   } catch (error: unknown) {
@@ -751,7 +762,7 @@ export function execOrFail(cmd: string): string {
     cwd: process.cwd(),
     env: {
       ...getIsolatedEnv(),
-      PRLT_FORCE_TEXT: '1',
+      ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
     },
   });
 }
