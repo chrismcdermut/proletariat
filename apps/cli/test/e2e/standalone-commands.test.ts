@@ -76,6 +76,7 @@ function execFromDir(cmd: string, cwd: string): string {
   delete env.PRLT_PMO_PATH;
   delete env.PRLT_DATABASE_PATH;
   delete env.PRLT_CONFIG_PATH;
+  delete env.PRLT_FORCE_TEXT;
   delete env.PRLT_TEST_ENV;
   delete env.DEVCONTAINER;
   delete env.DEBUG;
@@ -545,13 +546,13 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       expect(fs.existsSync(hqPath)).to.equal(true);
     });
 
-    it('should error in JSON mode without --name flag', () => {
+    it('should prompt for name in JSON mode without --name flag', () => {
       const output = execFromDir('init --json', testDir);
-      const result = extractJson<{ success: boolean; error: string }>(output);
+      const result = extractJson<{ prompt: { type: string; name: string; message: string } }>(output);
 
       expect(result).to.not.be.null;
-      expect(result!.success).to.equal(false);
-      expect(result!.error).to.include('--name');
+      expect(result!.prompt).to.not.be.undefined;
+      expect(result!.prompt.name).to.equal('name');
     });
 
     it('should create HQ with agents in JSON mode', () => {
