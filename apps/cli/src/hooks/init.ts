@@ -22,6 +22,16 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
+  // Skip when in test environments that provide their own HQ
+  if (process.env.PRLT_HQ_PATH && process.env.PRLT_TEST_ENV) {
+    return
+  }
+
+  // Skip init redirect when explicitly disabled (e.g., e2e test isolation)
+  if (process.env.PRLT_SKIP_INIT_REDIRECT === '1') {
+    return
+  }
+
   // Skip when --help or --version flags are present - these should always be available
   // Check both process.argv (production CLI) and the oclif-provided argv
   // (programmatic invocation via @oclif/test runCommand)

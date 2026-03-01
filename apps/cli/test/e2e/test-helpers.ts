@@ -530,6 +530,11 @@ export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEn
   // that can leak into command output and break JSON parsing.
   env.PRLT_SKIP_NEW_VERSION_CHECK = 'true';
 
+  // Skip the init hook's first-time-user redirect. Without this, tests that run
+  // commands outside of a valid HQ directory get redirected to `prlt init`,
+  // which outputs JSON prompts that break test assertions.
+  env.PRLT_SKIP_INIT_REDIRECT = '1';
+
   // Set NODE_ENV
   env.NODE_ENV = nodeEnv;
 
@@ -627,7 +632,12 @@ export function exec(cmd: string): string {
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
-      env: getIsolatedEnv(),
+      env: {
+        ...getIsolatedEnv(),
+        // Force text output in exec() since these tests assert on human-readable text.
+        // Tests that want JSON output should use execProduction() with --machine/--json.
+        PRLT_FORCE_TEXT: '1',
+      },
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
     });
     return filterOutput(result);
@@ -659,7 +669,10 @@ export function execWithFilter(cmd: string): string {
     const result = execSync(`node ${binPath} ${cmd} 2>&1`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
-      env: getIsolatedEnv(),
+      env: {
+        ...getIsolatedEnv(),
+        PRLT_FORCE_TEXT: '1',
+      },
     });
     return filterOutput(result);
   } catch (error: unknown) {
@@ -715,7 +728,10 @@ export function execRaw(cmd: string): string {
     return execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: getIsolatedEnv(),
+      env: {
+        ...getIsolatedEnv(),
+        PRLT_FORCE_TEXT: '1',
+      },
     });
   } catch (error: unknown) {
     const execError = error as ExecError;
@@ -733,7 +749,10 @@ export function execOrFail(cmd: string): string {
   return execSync(`${binPath} ${cmd}`, {
     encoding: 'utf-8',
     cwd: process.cwd(),
-    env: getIsolatedEnv(),
+    env: {
+      ...getIsolatedEnv(),
+      PRLT_FORCE_TEXT: '1',
+    },
   });
 }
 
