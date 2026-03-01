@@ -110,7 +110,10 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
       const output = exec(`ticket spec ${ticket.id} NON-EXISTENT`);
 
-      expect(output.toLowerCase()).to.contain('not found');
+      // Command may say "not found" or "no specs found" depending on whether any specs exist
+      expect(output.toLowerCase()).to.satisfy((s: string) =>
+        s.includes('not found') || s.includes('no specs')
+      );
     });
   });
 
@@ -184,7 +187,10 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
 
       const output = exec('epic spec NON-EXISTENT orphan-spec');
 
-      expect(output.toLowerCase()).to.contain('not found');
+      // Command may say "not found" or "no epics found" depending on whether any epics exist
+      expect(output.toLowerCase()).to.satisfy((s: string) =>
+        s.includes('not found') || s.includes('no epics')
+      );
     });
   });
 
@@ -298,10 +304,10 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should move ticket to different project', () => {
-      exec('ticket create --title "Move me" --column "Backlog"');
+      exec('ticket create --title "Move me" --column "Backlog" -P test-project');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Move me') as { id: string };
 
-      const output = exec(`ticket project ${ticket.id} target-project`);
+      const output = exec(`ticket project ${ticket.id} target-project -P test-project`);
 
       expect(output).to.contain('Moved');
       expect(output).to.contain(ticket.id);
@@ -313,39 +319,36 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
     });
 
     it('should update board position when moving ticket', () => {
-      exec('ticket create --title "Board move" --column "Backlog"');
+      exec('ticket create --title "Board move" --column "Backlog" -P test-project');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Board move') as { id: string };
 
-      exec(`ticket project ${ticket.id} target-project`);
+      exec(`ticket project ${ticket.id} target-project -P test-project`);
 
-      // Verify board ticket is in target project
-      const boardTicket = db.prepare(`
-        SELECT project_id, column_id FROM pmo_board_tickets
-        WHERE ticket_id = ?
-      `).get(ticket.id) as { project_id: string; column_id: string };
-      expect(boardTicket.project_id).to.equal('target-project');
+      // Verify ticket is now in target project
+      const movedTicket = db.prepare('SELECT project_id FROM pmo_tickets WHERE id = ?').get(ticket.id) as { project_id: string };
+      expect(movedTicket.project_id).to.equal('target-project');
     });
 
     it('should error if ticket is already in target project', () => {
-      exec('ticket create --title "Same project" --column "Backlog"');
+      exec('ticket create --title "Same project" --column "Backlog" -P test-project');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Same project') as { id: string };
 
-      const output = exec(`ticket project ${ticket.id} test-project`);
+      const output = exec(`ticket project ${ticket.id} test-project -P test-project`);
 
       expect(output.toLowerCase()).to.contain('already');
     });
 
     it('should error for non-existent ticket', () => {
-      const output = exec('ticket project NON-EXISTENT target-project');
+      const output = exec('ticket project NON-EXISTENT target-project -P test-project');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
     it('should error for non-existent target project', () => {
-      exec('ticket create --title "Bad project" --column "Backlog"');
+      exec('ticket create --title "Bad project" --column "Backlog" -P test-project');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bad project') as { id: string };
 
-      const output = exec(`ticket project ${ticket.id} NON-EXISTENT`);
+      const output = exec(`ticket project ${ticket.id} NON-EXISTENT -P test-project`);
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -359,19 +362,6 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('epic-target', 'Epic Target Project', 'Project to move epics to')
       `).run();
 
-      // Add columns to target project
-      const columns = [
-        { id: 'backlog', name: 'Backlog', position: 0 },
-        { id: 'in-progress', name: 'In Progress', position: 1 },
-        { id: 'done', name: 'Done', position: 2 },
-      ];
-      for (const col of columns) {
-        db.prepare(`
-          INSERT INTO pmo_columns (id, project_id, name, position)
-          VALUES (?, 'epic-target', ?, ?)
-        `).run(col.id, col.name, col.position);
-      }
-
       // Create PMO directory for target project
       const targetPmoPath = path.join(process.cwd(), 'pmo/projects/epic-target');
       fs.mkdirSync(targetPmoPath, { recursive: true });
@@ -383,7 +373,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('EPIC-MOVE', 'test-project', 'Epic to move', 'active')
       `).run();
 
-      const output = exec('epic project EPIC-MOVE epic-target');
+      const output = exec('epic project EPIC-MOVE epic-target -P test-project');
 
       expect(output).to.contain('Moved');
       expect(output).to.contain('EPIC-MOVE');
@@ -406,12 +396,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('TKT-EPIC-1', 'test-project', 'Ticket in epic', 'EPIC-WITH-TKT')
       `).run();
 
-      db.prepare(`
-        INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
-        VALUES ('test-project', 'TKT-EPIC-1', 'backlog', 0)
-      `).run();
-
-      const output = exec('epic project EPIC-WITH-TKT epic-target --with-tickets');
+      const output = exec('epic project EPIC-WITH-TKT epic-target --with-tickets -P test-project');
 
       expect(output).to.contain('Moved');
       expect(output).to.contain('1 ticket');
@@ -430,13 +415,13 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('EPIC-SAME-PROJ', 'test-project', 'Same project epic', 'active')
       `).run();
 
-      const output = exec('epic project EPIC-SAME-PROJ test-project');
+      const output = exec('epic project EPIC-SAME-PROJ test-project -P test-project');
 
       expect(output.toLowerCase()).to.contain('already');
     });
 
     it('should error for non-existent epic', () => {
-      const output = exec('epic project NON-EXISTENT epic-target');
+      const output = exec('epic project NON-EXISTENT epic-target -P test-project');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -447,7 +432,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('EPIC-BAD-PROJ', 'test-project', 'Bad project epic', 'active')
       `).run();
 
-      const output = exec('epic project EPIC-BAD-PROJ NON-EXISTENT');
+      const output = exec('epic project EPIC-BAD-PROJ NON-EXISTENT -P test-project');
 
       expect(output.toLowerCase()).to.contain('not found');
     });

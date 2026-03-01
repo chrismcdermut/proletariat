@@ -186,7 +186,8 @@ export interface WorkActionRow {
   description: string | null
   prompt: string
   end_prompt: string | null
-  default_category: string | null
+  suggested_for_categories: string | null
+  default_move_to_category: string | null
   modifies_code: number
   is_builtin: number
   position: number

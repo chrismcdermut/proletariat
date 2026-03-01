@@ -211,10 +211,10 @@ export class ActionStorage {
       description: row.description || undefined,
       prompt: row.prompt,
       endPrompt: row.end_prompt || undefined,
-      suggestedForCategories: row.default_category
-        ? (JSON.parse(row.default_category) as StateCategory[])
+      suggestedForCategories: row.suggested_for_categories
+        ? (JSON.parse(row.suggested_for_categories) as StateCategory[])
         : undefined,
-      defaultMoveToCategory: row.default_category as StateCategory | undefined,
+      defaultMoveToCategory: row.default_move_to_category as StateCategory | undefined,
       modifiesCode: row.modifies_code === 1,
       isBuiltin: row.is_builtin === 1,
       createdAt: new Date(row.created_at),

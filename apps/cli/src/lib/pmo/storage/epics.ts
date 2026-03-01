@@ -170,7 +170,7 @@ export class EpicStorage {
       updates.push('file_path = ?')
       params.push(changes.filePath)
     }
-    if (changes.specId !== undefined) {
+    if ('specId' in changes) {
       updates.push('spec_id = ?')
       params.push(changes.specId || null)
     }

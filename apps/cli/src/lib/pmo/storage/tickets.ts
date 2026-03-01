@@ -349,7 +349,7 @@ export class TicketStorage {
     if (changes.owner !== undefined) updates.owner = changes.owner
     if (changes.assignee !== undefined) updates.assignee = changes.assignee
     if (changes.branch !== undefined) updates.branch = changes.branch
-    if (changes.specId !== undefined) updates.specId = changes.specId
+    if ('specId' in changes) updates.specId = changes.specId ?? null
     if (changes.lastSyncedFromSpec !== undefined) {
       updates.lastSyncedFromSpec = changes.lastSyncedFromSpec as unknown as string
     }
