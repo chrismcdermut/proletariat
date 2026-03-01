@@ -10,7 +10,6 @@ import {
 } from '../../lib/prompt-json.js'
 import {
   LinearClient,
-  isLinearConfigured,
   loadLinearConfig,
   saveLinearApiKey,
   saveLinearDefaultTeam,
@@ -89,7 +88,7 @@ export default class LinearAuth extends PMOCommand {
           if (config.defaultTeamKey) {
             this.log(colors.textMuted(`  Default team: ${config.defaultTeamKey}`))
           }
-        } catch (error) {
+        } catch {
           if (jsonMode) {
             outputErrorAsJson('LINEAR_AUTH_INVALID', 'Stored Linear API key is invalid or expired.', createMetadata('linear auth', flags))
             this.exit(1)

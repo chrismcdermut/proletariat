@@ -3,7 +3,6 @@ import { colors } from '../../lib/colors.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
-  outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
 import {

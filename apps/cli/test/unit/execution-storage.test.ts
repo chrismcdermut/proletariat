@@ -473,7 +473,7 @@ describe('ExecutionStorage', () => {
 
     it('marks multiple orphaned executions as stopped', () => {
       // Simulate: agent had two running executions (starting + running)
-      const exec1 = storage.createExecution({
+      storage.createExecution({
         ticketId: 'TKT-001',
         agentName: 'orphan-agent',
         executor: 'claude-code',
@@ -481,7 +481,7 @@ describe('ExecutionStorage', () => {
         displayMode: 'background',
         sandboxed: true,
       })
-      // exec1 stays in 'starting' status
+      // _exec1 stays in 'starting' status
 
       const exec2 = storage.createExecution({
         ticketId: 'TKT-002',

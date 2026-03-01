@@ -9,7 +9,7 @@ import type { McpToolContext } from '../types.js'
 import { formatTicketCompact, errorResponse, strictTool } from '../helpers.js'
 
 /** Status categories considered "done" and excluded by default */
-const DONE_CATEGORIES = new Set(['completed', 'canceled'])
+const DONE_CATEGORIES = new Set(['canceled', 'completed'])
 
 export function registerBoardTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,

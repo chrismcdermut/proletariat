@@ -1,7 +1,4 @@
 import { expect } from 'chai'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import * as os from 'node:os'
 import Database from 'better-sqlite3'
 import {
   createTestEnvironment,
@@ -210,8 +207,8 @@ describe('Linear Integration', () => {
         expect(input.statusId).to.equal('status-progress')  // started → In Progress
         expect(input.labels).to.include('bug')
         expect(input.metadata).to.include({
-          'linear.issue_id': 'issue-1',
           'linear.identifier': 'ENG-123',
+          'linear.issue_id': 'issue-1',
           'linear.team': 'ENG',
         })
       })

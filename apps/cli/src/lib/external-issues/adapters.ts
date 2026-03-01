@@ -143,6 +143,7 @@ function normalizeLinearLabels(rawLabels: unknown): string[] {
       if (typeof label === 'object' && label !== null) {
         return asString((label as Record<string, unknown>).name)
       }
+      // eslint-disable-next-line unicorn/no-useless-undefined
       return undefined
     })
     .filter((label): label is string => typeof label === 'string')
