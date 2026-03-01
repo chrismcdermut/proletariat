@@ -199,7 +199,7 @@ describe('board_view filtering and compact format (TKT-1115)', function (this: M
 
       // Compact format should only have the 6 compact keys (assignee may be omitted when null)
       const keys = Object.keys(ticket);
-      const allowedKeys = new Set(['id', 'title', 'priority', 'category', 'assignee', 'statusName']);
+      const allowedKeys = new Set(['assignee', 'category', 'id', 'priority', 'statusName', 'title']);
       for (const key of keys) {
         expect(allowedKeys.has(key), `unexpected key '${key}' in compact ticket`).to.be.true;
       }
