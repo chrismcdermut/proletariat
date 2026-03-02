@@ -319,6 +319,20 @@ export default class SessionAttach extends PMOCommand {
    */
   private async attachInCurrentTerminal(session: SessionChoice, useControlMode: boolean): Promise<void> {
     try {
+      // Set mouse mode based on attach type:
+      // - Plain terminal: mouse on (enables scroll in tmux; hold Shift/Option to bypass)
+      // - iTerm -CC: mouse off (iTerm handles scrolling natively)
+      const mouseMode = useControlMode ? 'off' : 'on'
+      try {
+        if (session.type === 'container' && session.containerId) {
+          execSync(`docker exec ${session.containerId} tmux set-option -t "${session.sessionId}" mouse ${mouseMode}`, { stdio: 'pipe' })
+        } else {
+          execSync(`tmux set-option -t "${session.sessionId}" mouse ${mouseMode}`, { stdio: 'pipe' })
+        }
+      } catch {
+        // Non-fatal: mouse mode is a convenience, don't block attach
+      }
+
       const tmuxAttach = buildTmuxAttachCommand(useControlMode, session.type === 'container')
       if (session.type === 'container' && session.containerId) {
         execSync(`docker exec -it ${session.containerId} ${tmuxAttach} -t "${session.sessionId}"`, { stdio: 'inherit' })
@@ -348,10 +362,19 @@ export default class SessionAttach extends PMOCommand {
       ? `docker exec -it ${session.containerId} ${tmuxAttach} -t "${session.sessionId}"`
       : `${tmuxAttach} -t "${session.sessionId}"`
 
+    // Set mouse mode based on attach type
+    const mouseMode = useControlMode ? 'off' : 'on'
+    const mouseCmd = session.type === 'container' && session.containerId
+      ? `docker exec ${session.containerId} tmux set-option -t "${session.sessionId}" mouse ${mouseMode} 2>/dev/null || true`
+      : `tmux set-option -t "${session.sessionId}" mouse ${mouseMode} 2>/dev/null || true`
+
     const script = `#!/bin/bash
 # Set terminal tab title
 echo -ne "\\033]0;${title}\\007"
 echo -ne "\\033]1;${title}\\007"
+
+# Set mouse mode before attaching
+${mouseCmd}
 
 echo "Attaching to: ${session.sessionId} (${session.type})"
 ${attachCmd}

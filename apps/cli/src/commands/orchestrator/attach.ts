@@ -15,8 +15,10 @@ import {
 import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { findHQRoot } from '../../lib/workspace.js'
+import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 import { loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
-import { buildOrchestratorSessionName } from './start.js'
+import { buildOrchestratorSessionName, findRunningOrchestratorSessions } from './start.js'
 
 /**
  * Detect the terminal emulator from environment variables.
@@ -90,35 +92,55 @@ export default class OrchestratorAttach extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorAttach)
     const jsonMode = shouldOutputJson(flags)
-    let hqName: string
-    try {
-      const workspaceInfo = getWorkspaceInfo()
-      hqName = workspaceInfo.workspaceName
-    } catch {
-      if (jsonMode) {
-        outputErrorAsJson('NO_HQ', 'Not in an HQ workspace. Run "prlt init" first.', createMetadata('orchestrator attach', flags))
-        return
-      }
-      this.error('Not in an HQ workspace. Run "prlt init" first.')
-      return
-    }
-    const sessionName = buildOrchestratorSessionName(hqName, flags.name || 'main')
-
-    // Check if orchestrator session exists
     const hostSessions = getHostTmuxSessionNames()
-    if (!hostSessions.includes(sessionName)) {
-      if (jsonMode) {
-        outputErrorAsJson(
-          'NOT_RUNNING',
-          'Orchestrator is not running. Start it with: prlt orchestrator start',
-          createMetadata('orchestrator attach', flags),
-        )
-        return
+
+    // Resolve session name: try HQ-scoped first, fall back to discovery
+    let sessionName: string | undefined
+    const hqPath = findHQRoot(process.cwd())
+    if (hqPath) {
+      const hqName = getHeadquartersNameFromPath(hqPath)
+      sessionName = buildOrchestratorSessionName(hqName, flags.name || 'main')
+      if (!hostSessions.includes(sessionName)) {
+        sessionName = undefined // Not running for this HQ
       }
-      this.log('')
-      this.log(styles.warning('Orchestrator is not running.'))
-      this.log(styles.muted('Start it with: prlt orchestrator start'))
-      this.log('')
+    }
+
+    // If not in HQ or session not found, discover running orchestrator sessions
+    if (!sessionName) {
+      const runningSessions = findRunningOrchestratorSessions(hostSessions)
+      if (runningSessions.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson(
+            'NOT_RUNNING',
+            'Orchestrator is not running. Start it with: prlt orchestrator start',
+            createMetadata('orchestrator attach', flags),
+          )
+          return
+        }
+        this.log('')
+        this.log(styles.warning('Orchestrator is not running.'))
+        this.log(styles.muted('Start it with: prlt orchestrator start'))
+        this.log('')
+        return
+      } else if (runningSessions.length === 1) {
+        sessionName = runningSessions[0]
+      } else {
+        // Multiple sessions — let user pick
+        const { session } = await this.prompt<{ session: string }>([{
+          type: 'list',
+          name: 'session',
+          message: 'Multiple orchestrator sessions found. Select one to attach:',
+          choices: runningSessions.map(s => ({
+            name: s,
+            value: s,
+            command: `prlt orchestrator attach --name "${s}" --json`,
+          })),
+        }], jsonMode ? { flags, commandName: 'orchestrator attach' } : null)
+        sessionName = session
+      }
+    }
+
+    if (!sessionName) {
       return
     }
 
@@ -179,6 +201,16 @@ export default class OrchestratorAttach extends PromptCommand {
 
   private attachInCurrentTerminal(useControlMode: boolean, sessionName: string): void {
     try {
+      // Set mouse mode based on attach type:
+      // - Plain terminal: mouse on (enables scroll in tmux; hold Shift/Option to bypass)
+      // - iTerm -CC: mouse off (iTerm handles scrolling natively)
+      const mouseMode = useControlMode ? 'off' : 'on'
+      try {
+        execSync(`tmux set-option -t "${sessionName}" mouse ${mouseMode}`, { stdio: 'pipe' })
+      } catch {
+        // Non-fatal: mouse mode is a convenience, don't block attach
+      }
+
       const tmuxAttach = buildTmuxAttachCommand(useControlMode)
       execSync(`${tmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
     } catch {
@@ -190,6 +222,7 @@ export default class OrchestratorAttach extends PromptCommand {
     const title = 'Orchestrator'
     const tmuxAttach = buildTmuxAttachCommand(useControlMode)
     const attachCmd = `${tmuxAttach} -t "${sessionName}"`
+    const mouseMode = useControlMode ? 'off' : 'on'
 
     const baseDir = path.join(os.homedir(), '.proletariat', 'scripts')
     fs.mkdirSync(baseDir, { recursive: true })
@@ -199,6 +232,9 @@ export default class OrchestratorAttach extends PromptCommand {
 # Set terminal tab title
 echo -ne "\\033]0;${title}\\007"
 echo -ne "\\033]1;${title}\\007"
+
+# Set mouse mode before attaching
+tmux set-option -t "${sessionName}" mouse ${mouseMode} 2>/dev/null || true
 
 echo "Attaching to: ${sessionName}"
 ${attachCmd}
