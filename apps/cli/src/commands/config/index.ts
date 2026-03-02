@@ -118,7 +118,7 @@ export default class Config extends PromptCommand {
             defaultExecutor: config.defaultExecutor,
             defaultEnvironment: config.defaultEnvironment,
             outputMode: config.outputMode,
-            sandboxed: config.sandboxed,
+            permissionMode: config.permissionMode,
             createPrDefault: config.createPrDefault ?? null,
             firewall: {
               allowlistDomains: config.firewall.allowlistDomains,
@@ -143,7 +143,7 @@ export default class Config extends PromptCommand {
           this.log(`  defaultExecutor:  ${config.defaultExecutor}`)
           this.log(`  defaultEnvironment: ${config.defaultEnvironment}`)
           this.log(`  outputMode:       ${config.outputMode}`)
-          this.log(`  sandboxed:        ${config.sandboxed}`)
+          this.log(`  permissionMode:   ${config.permissionMode}`)
           this.log(`  createPrDefault:  ${config.createPrDefault ?? 'not set (will prompt)'}`)
           this.log(`  firewall.allowlistDomains: ${config.firewall.allowlistDomains.join(', ') || '(none)'}`)
           this.log('')

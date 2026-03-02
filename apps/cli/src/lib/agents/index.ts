@@ -256,7 +256,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             }
           }
 
-          // Create devcontainer config for sandboxed execution
+          // Create devcontainer config for isolated execution
           // Note: Agent metadata is stored in SQLite (agents table), not in config files
           // Always create devcontainer config (even if no repos were created) so agent rebuild works
           if (!options?.skipDevcontainer) {
@@ -404,7 +404,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           }
         }
 
-        // Create devcontainer config for sandboxed execution
+        // Create devcontainer config for isolated execution
         // Note: Agent metadata is stored in SQLite (agents table), not in config files
         if (!options?.skipDevcontainer) {
           console.log(styles.muted(`  Creating devcontainer config...`));

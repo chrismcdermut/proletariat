@@ -1,8 +1,8 @@
 /**
  * Devcontainer Template Generator
  *
- * Generates .devcontainer/ configuration for agent sandboxed execution.
- * Uses a custom Dockerfile with network firewall for security sandboxing.
+ * Generates .devcontainer/ configuration for agent isolated execution.
+ * Uses a custom Dockerfile with network firewall for security isolation.
  */
 
 import * as fs from 'node:fs'
@@ -56,7 +56,7 @@ export interface DevcontainerJson {
 /**
  * Generate default devcontainer.json content
  *
- * Uses a custom Dockerfile with firewall for network sandboxing.
+ * Uses a custom Dockerfile with firewall for network isolation.
  * Mounts the entire agent workspace directory so all contents (repos, prompt files, etc.)
  * are accessible inside the container at /workspace.
  */

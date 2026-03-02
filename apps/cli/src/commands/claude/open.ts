@@ -128,7 +128,7 @@ export default class Open extends PromptCommand {
     // Load execution config
     const executionConfig = { ...DEFAULT_EXECUTION_CONFIG };
     executionConfig.outputMode = 'interactive' as OutputMode;
-    executionConfig.sandboxed = false; // Default to dangerously-skip-permissions for quick open
+    executionConfig.permissionMode = 'danger'; // Default to danger mode for quick open
 
     // Try to load saved preferences from workspace DB or home dir
     const dbPath = hqPath

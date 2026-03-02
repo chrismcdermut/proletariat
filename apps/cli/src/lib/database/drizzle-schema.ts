@@ -461,7 +461,7 @@ export const pmoAgentWork = sqliteTable('agent_work', {
   executor: text('executor').notNull(),
   environment: text('environment').notNull().default('host'),
   displayMode: text('display_mode').notNull().default('terminal'),
-  sandboxed: integer('sandboxed', { mode: 'boolean' }).notNull().default(false),
+  permissionMode: text('permission_mode').notNull().default('safe'),
   status: text('status').notNull().default('starting'),
   branch: text('branch'),
   pid: text('pid'),

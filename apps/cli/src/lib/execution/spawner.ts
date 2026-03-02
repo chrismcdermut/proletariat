@@ -27,6 +27,7 @@ import {
   ExecutionContext,
   ExecutionEnvironment,
   ExecutionConfig,
+  PermissionMode,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from './types.js'
@@ -405,7 +406,7 @@ export async function spawnAgentForTicket(
   }
 
   const displayMode: DisplayMode = options.displayMode || 'terminal'
-  const sandboxed = !(options.skipPermissions ?? false)
+  const permissionMode: PermissionMode = (options.skipPermissions ?? false) ? 'danger' : 'safe'
 
   // Executor preflight check (TKT-1082): verify binary is available before proceeding
   // For host environment, check immediately. For devcontainer, check happens after container start.
@@ -587,13 +588,13 @@ export async function spawnAgentForTicket(
     executor,
     environment,
     displayMode,
-    sandboxed,
+    permissionMode,
     branch,
   })
 
   // Load execution config (use passed config or load from db)
   const executionConfig = options.executionConfig || loadExecutionConfig(db)
-  executionConfig.sandboxed = sandboxed
+  executionConfig.permissionMode = permissionMode
 
   // Run execution
   // Default to tmux for session persistence (enables peek/poke/attach)
