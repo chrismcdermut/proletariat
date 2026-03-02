@@ -34,6 +34,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * Default timeout for execSync calls in milliseconds.
+ * This prevents indefinite hangs when a CLI command waits for interactive input.
+ * execSync blocks the Node.js event loop, so Mocha's own timeout cannot fire.
+ * A per-command timeout ensures the child process is killed and the test can proceed.
+ */
+const EXEC_TIMEOUT_MS = 30_000; // 30 seconds
+
+/**
  * Environment variables that could bypass test isolation.
  * These are explicitly cleared when running CLI commands to ensure
  * the CLI discovers the test database, not a real one.
@@ -644,6 +652,7 @@ export function exec(cmd: string): string {
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
+      timeout: EXEC_TIMEOUT_MS,
       env: {
         ...getIsolatedEnv(),
         // Force text output unless the command explicitly requests JSON via flags.
@@ -681,6 +690,7 @@ export function execWithFilter(cmd: string): string {
     const result = execSync(`node ${binPath} ${cmd} 2>&1`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
+      timeout: EXEC_TIMEOUT_MS,
       env: {
         ...getIsolatedEnv(),
         ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
@@ -722,6 +732,7 @@ export function execProduction(cmd: string): string {
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: EXEC_TIMEOUT_MS,
       env,
       cwd: cliDir, // Run from CLI directory for proper module resolution
     });
@@ -744,6 +755,7 @@ export function execRaw(cmd: string): string {
     return execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: EXEC_TIMEOUT_MS,
       env: {
         ...getIsolatedEnv(),
         ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
@@ -765,6 +777,7 @@ export function execOrFail(cmd: string): string {
   return execSync(`${binPath} ${cmd}`, {
     encoding: 'utf-8',
     cwd: process.cwd(),
+    timeout: EXEC_TIMEOUT_MS,
     env: {
       ...getIsolatedEnv(),
       ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
@@ -1016,6 +1029,7 @@ export function execAsHuman(cmd: string, env: NodeJS.ProcessEnv = {}): string {
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
+      timeout: EXEC_TIMEOUT_MS,
       env: baseEnv,
       maxBuffer: 10 * 1024 * 1024,
     });
@@ -1055,6 +1069,7 @@ export function execAsAgent(cmd: string, env: NodeJS.ProcessEnv = {}): string {
     const result = execSync(`node ${binPath} ${jsonCmd}`, {
       encoding: 'utf-8',
       cwd: process.cwd(),
+      timeout: EXEC_TIMEOUT_MS,
       env: baseEnv,
       maxBuffer: 10 * 1024 * 1024,
     });

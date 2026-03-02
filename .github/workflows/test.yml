@@ -177,6 +177,7 @@ jobs:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.run_tests == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       matrix:
         node-version: [lts/*]
@@ -216,6 +217,7 @@ jobs:
       needs.detect-changes.outputs.run_tests == 'true' &&
       needs.build.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         node-version: [lts/*]
@@ -321,6 +323,7 @@ jobs:
       needs.detect-changes.outputs.run_tests == 'true' &&
       needs.build.result == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       matrix:
         node-version: [lts/*]
