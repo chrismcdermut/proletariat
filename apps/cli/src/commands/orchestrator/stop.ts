@@ -16,6 +16,7 @@ import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { buildOrchestratorSessionName } from './start.js'
+import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 
 export default class OrchestratorStop extends PromptCommand {
   static description = 'Stop the running orchestrator'
@@ -41,7 +42,17 @@ export default class OrchestratorStop extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStop)
     const jsonMode = shouldOutputJson(flags)
-    const sessionName = buildOrchestratorSessionName(flags.name || 'main')
+    // Resolve HQ for scoped session name
+    const hqPath = findHQRoot(process.cwd())
+    if (!hqPath) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_HQ', 'Not in an HQ workspace. Run "prlt init" first.', createMetadata('orchestrator stop', flags))
+        return
+      }
+      this.error('Not in an HQ workspace. Run "prlt init" first.')
+    }
+    const hqName = getHeadquartersNameFromPath(hqPath)
+    const sessionName = buildOrchestratorSessionName(hqName, flags.name || 'main')
 
     // Check if orchestrator session exists
     const hostSessions = getHostTmuxSessionNames()
@@ -94,24 +105,21 @@ export default class OrchestratorStop extends PromptCommand {
     }
 
     // Update execution record to stopped
-    const hqPath = findHQRoot(process.cwd())
-    if (hqPath) {
-      const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-      if (fs.existsSync(dbPath)) {
-        let db: Database.Database | null = null
-        try {
-          db = new Database(dbPath)
-          const executionStorage = new ExecutionStorage(db)
-          const running = executionStorage.listExecutions({ agentName: 'orchestrator', status: 'running' })
-          const starting = executionStorage.listExecutions({ agentName: 'orchestrator', status: 'starting' })
-          for (const exec of [...running, ...starting]) {
-            executionStorage.updateStatus(exec.id, 'stopped')
-          }
-        } catch {
-          // Non-fatal
-        } finally {
-          db?.close()
+    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
+    if (fs.existsSync(dbPath)) {
+      let db: Database.Database | null = null
+      try {
+        db = new Database(dbPath)
+        const executionStorage = new ExecutionStorage(db)
+        const running = executionStorage.listExecutions({ agentName: 'orchestrator', status: 'running' })
+        const starting = executionStorage.listExecutions({ agentName: 'orchestrator', status: 'starting' })
+        for (const exec of [...running, ...starting]) {
+          executionStorage.updateStatus(exec.id, 'stopped')
         }
+      } catch {
+        // Non-fatal
+      } finally {
+        db?.close()
       }
     }
 

@@ -5,6 +5,7 @@ import Database from 'better-sqlite3'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { findHQRoot } from '../../lib/workspace.js'
+import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -33,16 +34,24 @@ import {
 } from '../../lib/execution/config.js'
 
 /**
- * Build orchestrator tmux session name.
- * Default: 'prlt-orchestrator-main'
- * With --name: 'prlt-orchestrator-{name}'
+ * Sanitize a name segment for use in tmux session names.
  */
-export function buildOrchestratorSessionName(name: string = 'main'): string {
-  const safeName = name
+function sanitizeName(name: string): string {
+  return name
     .replace(/[^a-zA-Z0-9._-]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
-  return `prlt-orchestrator-${safeName || 'main'}`
+}
+
+/**
+ * Build orchestrator tmux session name scoped to the HQ workspace.
+ * Format: 'prlt-orchestrator-{hqName}-{name}'
+ * Example: 'prlt-orchestrator-proletariat-main'
+ */
+export function buildOrchestratorSessionName(hqName: string, name: string = 'main'): string {
+  const safeHqName = sanitizeName(hqName) || 'default'
+  const safeName = sanitizeName(name) || 'main'
+  return `prlt-orchestrator-${safeHqName}-${safeName}`
 }
 
 /**
@@ -111,7 +120,20 @@ export default class OrchestratorStart extends PromptCommand {
     const { flags } = await this.parse(OrchestratorStart)
     const jsonMode = shouldOutputJson(flags)
     const orchestratorName = flags.name || 'main'
-    const sessionName = buildOrchestratorSessionName(orchestratorName)
+
+    // Resolve HQ path first (needed for scoped session name)
+    const hqPath = findHQRoot(process.cwd())
+    if (!hqPath) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_HQ', 'Not in an HQ workspace. Run "prlt init" first.', createMetadata('orchestrator start', flags))
+        return
+      }
+      this.error('Not in an HQ workspace. Run "prlt init" first.')
+    }
+
+    // Build session name scoped to this HQ
+    const hqName = getHeadquartersNameFromPath(hqPath)
+    const sessionName = buildOrchestratorSessionName(hqName, orchestratorName)
 
     // Check if orchestrator is already running
     const hostSessions = getHostTmuxSessionNames()
@@ -144,16 +166,6 @@ export default class OrchestratorStart extends PromptCommand {
         await this.config.runCommand('orchestrator:attach', attachArgs)
       }
       return
-    }
-
-    // Resolve HQ path
-    const hqPath = findHQRoot(process.cwd())
-    if (!hqPath) {
-      if (jsonMode) {
-        outputErrorAsJson('NO_HQ', 'Not in an HQ workspace. Run "prlt init" first.', createMetadata('orchestrator start', flags))
-        return
-      }
-      this.error('Not in an HQ workspace. Run "prlt init" first.')
     }
 
     // Executor selection

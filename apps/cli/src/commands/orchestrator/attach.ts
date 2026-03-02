@@ -90,7 +90,19 @@ export default class OrchestratorAttach extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorAttach)
     const jsonMode = shouldOutputJson(flags)
-    const sessionName = buildOrchestratorSessionName(flags.name || 'main')
+    let hqName: string
+    try {
+      const workspaceInfo = getWorkspaceInfo()
+      hqName = workspaceInfo.workspaceName
+    } catch {
+      if (jsonMode) {
+        outputErrorAsJson('NO_HQ', 'Not in an HQ workspace. Run "prlt init" first.', createMetadata('orchestrator attach', flags))
+        return
+      }
+      this.error('Not in an HQ workspace. Run "prlt init" first.')
+      return
+    }
+    const sessionName = buildOrchestratorSessionName(hqName, flags.name || 'main')
 
     // Check if orchestrator session exists
     const hostSessions = getHostTmuxSessionNames()

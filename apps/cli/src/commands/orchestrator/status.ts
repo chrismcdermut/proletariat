@@ -8,6 +8,8 @@ import {
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames, captureTmuxPane } from '../../lib/execution/session-utils.js'
+import { findHQRoot } from '../../lib/workspace.js'
+import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 import { buildOrchestratorSessionName } from './start.js'
 
 export default class OrchestratorStatus extends PromptCommand {
@@ -38,7 +40,21 @@ export default class OrchestratorStatus extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStatus)
     const jsonMode = shouldOutputJson(flags)
-    const sessionName = buildOrchestratorSessionName(flags.name || 'main')
+
+    // Resolve HQ for scoped session name
+    const hqPath = findHQRoot(process.cwd())
+    if (!hqPath) {
+      if (jsonMode) {
+        outputSuccessAsJson({
+          running: false,
+          sessionId: null,
+        }, createMetadata('orchestrator status', flags as Record<string, unknown>))
+        return
+      }
+      this.error('Not in an HQ workspace. Run "prlt init" first.')
+    }
+    const hqName = getHeadquartersNameFromPath(hqPath)
+    const sessionName = buildOrchestratorSessionName(hqName, flags.name || 'main')
 
     const hostSessions = getHostTmuxSessionNames()
     const isRunning = hostSessions.includes(sessionName)
