@@ -13,6 +13,7 @@ import {
   ExecutionEnvironment,
   DisplayMode,
   OutputMode,
+  PermissionMode,
   SessionManager,
   ExecutorType,
   ExecutionContext,
@@ -21,6 +22,7 @@ import {
 } from './types.js'
 import { getSetTitleCommands } from '../terminal.js'
 import { readDevcontainerJson } from './devcontainer.js'
+import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError } from './codex-adapter.js'
 
 // =============================================================================
 // Terminal Title Helpers
@@ -206,13 +208,16 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
       }
       // Manual mode - will prompt for each action (still interactive, no -p)
       return { cmd: 'claude', args: [prompt] }
-    case 'codex':
-      // Map danger mode to Codex-native autonomy mode.
-      // Codex CLI takes prompt as a positional argument: codex [OPTIONS] [PROMPT]
-      // --prompt is NOT a valid flag (TKT-1166)
-      return skipPermissions
-        ? { cmd: 'codex', args: ['--yolo', prompt] }
-        : { cmd: 'codex', args: [prompt] }
+    case 'codex': {
+      // Delegate to Codex adapter for deterministic mode mapping.
+      // getExecutorCommand is called without display/output context, so we use
+      // 'interactive' as default context (safe for validation — all permission modes
+      // are valid with interactive). Runners that need stricter validation should
+      // call the adapter directly with the actual execution context.
+      const codexPermission: PermissionMode = skipPermissions ? 'danger' : 'safe'
+      const codexResult = getCodexCommand(prompt, codexPermission, 'interactive')
+      return { cmd: codexResult.cmd, args: codexResult.args }
+    }
     case 'aider':
       return { cmd: 'aider', args: ['--message', prompt] }
     case 'custom':
@@ -476,6 +481,17 @@ export async function runHost(
   const prompt = buildPrompt(context)
   // Terminal - use sandboxed setting
   const skipPermissions = !config.sandboxed
+
+  // Validate Codex mode combination before proceeding
+  if (executor === 'codex') {
+    const codexPermission: PermissionMode = config.sandboxed ? 'safe' : 'danger'
+    const codexContext = resolveCodexExecutionContext(displayMode, config.outputMode)
+    const modeError = validateCodexMode(codexPermission, codexContext)
+    if (modeError) {
+      return { success: false, error: modeError.message }
+    }
+  }
+
   const { cmd, args } = getExecutorCommand(executor, prompt, skipPermissions)
 
   // Write command to temp script to avoid shell escaping issues
@@ -1443,8 +1459,20 @@ export function buildDevcontainerCommand(
     // --effort high: skips the effort level prompt for automated agents (TKT-1134)
     const effortFlag = '--effort high '
     executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}"$(cat ${promptFile})"`
+  } else if (executor === 'codex') {
+    // Use Codex adapter for mode validation and deterministic command building.
+    // Validates that the permission/display combination is supported before building.
+    const codexPermission: PermissionMode = sandboxed ? 'safe' : 'danger'
+    const codexContext = resolveCodexExecutionContext(displayMode, outputMode)
+    const modeError = validateCodexMode(codexPermission, codexContext)
+    if (modeError) {
+      throw modeError
+    }
+    const codexResult = getCodexCommand('PLACEHOLDER', codexPermission, codexContext)
+    const argsStr = codexResult.args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
+    executorCmd = `${codexResult.cmd} ${argsStr}`
   } else {
-    // Non-Claude executors: use getExecutorCommand() to get correct command and args
+    // Non-Claude, non-Codex executors: use getExecutorCommand() to get correct command and args
     const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, !sandboxed)
     // Replace the placeholder prompt with a file read for shell safety
     const argsStr = args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
@@ -2262,6 +2290,15 @@ export async function runDocker(
       dockerCmd += ` --cpus ${config.docker.cpus}`
     }
 
+    // Validate Codex mode: Docker runner is always non-tty (detached with -d)
+    if (executor === 'codex') {
+      const codexPermission: PermissionMode = config.sandboxed ? 'safe' : 'danger'
+      const modeError = validateCodexMode(codexPermission, 'non-tty')
+      if (modeError) {
+        return { success: false, error: modeError.message }
+      }
+    }
+
     // Build executor command using getExecutorCommand() for correct invocation
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
     const { cmd, args } = getExecutorCommand(executor, escapedPrompt, !config.sandboxed)
@@ -2333,6 +2370,15 @@ export async function runVm(
       execSync(`git push origin ${context.branch}`, { cwd: context.worktreePath, stdio: 'pipe' })
       const gitPullCmd = `cd ${remoteWorkspace} && git fetch && git checkout ${context.branch}`
       execSync(`ssh ${sshOpts} ${user}@${targetHost} "${gitPullCmd}"`, { stdio: 'pipe' })
+    }
+
+    // Validate Codex mode: VM runner is always non-tty (SSH + nohup)
+    if (executor === 'codex') {
+      const codexPermission: PermissionMode = config.sandboxed ? 'safe' : 'danger'
+      const modeError = validateCodexMode(codexPermission, 'non-tty')
+      if (modeError) {
+        return { success: false, error: modeError.message }
+      }
     }
 
     // Execute on remote using executor-appropriate command
