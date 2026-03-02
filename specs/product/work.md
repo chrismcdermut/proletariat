@@ -139,6 +139,38 @@ See [Settings](settings.md) for template-specific defaults and configuration det
 | background | Detached, logs to file | Async work |
 | tmux | New tmux pane | Multiple agents side-by-side |
 
+## Executor Invocation Reference
+
+Each executor type has specific CLI invocation semantics. These are enforced by
+smoke tests in `test/unit/codex-spawn-smoke.test.ts` (TKT-1169).
+
+### Codex (`@openai/codex`)
+
+The prompt is **always positional** (last argument). The `--prompt` flag does
+not exist in the Codex CLI.
+
+| Mode | Command | Description |
+|------|---------|-------------|
+| Safe | `codex <prompt>` | Default approval mode |
+| Danger | `codex --full-auto <prompt>` | Skip approval prompts |
+
+Supported flags are defined in `CODEX_SUPPORTED_FLAGS` in
+`src/lib/execution/runners.ts`. Adding a new Codex flag requires updating both
+the constant and the smoke tests.
+
+### Claude Code (`@anthropic-ai/claude-code`)
+
+| Mode | Command |
+|------|---------|
+| Safe | `claude <prompt>` |
+| Danger | `claude --permission-mode bypassPermissions --dangerously-skip-permissions --effort high <prompt>` |
+
+### Aider
+
+| Mode | Command |
+|------|---------|
+| All | `aider --message <prompt>` |
+
 ## Related Domains
 
 - [Tickets](tickets.md) - Work executes tickets
