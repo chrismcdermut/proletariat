@@ -15,7 +15,8 @@ import {
 import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { buildOrchestratorSessionName } from './start.js'
+import { buildOrchestratorSessionName, findRunningOrchestratorSessions } from './start.js'
+import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 
 export default class OrchestratorStop extends PromptCommand {
   static description = 'Stop the running orchestrator'
@@ -41,22 +42,54 @@ export default class OrchestratorStop extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStop)
     const jsonMode = shouldOutputJson(flags)
-    const sessionName = buildOrchestratorSessionName(flags.name || 'main')
-
-    // Check if orchestrator session exists
     const hostSessions = getHostTmuxSessionNames()
-    if (!hostSessions.includes(sessionName)) {
-      if (jsonMode) {
-        outputErrorAsJson(
-          'NOT_RUNNING',
-          'Orchestrator is not running.',
-          createMetadata('orchestrator stop', flags),
-        )
-        return
+
+    // Resolve session name: try HQ-scoped first, fall back to discovery
+    let sessionName: string | undefined
+    const hqPath = findHQRoot(process.cwd())
+    if (hqPath) {
+      const hqName = getHeadquartersNameFromPath(hqPath)
+      sessionName = buildOrchestratorSessionName(hqName, flags.name || 'main')
+      if (!hostSessions.includes(sessionName)) {
+        sessionName = undefined
       }
-      this.log('')
-      this.log(styles.muted('Orchestrator is not running.'))
-      this.log('')
+    }
+
+    // If not in HQ or session not found, discover running orchestrator sessions
+    if (!sessionName) {
+      const runningSessions = findRunningOrchestratorSessions(hostSessions)
+      if (runningSessions.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson(
+            'NOT_RUNNING',
+            'Orchestrator is not running.',
+            createMetadata('orchestrator stop', flags),
+          )
+          return
+        }
+        this.log('')
+        this.log(styles.muted('Orchestrator is not running.'))
+        this.log('')
+        return
+      } else if (runningSessions.length === 1) {
+        sessionName = runningSessions[0]
+      } else {
+        // Multiple sessions — let user pick
+        const { session } = await this.prompt<{ session: string }>([{
+          type: 'list',
+          name: 'session',
+          message: 'Multiple orchestrator sessions found. Select one to stop:',
+          choices: runningSessions.map(s => ({
+            name: s,
+            value: s,
+            command: `prlt orchestrator stop --name "${s}" --force --json`,
+          })),
+        }], jsonMode ? { flags, commandName: 'orchestrator stop' } : null)
+        sessionName = session
+      }
+    }
+
+    if (!sessionName) {
       return
     }
 
@@ -65,7 +98,7 @@ export default class OrchestratorStop extends PromptCommand {
       const { confirmed } = await this.prompt<{ confirmed: boolean }>([{
         type: 'list',
         name: 'confirmed',
-        message: 'Stop the orchestrator?',
+        message: `Stop the orchestrator (${sessionName})?`,
         choices: [
           { name: 'Yes', value: true },
           { name: 'No', value: false },
@@ -93,8 +126,7 @@ export default class OrchestratorStop extends PromptCommand {
       this.error(`Failed to stop orchestrator: ${error instanceof Error ? error.message : error}`)
     }
 
-    // Update execution record to stopped
-    const hqPath = findHQRoot(process.cwd())
+    // Update execution record to stopped (only if in HQ)
     if (hqPath) {
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
       if (fs.existsSync(dbPath)) {

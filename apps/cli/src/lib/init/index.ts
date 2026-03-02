@@ -23,6 +23,7 @@ import {
   registerHeadquarters,
   getOrganizations,
   createOrganization,
+  findHeadquartersByName,
 } from '../machine-config.js';
 import { hasGitHubRemote } from '../repos/git.js';
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js';
@@ -107,14 +108,22 @@ export function validateHQLocation(location: string): { valid: boolean; reason?:
 }
 
 /**
+ * Check if an HQ name is already in use by another headquarters on this machine.
+ */
+export function isHQNameTaken(name: string): boolean {
+  const existing = findHeadquartersByName(name);
+  return existing.length > 0;
+}
+
+/**
  * Prompt user for HQ name
  */
 export async function promptForHQName(): Promise<string> {
   const inGitRepo = isInGitRepo();
-  const defaultName = inGitRepo 
+  const defaultName = inGitRepo
     ? path.basename(process.cwd())  // Use repo name as default
     : '';                            // No default outside repo
-    
+
   const { name } = await inquirer.prompt([{
     type: 'input',
     name: 'name',
@@ -124,6 +133,9 @@ export async function promptForHQName(): Promise<string> {
       if (!input.trim()) return 'Name is required';
       if (!/^[a-zA-Z0-9-_]+$/.test(input)) {
         return 'Name can only contain letters, numbers, hyphens, and underscores';
+      }
+      if (isHQNameTaken(input.trim())) {
+        return `HQ name "${input.trim()}" is already in use on this machine. Pick another name.`;
       }
       return true;
     },

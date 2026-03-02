@@ -7,7 +7,8 @@ import {
   promptForHQLocation,
   initializeHQ,
   showNextSteps,
-  validateHQLocation
+  validateHQLocation,
+  isHQNameTaken,
 } from '../lib/init/index.js';
 import { promptForAgentsWithTheme } from '../lib/agents/index.js';
 import { promptForRepositories } from '../lib/repos/index.js';
@@ -125,6 +126,16 @@ export default class Init extends Command {
     }
 
     const hqName = flags.name;
+
+    // Check if HQ name is already in use
+    if (hqName && isHQNameTaken(hqName)) {
+      this.outputJson({
+        success: false,
+        error: `HQ name "${hqName}" is already in use on this machine. Pick another name.`,
+      });
+      this.exit(1);
+    }
+
     const hqPath = flags.path || path.resolve(`./${hqName}-hq`);
 
     // Validate HQ path is not inside a git repo
