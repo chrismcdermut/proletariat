@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.48] - 2026-03-02
+
+### Changed
+- TKT-1174: Version bump and maintenance release
+
 ## [0.3.27] - 2026-02-10
 
 ### Added
