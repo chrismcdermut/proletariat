@@ -35,6 +35,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch base branch
+        if: github.event_name == 'pull_request'
+        run: git fetch origin ${{ github.base_ref }} --depth=1
+
       - name: Classify changed paths
         id: classify
         shell: bash
@@ -49,7 +53,7 @@ jobs:
 
           # Get the list of changed files relative to the PR base
           MERGE_BASE=$(git merge-base origin/${{ github.base_ref }} HEAD)
-          CHANGED=$(git diff --name-only "$MERGE_BASE"...HEAD)
+          CHANGED=$(git diff --name-only "$MERGE_BASE" HEAD)
 
           if [[ -z "$CHANGED" ]]; then
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
