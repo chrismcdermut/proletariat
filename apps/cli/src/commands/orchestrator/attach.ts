@@ -35,7 +35,6 @@ export function detectTerminalApp(): string | null {
   }
 
   const termProgram = process.env.TERM_PROGRAM
-  if (!termProgram) return null
 
   switch (termProgram) {
     case 'iTerm.app':
@@ -46,9 +45,15 @@ export function detectTerminalApp(): string | null {
       return 'Terminal'
     case 'WezTerm':
       return 'WezTerm'
-    default:
-      return null
   }
+
+  // TERM_PROGRAM is overwritten to 'tmux' inside tmux sessions.
+  // Fall back to vars that persist through tmux to detect the outer terminal.
+  if (process.env.LC_TERMINAL === 'iTerm2' || process.env.ITERM_SESSION_ID) {
+    return 'iTerm'
+  }
+
+  return null
 }
 
 export default class OrchestratorAttach extends PromptCommand {
