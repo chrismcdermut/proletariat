@@ -116,6 +116,11 @@ jobs:
       - name: Run unit tests
         run: pnpm --filter @proletariat/cli test:unit
 
+      # TKT-1169: Codex spawn smoke tests run as a dedicated step so failures
+      # are immediately visible. Any Codex command contract change will fail here.
+      - name: Codex spawn smoke checks
+        run: pnpm --filter @proletariat/cli mocha --forbid-only "test/unit/codex-spawn-smoke.test.ts"
+
   e2e-tests:
     needs: [build]
     runs-on: ubuntu-latest
