@@ -39,6 +39,7 @@ describe('Session Commands E2E Tests', () => {
     sessionId: string;
     status?: string;
     environment?: string;
+    containerId?: string;
   }>): void {
     const db = new Database(dbPath);
     try {
@@ -59,8 +60,8 @@ describe('Session Commands E2E Tests', () => {
 
         // Create execution record
         db.prepare(`
-          INSERT INTO agent_work (id, ticket_id, agent_name, executor, environment, status, session_id, started_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          INSERT INTO agent_work (id, ticket_id, agent_name, executor, environment, status, session_id, container_id, started_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `).run(
           rec.id,
           rec.ticketId,
@@ -69,6 +70,7 @@ describe('Session Commands E2E Tests', () => {
           rec.environment || 'host',
           rec.status || 'running',
           rec.sessionId,
+          rec.containerId || null,
         );
       }
 
@@ -637,6 +639,49 @@ describe('Session Commands E2E Tests', () => {
       expect(json).to.not.be.null;
       expect(json!.error).to.exist;
       expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
+    });
+
+    it('should resolve docker container agent by name and attempt docker exec (not host tmux)', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-docker-001',
+        ticketId: 'TKT-800',
+        ticketTitle: 'Docker poke test',
+        agentName: 'docker-agent',
+        sessionId: 'TKT-800-implement-docker-agent',
+        status: 'running',
+        environment: 'docker',
+        containerId: 'abc123def456',
+      }]);
+
+      const output = execProduction('session poke docker-agent "test message" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      // Should fail at docker exec level (SEND_FAILED or CONTAINER_NOT_RUNNING),
+      // NOT at SESSION_NOT_FOUND from host tmux lookup — proving we took the container path
+      expect(['SEND_FAILED', 'CONTAINER_NOT_RUNNING']).to.include(json!.error.code);
+    });
+
+    it('should resolve devcontainer agent by name and attempt docker exec', () => {
+      seedExecutionRecords([{
+        id: 'exec-poke-devcontainer-001',
+        ticketId: 'TKT-801',
+        ticketTitle: 'Devcontainer poke test',
+        agentName: 'devcontainer-agent',
+        sessionId: 'TKT-801-implement-devcontainer-agent',
+        status: 'running',
+        environment: 'devcontainer',
+        containerId: 'def456abc789',
+      }]);
+
+      const output = execProduction('session poke devcontainer-agent "test message" --json');
+      const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+      expect(json).to.not.be.null;
+      expect(json!.error).to.exist;
+      // Should fail at docker exec level, NOT at host tmux lookup
+      expect(['SEND_FAILED', 'CONTAINER_NOT_RUNNING']).to.include(json!.error.code);
     });
 
     it('should include poke choice in session menu with correct command', () => {

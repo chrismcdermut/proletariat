@@ -254,7 +254,7 @@ export default class SessionPoke extends PMOCommand {
     jsonMode: boolean,
     flags: Record<string, unknown>,
   ): ResolvedSession | null {
-    const isContainer = exec.environment === 'devcontainer'
+    const isContainer = !!exec.containerId
     let actualSessionId = exec.sessionId
     let containerId = isContainer ? exec.containerId : undefined
 
