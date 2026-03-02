@@ -60,16 +60,16 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     })
 
     describe('codex executor', () => {
-      it('should return codex command with --yolo and positional prompt in danger mode', () => {
+      it('should return codex command with --full-auto and positional prompt in danger mode', () => {
         const result = getExecutorCommand('codex', testPrompt, true)
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', testPrompt])
+        expect(result.args).to.deep.equal(['--full-auto', testPrompt])
       })
 
-      it('should map skipPermissions=false to non-yolo command', () => {
+      it('should map skipPermissions=false to safe command (positional prompt only)', () => {
         const withSkip = getExecutorCommand('codex', testPrompt, true)
         const withoutSkip = getExecutorCommand('codex', testPrompt, false)
-        expect(withSkip.args).to.deep.equal(['--yolo', testPrompt])
+        expect(withSkip.args).to.deep.equal(['--full-auto', testPrompt])
         expect(withoutSkip.args).to.deep.equal([testPrompt])
       })
 
@@ -78,6 +78,11 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
         expect(result.cmd).to.not.equal('claude')
         expect(result.args).to.not.include('--dangerously-skip-permissions')
         expect(result.args).to.not.include('--permission-mode')
+      })
+
+      it('should not use --prompt flag (TKT-1169 regression)', () => {
+        const result = getExecutorCommand('codex', testPrompt, true)
+        expect(result.args).to.not.include('--prompt')
       })
     })
 
@@ -128,7 +133,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor (not hardcoded claude)', () => {
       const result = getExecutorCommand('codex', 'build the feature')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', 'build the feature'])
+      expect(result.args).to.deep.equal(['--full-auto', 'build the feature'])
     })
 
     it('should use aider binary for aider executor (not hardcoded claude)', () => {
@@ -151,7 +156,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor on VM', () => {
       const result = getExecutorCommand('codex', 'implement on VM')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', 'implement on VM'])
+      expect(result.args).to.deep.equal(['--full-auto', 'implement on VM'])
     })
 
     it('should use aider binary for aider executor on VM', () => {
@@ -205,7 +210,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should handle empty prompts', () => {
       const result = getExecutorCommand('codex', '')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', ''])
+      expect(result.args).to.deep.equal(['--full-auto', ''])
     })
   })
 
