@@ -1468,7 +1468,7 @@ export function buildDevcontainerCommand(
     if (modeError) {
       throw modeError
     }
-    const codexResult = getCodexCommand('PLACEHOLDER', codexPermission, 'interactive')
+    const codexResult = getCodexCommand('PLACEHOLDER', codexPermission, codexContext)
     const argsStr = codexResult.args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
     executorCmd = `${codexResult.cmd} ${argsStr}`
   } else {
