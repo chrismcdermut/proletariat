@@ -60,17 +60,17 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     })
 
     describe('codex executor', () => {
-      it('should return codex command with --yolo and --prompt in danger mode', () => {
+      it('should return codex command with --yolo and positional prompt in danger mode', () => {
         const result = getExecutorCommand('codex', testPrompt, true)
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
+        expect(result.args).to.deep.equal(['--yolo', testPrompt])
       })
 
       it('should map skipPermissions=false to non-yolo command', () => {
         const withSkip = getExecutorCommand('codex', testPrompt, true)
         const withoutSkip = getExecutorCommand('codex', testPrompt, false)
-        expect(withSkip.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
-        expect(withoutSkip.args).to.deep.equal(['--prompt', testPrompt])
+        expect(withSkip.args).to.deep.equal(['--yolo', testPrompt])
+        expect(withoutSkip.args).to.deep.equal([testPrompt])
       })
 
       it('should not include claude-specific flags', () => {
@@ -128,7 +128,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor (not hardcoded claude)', () => {
       const result = getExecutorCommand('codex', 'build the feature')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', 'build the feature'])
+      expect(result.args).to.deep.equal(['--yolo', 'build the feature'])
     })
 
     it('should use aider binary for aider executor (not hardcoded claude)', () => {
@@ -151,7 +151,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor on VM', () => {
       const result = getExecutorCommand('codex', 'implement on VM')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', 'implement on VM'])
+      expect(result.args).to.deep.equal(['--yolo', 'implement on VM'])
     })
 
     it('should use aider binary for aider executor on VM', () => {
@@ -205,7 +205,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should handle empty prompts', () => {
       const result = getExecutorCommand('codex', '')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', ''])
+      expect(result.args).to.deep.equal(['--yolo', ''])
     })
   })
 
@@ -226,6 +226,35 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
   })
 
   // buildTmuxScript tests removed - function was removed from runners.ts
+
+  describe('Regression: --prompt is not a valid Codex CLI flag (TKT-1166)', () => {
+    /**
+     * Codex CLI uses positional arguments for prompts: codex [OPTIONS] [PROMPT]
+     * The --prompt flag does NOT exist and causes:
+     *   error: unexpected argument '--prompt' found
+     *
+     * This regression test ensures we never reintroduce --prompt.
+     */
+    it('should NOT pass --prompt flag to codex (positional arg only)', () => {
+      const result = getExecutorCommand('codex', 'build the feature', true)
+      expect(result.args).to.not.include('--prompt')
+      // Prompt should be a positional argument (last element)
+      expect(result.args[result.args.length - 1]).to.equal('build the feature')
+    })
+
+    it('should NOT pass --prompt flag in safe mode either', () => {
+      const result = getExecutorCommand('codex', 'implement feature', false)
+      expect(result.args).to.not.include('--prompt')
+      expect(result.args).to.deep.equal(['implement feature'])
+    })
+
+    it('should use --yolo for danger mode (not --prompt)', () => {
+      const result = getExecutorCommand('codex', 'test prompt', true)
+      expect(result.args).to.include('--yolo')
+      expect(result.args).to.not.include('--prompt')
+      expect(result.args).to.deep.equal(['--yolo', 'test prompt'])
+    })
+  })
 
   describe('Executor consistency across runtimes', () => {
     /**

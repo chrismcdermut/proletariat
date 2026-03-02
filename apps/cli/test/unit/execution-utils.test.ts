@@ -315,7 +315,7 @@ describe('Execution Utils', () => {
       ...overrides,
     })
 
-    it('should generate codex command with --yolo + --prompt in danger mode and no Claude-only flags', () => {
+    it('should generate codex command with --yolo + positional prompt in danger mode and no Claude-only flags', () => {
       const command = buildDevcontainerCommand(
         makeContext(),
         'codex',
@@ -327,7 +327,8 @@ describe('Execution Utils', () => {
       )
 
       expect(command).to.include('docker exec')
-      expect(command).to.include('codex --yolo --prompt "$(cat /workspace/repo/.prlt-prompt.txt)"')
+      expect(command).to.include('codex --yolo "$(cat /workspace/repo/.prlt-prompt.txt)"')
+      expect(command).to.not.include('--prompt')
       expect(command).to.not.include('--permission-mode bypassPermissions')
       expect(command).to.not.include('--dangerously-skip-permissions')
       expect(command).to.not.include(' -p ')
@@ -361,10 +362,10 @@ describe('Execution Utils', () => {
     })
 
     describe('codex executor', () => {
-      it('should return codex command with --yolo and --prompt when skipPermissions=true', () => {
+      it('should return codex command with --yolo and positional prompt when skipPermissions=true', () => {
         const result = getExecutorCommand('codex', testPrompt)
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
+        expect(result.args).to.deep.equal(['--yolo', testPrompt])
       })
 
       it('should NOT include Claude-specific flags', () => {
@@ -377,8 +378,8 @@ describe('Execution Utils', () => {
       it('should apply Codex-native --yolo when skipPermissions=true', () => {
         const resultTrue = getExecutorCommand('codex', testPrompt, true)
         const resultFalse = getExecutorCommand('codex', testPrompt, false)
-        expect(resultTrue.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
-        expect(resultFalse.args).to.deep.equal(['--prompt', testPrompt])
+        expect(resultTrue.args).to.deep.equal(['--yolo', testPrompt])
+        expect(resultFalse.args).to.deep.equal([testPrompt])
       })
     })
 

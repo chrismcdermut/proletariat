@@ -208,9 +208,11 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
       return { cmd: 'claude', args: [prompt] }
     case 'codex':
       // Map danger mode to Codex-native autonomy mode.
+      // Codex CLI takes prompt as a positional argument: codex [OPTIONS] [PROMPT]
+      // --prompt is NOT a valid flag (TKT-1166)
       return skipPermissions
-        ? { cmd: 'codex', args: ['--yolo', '--prompt', prompt] }
-        : { cmd: 'codex', args: ['--prompt', prompt] }
+        ? { cmd: 'codex', args: ['--yolo', prompt] }
+        : { cmd: 'codex', args: [prompt] }
     case 'aider':
       return { cmd: 'aider', args: ['--message', prompt] }
     case 'custom':
