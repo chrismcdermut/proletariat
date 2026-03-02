@@ -16,8 +16,162 @@ on:
 # - A verification step runs `require('better-sqlite3')` before tests to fail fast with
 #   clear diagnostics if the native binding is missing or incompatible.
 
+# Change-detection scoping:
+# - docs-only PRs skip all test suites entirely
+# - Scoped source changes (pmo, execution) run only affected e2e subsets + full unit tests
+# - Core/runtime changes (database, shared lib, config files) trigger the full suite
+# - push to main and workflow_dispatch always run the full suite
+# - The ci-status job serves as a single required check for branch protection
+
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run_tests: ${{ steps.classify.outputs.run_tests }}
+      scope: ${{ steps.classify.outputs.scope }}
+      reason: ${{ steps.classify.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: |
+          # For push to main and manual dispatch, always run full suite
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            echo "reason=Full suite: ${{ github.event_name }} event (not a pull request)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Get the list of changed files relative to the PR base
+          MERGE_BASE=$(git merge-base origin/${{ github.base_ref }} HEAD)
+          CHANGED=$(git diff --name-only "$MERGE_BASE"...HEAD)
+
+          if [[ -z "$CHANGED" ]]; then
+            echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            echo "scope=none" >> "$GITHUB_OUTPUT"
+            echo "reason=No files changed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED"
+          echo "---"
+
+          # Classify each file into a category
+          HAS_DOCS=false
+          HAS_SCRIPTS=false
+          HAS_PMO=false
+          HAS_EXECUTION=false
+          HAS_CORE=false
+
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+
+            case "$file" in
+              # Documentation files
+              docs/*|CONTRIBUTING.md|CHANGELOG.md|LICENSE|specs/*)
+                HAS_DOCS=true
+                ;;
+              # Markdown files at root (but not CLAUDE.md which affects dev workflow)
+              README.md|apps/cli/README.md)
+                HAS_DOCS=true
+                ;;
+              # Scripts directory
+              scripts/*)
+                HAS_SCRIPTS=true
+                ;;
+
+              # PMO domain: ticket/project/board management source and tests
+              apps/cli/src/lib/pmo/*|\
+              apps/cli/src/commands/ticket/*|\
+              apps/cli/src/commands/project/*|\
+              apps/cli/src/commands/board/*|\
+              apps/cli/src/commands/epic/*|\
+              apps/cli/src/commands/spec/*|\
+              apps/cli/src/commands/roadmap/*|\
+              apps/cli/src/commands/category/*|\
+              apps/cli/src/commands/label/*|\
+              apps/cli/src/commands/workflow/*|\
+              apps/cli/src/commands/status/*|\
+              apps/cli/src/commands/template/*|\
+              apps/cli/src/commands/priority/*|\
+              apps/cli/src/commands/phase/*|\
+              apps/cli/src/commands/diet.ts|\
+              apps/cli/src/commands/pull.ts|\
+              apps/cli/test/e2e/pmo-*|\
+              apps/cli/test/unit/pmo*)
+                HAS_PMO=true
+                ;;
+
+              # Execution domain: work/agent/docker/session orchestration
+              apps/cli/src/lib/execution/*|\
+              apps/cli/src/commands/work/*|\
+              apps/cli/src/commands/agent/*|\
+              apps/cli/src/commands/docker/*|\
+              apps/cli/src/commands/session/*|\
+              apps/cli/src/commands/orchestrator/*|\
+              apps/cli/src/lib/agents/*|\
+              apps/cli/src/lib/docker/*|\
+              apps/cli/test/e2e/work-*|\
+              apps/cli/test/e2e/*-agent-flow*|\
+              apps/cli/test/unit/execution-*|\
+              apps/cli/test/unit/agent-*|\
+              apps/cli/test/unit/spawner*|\
+              apps/cli/test/unit/session-*|\
+              apps/cli/test/unit/ephemeral-*)
+                HAS_EXECUTION=true
+                ;;
+
+              # Everything else is core (shared lib, database, config, CI, etc.)
+              *)
+                HAS_CORE=true
+                ;;
+            esac
+          done <<< "$CHANGED"
+
+          echo "Classification: docs=$HAS_DOCS scripts=$HAS_SCRIPTS pmo=$HAS_PMO execution=$HAS_EXECUTION core=$HAS_CORE"
+
+          # Determine scope based on classification
+          if [[ "$HAS_CORE" == "true" ]]; then
+            # Core changes always trigger full suite
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            echo "reason=Full suite: core/shared files changed (database, lib, config, CI, or unscoped source)" >> "$GITHUB_OUTPUT"
+
+          elif [[ "$HAS_PMO" == "true" && "$HAS_EXECUTION" == "true" ]]; then
+            # Multiple domains changed, run full suite
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "scope=full" >> "$GITHUB_OUTPUT"
+            echo "reason=Full suite: changes span multiple domains (pmo + execution)" >> "$GITHUB_OUTPUT"
+
+          elif [[ "$HAS_PMO" == "true" ]]; then
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "scope=pmo" >> "$GITHUB_OUTPUT"
+            echo "reason=Scoped run: only PMO-related files changed (ticket/project/board management)" >> "$GITHUB_OUTPUT"
+
+          elif [[ "$HAS_EXECUTION" == "true" ]]; then
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "scope=execution" >> "$GITHUB_OUTPUT"
+            echo "reason=Scoped run: only execution-related files changed (work/agent/docker orchestration)" >> "$GITHUB_OUTPUT"
+
+          else
+            # Only docs and/or scripts changed
+            echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            echo "scope=docs-only" >> "$GITHUB_OUTPUT"
+            PARTS=""
+            [[ "$HAS_DOCS" == "true" ]] && PARTS="documentation"
+            [[ "$HAS_SCRIPTS" == "true" ]] && PARTS="${PARTS:+$PARTS + }scripts"
+            echo "reason=Skipped: only ${PARTS:-non-code} files changed — no test suites needed" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.run_tests == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -52,7 +206,11 @@ jobs:
         run: pnpm -r build
 
   unit-tests:
-    needs: [build]
+    needs: [detect-changes, build]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.run_tests == 'true' &&
+      needs.build.result == 'success'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -117,7 +275,11 @@ jobs:
         run: pnpm --filter @proletariat/cli test:unit
 
   e2e-tests:
-    needs: [build]
+    needs: [detect-changes, build]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.run_tests == 'true' &&
+      needs.build.result == 'success'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -179,4 +341,86 @@ jobs:
         run: pnpm -r build
 
       - name: Run e2e tests
-        run: pnpm --filter @proletariat/cli test:e2e
+        working-directory: apps/cli
+        run: |
+          SCOPE="${{ needs.detect-changes.outputs.scope }}"
+          echo "E2E scope: $SCOPE"
+
+          case "$SCOPE" in
+            full)
+              echo "Running full e2e suite"
+              pnpm test:e2e
+              ;;
+            pmo)
+              echo "Running PMO-scoped e2e tests"
+              npx mocha --forbid-only "test/e2e/pmo-*.test.ts"
+              ;;
+            execution)
+              echo "Running execution-scoped e2e tests"
+              npx mocha --forbid-only "test/e2e/work-*.test.ts" "test/e2e/*-agent-flow.test.ts"
+              ;;
+            *)
+              echo "Running full e2e suite (unrecognized scope: $SCOPE)"
+              pnpm test:e2e
+              ;;
+          esac
+
+  # Single required status check for branch protection.
+  # Always runs and reports success only when all test jobs succeeded
+  # or were appropriately skipped by change detection.
+  ci-status:
+    name: CI Status
+    if: always()
+    needs: [detect-changes, build, unit-tests, e2e-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: CI Summary
+        run: |
+          SCOPE="${{ needs.detect-changes.outputs.scope }}"
+          REASON="${{ needs.detect-changes.outputs.reason }}"
+          BUILD="${{ needs.build.result }}"
+          UNIT="${{ needs.unit-tests.result }}"
+          E2E="${{ needs.e2e-tests.result }}"
+
+          echo "## CI Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Scope:** \`$SCOPE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Reason:** $REASON" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| detect-changes | ${{ needs.detect-changes.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| build | $BUILD |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| unit-tests | $UNIT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| e2e-tests | $E2E |" >> "$GITHUB_STEP_SUMMARY"
+
+          echo ""
+          echo "=== CI Results ==="
+          echo "Scope: $SCOPE"
+          echo "Reason: $REASON"
+          echo "detect-changes: ${{ needs.detect-changes.result }}"
+          echo "build: $BUILD"
+          echo "unit-tests: $UNIT"
+          echo "e2e-tests: $E2E"
+
+      - name: Verify no failures
+        run: |
+          # Fail if any job that ran actually failed
+          if [[ "${{ needs.detect-changes.result }}" == "failure" ]]; then
+            echo "FAIL: detect-changes failed"
+            exit 1
+          fi
+          if [[ "${{ needs.build.result }}" == "failure" ]]; then
+            echo "FAIL: build failed"
+            exit 1
+          fi
+          if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
+            echo "FAIL: unit-tests failed"
+            exit 1
+          fi
+          if [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then
+            echo "FAIL: e2e-tests failed"
+            exit 1
+          fi
+
+          echo "All checks passed (or were appropriately skipped)."
