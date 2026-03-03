@@ -1,4 +1,8 @@
 import { expect } from 'chai';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import Database from 'better-sqlite3';
 import {
   validateIssueEnvelope,
   validateOrThrow,
@@ -7,6 +11,7 @@ import {
   ISSUE_SOURCES,
   LinearIssueAdapter,
   JiraIssueAdapter,
+  ExternalExecutionMappingStore,
   type IssueEnvelope,
 } from '../../src/lib/external-issues/index.js';
 
@@ -453,6 +458,39 @@ describe('External Issues', () => {
           expect(issueErr.source).to.equal('linear');
         }
       });
+
+      it('persists and reads mapping records without PMO ticket dependency', () => {
+        const adapter = new LinearIssueAdapter();
+        const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'linear-adapter-map-'));
+        const db = new Database(path.join(testDir, 'test.db'));
+        const store = new ExternalExecutionMappingStore(db);
+
+        try {
+          const envelope = adapter.normalize({
+            id: 'lin-id-2',
+            identifier: 'ENG-100',
+            title: 'Tighten auth checks',
+            description: 'Improve validation',
+            labels: ['security'],
+            priority: 1,
+            state: { name: 'In Progress' },
+            url: 'https://linear.app/proletariat/issue/ENG-100',
+            team: { key: 'ENG' },
+          });
+
+          adapter.persistMapping(store, envelope, { executionId: 'WORK-12345678' });
+          const byExternal = adapter.readMappingByExternalId(store, 'lin-id-2');
+          const byExecution = adapter.readMappingsByExecutionId(store, 'WORK-12345678');
+
+          expect(byExternal).to.not.equal(null);
+          expect(byExternal!.provider).to.equal('linear');
+          expect(byExecution).to.have.length(1);
+          expect(byExecution[0].externalId).to.equal('lin-id-2');
+        } finally {
+          db.close();
+          fs.rmSync(testDir, { recursive: true, force: true });
+        }
+      });
     });
 
     describe('JiraIssueAdapter', () => {
@@ -531,6 +569,41 @@ describe('External Issues', () => {
         expect(envelopes).to.have.length(1);
         expect(envelopes[0].external_key).to.equal('PROJ-457');
         expect(envelopes[0].priority).to.equal('P3');
+      });
+
+      it('persists and reads mapping records without PMO ticket dependency', () => {
+        const adapter = new JiraIssueAdapter();
+        const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jira-adapter-map-'));
+        const db = new Database(path.join(testDir, 'test.db'));
+        const store = new ExternalExecutionMappingStore(db);
+
+        try {
+          const envelope = adapter.normalize({
+            id: '20002',
+            key: 'PROJ-900',
+            self: 'https://myorg.atlassian.net/rest/api/3/issue/20002',
+            fields: {
+              summary: 'Refine deployment checks',
+              description: 'Improve release validation',
+              labels: ['release'],
+              priority: { name: 'Medium' },
+              status: { name: 'Todo' },
+              project: { key: 'PROJ' },
+            },
+          });
+
+          adapter.persistMapping(store, envelope, { executionId: 'WORK-87654321' });
+          const byExternal = adapter.readMappingByExternalId(store, '20002');
+          const byExecution = adapter.readMappingsByExecutionId(store, 'WORK-87654321');
+
+          expect(byExternal).to.not.equal(null);
+          expect(byExternal!.provider).to.equal('jira');
+          expect(byExecution).to.have.length(1);
+          expect(byExecution[0].externalKey).to.equal('PROJ-900');
+        } finally {
+          db.close();
+          fs.rmSync(testDir, { recursive: true, force: true });
+        }
       });
     });
   });
