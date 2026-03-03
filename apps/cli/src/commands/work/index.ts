@@ -33,6 +33,7 @@ export default class Work extends PMOCommand {
       { id: 'status', name: 'View work status (in-progress tickets)', command: `prlt work status -P ${projectId} --json` },
       { id: 'start', name: 'Start work (launch single agent)', command: `prlt work start -P ${projectId} --json` },
       { id: 'linear', name: 'Spawn from Linear issue', command: `prlt work linear -P ${projectId} --json` },
+      { id: 'source', name: 'Set active work source defaults', command: `prlt work source -P ${projectId} --json` },
       { id: 'resolve', name: 'Resolve questions (agent-assisted)', command: `prlt work resolve -P ${projectId} --json` },
       { id: 'spawn', name: 'Spawn work (batch by column)', command: `prlt work spawn -P ${projectId} --json` },
       { id: 'watch', name: 'Watch column (auto-spawn)', command: `prlt work watch -P ${projectId} --json` },
@@ -68,6 +69,9 @@ export default class Work extends PMOCommand {
         break;
       case 'linear':
         await this.config.runCommand('work:linear', projectArgs);
+        break;
+      case 'source':
+        await this.config.runCommand('work:source', projectArgs);
         break;
       case 'resolve':
         await this.config.runCommand('work:resolve', projectArgs);
