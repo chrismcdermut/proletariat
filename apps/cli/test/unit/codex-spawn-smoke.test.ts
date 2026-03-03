@@ -137,8 +137,26 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
 
       expect(command).to.include('docker exec')
       expect(command).to.include('codex --yolo ')
+      expect(command).to.not.include('--prompt')
       expect(command).to.not.include('--permission-mode')
       expect(command).to.not.include('--dangerously-skip-permissions')
+    })
+
+    it('should pass prompt as positional arg in safe interactive devcontainer mode', () => {
+      const command = buildDevcontainerCommand(
+        makeContext(),
+        'codex',
+        '/workspace/repo/.prlt-prompt.txt',
+        'abc123',
+        'interactive',
+        'safe' as PermissionMode,
+        'terminal'
+      )
+
+      expect(command).to.include('docker exec')
+      expect(command).to.include('codex "$(cat /workspace/repo/.prlt-prompt.txt)"')
+      expect(command).to.not.include('--yolo')
+      expect(command).to.not.include('--prompt')
     })
 
     it('should throw CodexModeError for safe mode + background devcontainer', () => {
