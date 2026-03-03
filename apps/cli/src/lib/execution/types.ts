@@ -25,7 +25,7 @@
  * ExecutionEnvironment - Where the agent code runs.
  */
 export type ExecutionEnvironment =
-  | 'devcontainer'  // In a devcontainer (sandboxed, recommended)
+  | 'devcontainer'  // In a devcontainer (isolated, recommended)
   | 'host'          // Directly on host machine
   | 'docker'        // In a Docker container
   | 'vm'            // On a remote VM
@@ -122,7 +122,7 @@ export interface AgentWork {
   environment: ExecutionEnvironment  // Where: devcontainer, host, docker, vm
   displayMode: DisplayMode       // How shown: terminal, background
   sessionManager?: SessionManager // How session is managed inside environment (tmux/direct)
-  sandboxed: boolean             // Whether --dangerously-skip-permissions was NOT used
+  permissionMode: PermissionMode  // Permission mode used for this execution
   status: ExecutionStatus
   branch?: string
   pid?: string
@@ -130,6 +130,10 @@ export interface AgentWork {
   sessionId?: string
   host?: string
   logPath?: string
+  externalSource?: string
+  externalKey?: string
+  externalId?: string
+  externalUrl?: string
   startedAt: Date
   completedAt?: Date
   exitCode?: number
@@ -330,7 +334,7 @@ export interface ExecutionConfig {
   autoExecute: boolean
   shell: Shell
   outputMode: OutputMode  // interactive (streaming) or print (final result only)
-  sandboxed: boolean      // Whether --dangerously-skip-permissions is NOT used
+  permissionMode: PermissionMode  // Permission mode for agent execution
   authMethod?: AuthMethod // Saved auth method preference (oauth or apikey). null/undefined = ask each time
   createPrDefault?: boolean // Workspace default for PR creation (true=create PRs, false=no PRs, undefined=prompt)
   tmux: {
@@ -384,7 +388,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   autoExecute: false,
   shell: 'zsh',  // macOS default
   outputMode: 'interactive',  // Show streaming UI by default
-  sandboxed: true,  // Require approval for dangerous operations by default
+  permissionMode: 'safe',  // Require approval for dangerous operations by default
   tmux: {
     session: 'proletariat',
     layout: 'window',

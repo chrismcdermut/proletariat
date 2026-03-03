@@ -18,6 +18,7 @@ import {
   Shell,
   ExecutionEnvironment,
   OutputMode,
+  PermissionMode,
 } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
@@ -36,7 +37,7 @@ export default class ExecutionConfig extends PMOCommand {
     '<%= config.bin %> execution config --list             # Show all settings',
     '<%= config.bin %> execution config --set defaultEnvironment host',
     '<%= config.bin %> execution config --set outputMode interactive',
-    '<%= config.bin %> execution config --set sandboxed true',
+    '<%= config.bin %> execution config --set permissionMode safe',
     '<%= config.bin %> execution config --setting outputMode --json  # Show output mode choices',
   ]
 
@@ -121,7 +122,7 @@ export default class ExecutionConfig extends PMOCommand {
             defaultEnvironment: config.defaultEnvironment,
             defaultExecutor: config.defaultExecutor,
             outputMode: config.outputMode,
-            sandboxed: config.sandboxed,
+            permissionMode: config.permissionMode,
           }, createMetadata('execution config', flags))
         } else {
           this.log('')
@@ -134,7 +135,7 @@ export default class ExecutionConfig extends PMOCommand {
           this.log('')
           this.log(styles.emphasis('Output'))
           this.log(`  outputMode:         ${config.outputMode}`)
-          this.log(`  sandboxed:          ${config.sandboxed}`)
+          this.log(`  permissionMode:     ${config.permissionMode}`)
           this.log('')
           this.log(styles.emphasis('Terminal'))
           this.log(`  app:                ${config.terminal.app}`)
@@ -162,7 +163,7 @@ export default class ExecutionConfig extends PMOCommand {
       const settingChoices = [
         { name: `Default Environment: ${config.defaultEnvironment}`, value: 'defaultEnvironment', command: 'prlt execution config --setting defaultEnvironment --json' },
         { name: `Output Mode: ${config.outputMode}`, value: 'outputMode', command: 'prlt execution config --setting outputMode --json' },
-        { name: `Permission Mode: ${config.sandboxed ? 'safe' : 'danger'}`, value: 'sandboxed', command: 'prlt execution config --setting sandboxed --json' },
+        { name: `Permission Mode: ${config.permissionMode}`, value: 'permissionMode', command: 'prlt execution config --setting permissionMode --json' },
         { name: `Terminal App: ${config.terminal.app}`, value: 'terminal.app', command: 'prlt execution config --setting terminal.app --json' },
         { name: `Open Tabs in Background: ${config.terminal.openInBackground}`, value: 'terminal.openInBackground', command: 'prlt execution config --setting terminal.openInBackground --json' },
         { name: `Shell: ${config.shell}`, value: 'shell', command: 'prlt execution config --setting shell --json' },
@@ -217,7 +218,7 @@ export default class ExecutionConfig extends PMOCommand {
       case 'defaultEnvironment': {
         const envChoices = [
           { name: 'host - Run directly on host machine', value: 'host', command: 'prlt execution config --set "defaultEnvironment host" --json' },
-          { name: 'devcontainer - Run in a devcontainer (sandboxed)', value: 'devcontainer', command: 'prlt execution config --set "defaultEnvironment devcontainer" --json' },
+          { name: 'devcontainer - Run in a devcontainer (isolated)', value: 'devcontainer', command: 'prlt execution config --set "defaultEnvironment devcontainer" --json' },
           { name: 'docker - Run in a Docker container', value: 'docker', command: 'prlt execution config --set "defaultEnvironment docker" --json' },
           { name: 'vm - Run on a remote VM', value: 'vm', command: 'prlt execution config --set "defaultEnvironment vm" --json' },
         ]
@@ -254,10 +255,10 @@ export default class ExecutionConfig extends PMOCommand {
         break
       }
 
-      case 'sandboxed': {
+      case 'permissionMode': {
         const permChoices = [
-          { name: 'safe - Requires approval for dangerous operations (recommended)', value: 'true', command: 'prlt execution config --set "sandboxed true" --json' },
-          { name: 'danger - Skip permission checks (--dangerously-skip-permissions)', value: 'false', command: 'prlt execution config --set "sandboxed false" --json' },
+          { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe', command: 'prlt execution config --set "permissionMode safe" --json' },
+          { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger', command: 'prlt execution config --set "permissionMode danger" --json' },
         ]
         const { newPerm } = await this.prompt<{ newPerm: string }>([
           {
@@ -265,11 +266,11 @@ export default class ExecutionConfig extends PMOCommand {
             name: 'newPerm',
             message: 'Select permission mode:',
             choices: permChoices,
-            default: String(config.sandboxed),
+            default: config.permissionMode,
           },
         ], jsonModeConfig)
-        this.setConfigValue(db, 'sandboxed', newPerm, false)
-        this.log(styles.success(`Permission mode set to: ${newPerm === 'true' ? 'safe' : 'danger'}`))
+        this.setConfigValue(db, 'permissionMode', newPerm, false)
+        this.log(styles.success(`Permission mode set to: ${newPerm}`))
         break
       }
 
@@ -373,7 +374,7 @@ export default class ExecutionConfig extends PMOCommand {
     const VALID_VALUES: Record<string, string[]> = {
       defaultenvironment: ['host', 'devcontainer', 'docker', 'vm'],
       outputmode: ['interactive', 'print'],
-      sandboxed: ['true', 'false'],
+      permissionmode: ['safe', 'danger'],
       'terminal.app': ['Terminal', 'iTerm', 'Alacritty', 'Ghostty', 'Kitty', 'tmux', 'Warp', 'WezTerm'],
       'terminal.openinbackground': ['true', 'false'],
       shell: ['bash', 'zsh', 'fish'],
@@ -400,9 +401,9 @@ export default class ExecutionConfig extends PMOCommand {
         // Store output mode - need to add this to the config storage
         this.setOutputMode(db, value as OutputMode)
         break
-      case 'sandboxed':
-        // Store sandboxed preference
-        this.setSandboxed(db, value.toLowerCase() === 'true')
+      case 'permissionmode':
+        // Store permission mode preference
+        this.setPermissionMode(db, value as PermissionMode)
         break
       case 'terminal.app':
         saveTerminalApp(db, value as TerminalApp)
@@ -440,9 +441,9 @@ export default class ExecutionConfig extends PMOCommand {
   }
 
   /**
-   * Save sandboxed preference to workspace settings
+   * Save permission mode preference to workspace settings
    */
-  private setSandboxed(db: Database.Database, sandboxed: boolean): void {
-    saveExecutionSetting(db, 'sandboxed', sandboxed.toString())
+  private setPermissionMode(db: Database.Database, mode: PermissionMode): void {
+    saveExecutionSetting(db, 'permissionMode', mode)
   }
 }

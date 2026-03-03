@@ -23,6 +23,7 @@ import {
   OutputMode,
   ExecutionContext,
   ExecutionEnvironment,
+  PermissionMode,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
@@ -336,7 +337,7 @@ Clean up your tmux session when done.`,
       }
 
       // Resolve permission mode (default to danger for QA since it's in a container)
-      const sandboxed = await this.resolvePermissionMode(flags, jsonMode, jsonModeConfig, environment, displayMode)
+      const permissionMode = await this.resolvePermissionMode(flags, jsonMode, jsonModeConfig, environment, displayMode)
       if (jsonMode && !flags['permission-mode']) { db.close(); return }
 
       // Create an adhoc QA ticket
@@ -399,7 +400,7 @@ Clean up your tmux session when done.`,
         executor: 'claude-code',
         environment,
         displayMode,
-        sandboxed,
+        permissionMode,
         branch: 'main',
       })
 
@@ -408,7 +409,7 @@ Clean up your tmux session when done.`,
 
       // Load execution config
       const executionConfig = loadExecutionConfig(db)
-      executionConfig.sandboxed = sandboxed
+      executionConfig.permissionMode = permissionMode
       executionConfig.outputMode = 'interactive' as OutputMode
 
       // For terminal mode, ensure terminal preference is set
@@ -433,7 +434,7 @@ Clean up your tmux session when done.`,
       this.log(styles.muted(`   Work ID: ${execution.id}`))
       this.log(styles.muted(`   Environment: ${environment === 'devcontainer' ? '🐳' : '💻'} ${environment}`))
       this.log(styles.muted(`   Display: ${displayMode}${flags.watch ? ' (watch mode)' : ''}`))
-      this.log(styles.muted(`   Permissions: ${sandboxed ? '🔒 safe' : '⚠️  danger'}`))
+      this.log(styles.muted(`   Permissions: ${permissionMode === 'safe' ? '🔒 safe' : '⚠️  danger'}`))
       this.log('')
 
       // Run execution
@@ -518,7 +519,7 @@ Clean up your tmux session when done.`,
     }
 
     // Resolve permission mode
-    const sandboxed = await this.resolvePermissionMode(flags, jsonMode, jsonModeConfig, environment, displayMode)
+    const permissionMode = await this.resolvePermissionMode(flags, jsonMode, jsonModeConfig, environment, displayMode)
     if (jsonMode && !flags['permission-mode']) return
 
     const sessionName = `qa-explore-${Date.now().toString(36)}`
@@ -568,7 +569,7 @@ Clean up your tmux session when done.`,
 
     // Load execution config
     const executionConfig = { ...DEFAULT_EXECUTION_CONFIG }
-    executionConfig.sandboxed = sandboxed
+    executionConfig.permissionMode = permissionMode
     executionConfig.outputMode = 'interactive' as OutputMode
 
     // For terminal mode, prompt for terminal preference
@@ -606,7 +607,7 @@ Clean up your tmux session when done.`,
     this.log(styles.muted(`   Directory: ${workDir}`))
     this.log(styles.muted(`   Environment: ${environment === 'devcontainer' ? '🐳' : '💻'} ${environment}`))
     this.log(styles.muted(`   Display: ${displayMode}${flags.watch ? ' (watch mode)' : ''}`))
-    this.log(styles.muted(`   Permissions: ${sandboxed ? '🔒 safe' : '⚠️  danger'}`))
+    this.log(styles.muted(`   Permissions: ${permissionMode === 'safe' ? '🔒 safe' : '⚠️  danger'}`))
     this.log('')
 
     // Run execution
@@ -652,8 +653,8 @@ Clean up your tmux session when done.`,
 
     const hasProjectDevcontainer = hasDevcontainerConfig(workDir)
     const devcontainerLabel = hasProjectDevcontainer
-      ? '🐳 devcontainer (uses project config, sandboxed)'
-      : '🐳 devcontainer (uses catch-all container, sandboxed)'
+      ? '🐳 devcontainer (uses project config, isolated)'
+      : '🐳 devcontainer (uses catch-all container, isolated)'
 
     if (jsonMode) {
       await this.prompt<{ selectedEnv: string }>([
@@ -777,9 +778,9 @@ Clean up your tmux session when done.`,
     jsonModeConfig: { flags: Record<string, unknown>; commandName: string } | null,
     environment: string,
     displayMode: string
-  ): Promise<boolean> {
+  ): Promise<PermissionMode> {
     if (flags['permission-mode']) {
-      return flags['permission-mode'] === 'safe'
+      return (flags['permission-mode'] || 'safe') as PermissionMode
     }
 
     const containerNote = environment === 'devcontainer' ? ' (container provides isolation)' : ''
@@ -795,8 +796,8 @@ Clean up your tmux session when done.`,
         default: 'danger',
       },
     ], jsonModeConfig)
-    if (jsonMode) return true // unreachable
-    return permissionMode === 'safe'
+    if (jsonMode) return 'safe' // unreachable
+    return permissionMode as PermissionMode
   }
 
   /**

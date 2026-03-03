@@ -13,7 +13,7 @@ import {
   isDevcontainerCliInstalled,
   AgentStrategy,
 } from '../../lib/execution/spawner.js'
-import { DisplayMode, ExecutionEnvironment, ExecutionConfig } from '../../lib/execution/types.js'
+import { DisplayMode, ExecutionEnvironment, ExecutionConfig, PermissionMode } from '../../lib/execution/types.js'
 import { promptExecutionSettings } from '../../lib/execution/config.js'
 import {
   shouldOutputJson,
@@ -194,7 +194,7 @@ export default class WorkWatch extends PMOCommand {
       if (!flags.mode) {
         if (hasDevcontainer) {
           const envChoices = [
-            { name: '🐳 devcontainer (sandboxed, recommended)', value: 'devcontainer' },
+            { name: '🐳 devcontainer (isolated, recommended)', value: 'devcontainer' },
             { name: '💻 host (runs directly on your machine)', value: 'host' },
           ]
 
@@ -289,13 +289,13 @@ export default class WorkWatch extends PMOCommand {
       const promptResult = await promptExecutionSettings(db, {
         displayMode: this.displayMode,
         environment: this.environment,
-        skipPermissions: flags['skip-permissions'] ? true : undefined,
+        permissionMode: flags['skip-permissions'] ? 'danger' as PermissionMode : undefined,
         createPR: flags['create-pr'] ? true : undefined,
         log: (msg) => this.log(styles.header(msg)),
         jsonMode: jsonMode ? { flags, commandName: 'work watch' } : undefined,
       })
       this.executionConfig = promptResult.executionConfig
-      this.skipPermissions = promptResult.skipPermissions
+      this.skipPermissions = promptResult.permissionMode === 'danger'
       this.createPR = promptResult.createPR
 
       this.log('')

@@ -1,0 +1,2 @@
+type: added
+description: "TKT-1175: Add fragment-based changelog workflow for agent-driven releases"

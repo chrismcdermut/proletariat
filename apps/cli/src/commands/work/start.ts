@@ -4,7 +4,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
-import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
+import { PMOCommand, pmoBaseFlags, autoExportToBoard, type Ticket } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -35,15 +35,30 @@ import {
   ExecutionEnvironment,
   TerminalApp,
   Shell,
+  PermissionMode,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo, isClaudeExecutor, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod, getCreatePrDefault } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod, getCreatePrDefault, getMirrorToPmoDefault } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
+import {
+  buildLinearMetadata,
+  buildLinearSpawnContextMessage,
+  buildLinearTicketDescription,
+  getLinearIssueByIdentifier,
+} from '../../lib/external-issues/linear.js'
+import {
+  buildJiraMetadata,
+  buildJiraSpawnContextMessage,
+  buildJiraTicketDescription,
+  getJiraIssueByKey,
+} from '../../lib/external-issues/jira.js'
+import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
+import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -103,6 +118,53 @@ function getActiveStaffAgents(
   return result
 }
 
+function parseBooleanSetting(value: string | undefined): boolean | null {
+  if (!value) return null
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'true') return true
+  if (normalized === 'false') return false
+  return null
+}
+
+function isIssueSource(value: string | undefined): value is IssueSource {
+  return value === 'linear' || value === 'jira'
+}
+
+function buildExternalMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
+  return envelope.source.name === 'jira'
+    ? buildJiraMetadata(envelope)
+    : buildLinearMetadata(envelope)
+}
+
+function buildExternalTicketDescription(envelope: NormalizedIssueEnvelope): string {
+  return envelope.source.name === 'jira'
+    ? buildJiraTicketDescription(envelope)
+    : buildLinearTicketDescription(envelope)
+}
+
+function buildExternalSpawnContextMessage(
+  envelope: NormalizedIssueEnvelope,
+  additionalMessage?: string,
+): string {
+  return envelope.source.name === 'jira'
+    ? buildJiraSpawnContextMessage(envelope, additionalMessage)
+    : buildLinearSpawnContextMessage(envelope, additionalMessage)
+}
+
+function getTicketExternalMetadata(ticket: Ticket): {
+  source?: string
+  key?: string
+  id?: string
+  url?: string
+} {
+  return {
+    source: ticket.metadata?.external_source,
+    key: ticket.metadata?.external_key,
+    id: ticket.metadata?.external_id,
+    url: ticket.metadata?.external_url,
+  }
+}
+
 export default class WorkStart extends PMOCommand {
   static description = 'Start work on a ticket (launches an agent to implement it)'
 
@@ -115,6 +177,8 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --all  # Spawn all backlog tickets',
     '<%= config.bin %> <%= command.id %> TKT-001 --prompt "Add unit tests for the API"  # Custom prompt',
+    '<%= config.bin %> <%= command.id %> --from-issue --source linear --key ENG-123',
+    '<%= config.bin %> <%= command.id %> --from-issue --source jira --key PROJ-123 --mirror-to-pmo',
   ]
 
   static args = {
@@ -146,6 +210,21 @@ export default class WorkStart extends PMOCommand {
     }),
     message: Flags.string({
       description: 'Additional instructions appended to any action prompt',
+    }),
+    'from-issue': Flags.boolean({
+      description: 'Start from external issue source instead of internal ticket id',
+      default: false,
+    }),
+    source: Flags.string({
+      description: 'External issue source',
+      options: ['linear', 'jira'],
+    }),
+    key: Flags.string({
+      description: 'External issue key (for example: ENG-123, PROJ-456)',
+    }),
+    'mirror-to-pmo': Flags.boolean({
+      description: 'Mirror external issue data into PMO ticket (default from execution.mirror_to_pmo_default or PRLT_MIRROR_TO_PMO_DEFAULT)',
+      allowNo: true,
     }),
     watch: Flags.boolean({
       char: 'w',
@@ -227,9 +306,118 @@ export default class WorkStart extends PMOCommand {
     }),
   }
 
+  private async findLinkedTicketByEnvelope(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
+    const tickets = await this.storage.listTickets(projectId)
+    return tickets.find((ticket) => {
+      const external = getTicketExternalMetadata(ticket)
+      return external.source === envelope.source.name
+        && (external.key === envelope.source.externalKey || external.id === envelope.source.externalId)
+    })
+  }
+
+  private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket> {
+    const existing = await this.findLinkedTicketByEnvelope(projectId, envelope)
+    const description = buildExternalTicketDescription(envelope)
+    const metadata = buildExternalMetadata(envelope)
+
+    if (existing) {
+      return this.storage.updateTicket(existing.id, {
+        title: envelope.title,
+        description,
+        priority: envelope.priority ?? undefined,
+        category: envelope.category ?? undefined,
+        labels: envelope.labels,
+        metadata: {
+          ...existing.metadata,
+          ...metadata,
+        },
+      })
+    }
+
+    return this.storage.createTicket(projectId, {
+      title: envelope.title,
+      description,
+      priority: envelope.priority ?? undefined,
+      category: envelope.category ?? undefined,
+      labels: envelope.labels,
+      metadata,
+    })
+  }
+
+  private async fetchExternalIssue(
+    source: IssueSource,
+    key: string,
+  ): Promise<NormalizedIssueEnvelope | null> {
+    if (source === 'jira') {
+      return getJiraIssueByKey({}, key)
+    }
+
+    return getLinearIssueByIdentifier({}, key)
+  }
+
+  private async resolveIssueSourceAndKey(
+    input: {
+      source?: string
+      key?: string
+    },
+    jsonMode: boolean,
+  ): Promise<{ source: IssueSource; key: string }> {
+    let source = input.source
+    let key = input.key
+
+    const sourceResolver = new FlagResolver<{ source?: string }>({
+      commandName: 'work start',
+      baseCommand: 'prlt work start --from-issue',
+      jsonMode,
+      flags: {},
+    })
+
+    sourceResolver.addPrompt({
+      flagName: 'source',
+      type: 'list',
+      message: 'Select external issue source:',
+      default: isIssueSource(source) ? source : undefined,
+      when: () => !isIssueSource(source),
+      choices: () => [
+        { name: 'Linear', value: 'linear', command: 'prlt work start --from-issue --source linear --json' },
+        { name: 'Jira', value: 'jira', command: 'prlt work start --from-issue --source jira --json' },
+      ],
+    })
+    const sourceResult = await sourceResolver.resolve()
+    source = source ?? sourceResult.source
+
+    if (!isIssueSource(source)) {
+      throw new Error('Invalid source')
+    }
+
+    const keyResolver = new FlagResolver<{ key?: string }>({
+      commandName: 'work start',
+      baseCommand: `prlt work start --from-issue --source ${source}`,
+      jsonMode,
+      flags: {},
+    })
+
+    keyResolver.addPrompt({
+      flagName: 'key',
+      type: 'input',
+      message: `Enter ${source === 'linear' ? 'Linear' : 'Jira'} issue key:`,
+      default: key,
+      when: () => !key?.trim(),
+      validate: (value) => (value as string).trim().length > 0 ? true : 'Issue key is required',
+    })
+    const keyResult = await keyResolver.resolve()
+    const resolvedKey = (key ?? keyResult.key ?? '').trim()
+
+    if (!resolvedKey) {
+      throw new Error('Issue key is required')
+    }
+
+    return { source, key: resolvedKey }
+  }
+
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStart)
-    const projectId = (flags as { project?: string }).project
+    let projectId = (flags as { project?: string }).project
 
     // Check for conflicting PR flags
     if (flags['create-pr'] && flags['no-pr']) {
@@ -289,6 +477,88 @@ export default class WorkStart extends PMOCommand {
 
       // Get ticketId - prompt if not provided
       let ticketId = args.ticketId
+      let externalIssueContextMessage: string | undefined
+      let fromIssueMirror: boolean | undefined
+      let fromIssueMirrorSource: string | undefined
+
+      if (flags['from-issue']) {
+        if (ticketId) {
+          db.close()
+          return handleError('INVALID_FLAGS', 'Cannot provide a ticket ID positional argument when using --from-issue.')
+        }
+
+        projectId = projectId || await this.requireProject({
+          jsonMode: {
+            flags,
+            commandName: 'work start',
+            baseCommand: 'prlt work start --from-issue',
+          },
+        })
+
+        const sourceAndKey = await this.resolveIssueSourceAndKey({
+          source: flags.source,
+          key: flags.key,
+        }, jsonMode)
+
+        const envMirrorDefault = parseBooleanSetting(process.env.PRLT_MIRROR_TO_PMO_DEFAULT)
+        const configMirrorDefault = getMirrorToPmoDefault(db)
+        const mirrorResolution = resolveMirrorToPmo({
+          flagValue: flags['mirror-to-pmo'],
+          envValue: envMirrorDefault,
+          configValue: configMirrorDefault,
+        })
+        const mirrorToPmo = mirrorResolution.enabled
+        fromIssueMirror = mirrorToPmo
+        fromIssueMirrorSource = mirrorResolution.source
+
+        if (!jsonMode) {
+          this.log(styles.muted(`External issue mirror: ${mirrorToPmo ? 'enabled' : 'disabled'} (${mirrorResolution.source})`))
+        }
+
+        let envelope: NormalizedIssueEnvelope | null = null
+        try {
+          envelope = await this.fetchExternalIssue(sourceAndKey.source, sourceAndKey.key)
+        } catch (error) {
+          if (error instanceof ExternalIssueAdapterError) {
+            db.close()
+            return handleError(
+              `EXTERNAL_ISSUE_${error.code}`,
+              `[${sourceAndKey.source}] ${error.message}`
+            )
+          }
+          const message = error instanceof Error ? error.message : 'Failed to fetch external issue.'
+          db.close()
+          return handleError('EXTERNAL_ISSUE_REQUEST_FAILED', message)
+        }
+
+        if (!envelope) {
+          db.close()
+          return handleError(
+            'EXTERNAL_ISSUE_NOT_FOUND',
+            `${sourceAndKey.source} issue "${sourceAndKey.key}" was not found.`
+          )
+        }
+
+        const existingLinkedTicket = await this.findLinkedTicketByEnvelope(projectId, envelope)
+        let linkedTicket: Ticket
+
+        if (mirrorToPmo) {
+          linkedTicket = await this.createOrUpdateLinkedTicket(projectId, envelope)
+          await autoExportToBoard(this.pmoPath, this.storage)
+        } else {
+          if (!existingLinkedTicket) {
+            db.close()
+            return handleError(
+              'EXTERNAL_ISSUE_NOT_MIRRORED',
+              `No linked PMO ticket found for ${sourceAndKey.source} issue "${sourceAndKey.key}". Re-run with --mirror-to-pmo.`
+            )
+          }
+          linkedTicket = existingLinkedTicket
+        }
+
+        ticketId = linkedTicket.id
+        externalIssueContextMessage = buildExternalSpawnContextMessage(envelope, flags.message)
+      }
 
       if (!ticketId) {
         // Get all tickets, optionally filtered by project if -P/--project flag is provided
@@ -342,6 +612,19 @@ export default class WorkStart extends PMOCommand {
             : earlyConfigPrDefault === false ? 'no-pr'
             : 'no-pr'
           metadata.resolvedPRMode = earlyResolvedPr
+          const externalMetadata = getTicketExternalMetadata(ticket)
+          if (externalMetadata.source || externalMetadata.key) {
+            metadata.externalIssue = {
+              source: externalMetadata.source ?? null,
+              key: externalMetadata.key ?? null,
+              id: externalMetadata.id ?? null,
+              url: externalMetadata.url ?? null,
+            }
+          }
+          if (flags['from-issue']) {
+            metadata.mirrorToPmo = fromIssueMirror ?? null
+            metadata.mirrorToPmoSource = fromIssueMirrorSource ?? null
+          }
 
           // Build the confirm command with --yes
           let confirmCmd = `prlt work start ${ticketId}`
@@ -906,7 +1189,7 @@ export default class WorkStart extends PMOCommand {
         actionEndPrompt: customPrompt ? undefined : selectedAction?.endPrompt,
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
         // Additional instructions from --message flag
-        customMessage: flags.message,
+        customMessage: externalIssueContextMessage ?? flags.message,
       }
 
       // Check if agent has devcontainer config
@@ -918,11 +1201,11 @@ export default class WorkStart extends PMOCommand {
       // Determine execution environment and display mode
       let environment: ExecutionEnvironment = 'host'
       let displayMode: DisplayMode = 'terminal'
-      let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
+      let permissionMode: PermissionMode = 'danger'
 
       if (hasDevcontainer && !flags.display && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
-        const devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
+        const devcontainerLabel = '🐳 devcontainer (isolated, recommended)'
 
         const envChoices = [
           { name: devcontainerLabel, value: 'devcontainer' },
@@ -1359,10 +1642,10 @@ export default class WorkStart extends PMOCommand {
       const defaultPermissionMode = actionModifiesCode ? 'danger' : 'safe'
 
       if (flags['permission-mode']) {
-        sandboxed = flags['permission-mode'] === 'safe'
+        permissionMode = (flags['permission-mode'] || 'danger') as PermissionMode
       } else if (!actionModifiesCode) {
         // Non-code-modifying actions automatically use safe mode
-        sandboxed = true
+        permissionMode = 'safe'
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
@@ -1390,7 +1673,7 @@ export default class WorkStart extends PMOCommand {
         })
 
         const resolvedPermission = await permissionResolver.resolve()
-        sandboxed = resolvedPermission['permission-mode'] === 'safe'
+        permissionMode = (resolvedPermission['permission-mode'] || 'danger') as PermissionMode
       }
 
       // Prompt for PR creation when work is complete
@@ -1462,7 +1745,7 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted(`   Display: ${displayMode}`))
 
         // Permissions info
-        if (sandboxed) {
+        if (permissionMode === 'safe') {
           this.log(styles.success(`   Permissions: 🔒 safe`))
         } else {
           this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
@@ -1686,14 +1969,19 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Create execution record
+      const ticketExternalMetadata = getTicketExternalMetadata(ticket)
       const execution = executionStorage.createExecution({
         ticketId: ticket.id,
         agentName: assignedAgent,
         executor,
         environment,
         displayMode,
-        sandboxed,
+        permissionMode,
         branch,
+        externalSource: ticketExternalMetadata.source,
+        externalKey: ticketExternalMetadata.key,
+        externalId: ticketExternalMetadata.id,
+        externalUrl: ticketExternalMetadata.url,
       })
 
       if (!jsonMode) {
@@ -1741,8 +2029,8 @@ export default class WorkStart extends PMOCommand {
       // Set output mode from user selection
       executionConfig.outputMode = outputMode
 
-      // Set sandboxed mode (determines whether --dangerously-skip-permissions is used)
-      executionConfig.sandboxed = sandboxed
+      // Set permission mode (determines whether --dangerously-skip-permissions is used)
+      executionConfig.permissionMode = permissionMode
 
       // Handle --focus flag: when set, bring terminal to foreground instead of opening in background
       if (flags.focus) {
@@ -2248,7 +2536,7 @@ export default class WorkStart extends PMOCommand {
     const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
     const displayMode: DisplayMode = 'terminal'
     const actionModifiesCode = context.modifiesCode !== false
-    const sandboxed = flags['permission-mode'] === 'safe' || (!flags['permission-mode'] && !actionModifiesCode)
+    const permissionMode: PermissionMode = (flags['permission-mode'] as PermissionMode) || (!actionModifiesCode ? 'safe' : 'danger')
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 
@@ -2287,14 +2575,19 @@ export default class WorkStart extends PMOCommand {
     }
 
     // Create execution record
+    const ticketExternalMetadata = getTicketExternalMetadata(ticket)
     const execution = executionStorage.createExecution({
       ticketId: ticket.id,
       agentName,
       executor,
       environment,
       displayMode,
-      sandboxed,
+      permissionMode,
       branch,
+      externalSource: ticketExternalMetadata.source,
+      externalKey: ticketExternalMetadata.key,
+      externalId: ticketExternalMetadata.id,
+      externalUrl: ticketExternalMetadata.url,
     })
 
     // Note: Ticket status update moved to after successful spawn
@@ -2302,7 +2595,7 @@ export default class WorkStart extends PMOCommand {
     // Load execution config
     const executionConfig = loadExecutionConfig(db)
     executionConfig.outputMode = outputMode
-    executionConfig.sandboxed = sandboxed
+    executionConfig.permissionMode = permissionMode
 
     // Run execution
     this.log(styles.muted(`   Starting ${ticket.id} → ${agentName}...`))

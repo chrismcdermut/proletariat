@@ -16,6 +16,7 @@ import {
   ExecutionEnvironment,
   TerminalApp,
   Shell,
+  PermissionMode,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isDevcontainerCliInstalled, getExecutorDisplayName } from '../../lib/execution/runners.js'
@@ -107,7 +108,7 @@ export default class WorkRevise extends PMOCommand {
       return handleError(
         'DOCKER_NOT_RUNNING',
         'Docker is not running.\n\n' +
-        'Docker is required for devcontainer execution (recommended for agent sandboxing).\n' +
+        'Docker is required for devcontainer execution (recommended for agent isolation).\n' +
         'Please start Docker Desktop and try again.\n\n' +
         'Alternatively, use --run-on-host to run directly on your machine (bypasses sandbox).'
       )
@@ -278,7 +279,7 @@ export default class WorkRevise extends PMOCommand {
       const hasDevcontainer = hasDevcontainerConfig(agentDir)
       let environment: ExecutionEnvironment = 'host'
       let displayMode: DisplayMode = 'terminal'
-      let sandboxed = false
+      let permissionMode: PermissionMode = 'danger'
 
       const reviseJsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work revise' } : null
 
@@ -307,19 +308,19 @@ export default class WorkRevise extends PMOCommand {
       const executorName = getExecutorDisplayName(executor)
 
       // Permission mode
-      const { permissionMode } = await this.prompt<{ permissionMode: string }>([
+      const { permissionMode: selectedPermMode } = await this.prompt<{ permissionMode: string }>([
         {
           type: 'list',
           name: 'permissionMode',
           message: `Permission mode for ${executorName}:`,
           choices: [
-            { name: 'danger - Skip permission checks (faster for revisions)', value: 'danger', command: `prlt work revise ${ticketId} --json` },
-            { name: 'safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt work revise ${ticketId} --json` },
+            { name: '⚠️  danger - Skip permission checks (faster for revisions)', value: 'danger', command: `prlt work revise ${ticketId} --json` },
+            { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: `prlt work revise ${ticketId} --json` },
           ],
           default: 'danger',
         },
       ], reviseJsonModeConfig)
-      sandboxed = permissionMode === 'safe'
+      permissionMode = selectedPermMode as PermissionMode
 
       // Show execution info
       this.log('')
@@ -357,7 +358,7 @@ export default class WorkRevise extends PMOCommand {
         executor,
         environment,
         displayMode,
-        sandboxed,
+        permissionMode,
         branch,
       })
 
@@ -402,7 +403,7 @@ export default class WorkRevise extends PMOCommand {
       }
 
       executionConfig.outputMode = 'interactive' as OutputMode
-      executionConfig.sandboxed = sandboxed
+      executionConfig.permissionMode = permissionMode
 
       // Run execution
       this.log(styles.muted('Starting agent to address feedback...'))

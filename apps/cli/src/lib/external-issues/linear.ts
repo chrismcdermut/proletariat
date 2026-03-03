@@ -38,6 +38,28 @@ const LINEAR_ISSUES_QUERY = `
   }
 `
 
+const LINEAR_ISSUE_BY_IDENTIFIER_QUERY = `
+  query IssueForSpawn($id: String!) {
+    issue(id: $id) {
+      id
+      identifier
+      title
+      description
+      url
+      priority
+      labels {
+        nodes {
+          name
+        }
+      }
+      state {
+        name
+        type
+      }
+    }
+  }
+`
+
 interface LinearIssueLabel {
   name?: string
 }
@@ -87,7 +109,10 @@ function priorityFromLinear(value: number | null | undefined): string | null {
   }
 }
 
-function ensureLinearConfig(config: LinearAdapterConfig): Required<LinearAdapterConfig> {
+function ensureLinearConfig(
+  config: LinearAdapterConfig,
+  options?: { requireTeam?: boolean },
+): { apiKey: string; apiUrl: string; team?: string } {
   const apiKey = config.apiKey || process.env.LINEAR_API_KEY || process.env.PRLT_LINEAR_API_KEY
   const team = config.team || process.env.PRLT_LINEAR_TEAM || process.env.LINEAR_TEAM_KEY
   const apiUrl = config.apiUrl || process.env.PRLT_LINEAR_API_URL || DEFAULT_LINEAR_API_URL
@@ -99,7 +124,8 @@ function ensureLinearConfig(config: LinearAdapterConfig): Required<LinearAdapter
     )
   }
 
-  if (!team) {
+  const requireTeam = options?.requireTeam ?? true
+  if (requireTeam && !team) {
     throw new ExternalIssueAdapterError(
       'MISSING_CONFIG',
       'Missing Linear team key. Pass --team or set PRLT_LINEAR_TEAM.',
@@ -228,6 +254,69 @@ export function buildLinearIssueChoiceCommand(issueIdentifier: string, projectId
     command += ` -P ${projectId}`
   }
   return command
+}
+
+/**
+ * Fetch a single Linear issue by identifier (for example, ENG-123) and normalize it.
+ */
+export async function getLinearIssueByIdentifier(
+  configInput: LinearAdapterConfig,
+  identifier: string,
+  options?: {
+    fetchImpl?: typeof fetch
+  },
+): Promise<NormalizedIssueEnvelope | null> {
+  const config = ensureLinearConfig(configInput, { requireTeam: false })
+  const fetchImpl = options?.fetchImpl || fetch
+
+  const response = await fetchImpl(config.apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: config.apiKey,
+    },
+    body: JSON.stringify({
+      query: LINEAR_ISSUE_BY_IDENTIFIER_QUERY,
+      variables: {
+        id: identifier,
+      },
+    }),
+  })
+
+  if (response.status === 401 || response.status === 403) {
+    throw new ExternalIssueAdapterError(
+      'AUTH_FAILED',
+      'Linear authentication failed. Verify your LINEAR_API_KEY token.',
+    )
+  }
+
+  if (!response.ok) {
+    throw new ExternalIssueAdapterError(
+      'REQUEST_FAILED',
+      `Linear request failed with status ${response.status}.`,
+    )
+  }
+
+  const payload = await response.json() as {
+    data?: { issue?: LinearIssueNode | null }
+    errors?: Array<{ message?: string }>
+  }
+
+  if (payload.errors && payload.errors.length > 0) {
+    const message = payload.errors[0]?.message || 'Unknown Linear API error.'
+    if (/auth|token|forbidden|unauthorized/i.test(message)) {
+      throw new ExternalIssueAdapterError('AUTH_FAILED', `Linear authentication failed: ${message}`)
+    }
+    // "not found" should be treated as null, not hard failure.
+    if (/not found/i.test(message)) {
+      return null
+    }
+    throw new ExternalIssueAdapterError('REQUEST_FAILED', `Linear API error: ${message}`)
+  }
+
+  const node = payload.data?.issue
+  if (!node) return null
+  return normalizeLinearIssueToEnvelope(node)
 }
 
 /**

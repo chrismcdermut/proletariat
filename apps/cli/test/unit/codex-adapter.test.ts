@@ -118,34 +118,34 @@ describe('Codex Runtime Adapter (TKT-1167)', () => {
 
   describe('getCodexCommand', () => {
     describe('danger mode', () => {
-      it('should return codex --yolo --prompt for danger + interactive', () => {
+      it('should return codex --yolo <prompt> for danger + interactive', () => {
         const result = getCodexCommand(testPrompt, 'danger', 'interactive')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
+        expect(result.args).to.deep.equal(['--yolo', testPrompt])
         expect(result.yolo).to.be.true
         expect(result.executionContext).to.equal('interactive')
       })
 
-      it('should return codex --yolo --prompt for danger + background', () => {
+      it('should return codex --yolo <prompt> for danger + background', () => {
         const result = getCodexCommand(testPrompt, 'danger', 'background')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
+        expect(result.args).to.deep.equal(['--yolo', testPrompt])
         expect(result.yolo).to.be.true
       })
 
-      it('should return codex --yolo --prompt for danger + non-tty', () => {
+      it('should return codex --yolo <prompt> for danger + non-tty', () => {
         const result = getCodexCommand(testPrompt, 'danger', 'non-tty')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
+        expect(result.args).to.deep.equal(['--yolo', testPrompt])
         expect(result.yolo).to.be.true
       })
     })
 
     describe('safe mode', () => {
-      it('should return codex --prompt (no --yolo) for safe + interactive', () => {
+      it('should return codex <prompt> (no --yolo) for safe + interactive', () => {
         const result = getCodexCommand(testPrompt, 'safe', 'interactive')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--prompt', testPrompt])
+        expect(result.args).to.deep.equal([testPrompt])
         expect(result.yolo).to.be.false
         expect(result.executionContext).to.equal('interactive')
       })
@@ -210,7 +210,7 @@ describe('Codex Runtime Adapter (TKT-1167)', () => {
       it('should handle empty prompts', () => {
         const result = getCodexCommand('', 'danger', 'interactive')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', '--prompt', ''])
+        expect(result.args).to.deep.equal(['--yolo', ''])
       })
     })
   })

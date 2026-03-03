@@ -60,6 +60,10 @@ export default class ExecutionList extends PMOCommand {
     const executionStorage = new ExecutionStorage(db)
 
     try {
+      // Keep execution status truthful: mark missing tmux/container sessions as stopped
+      // before listing so "running" only reflects actually active work.
+      executionStorage.cleanupStaleExecutions()
+
       const executions = executionStorage.listExecutions({
         status: flags.status as ExecutionStatus | undefined,
         agentName: flags.agent,
@@ -104,8 +108,8 @@ export default class ExecutionList extends PMOCommand {
         const timeAgo = formatTimeAgo(exec.startedAt)
         const envIcon = exec.environment === 'devcontainer' ? '🐳' : (exec.environment === 'host' ? '💻' : '📦')
         const envStr = `${envIcon} ${exec.environment}`
-        const permsStr = exec.sandboxed ? 'safe' : 'danger'
-        const permsColor = exec.sandboxed ? styles.success : styles.warning
+        const permsStr = exec.permissionMode
+        const permsColor = exec.permissionMode === 'safe' ? styles.success : styles.warning
 
         this.log(
           visualPadEnd(exec.id, 14) +
