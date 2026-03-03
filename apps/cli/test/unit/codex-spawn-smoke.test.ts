@@ -136,7 +136,7 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
       )
 
       expect(command).to.include('docker exec')
-      expect(command).to.include('codex --yolo')
+      expect(command).to.include('codex --yolo ')
       expect(command).to.not.include('--permission-mode')
       expect(command).to.not.include('--dangerously-skip-permissions')
     })

@@ -130,6 +130,10 @@ export interface AgentWork {
   sessionId?: string
   host?: string
   logPath?: string
+  externalSource?: string
+  externalKey?: string
+  externalId?: string
+  externalUrl?: string
   startedAt: Date
   completedAt?: Date
   exitCode?: number

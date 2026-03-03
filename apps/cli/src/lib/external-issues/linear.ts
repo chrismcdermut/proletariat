@@ -109,7 +109,10 @@ function priorityFromLinear(value: number | null | undefined): string | null {
   }
 }
 
-function ensureLinearConfig(config: LinearAdapterConfig): Required<LinearAdapterConfig> {
+function ensureLinearConfig(
+  config: LinearAdapterConfig,
+  options?: { requireTeam?: boolean },
+): { apiKey: string; apiUrl: string; team?: string } {
   const apiKey = config.apiKey || process.env.LINEAR_API_KEY || process.env.PRLT_LINEAR_API_KEY
   const team = config.team || process.env.PRLT_LINEAR_TEAM || process.env.LINEAR_TEAM_KEY
   const apiUrl = config.apiUrl || process.env.PRLT_LINEAR_API_URL || DEFAULT_LINEAR_API_URL
@@ -121,7 +124,8 @@ function ensureLinearConfig(config: LinearAdapterConfig): Required<LinearAdapter
     )
   }
 
-  if (!team) {
+  const requireTeam = options?.requireTeam ?? true
+  if (requireTeam && !team) {
     throw new ExternalIssueAdapterError(
       'MISSING_CONFIG',
       'Missing Linear team key. Pass --team or set PRLT_LINEAR_TEAM.',
@@ -262,7 +266,7 @@ export async function getLinearIssueByIdentifier(
     fetchImpl?: typeof fetch
   },
 ): Promise<NormalizedIssueEnvelope | null> {
-  const config = ensureLinearConfig(configInput)
+  const config = ensureLinearConfig(configInput, { requireTeam: false })
   const fetchImpl = options?.fetchImpl || fetch
 
   const response = await fetchImpl(config.apiUrl, {

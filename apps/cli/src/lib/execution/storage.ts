@@ -38,6 +38,10 @@ interface AgentWorkRow {
   session_id: string | null
   host: string | null
   log_path: string | null
+  external_source: string | null
+  external_key: string | null
+  external_id: string | null
+  external_url: string | null
   started_at: number
   completed_at: number | null
   exit_code: number | null
@@ -64,6 +68,10 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     sessionId: row.session_id || undefined,
     host: row.host || undefined,
     logPath: row.log_path || undefined,
+    externalSource: row.external_source || undefined,
+    externalKey: row.external_key || undefined,
+    externalId: row.external_id || undefined,
+    externalUrl: row.external_url || undefined,
     startedAt: new Date(row.started_at),
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
     exitCode: row.exit_code ?? undefined,
@@ -99,6 +107,10 @@ export class ExecutionStorage {
     sessionId?: string
     host?: string
     logPath?: string
+    externalSource?: string
+    externalKey?: string
+    externalId?: string
+    externalUrl?: string
   }): AgentWork {
     const now = Date.now()
 
@@ -109,8 +121,9 @@ export class ExecutionStorage {
     this.db.prepare(`
       INSERT INTO ${T.agent_work} (
         id, ticket_id, agent_name, executor, environment, display_mode, permission_mode,
-        status, branch, pid, container_id, session_id, host, log_path, started_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
+        status, branch, pid, container_id, session_id, host, log_path,
+        external_source, external_key, external_id, external_url, started_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       params.ticketId,
@@ -125,6 +138,10 @@ export class ExecutionStorage {
       params.sessionId || null,
       params.host || null,
       params.logPath || null,
+      params.externalSource || null,
+      params.externalKey || null,
+      params.externalId || null,
+      params.externalUrl || null,
       now
     )
 

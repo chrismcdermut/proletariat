@@ -183,7 +183,7 @@ export function getCodexCommand(
     args.push('--yolo')
   }
 
-  // Codex expects the launch prompt as a positional argument, not --prompt.
+  // Codex CLI expects the initial prompt as a positional argument.
   args.push(prompt)
 
   return {

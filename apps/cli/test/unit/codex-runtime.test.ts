@@ -228,13 +228,13 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
   // buildTmuxScript tests removed - function was removed from runners.ts
 
   describe('Codex CLI flag contract', () => {
-    it('should pass prompt as positional arg in danger mode', () => {
+    it('should pass prompt as positional argument in danger mode', () => {
       const result = getExecutorCommand('codex', 'build the feature', true)
       expect(result.args).to.include('--yolo')
       expect(result.args).to.deep.equal(['--yolo', 'build the feature'])
     })
 
-    it('should pass prompt as positional arg in safe mode', () => {
+    it('should pass prompt as positional argument in safe mode', () => {
       const result = getExecutorCommand('codex', 'implement feature', false)
       expect(result.args).to.deep.equal(['implement feature'])
     })
