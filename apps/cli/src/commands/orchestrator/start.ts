@@ -72,6 +72,8 @@ export default class OrchestratorStart extends PromptCommand {
     '<%= config.bin %> <%= command.id %> --skip-permissions',
     '<%= config.bin %> <%= command.id %> --prompt "coordinate all agents on TKT-100"',
     '<%= config.bin %> <%= command.id %> --background',
+    '<%= config.bin %> <%= command.id %> --docker  # Run in Docker container (sibling pattern)',
+    '<%= config.bin %> <%= command.id %> --run-on-host  # Explicitly run on host machine',
   ]
 
   static flags = {
