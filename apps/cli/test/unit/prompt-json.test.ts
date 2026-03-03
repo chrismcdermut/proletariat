@@ -91,6 +91,22 @@ describe('prompt-json', () => {
       const metadata = createMetadata('test', {});
       expect(metadata.timestamp).to.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     });
+
+    it('supports external issue confirmation metadata fields', () => {
+      const metadata = createMetadata('work start', { json: true });
+      metadata.externalIssue = {
+        source: 'jira',
+        key: 'PROJ-123',
+        id: '10001',
+        url: 'https://example.atlassian.net/browse/PROJ-123',
+      };
+      metadata.mirrorToPmo = true;
+      metadata.mirrorToPmoSource = 'workspace config';
+
+      expect(metadata.externalIssue?.key).to.equal('PROJ-123');
+      expect(metadata.mirrorToPmo).to.equal(true);
+      expect(metadata.mirrorToPmoSource).to.equal('workspace config');
+    });
   });
 
   describe('normalizeChoices', () => {
