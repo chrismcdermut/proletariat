@@ -671,7 +671,7 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(step2!.prompt.name).to.equal('spec');
 
         // Find the test spec
-        const specChoice = findChoice(step2!.prompt.choices!, 'ticket-flow-spec');
+        const specChoice = findChoice(step2!.prompt.choices!, 'Ticket Flow Spec');
         expect(specChoice).to.exist;
 
         // Step 3: Execute with spec selected

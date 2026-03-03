@@ -444,8 +444,8 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     it('should display sandbox status correctly', () => {
-      createExecution(db, 'TKT-001', 'agent-1', 'running', { sandboxed: true });
-      createExecution(db, 'TKT-002', 'agent-2', 'running', { sandboxed: false });
+      createExecution(db, 'TKT-001', 'agent-1', 'running', { permission_mode: 'safe' });
+      createExecution(db, 'TKT-002', 'agent-2', 'running', { permission_mode: 'danger' });
 
       const output = exec('execution list');
       expect(output).to.contain('safe');
