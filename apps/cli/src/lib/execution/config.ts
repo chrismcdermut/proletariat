@@ -46,6 +46,7 @@ const CONFIG_KEYS = {
   coderName: 'coder.name',
   authMethod: 'execution.auth_method',
   createPrDefault: 'execution.create_pr_default',
+  mirrorToPmoDefault: 'execution.mirror_to_pmo_default',
 }
 
 /**
@@ -301,6 +302,24 @@ export function getCreatePrDefault(db: Database.Database): boolean | null {
  */
 export function saveCreatePrDefault(db: Database.Database, createPr: boolean): void {
   setSetting(db, CONFIG_KEYS.createPrDefault, createPr.toString())
+}
+
+/**
+ * Get saved external issue mirror default preference.
+ * Returns null if no preference has been saved.
+ */
+export function getMirrorToPmoDefault(db: Database.Database): boolean | null {
+  const value = getSetting(db, CONFIG_KEYS.mirrorToPmoDefault)
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return null
+}
+
+/**
+ * Save external issue mirror default preference.
+ */
+export function saveMirrorToPmoDefault(db: Database.Database, mirrorToPmo: boolean): void {
+  setSetting(db, CONFIG_KEYS.mirrorToPmoDefault, mirrorToPmo.toString())
 }
 
 /**

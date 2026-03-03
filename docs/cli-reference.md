@@ -276,6 +276,11 @@ Options:
   --mode <mode>          Execution mode (docker, terminal, tmux, etc.)
   --action <action>      Action (implement, groom, review)
   --prompt <text>        Custom prompt
+  --from-issue           Resolve ticket from external issue source
+  --source <source>      External source: linear | jira (with --from-issue)
+  --key <key>            External issue key (with --from-issue)
+  --mirror-to-pmo        Create/update linked PMO ticket from external issue
+  --no-mirror-to-pmo     Require existing linked PMO ticket (no mirror write)
   --force                Start even if work in progress
   --create-pr            Create PR when done (overrides workspace default)
   --no-pr                [deprecated] Don't create PR (omit --create-pr instead)
@@ -291,6 +296,8 @@ Options:
 prlt work start TKT-001
 prlt work start TKT-001 --mode docker --action implement
 prlt work start TKT-001 --create-pr        # Explicitly create PR
+prlt work start --from-issue --source linear --key ENG-123
+prlt work start --from-issue --source jira --key PROJ-123 --mirror-to-pmo
 ```
 
 #### `prlt work spawn`
@@ -317,28 +324,6 @@ prlt work spawn --all --column Planned
 prlt work spawn TKT-001 TKT-002 TKT-003
 prlt work spawn --all --dry-run
 prlt work spawn TKT-001 TKT-002 --create-pr   # Ensure PRs are created
-```
-
-#### `prlt work linear`
-
-List/select Linear issues, create or update linked internal ticket context, and spawn work using `work start`.
-
-```bash
-prlt work linear [options]
-
-Options:
-  --team <key>           Linear team key (fallback: PRLT_LINEAR_TEAM)
-  --issue <id>           Linear issue identifier (e.g., ENG-123)
-  --limit <n>            Number of issues to fetch (default: 20)
-  --action <action>      Work action for spawn (default: implement)
-  --display <mode>       terminal | background | foreground
-  --skip-permissions     Use danger mode
-  --create-pr            Create PR when work is ready
-  --yes                  Skip downstream confirmation prompts
-
-# Examples
-prlt work linear --team ENG
-prlt work linear --team ENG --issue ENG-123 --yes --display terminal --skip-permissions
 ```
 
 #### `prlt work linear`
