@@ -267,6 +267,15 @@ describe('External Issues', () => {
         }
       });
 
+      it('rejects priority outside canonical P0-P3 scale', () => {
+        const data = { ...makeEnvelope(), priority: 'Urgent' };
+        const result = validateIssueEnvelope(data);
+        expect(result.valid).to.equal(false);
+        if (!result.valid) {
+          expect(result.errors.some((e) => e.field === 'priority' && e.code === 'INVALID_FIELD_TYPE')).to.be.true;
+        }
+      });
+
       it('rejects non-string, non-null item_type when provided', () => {
         const data = { ...makeEnvelope(), item_type: 123 };
         const result = validateIssueEnvelope(data);
@@ -612,6 +621,17 @@ describe('External Issues', () => {
   // mapToSpawnContext
   // ===========================================================================
   describe('mapToSpawnContext', () => {
+    it('throws validation error for invalid input', () => {
+      try {
+        mapToSpawnContext({ source: 'linear' });
+        expect.fail('should have thrown');
+      } catch (err) {
+        expect(err).to.be.instanceOf(ExternalIssueError);
+        const issueErr = err as ExternalIssueError;
+        expect(issueErr.code).to.equal('VALIDATION_FAILED');
+      }
+    });
+
     it('produces prompt with title as heading', () => {
       const ctx = mapToSpawnContext(makeEnvelope());
       expect(ctx.prompt).to.include('# Fix login redirect');

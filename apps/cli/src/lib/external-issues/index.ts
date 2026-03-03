@@ -46,3 +46,19 @@ export {
 
 // Mapping store
 export { ExternalExecutionMappingStore } from './mapping-store.js'
+
+// Source helpers
+export {
+  normalizeJiraIssue,
+  normalizeJiraIssueToEnvelope,
+  buildJiraTicketDescription,
+  buildJiraMetadata,
+  buildJiraSpawnContextMessage,
+  getJiraIssueByKey,
+} from './jira.js'
+
+export {
+  resolveMirrorToPmo,
+  type MirrorResolution,
+  type MirrorResolutionInput,
+} from './work-start.js'

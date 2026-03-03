@@ -1,0 +1,75 @@
+import Database from 'better-sqlite3'
+import type { AsanaConfig } from './types.js'
+
+const SETTINGS_TABLE = 'workspace_settings'
+
+const ASANA_CONFIG_KEYS = {
+  accessToken: 'asana.access_token',
+  workspaceGid: 'asana.workspace_gid',
+  workspaceName: 'asana.workspace_name',
+  projectGid: 'asana.project_gid',
+  projectName: 'asana.project_name',
+} as const
+
+function getSetting(db: Database.Database, key: string): string | null {
+  const row = db
+    .prepare(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`)
+    .get(key) as { value: string } | undefined
+  return row?.value ?? null
+}
+
+function setSetting(db: Database.Database, key: string, value: string): void {
+  db.prepare(`
+    INSERT INTO ${SETTINGS_TABLE} (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value)
+}
+
+function deleteSetting(db: Database.Database, key: string): void {
+  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(key)
+}
+
+export function isAsanaConfigured(db: Database.Database): boolean {
+  return getSetting(db, ASANA_CONFIG_KEYS.accessToken) !== null
+}
+
+export function loadAsanaConfig(db: Database.Database): AsanaConfig | null {
+  const accessToken = getSetting(db, ASANA_CONFIG_KEYS.accessToken)
+  if (!accessToken) return null
+
+  return {
+    accessToken,
+    workspaceGid: getSetting(db, ASANA_CONFIG_KEYS.workspaceGid) ?? undefined,
+    workspaceName: getSetting(db, ASANA_CONFIG_KEYS.workspaceName) ?? undefined,
+    projectGid: getSetting(db, ASANA_CONFIG_KEYS.projectGid) ?? undefined,
+    projectName: getSetting(db, ASANA_CONFIG_KEYS.projectName) ?? undefined,
+  }
+}
+
+export function saveAsanaAccessToken(db: Database.Database, accessToken: string): void {
+  setSetting(db, ASANA_CONFIG_KEYS.accessToken, accessToken)
+}
+
+export function saveAsanaWorkspace(db: Database.Database, workspaceGid: string, workspaceName: string): void {
+  setSetting(db, ASANA_CONFIG_KEYS.workspaceGid, workspaceGid)
+  setSetting(db, ASANA_CONFIG_KEYS.workspaceName, workspaceName)
+}
+
+export function saveAsanaProject(db: Database.Database, projectGid: string, projectName: string): void {
+  setSetting(db, ASANA_CONFIG_KEYS.projectGid, projectGid)
+  setSetting(db, ASANA_CONFIG_KEYS.projectName, projectName)
+}
+
+export function clearAsanaConfig(db: Database.Database): void {
+  for (const key of Object.values(ASANA_CONFIG_KEYS)) {
+    deleteSetting(db, key)
+  }
+}
+
+export function getAsanaAccessToken(db: Database.Database): string | null {
+  const envToken = process.env.PRLT_ASANA_ACCESS_TOKEN || process.env.ASANA_ACCESS_TOKEN
+  if (envToken) return envToken
+
+  return getSetting(db, ASANA_CONFIG_KEYS.accessToken)
+}

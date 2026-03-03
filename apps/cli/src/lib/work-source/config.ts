@@ -1,0 +1,94 @@
+import Database from 'better-sqlite3'
+import { loadLinearConfig } from '../linear/config.js'
+
+const SETTINGS_TABLE = 'workspace_settings'
+const ACTIVE_SOURCE_KEY = 'work.active_source'
+
+export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'asana', 'monday'] as const
+export type WorkSourceProvider = typeof WORK_SOURCE_PROVIDERS[number]
+
+export interface WorkSourceRef {
+  provider: WorkSourceProvider
+  context?: string
+}
+
+function getSetting(db: Database.Database, key: string): string | null {
+  const row = db
+    .prepare(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`)
+    .get(key) as { value: string } | undefined
+  return row?.value ?? null
+}
+
+function setSetting(db: Database.Database, key: string, value: string): void {
+  db.prepare(`
+    INSERT INTO ${SETTINGS_TABLE} (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value)
+}
+
+function deleteSetting(db: Database.Database, key: string): void {
+  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(key)
+}
+
+export function isWorkSourceProvider(value: string): value is WorkSourceProvider {
+  return (WORK_SOURCE_PROVIDERS as readonly string[]).includes(value)
+}
+
+export function parseWorkSourceRef(input: string): WorkSourceRef {
+  const raw = input.trim()
+  if (!raw) {
+    throw new Error('Work source cannot be empty.')
+  }
+
+  const separatorIndex = raw.indexOf(':')
+  const providerText = separatorIndex === -1 ? raw : raw.slice(0, separatorIndex)
+  const provider = providerText.toLowerCase()
+
+  if (!isWorkSourceProvider(provider)) {
+    throw new Error(`Unsupported work source provider "${providerText}". Allowed: ${WORK_SOURCE_PROVIDERS.join(', ')}`)
+  }
+
+  const rawContext = separatorIndex === -1 ? '' : raw.slice(separatorIndex + 1).trim()
+  const context = rawContext.length > 0 ? rawContext : undefined
+
+  return { provider, context }
+}
+
+export function formatWorkSourceRef(source: WorkSourceRef): string {
+  return source.context ? `${source.provider}:${source.context}` : source.provider
+}
+
+export function saveActiveWorkSource(db: Database.Database, source: WorkSourceRef): void {
+  setSetting(db, ACTIVE_SOURCE_KEY, formatWorkSourceRef(source))
+}
+
+export function clearActiveWorkSource(db: Database.Database): void {
+  deleteSetting(db, ACTIVE_SOURCE_KEY)
+}
+
+export function loadActiveWorkSource(db: Database.Database): WorkSourceRef | null {
+  const raw = getSetting(db, ACTIVE_SOURCE_KEY)
+  if (!raw) return null
+
+  try {
+    return parseWorkSourceRef(raw)
+  } catch {
+    return null
+  }
+}
+
+export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[] {
+  const providers = new Map<WorkSourceProvider, WorkSourceRef>()
+  providers.set('pmo', { provider: 'pmo' })
+
+  const linearConfig = loadLinearConfig(db)
+  if (linearConfig) {
+    providers.set('linear', {
+      provider: 'linear',
+      context: linearConfig.defaultTeamKey ?? undefined,
+    })
+  }
+
+  return Array.from(providers.values())
+}

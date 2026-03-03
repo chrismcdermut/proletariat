@@ -316,6 +316,38 @@ export function runMigrations(db: Database.Database): void {
         // Column may already exist
       }
     }
+
+    if (!agentWorkColumnNames.has('external_source')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_source TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!agentWorkColumnNames.has('external_key')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_key TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!agentWorkColumnNames.has('external_id')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_id TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!agentWorkColumnNames.has('external_url')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_url TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
   }
 
   // Migration: Reassign orphaned tickets (TKT-940)

@@ -53,6 +53,7 @@ export const PMO_TABLES = {
   external_execution_map: 'pmo_external_execution_map',
   external_execution_links: 'pmo_external_execution_links',
   external_execution_prs: 'pmo_external_execution_prs',
+  asana_task_map: 'pmo_asana_task_map',  // Asana task ↔ PMO ticket mapping
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -367,6 +368,10 @@ export const PMO_TABLE_SCHEMAS = {
       session_id TEXT,
       host TEXT,
       log_path TEXT,
+      external_source TEXT,
+      external_key TEXT,
+      external_id TEXT,
+      external_url TEXT,
       started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       completed_at TIMESTAMP,
       exit_code INTEGER,
