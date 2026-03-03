@@ -38,6 +38,10 @@ describe('ExecutionStorage', () => {
         session_id TEXT,
         host TEXT,
         log_path TEXT,
+        external_source TEXT,
+        external_key TEXT,
+        external_id TEXT,
+        external_url TEXT,
         started_at INTEGER NOT NULL,
         completed_at INTEGER,
         exit_code INTEGER
@@ -75,6 +79,27 @@ describe('ExecutionStorage', () => {
 
       const cleaned = storage.cleanupStaleExecutions()
       expect(cleaned).to.equal(0)
+    })
+
+    it('persists external issue metadata when provided', () => {
+      const created = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        permissionMode: 'safe',
+        externalSource: 'linear',
+        externalKey: 'ENG-123',
+        externalId: 'lin-issue-id',
+        externalUrl: 'https://linear.app/acme/issue/ENG-123',
+      })
+
+      const exec = storage.getExecution(created.id)
+      expect(exec?.externalSource).to.equal('linear')
+      expect(exec?.externalKey).to.equal('ENG-123')
+      expect(exec?.externalId).to.equal('lin-issue-id')
+      expect(exec?.externalUrl).to.equal('https://linear.app/acme/issue/ENG-123')
     })
 
     it('cleans up old executions without sessionId (older than 5 minutes)', () => {

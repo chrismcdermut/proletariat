@@ -72,6 +72,10 @@ describe('Spawner', () => {
         session_id TEXT,
         host TEXT,
         log_path TEXT,
+        external_source TEXT,
+        external_key TEXT,
+        external_id TEXT,
+        external_url TEXT,
         started_at INTEGER NOT NULL,
         completed_at INTEGER,
         exit_code INTEGER
