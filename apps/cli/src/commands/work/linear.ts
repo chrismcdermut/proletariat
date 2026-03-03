@@ -14,11 +14,13 @@ import {
 } from '../../lib/external-issues/types.js'
 import {
   listLinearIssues,
+  getLinearIssueByIdentifier,
   buildLinearIssueChoiceCommand,
   buildLinearTicketDescription,
   buildLinearMetadata,
   buildLinearSpawnContextMessage,
 } from '../../lib/external-issues/linear.js'
+import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/index.js'
 
 function buildWorkStartArgs(options: {
   ticketId: string
@@ -155,6 +157,8 @@ export default class WorkLinear extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(WorkLinear)
     const jsonMode = shouldOutputJson(flags)
+    const db = this.storage.getDatabase()
+    const linearConfig = loadLinearConfig(db)
 
     const projectId = await this.requireProject({
       jsonMode: {
@@ -164,11 +168,13 @@ export default class WorkLinear extends PMOCommand {
       },
     })
 
-    const team = flags.team || process.env.PRLT_LINEAR_TEAM
+    const apiKey = getLinearApiKey(db) || undefined
+    const team = flags.team || linearConfig?.defaultTeamKey || process.env.PRLT_LINEAR_TEAM
 
     let issues: NormalizedIssueEnvelope[]
     try {
       issues = await listLinearIssues({
+        apiKey,
         team,
       }, { limit: flags.limit })
     } catch (error: unknown) {
@@ -184,11 +190,26 @@ export default class WorkLinear extends PMOCommand {
     }
 
     let selectedIssue = issues.find(issue => issue.source.externalKey === flags.issue)
-    if (!selectedIssue) {
-      if (flags.issue) {
-        return this.handleError('LINEAR_ISSUE_NOT_FOUND', `Linear issue "${flags.issue}" was not found.`, { jsonMode, commandName: 'work linear', flags })
+    if (!selectedIssue && flags.issue) {
+      try {
+        selectedIssue = await getLinearIssueByIdentifier({
+          apiKey,
+          team,
+        }, flags.issue) ?? undefined
+      } catch (error: unknown) {
+        if (error instanceof ExternalIssueAdapterError) {
+          return this.handleError(error.code, error.message, { jsonMode, commandName: 'work linear', flags })
+        }
+        const msg = error instanceof Error ? error.message : 'Failed to fetch Linear issue.'
+        return this.handleError('LINEAR_REQUEST_FAILED', msg, { jsonMode, commandName: 'work linear', flags })
       }
 
+      if (!selectedIssue) {
+        return this.handleError('LINEAR_ISSUE_NOT_FOUND', `Linear issue "${flags.issue}" was not found.`, { jsonMode, commandName: 'work linear', flags })
+      }
+    }
+
+    if (!selectedIssue) {
       const selectedKey = await this.selectFromList({
         message: 'Select Linear issue to spawn:',
         items: issues,
@@ -197,7 +218,10 @@ export default class WorkLinear extends PMOCommand {
           return `[${priority}] ${issue.source.externalKey} - ${issue.title}`
         },
         getValue: issue => issue.source.externalKey,
-        getCommand: issue => buildLinearIssueChoiceCommand(issue.source.externalKey, projectId),
+        getCommand: issue => {
+          const base = buildLinearIssueChoiceCommand(issue.source.externalKey, projectId)
+          return team ? `${base} --team ${team}` : base
+        },
         jsonMode: jsonMode ? { flags, commandName: 'work linear' } : null,
       })
 
