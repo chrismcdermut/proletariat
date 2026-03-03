@@ -1347,7 +1347,7 @@ export default class WorkSpawn extends PMOCommand {
 
         // Prompt for environment (devcontainer vs host) if devcontainer available and not already set
         if (hasDevcontainer && !batchRunOnHost && !batchDisplay) {
-          const devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
+          const devcontainerLabel = '🐳 devcontainer (isolated, recommended)'
 
           const envChoices = [
             { name: devcontainerLabel, value: 'devcontainer' },

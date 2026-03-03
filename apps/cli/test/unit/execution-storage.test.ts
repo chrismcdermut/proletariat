@@ -30,7 +30,7 @@ describe('ExecutionStorage', () => {
         executor TEXT NOT NULL,
         environment TEXT DEFAULT 'host',
         display_mode TEXT DEFAULT 'terminal',
-        sandboxed INTEGER DEFAULT 1,
+        permission_mode TEXT DEFAULT 'safe',
         status TEXT NOT NULL,
         branch TEXT,
         pid TEXT,
@@ -68,7 +68,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
         sessionId: 'test-session',
       })
       storage.updateStatus(exec.id, 'completed')
@@ -83,7 +83,7 @@ describe('ExecutionStorage', () => {
       db.prepare(`
         INSERT INTO ${PMO_TABLES.agent_work} (
           id, ticket_id, agent_name, executor, environment, display_mode,
-          sandboxed, status, started_at
+          permission_mode, status, started_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         'WORK-OLD',
@@ -92,7 +92,7 @@ describe('ExecutionStorage', () => {
         'claude',
         'host',
         'terminal',
-        1,
+        'safe',
         'starting',
         oldTime
       )
@@ -113,7 +113,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
         // No sessionId
       })
 
@@ -133,7 +133,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
         sessionId: 'non-existent-session-12345',
       })
       storage.updateStatus(created.id, 'running')
@@ -154,16 +154,16 @@ describe('ExecutionStorage', () => {
       db.prepare(`
         INSERT INTO ${PMO_TABLES.agent_work} (
           id, ticket_id, agent_name, executor, environment, display_mode,
-          sandboxed, status, started_at
+          permission_mode, status, started_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run('WORK-OLD1', 'TKT-001', 'agent-1', 'claude', 'host', 'terminal', 1, 'starting', oldTime)
+      `).run('WORK-OLD1', 'TKT-001', 'agent-1', 'claude', 'host', 'terminal', 'safe', 'starting', oldTime)
 
       db.prepare(`
         INSERT INTO ${PMO_TABLES.agent_work} (
           id, ticket_id, agent_name, executor, environment, display_mode,
-          sandboxed, status, started_at
+          permission_mode, status, started_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run('WORK-OLD2', 'TKT-002', 'agent-2', 'claude', 'host', 'terminal', 1, 'running', oldTime)
+      `).run('WORK-OLD2', 'TKT-002', 'agent-2', 'claude', 'host', 'terminal', 'safe', 'running', oldTime)
 
       // Execution with non-existent session
       const exec3 = storage.createExecution({
@@ -172,7 +172,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
         sessionId: 'fake-session-xyz',
       })
       storage.updateStatus(exec3.id, 'running')
@@ -189,7 +189,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
         containerId: 'abc123def456',
         sessionId: 'container-session',
       })
@@ -214,7 +214,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(created.id, 'running')
 
@@ -229,7 +229,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       // Status starts as 'starting' by default
 
@@ -244,7 +244,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(created.id, 'completed')
 
@@ -259,7 +259,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(created.id, 'stopped')
 
@@ -274,7 +274,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(created.id, 'failed')
 
@@ -291,7 +291,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       expect(exec1.id).to.match(/^WORK-[A-F0-9]{8}$/)
 
@@ -301,7 +301,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       expect(exec2.id).to.match(/^WORK-[A-F0-9]{8}$/)
       expect(exec2.id).to.not.equal(exec1.id)
@@ -315,7 +315,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       const exec2 = storage.createExecution({
         ticketId: 'TKT-002',
@@ -323,7 +323,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       const exec3 = storage.createExecution({
         ticketId: 'TKT-003',
@@ -331,7 +331,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
 
       // Delete the middle one
@@ -344,7 +344,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       expect(exec4.id).to.match(/^WORK-[A-F0-9]{8}$/)
       expect(exec4.id).to.not.equal(exec1.id)
@@ -359,7 +359,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       expect(exec.id).to.match(/^WORK-[A-F0-9]{8}$/)
     })
@@ -379,7 +379,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
 
       // Create running execution
@@ -389,7 +389,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(exec2.id, 'running')
 
@@ -400,7 +400,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(exec3.id, 'completed')
 
@@ -418,7 +418,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(exec1.id, 'running')
       storage.updateProcessInfo(exec1.id, { containerId: 'abc123' })
@@ -430,7 +430,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(exec2.id, 'running')
       storage.updateProcessInfo(exec2.id, { containerId: 'def456' })
@@ -450,7 +450,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(exec.id, 'running')
       storage.updateProcessInfo(exec.id, { containerId: 'old-container-id' })
@@ -479,7 +479,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       // exec1 stays in 'starting' status
 
@@ -489,7 +489,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(exec2.id, 'running')
       storage.updateProcessInfo(exec2.id, { containerId: 'old-container' })
@@ -516,7 +516,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(oldExec.id, 'running')
       storage.updateProcessInfo(oldExec.id, { containerId: 'old-container-abc' })
@@ -527,7 +527,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(currentExec.id, 'running')
       storage.updateProcessInfo(currentExec.id, { containerId: 'new-container-xyz' })
@@ -560,7 +560,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(hostExec.id, 'running')
       // No updateProcessInfo — containerId is undefined
@@ -571,7 +571,7 @@ describe('ExecutionStorage', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       storage.updateStatus(containerExec.id, 'running')
       storage.updateProcessInfo(containerExec.id, { containerId: 'old-container' })

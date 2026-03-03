@@ -14,6 +14,7 @@ import {
   ExecutorType,
   ExecutionEnvironment,
   DisplayMode,
+  PermissionMode,
 } from './types.js'
 
 const T = PMO_TABLES
@@ -29,7 +30,7 @@ interface AgentWorkRow {
   executor: string
   environment: string
   display_mode: string
-  sandboxed: number
+  permission_mode: string
   status: string
   branch: string | null
   pid: string | null
@@ -55,7 +56,7 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     executor: row.executor as ExecutorType,
     environment: (row.environment || 'host') as ExecutionEnvironment,
     displayMode: (row.display_mode || 'terminal') as DisplayMode,
-    sandboxed: row.sandboxed === 1,
+    permissionMode: (row.permission_mode || 'safe') as PermissionMode,
     status: row.status as ExecutionStatus,
     branch: row.branch || undefined,
     pid: row.pid || undefined,
@@ -91,7 +92,7 @@ export class ExecutionStorage {
     executor: ExecutorType
     environment: ExecutionEnvironment
     displayMode: DisplayMode
-    sandboxed: boolean
+    permissionMode: PermissionMode
     branch?: string
     pid?: string
     containerId?: string
@@ -107,7 +108,7 @@ export class ExecutionStorage {
 
     this.db.prepare(`
       INSERT INTO ${T.agent_work} (
-        id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
+        id, ticket_id, agent_name, executor, environment, display_mode, permission_mode,
         status, branch, pid, container_id, session_id, host, log_path, started_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -117,7 +118,7 @@ export class ExecutionStorage {
       params.executor,
       params.environment,
       params.displayMode,
-      params.sandboxed ? 1 : 0,
+      params.permissionMode,
       params.branch || null,
       params.pid || null,
       params.containerId || null,

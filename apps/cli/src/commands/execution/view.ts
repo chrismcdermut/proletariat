@@ -114,7 +114,7 @@ export default class ExecutionView extends PMOCommand {
           executor: execution.executor,
           environment: execution.environment,
           displayMode: execution.displayMode,
-          sandboxed: execution.sandboxed,
+          permissionMode: execution.permissionMode,
           status: execution.status,
           branch: execution.branch || null,
           pid: execution.pid || null,
@@ -148,7 +148,7 @@ export default class ExecutionView extends PMOCommand {
       const envIcon = getEnvironmentIcon(execution.environment)
       this.log(`${styles.muted('Type:')}         ${envIcon} ${execution.environment}`)
       this.log(`${styles.muted('Display:')}      ${execution.displayMode}`)
-      this.log(`${styles.muted('Permissions:')}  ${execution.sandboxed ? styles.success('sandboxed (safe)') : styles.warning('unrestricted (danger)')}`)
+      this.log(`${styles.muted('Permissions:')}  ${execution.permissionMode === 'safe' ? styles.success('safe') : styles.warning('danger')}`)
       if (execution.branch) {
         this.log(`${styles.muted('Branch:')}       ${execution.branch}`)
       }

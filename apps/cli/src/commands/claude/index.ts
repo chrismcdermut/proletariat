@@ -23,6 +23,7 @@ import {
   OutputMode,
   ExecutionContext,
   ExecutionEnvironment,
+  PermissionMode,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled } from '../../lib/execution/runners.js'
@@ -185,8 +186,8 @@ export default class Claude extends PromptCommand {
     } else {
       // Build devcontainer label
       const devcontainerLabel = hasProjectDevcontainer
-        ? '🐳 devcontainer (uses project config, sandboxed)'
-        : '🐳 devcontainer (uses catch-all container, sandboxed)'
+        ? '🐳 devcontainer (uses project config, isolated)'
+        : '🐳 devcontainer (uses catch-all container, isolated)'
 
       // In JSON mode, output environment prompt and exit
       if (jsonMode) {
@@ -323,14 +324,14 @@ export default class Claude extends PromptCommand {
     }
 
     // Prompt for permission mode
-    let sandboxed = true
+    let permissionMode: PermissionMode = 'safe'
     if (flags['permission-mode']) {
-      sandboxed = flags['permission-mode'] === 'safe'
+      permissionMode = (flags['permission-mode'] || 'safe') as PermissionMode
     } else {
-      const { permissionMode } = await this.prompt<{ permissionMode: string }>([
+      const { selectedMode } = await this.prompt<{ selectedMode: string }>([
         {
           type: 'list',
-          name: 'permissionMode',
+          name: 'selectedMode',
           message: 'Permission mode:',
           choices: [
             { name: '⚠️  danger - Skip permission checks (faster)', value: 'danger', command: `prlt claude --slug "${slug}" --environment ${environment} --display-mode ${displayMode} --permission-mode danger --json` },
@@ -340,11 +341,11 @@ export default class Claude extends PromptCommand {
         },
       ], jsonModeConfig)
       if (jsonMode) return
-      sandboxed = permissionMode === 'safe'
+      permissionMode = selectedMode as PermissionMode
     }
 
     // Warn about uncommitted changes in danger mode
-    if (!sandboxed && isGitRepo(workDir) && hasUncommittedChanges(workDir)) {
+    if (permissionMode === 'danger' && isGitRepo(workDir) && hasUncommittedChanges(workDir)) {
       this.log('')
       this.warn('Running in danger mode with uncommitted changes!')
       this.log(styles.muted('   Consider committing or stashing changes first.'))
@@ -408,7 +409,7 @@ export default class Claude extends PromptCommand {
 
     // Load execution config (use defaults for yolo mode)
     const executionConfig = { ...DEFAULT_EXECUTION_CONFIG }
-    executionConfig.sandboxed = sandboxed
+    executionConfig.permissionMode = permissionMode
     executionConfig.outputMode = 'interactive' as OutputMode
 
     // For terminal mode, prompt for terminal preference
@@ -449,7 +450,7 @@ export default class Claude extends PromptCommand {
     this.log(styles.muted(`   Directory: ${workDir}`))
     this.log(styles.muted(`   Environment: ${environment === 'devcontainer' ? '🐳' : '💻'} ${environment}`))
     this.log(styles.muted(`   Display: ${displayMode}`))
-    this.log(styles.muted(`   Permissions: ${sandboxed ? '🔒 safe' : '⚠️  danger'}`))
+    this.log(styles.muted(`   Permissions: ${permissionMode === 'safe' ? '🔒 safe' : '⚠️  danger'}`))
     if (flags.prompt) {
       this.log(styles.muted(`   Initial prompt: "${flags.prompt.substring(0, 50)}${flags.prompt.length > 50 ? '...' : ''}"`))
     }
@@ -619,8 +620,8 @@ export default class Claude extends PromptCommand {
 
       // Build devcontainer label
       const devcontainerLabel = hasProjectDevcontainer
-        ? '🐳 devcontainer (uses project config, sandboxed)'
-        : '🐳 devcontainer (uses catch-all container, sandboxed)'
+        ? '🐳 devcontainer (uses project config, isolated)'
+        : '🐳 devcontainer (uses catch-all container, isolated)'
 
       let environment: ExecutionEnvironment = 'host'
       if (flags.environment) {
@@ -763,15 +764,15 @@ export default class Claude extends PromptCommand {
       }
 
       // Prompt for permission mode
-      let sandboxed = true
+      let permissionMode: PermissionMode = 'safe'
       if (flags['permission-mode']) {
-        sandboxed = flags['permission-mode'] === 'safe'
+        permissionMode = (flags['permission-mode'] || 'safe') as PermissionMode
       } else {
         const containerNote = environment === 'devcontainer' ? ' (container provides additional isolation)' : ''
-        const { permissionMode } = await this.prompt<{ permissionMode: string }>([
+        const { selectedMode } = await this.prompt<{ selectedMode: string }>([
           {
             type: 'list',
-            name: 'permissionMode',
+            name: 'selectedMode',
             message: `Permission mode${containerNote}:`,
             choices: [
               { name: '⚠️  danger - Skip permission checks (faster)', value: 'danger', command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment ${environment} --display-mode ${displayMode} --permission-mode danger --json` },
@@ -781,11 +782,11 @@ export default class Claude extends PromptCommand {
           },
         ], jsonModeConfig)
         if (jsonMode) { db.close(); return }
-        sandboxed = permissionMode === 'safe'
+        permissionMode = selectedMode as PermissionMode
       }
 
       // Warn about uncommitted changes in danger mode
-      if (!sandboxed && isGitRepo(workDir) && hasUncommittedChanges(workDir)) {
+      if (permissionMode === 'danger' && isGitRepo(workDir) && hasUncommittedChanges(workDir)) {
         this.log('')
         this.warn('Running in danger mode with uncommitted changes!')
         this.log(styles.muted('   Consider committing or stashing changes first.'))
@@ -873,7 +874,7 @@ export default class Claude extends PromptCommand {
         executor: 'claude-code',
         environment,
         displayMode,
-        sandboxed,
+        permissionMode,
         branch: 'main',
       })
 
@@ -882,7 +883,7 @@ export default class Claude extends PromptCommand {
 
       // Load execution config
       const executionConfig = loadExecutionConfig(db)
-      executionConfig.sandboxed = sandboxed
+      executionConfig.permissionMode = permissionMode
       executionConfig.outputMode = 'interactive' as OutputMode
 
       // For terminal mode, ensure terminal preference is set
@@ -907,7 +908,7 @@ export default class Claude extends PromptCommand {
       this.log(styles.muted(`   Work ID: ${execution.id}`))
       this.log(styles.muted(`   Environment: ${environment === 'devcontainer' ? '🐳' : '💻'} ${environment}`))
       this.log(styles.muted(`   Display: ${displayMode}`))
-      this.log(styles.muted(`   Permissions: ${sandboxed ? '🔒 safe' : '⚠️  danger'}`))
+      this.log(styles.muted(`   Permissions: ${permissionMode === 'safe' ? '🔒 safe' : '⚠️  danger'}`))
       if (flags.prompt) {
         this.log(styles.muted(`   Initial prompt: "${flags.prompt.substring(0, 50)}${flags.prompt.length > 50 ? '...' : ''}"`))
       }

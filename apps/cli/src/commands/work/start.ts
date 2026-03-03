@@ -35,6 +35,7 @@ import {
   ExecutionEnvironment,
   TerminalApp,
   Shell,
+  PermissionMode,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
@@ -918,11 +919,11 @@ export default class WorkStart extends PMOCommand {
       // Determine execution environment and display mode
       let environment: ExecutionEnvironment = 'host'
       let displayMode: DisplayMode = 'terminal'
-      let sandboxed = false  // Whether --dangerously-skip-permissions is NOT used
+      let permissionMode: PermissionMode = 'danger'
 
       if (hasDevcontainer && !flags.display && !flags['run-on-host']) {
         // Agent has devcontainer - prompt for environment choice
-        const devcontainerLabel = '🐳 devcontainer (sandboxed, recommended)'
+        const devcontainerLabel = '🐳 devcontainer (isolated, recommended)'
 
         const envChoices = [
           { name: devcontainerLabel, value: 'devcontainer' },
@@ -1359,10 +1360,10 @@ export default class WorkStart extends PMOCommand {
       const defaultPermissionMode = actionModifiesCode ? 'danger' : 'safe'
 
       if (flags['permission-mode']) {
-        sandboxed = flags['permission-mode'] === 'safe'
+        permissionMode = (flags['permission-mode'] || 'danger') as PermissionMode
       } else if (!actionModifiesCode) {
         // Non-code-modifying actions automatically use safe mode
-        sandboxed = true
+        permissionMode = 'safe'
       } else {
         const containerNote = environment === 'devcontainer'
           ? ' (container provides additional isolation)'
@@ -1390,7 +1391,7 @@ export default class WorkStart extends PMOCommand {
         })
 
         const resolvedPermission = await permissionResolver.resolve()
-        sandboxed = resolvedPermission['permission-mode'] === 'safe'
+        permissionMode = (resolvedPermission['permission-mode'] || 'danger') as PermissionMode
       }
 
       // Prompt for PR creation when work is complete
@@ -1462,7 +1463,7 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted(`   Display: ${displayMode}`))
 
         // Permissions info
-        if (sandboxed) {
+        if (permissionMode === 'safe') {
           this.log(styles.success(`   Permissions: 🔒 safe`))
         } else {
           this.log(styles.warning(`   Permissions: ⚠️  danger (--dangerously-skip-permissions)`))
@@ -1692,7 +1693,7 @@ export default class WorkStart extends PMOCommand {
         executor,
         environment,
         displayMode,
-        sandboxed,
+        permissionMode,
         branch,
       })
 
@@ -1741,8 +1742,8 @@ export default class WorkStart extends PMOCommand {
       // Set output mode from user selection
       executionConfig.outputMode = outputMode
 
-      // Set sandboxed mode (determines whether --dangerously-skip-permissions is used)
-      executionConfig.sandboxed = sandboxed
+      // Set permission mode (determines whether --dangerously-skip-permissions is used)
+      executionConfig.permissionMode = permissionMode
 
       // Handle --focus flag: when set, bring terminal to foreground instead of opening in background
       if (flags.focus) {
@@ -2248,7 +2249,7 @@ export default class WorkStart extends PMOCommand {
     const environment: ExecutionEnvironment = useDevcontainer ? 'devcontainer' : 'host'
     const displayMode: DisplayMode = 'terminal'
     const actionModifiesCode = context.modifiesCode !== false
-    const sandboxed = flags['permission-mode'] === 'safe' || (!flags['permission-mode'] && !actionModifiesCode)
+    const permissionMode: PermissionMode = (flags['permission-mode'] as PermissionMode) || (!actionModifiesCode ? 'safe' : 'danger')
     const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
     const outputMode: OutputMode = 'interactive'
 
@@ -2293,7 +2294,7 @@ export default class WorkStart extends PMOCommand {
       executor,
       environment,
       displayMode,
-      sandboxed,
+      permissionMode,
       branch,
     })
 
@@ -2302,7 +2303,7 @@ export default class WorkStart extends PMOCommand {
     // Load execution config
     const executionConfig = loadExecutionConfig(db)
     executionConfig.outputMode = outputMode
-    executionConfig.sandboxed = sandboxed
+    executionConfig.permissionMode = permissionMode
 
     // Run execution
     this.log(styles.muted(`   Starting ${ticket.id} → ${agentName}...`))

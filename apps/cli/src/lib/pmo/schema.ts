@@ -355,7 +355,7 @@ export const PMO_TABLE_SCHEMAS = {
       executor TEXT NOT NULL,
       environment TEXT NOT NULL DEFAULT 'host',
       display_mode TEXT NOT NULL DEFAULT 'terminal',
-      sandboxed INTEGER NOT NULL DEFAULT 0,
+      permission_mode TEXT NOT NULL DEFAULT 'safe',
       status TEXT NOT NULL DEFAULT 'starting',
       branch TEXT,
       pid TEXT,

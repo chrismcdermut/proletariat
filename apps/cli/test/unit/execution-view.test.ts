@@ -29,7 +29,7 @@ describe('ExecutionView', () => {
         executor TEXT NOT NULL,
         environment TEXT DEFAULT 'host',
         display_mode TEXT DEFAULT 'terminal',
-        sandboxed INTEGER DEFAULT 1,
+        permission_mode TEXT DEFAULT 'safe',
         status TEXT NOT NULL,
         branch TEXT,
         pid TEXT,
@@ -66,7 +66,7 @@ describe('ExecutionView', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
 
       const executions = storage.listExecutions({ limit: 1 })
@@ -79,7 +79,7 @@ describe('ExecutionView', () => {
       expect(exec!.executor).to.equal('claude-code')
       expect(exec!.environment).to.equal('host')
       expect(exec!.displayMode).to.equal('terminal')
-      expect(exec!.sandboxed).to.equal(true)
+      expect(exec!.permissionMode).to.equal('safe')
       expect(exec!.status).to.equal('starting')
       expect(exec!.startedAt).to.be.instanceOf(Date)
     })
@@ -91,7 +91,7 @@ describe('ExecutionView', () => {
         executor: 'claude-code',
         environment: 'devcontainer',
         displayMode: 'background',
-        sandboxed: false,
+        permissionMode: 'danger',
         branch: 'TKT-002/feat/user/agent-2/test-branch',
         pid: '12345',
         containerId: 'abc123def',
@@ -107,7 +107,7 @@ describe('ExecutionView', () => {
       expect(exec).to.not.be.null
       expect(exec!.environment).to.equal('devcontainer')
       expect(exec!.displayMode).to.equal('background')
-      expect(exec!.sandboxed).to.equal(false)
+      expect(exec!.permissionMode).to.equal('danger')
       expect(exec!.branch).to.equal('TKT-002/feat/user/agent-2/test-branch')
       expect(exec!.pid).to.equal('12345')
       expect(exec!.containerId).to.equal('abc123def')
@@ -123,7 +123,7 @@ describe('ExecutionView', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
 
       const executions = storage.listExecutions({ limit: 1 })
@@ -145,7 +145,7 @@ describe('ExecutionView', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
 
       const executions = storage.listExecutions({ limit: 1 })
@@ -169,7 +169,7 @@ describe('ExecutionView', () => {
           executor,
           environment: 'host',
           displayMode: 'terminal',
-          sandboxed: true,
+          permissionMode: 'safe',
         })
       }
 
@@ -191,7 +191,7 @@ describe('ExecutionView', () => {
           executor: 'claude-code',
           environment,
           displayMode: 'terminal',
-          sandboxed: true,
+          permissionMode: 'safe',
         })
       }
 
@@ -213,7 +213,7 @@ describe('ExecutionView', () => {
           executor: 'claude-code',
           environment: 'host',
           displayMode,
-          sandboxed: true,
+          permissionMode: 'safe',
         })
       }
 
@@ -234,16 +234,16 @@ describe('ExecutionView', () => {
       db.prepare(`
         INSERT INTO ${PMO_TABLES.agent_work} (
           id, ticket_id, agent_name, executor, environment, display_mode,
-          sandboxed, status, started_at
+          permission_mode, status, started_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run('WORK-OLD', 'TKT-001', 'agent-1', 'claude-code', 'host', 'terminal', 1, 'completed', now - 10000)
+      `).run('WORK-OLD', 'TKT-001', 'agent-1', 'claude-code', 'host', 'terminal', 'safe', 'completed', now - 10000)
 
       db.prepare(`
         INSERT INTO ${PMO_TABLES.agent_work} (
           id, ticket_id, agent_name, executor, environment, display_mode,
-          sandboxed, status, started_at
+          permission_mode, status, started_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run('WORK-NEW', 'TKT-002', 'agent-2', 'claude-code', 'host', 'terminal', 1, 'running', now)
+      `).run('WORK-NEW', 'TKT-002', 'agent-2', 'claude-code', 'host', 'terminal', 'safe', 'running', now)
 
       const executions = storage.listExecutions({ limit: 10 })
       expect(executions[0].id).to.equal('WORK-NEW')
@@ -260,7 +260,7 @@ describe('ExecutionView', () => {
           executor: 'claude-code',
           environment: 'host',
           displayMode: 'terminal',
-          sandboxed: true,
+          permissionMode: 'safe',
         })
 
         if (status !== 'starting') {

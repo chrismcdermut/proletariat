@@ -20,6 +20,7 @@ import {
   DisplayMode,
   ExecutionContext,
   ExecutorType,
+  PermissionMode,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution } from '../../lib/execution/runners.js'
@@ -68,7 +69,7 @@ export default class OrchestratorStart extends PromptCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --executor codex',
-    '<%= config.bin %> <%= command.id %> --skip-permissions',
+    '<%= config.bin %> <%= command.id %> --permission-mode danger',
     '<%= config.bin %> <%= command.id %> --prompt "coordinate all agents on TKT-100"',
     '<%= config.bin %> <%= command.id %> --background',
   ]
@@ -89,13 +90,13 @@ export default class OrchestratorStart extends PromptCommand {
       options: ['claude-code', 'codex', 'aider', 'custom'],
     }),
     'skip-permissions': Flags.boolean({
-      description: 'Run with --dangerously-skip-permissions',
+      description: 'Skip permission checks (shorthand for --permission-mode danger)',
       default: false,
-      exclusive: ['sandboxed'],
+      exclusive: ['permission-mode'],
     }),
-    sandboxed: Flags.boolean({
-      description: 'Run in sandboxed mode (requires approval for dangerous operations)',
-      default: false,
+    'permission-mode': Flags.string({
+      description: 'Permission mode for the orchestrator (danger=skip checks, safe=require approval)',
+      options: ['danger', 'safe'],
       exclusive: ['skip-permissions'],
     }),
     name: Flags.string({
@@ -199,17 +200,17 @@ export default class OrchestratorStart extends PromptCommand {
     }
 
     // Permission mode selection
-    let sandboxed: boolean
+    let permissionMode: PermissionMode
     if (flags['skip-permissions']) {
-      sandboxed = false
-    } else if (flags.sandboxed) {
-      sandboxed = true
+      permissionMode = 'danger'
+    } else if (flags['permission-mode']) {
+      permissionMode = flags['permission-mode'] as PermissionMode
     } else {
       const permissionChoices = [
-        { name: 'Sandboxed (requires approval for dangerous operations)', value: 'sandboxed', command: 'prlt orchestrator start --sandboxed --json' },
-        { name: 'Accept all (--dangerously-skip-permissions)', value: 'skip', command: 'prlt orchestrator start --skip-permissions --json' },
+        { name: '⚠️  danger - Skip permission checks (faster)', value: 'danger', command: 'prlt orchestrator start --permission-mode danger --json' },
+        { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: 'prlt orchestrator start --permission-mode safe --json' },
       ]
-      const permissionMessage = 'Select permission mode:'
+      const permissionMessage = 'Permission mode:'
 
       if (jsonMode) {
         outputPromptAsJson(
@@ -219,13 +220,13 @@ export default class OrchestratorStart extends PromptCommand {
         return
       }
 
-      const { permissionMode } = await this.prompt<{ permissionMode: string }>([{
+      const { permissionMode: selectedMode } = await this.prompt<{ permissionMode: string }>([{
         type: 'list',
         name: 'permissionMode',
         message: permissionMessage,
         choices: permissionChoices,
       }])
-      sandboxed = permissionMode === 'sandboxed'
+      permissionMode = selectedMode as PermissionMode
     }
 
     // Resolve action prompt
@@ -275,7 +276,7 @@ export default class OrchestratorStart extends PromptCommand {
     // Build execution config
     const executionConfig = { ...DEFAULT_EXECUTION_CONFIG }
     executionConfig.outputMode = 'interactive' as OutputMode
-    executionConfig.sandboxed = sandboxed
+    executionConfig.permissionMode = permissionMode
 
     // Load saved preferences from workspace DB
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
@@ -350,7 +351,7 @@ export default class OrchestratorStart extends PromptCommand {
       this.log('')
       this.log(styles.muted(`   Starting orchestrator...`))
       this.log(styles.muted(`   Executor: ${selectedExecutor}`))
-      this.log(styles.muted(`   Permission mode: ${sandboxed ? 'sandboxed' : 'skip-permissions'}`))
+      this.log(styles.muted(`   Permission mode: ${permissionMode}`))
       this.log(styles.muted(`   Display mode: ${displayMode}`))
       this.log(styles.muted(`   Directory: ${hqPath}`))
       if (orchestratorName !== 'main') {
@@ -378,7 +379,7 @@ export default class OrchestratorStart extends PromptCommand {
             executor: selectedExecutor,
             environment: 'host',
             displayMode,
-            sandboxed,
+            permissionMode,
             sessionId: result.sessionId || sessionName,
           })
         } catch {
@@ -390,7 +391,7 @@ export default class OrchestratorStart extends PromptCommand {
         outputSuccessAsJson({
           sessionId: result.sessionId || sessionName,
           executor: selectedExecutor,
-          sandboxed,
+          permissionMode,
           displayMode,
           directory: hqPath,
           name: orchestratorName,
