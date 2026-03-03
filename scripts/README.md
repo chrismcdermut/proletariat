@@ -52,6 +52,23 @@ node scripts/test-ticket-format.mjs
 
 **Purpose:** Validates the `**{id}** [[{id}]] {title}` format is correctly generated.
 
+### `aggregate-changelog.mjs`
+Aggregates changelog fragments from `.changelog/` into `CHANGELOG.md` for a release.
+
+**Usage:**
+```bash
+# Aggregate fragments into a new version section
+node scripts/aggregate-changelog.mjs 0.4.0
+
+# Preview without writing
+node scripts/aggregate-changelog.mjs 0.4.0 --dry-run
+
+# Aggregate but keep fragment files
+node scripts/aggregate-changelog.mjs 0.4.0 --keep
+```
+
+**Purpose:** Reads all `.yaml` files from `.changelog/`, groups entries by type (Added/Fixed/Changed/Removed), prepends a new version section to `CHANGELOG.md`, and deletes consumed fragments.
+
 ### `bump-homebrew-formula.sh`
 Bumps the Homebrew tap formula (`chrismcdermut/homebrew-proletariat`) to a new CLI version.
 
