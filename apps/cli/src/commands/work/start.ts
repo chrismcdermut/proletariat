@@ -151,17 +151,25 @@ function buildExternalSpawnContextMessage(
     : buildLinearSpawnContextMessage(envelope, additionalMessage)
 }
 
-function getTicketExternalMetadata(ticket: Ticket): {
+function getTicketExternalMetadata(ticket: unknown): {
   source?: string
   key?: string
   id?: string
   url?: string
 } {
+  const metadata = (typeof ticket === 'object'
+    && ticket !== null
+    && 'metadata' in ticket
+    && typeof ticket.metadata === 'object'
+    && ticket.metadata !== null
+    ? ticket.metadata
+    : {}) as Record<string, unknown>
+
   return {
-    source: ticket.metadata?.external_source,
-    key: ticket.metadata?.external_key,
-    id: ticket.metadata?.external_id,
-    url: ticket.metadata?.external_url,
+    source: typeof metadata.external_source === 'string' ? metadata.external_source : undefined,
+    key: typeof metadata.external_key === 'string' ? metadata.external_key : undefined,
+    id: typeof metadata.external_id === 'string' ? metadata.external_id : undefined,
+    url: typeof metadata.external_url === 'string' ? metadata.external_url : undefined,
   }
 }
 
