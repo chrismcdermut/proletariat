@@ -14,6 +14,28 @@ All commands support these options:
 
 ## Command Namespaces
 
+### Integrations
+
+#### `prlt asana connect`
+
+Authenticate with Asana and optionally save default workspace/project.
+
+```bash
+prlt asana connect
+prlt asana connect --check
+prlt asana connect --workspace "Product Team" --project "Roadmap"
+```
+
+#### `prlt asana sync`
+
+Sync PMO tickets to Asana tasks.
+
+```bash
+prlt asana sync --ticket TKT-001 --task 1234567890
+prlt asana sync --ticket TKT-001 --create-missing --project 987654321
+prlt asana sync --dry-run
+```
+
 ### Workspace Management
 
 #### `prlt init`
@@ -276,6 +298,11 @@ Options:
   --mode <mode>          Execution mode (docker, terminal, tmux, etc.)
   --action <action>      Action (implement, groom, review)
   --prompt <text>        Custom prompt
+  --from-issue           Resolve ticket from external issue source
+  --source <source>      External source: linear | jira (with --from-issue)
+  --key <key>            External issue key (with --from-issue)
+  --mirror-to-pmo        Create/update linked PMO ticket from external issue
+  --no-mirror-to-pmo     Require existing linked PMO ticket (no mirror write)
   --force                Start even if work in progress
   --create-pr            Create PR when done (overrides workspace default)
   --no-pr                [deprecated] Don't create PR (omit --create-pr instead)
@@ -291,6 +318,8 @@ Options:
 prlt work start TKT-001
 prlt work start TKT-001 --mode docker --action implement
 prlt work start TKT-001 --create-pr        # Explicitly create PR
+prlt work start --from-issue --source linear --key ENG-123
+prlt work start --from-issue --source jira --key PROJ-123 --mirror-to-pmo
 ```
 
 #### `prlt work spawn`
@@ -311,34 +340,24 @@ Options:
   --skip-permissions     Skip confirmation prompts
   --create-pr            Create PRs when done (overrides workspace default)
   --no-pr                [deprecated] Don't create PRs
+  --from <source>        Source override (provider[:context], e.g., pmo, linear:PRO)
 
 # Examples
 prlt work spawn --all --column Planned
 prlt work spawn TKT-001 TKT-002 TKT-003
 prlt work spawn --all --dry-run
 prlt work spawn TKT-001 TKT-002 --create-pr   # Ensure PRs are created
+prlt work spawn --from linear:PRO              # Pull from active Linear team context
 ```
 
-#### `prlt work linear`
+#### `prlt work source`
 
-List/select Linear issues, create or update linked internal ticket context, and spawn work using `work start`.
+Show or set the active source that `work spawn` uses by default when `--from` is omitted.
 
 ```bash
-prlt work linear [options]
-
-Options:
-  --team <key>           Linear team key (fallback: PRLT_LINEAR_TEAM)
-  --issue <id>           Linear issue identifier (e.g., ENG-123)
-  --limit <n>            Number of issues to fetch (default: 20)
-  --action <action>      Work action for spawn (default: implement)
-  --display <mode>       terminal | background | foreground
-  --skip-permissions     Use danger mode
-  --create-pr            Create PR when work is ready
-  --yes                  Skip downstream confirmation prompts
-
-# Examples
-prlt work linear --team ENG
-prlt work linear --team ENG --issue ENG-123 --yes --display terminal --skip-permissions
+prlt work source
+prlt work source set linear:PRO
+prlt work source set pmo
 ```
 
 #### `prlt work jira`

@@ -1,10 +1,12 @@
 import {
   ExternalIssueAdapterError,
-  type NormalizedIssueEnvelope,
   toNormalizedEnvelope,
+  type IssueEnvelope,
+  type NormalizedIssueEnvelope,
 } from './types.js'
 import { JiraIssueAdapter } from './adapters.js'
 
+const DEFAULT_JIRA_API_PATH = '/rest/api/3'
 const JIRA_ISSUE_FIELDS = [
   'summary',
   'description',
@@ -17,6 +19,7 @@ const JIRA_ISSUE_FIELDS = [
 ] as const
 
 export interface JiraAdapterConfig {
+  baseUrl?: string
   host?: string
   email?: string
   apiToken?: string
@@ -36,13 +39,8 @@ interface JiraIssueResponse {
   errorMessages?: string[]
 }
 
-function buildBasicAuth(email: string, apiToken: string): string {
-  const encoded = Buffer.from(`${email}:${apiToken}`, 'utf8').toString('base64')
-  return `Basic ${encoded}`
-}
-
-function normalizeHost(host: string): string {
-  const trimmed = host.trim().replace(/\/+$/, '')
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '')
   if (/^https?:\/\//i.test(trimmed)) {
     return trimmed
   }
@@ -50,23 +48,21 @@ function normalizeHost(host: string): string {
 }
 
 function ensureJiraConfig(config: JiraAdapterConfig): Required<JiraAdapterConfig> {
-  const host = config.host || process.env.PRLT_JIRA_HOST || process.env.JIRA_HOST
-  const email = config.email || process.env.PRLT_JIRA_EMAIL || process.env.JIRA_EMAIL
+  const baseUrl = config.baseUrl
+    || config.host
+    || process.env.PRLT_JIRA_BASE_URL
+    || process.env.JIRA_BASE_URL
+    || process.env.PRLT_JIRA_HOST
+    || process.env.JIRA_HOST
+  const email = config.email || process.env.PRLT_JIRA_EMAIL || process.env.JIRA_EMAIL || ''
   const apiToken = config.apiToken || process.env.PRLT_JIRA_API_TOKEN || process.env.JIRA_API_TOKEN
-  const projectKey = config.projectKey || process.env.PRLT_JIRA_PROJECT || process.env.JIRA_PROJECT_KEY
-  const jql = config.jql || process.env.PRLT_JIRA_JQL
+  const projectKey = config.projectKey || process.env.PRLT_JIRA_PROJECT || process.env.JIRA_PROJECT_KEY || ''
+  const jql = config.jql || process.env.PRLT_JIRA_JQL || ''
 
-  if (!host) {
+  if (!baseUrl) {
     throw new ExternalIssueAdapterError(
       'MISSING_CONFIG',
-      'Missing Jira host. Pass --host or set PRLT_JIRA_HOST/JIRA_HOST.',
-    )
-  }
-
-  if (!email) {
-    throw new ExternalIssueAdapterError(
-      'MISSING_CONFIG',
-      'Missing Jira email. Set PRLT_JIRA_EMAIL or JIRA_EMAIL.',
+      'Missing Jira base URL. Set PRLT_JIRA_BASE_URL/JIRA_BASE_URL or PRLT_JIRA_HOST/JIRA_HOST.',
     )
   }
 
@@ -77,19 +73,13 @@ function ensureJiraConfig(config: JiraAdapterConfig): Required<JiraAdapterConfig
     )
   }
 
-  if (!projectKey && !jql) {
-    throw new ExternalIssueAdapterError(
-      'MISSING_CONFIG',
-      'Missing Jira project key/JQL. Pass --project-key or --jql, or set PRLT_JIRA_PROJECT/PRLT_JIRA_JQL.',
-    )
-  }
-
   return {
-    host: normalizeHost(host),
+    baseUrl: normalizeBaseUrl(baseUrl),
+    host: normalizeBaseUrl(baseUrl),
     email,
     apiToken,
-    projectKey: projectKey ?? '',
-    jql: jql ?? '',
+    projectKey,
+    jql,
   }
 }
 
@@ -101,6 +91,15 @@ function ensureIssueKey(key: string): string {
   return trimmed
 }
 
+function buildAuthHeader(config: Required<JiraAdapterConfig>): string {
+  if (config.email) {
+    const token = Buffer.from(`${config.email}:${config.apiToken}`).toString('base64')
+    return `Basic ${token}`
+  }
+
+  return `Bearer ${config.apiToken}`
+}
+
 function buildListJql(config: Required<JiraAdapterConfig>, explicitJql?: string): string {
   const jql = explicitJql?.trim() || config.jql.trim()
   if (jql.length > 0) {
@@ -109,7 +108,10 @@ function buildListJql(config: Required<JiraAdapterConfig>, explicitJql?: string)
 
   const projectKey = config.projectKey.trim()
   if (!projectKey) {
-    throw new ExternalIssueAdapterError('MISSING_CONFIG', 'Missing Jira project key or JQL for issue listing.')
+    throw new ExternalIssueAdapterError(
+      'MISSING_CONFIG',
+      'Missing Jira project key/JQL. Pass --project-key or --jql, or set PRLT_JIRA_PROJECT/PRLT_JIRA_JQL.',
+    )
   }
 
   return `project = "${projectKey}" AND statusCategory != Done ORDER BY updated DESC`
@@ -119,10 +121,12 @@ function getErrorMessage(payload: unknown, fallback: string): string {
   if (!payload || typeof payload !== 'object') {
     return fallback
   }
+
   const errorMessages = (payload as { errorMessages?: unknown }).errorMessages
   if (Array.isArray(errorMessages) && typeof errorMessages[0] === 'string' && errorMessages[0].trim()) {
     return errorMessages[0].trim()
   }
+
   return fallback
 }
 
@@ -134,23 +138,44 @@ async function parseJsonOrThrow(response: Response): Promise<unknown> {
   }
 }
 
-function normalizeJiraIssue(rawIssue: unknown): NormalizedIssueEnvelope {
-  const adapter = new JiraIssueAdapter()
-  const envelope = adapter.normalize(rawIssue)
-  return toNormalizedEnvelope(envelope, 'feature')
+function deriveJiraCategory(envelope: IssueEnvelope): string {
+  const typeValue = envelope.item_type?.trim().toLowerCase() || ''
+  if (typeValue === 'bug' || typeValue === 'incident') {
+    return 'bug'
+  }
+  if (typeValue === 'task' || typeValue === 'story' || typeValue === 'issue') {
+    return 'feature'
+  }
+  return 'feature'
 }
 
-function buildHeaders(config: Required<JiraAdapterConfig>): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-    Authorization: buildBasicAuth(config.email, config.apiToken),
+function ensureIssueShape(issue: JiraIssueResponse): asserts issue is Required<Pick<JiraIssueResponse, 'id' | 'key'>> & JiraIssueResponse {
+  if (!issue.id || !issue.key || !issue.fields) {
+    throw new ExternalIssueAdapterError(
+      'BAD_PAYLOAD',
+      'Jira issue payload is missing required fields (id, key, fields).',
+      issue,
+    )
   }
 }
 
-/**
- * Build a PMO ticket description from a Jira issue envelope.
- */
+export function normalizeJiraIssue(rawIssue: unknown): IssueEnvelope {
+  if (!rawIssue || typeof rawIssue !== 'object') {
+    throw new ExternalIssueAdapterError('BAD_PAYLOAD', 'Jira issue payload is invalid.', rawIssue)
+  }
+
+  const issue = rawIssue as JiraIssueResponse
+  ensureIssueShape(issue)
+
+  const adapter = new JiraIssueAdapter()
+  return adapter.normalize(issue)
+}
+
+export function normalizeJiraIssueToEnvelope(rawIssue: unknown): NormalizedIssueEnvelope {
+  const envelope = normalizeJiraIssue(rawIssue)
+  return toNormalizedEnvelope(envelope, deriveJiraCategory(envelope))
+}
+
 export function buildJiraTicketDescription(envelope: NormalizedIssueEnvelope): string {
   const body = envelope.description.trim()
   const metadataLines = [
@@ -172,9 +197,6 @@ export function buildJiraTicketDescription(envelope: NormalizedIssueEnvelope): s
   return parts.join('\n\n')
 }
 
-/**
- * Build ticket metadata from a Jira envelope for traceability.
- */
 export function buildJiraMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
   return {
     external_source: envelope.source.name,
@@ -185,9 +207,6 @@ export function buildJiraMetadata(envelope: NormalizedIssueEnvelope): Record<str
   }
 }
 
-/**
- * Build a spawn context message from a Jira envelope.
- */
 export function buildJiraSpawnContextMessage(
   envelope: NormalizedIssueEnvelope,
   additionalMessage?: string,
@@ -206,9 +225,6 @@ export function buildJiraSpawnContextMessage(
   return lines.join('\n')
 }
 
-/**
- * Build a CLI command string for selecting a specific Jira issue.
- */
 export function buildJiraIssueChoiceCommand(issueKey: string, projectId?: string): string {
   let command = `prlt work jira --issue ${issueKey} --json`
   if (projectId) {
@@ -217,9 +233,6 @@ export function buildJiraIssueChoiceCommand(issueKey: string, projectId?: string
   return command
 }
 
-/**
- * Fetch a single Jira issue by key (for example, PROJ-123) and normalize it.
- */
 export async function getJiraIssueByKey(
   configInput: JiraAdapterConfig,
   issueKey: string,
@@ -230,21 +243,27 @@ export async function getJiraIssueByKey(
   const config = ensureJiraConfig(configInput)
   const fetchImpl = options?.fetchImpl || fetch
   const key = ensureIssueKey(issueKey)
+  const baseApiUrl = `${config.baseUrl}${DEFAULT_JIRA_API_PATH}`
+  const fields = encodeURIComponent(JIRA_ISSUE_FIELDS.join(','))
+  const issueUrl = `${baseApiUrl}/issue/${encodeURIComponent(key)}?fields=${fields}`
 
-  const response = await fetchImpl(`${config.host}/rest/api/3/issue/${encodeURIComponent(key)}?fields=${JIRA_ISSUE_FIELDS.join(',')}`, {
+  const response = await fetchImpl(issueUrl, {
     method: 'GET',
-    headers: buildHeaders(config),
+    headers: {
+      Accept: 'application/json',
+      Authorization: buildAuthHeader(config),
+    },
   })
-
-  if (response.status === 404) {
-    return null
-  }
 
   if (response.status === 401 || response.status === 403) {
     throw new ExternalIssueAdapterError(
       'AUTH_FAILED',
-      'Jira authentication failed. Verify Jira host/email/token configuration.',
+      'Jira authentication failed. Verify your Jira credentials.',
     )
+  }
+
+  if (response.status === 404) {
+    return null
   }
 
   const payload = await parseJsonOrThrow(response)
@@ -254,21 +273,9 @@ export async function getJiraIssueByKey(
     throw new ExternalIssueAdapterError('REQUEST_FAILED', msg, payload)
   }
 
-  const issue = payload as JiraIssueResponse
-  if (!issue.id || !issue.key || !issue.fields) {
-    throw new ExternalIssueAdapterError(
-      'BAD_PAYLOAD',
-      'Jira issue payload is missing required fields (id, key, fields).',
-      payload,
-    )
-  }
-
-  return normalizeJiraIssue(payload)
+  return normalizeJiraIssueToEnvelope(payload)
 }
 
-/**
- * Fetch and normalize Jira issues into NormalizedIssueEnvelopes.
- */
 export async function listJiraIssues(
   configInput: JiraAdapterConfig,
   options?: {
@@ -281,10 +288,15 @@ export async function listJiraIssues(
   const fetchImpl = options?.fetchImpl || fetch
   const limit = Math.max(1, Math.min(options?.limit ?? 20, 100))
   const jql = buildListJql(config, options?.jql)
+  const baseApiUrl = `${config.baseUrl}${DEFAULT_JIRA_API_PATH}`
 
-  const response = await fetchImpl(`${config.host}/rest/api/3/search`, {
+  const response = await fetchImpl(`${baseApiUrl}/search`, {
     method: 'POST',
-    headers: buildHeaders(config),
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: buildAuthHeader(config),
+    },
     body: JSON.stringify({
       jql,
       maxResults: limit,
@@ -295,7 +307,7 @@ export async function listJiraIssues(
   if (response.status === 401 || response.status === 403) {
     throw new ExternalIssueAdapterError(
       'AUTH_FAILED',
-      'Jira authentication failed. Verify Jira host/email/token configuration.',
+      'Jira authentication failed. Verify your Jira credentials.',
     )
   }
 
@@ -315,5 +327,5 @@ export async function listJiraIssues(
     )
   }
 
-  return data.issues.map(normalizeJiraIssue)
+  return data.issues.map(normalizeJiraIssueToEnvelope)
 }

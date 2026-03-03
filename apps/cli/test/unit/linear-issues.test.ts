@@ -3,6 +3,7 @@ import {
   normalizeLinearIssue,
   normalizeLinearIssueToEnvelope,
   listLinearIssues,
+  getLinearIssueByIdentifier,
   buildLinearIssueChoiceCommand,
   buildLinearMetadata,
   buildLinearTicketDescription,
@@ -363,6 +364,47 @@ describe('listLinearIssues', () => {
     expect(results[0].source.name).to.equal('linear')
     expect(results[0].source.externalKey).to.equal('ENG-123')
     expect(results[0].title).to.equal('Fix flaky CI checks')
+  })
+})
+
+describe('getLinearIssueByIdentifier', () => {
+  const savedEnv: Record<string, string | undefined> = {}
+
+  before(() => {
+    savedEnv.LINEAR_API_KEY = process.env.LINEAR_API_KEY
+    savedEnv.PRLT_LINEAR_API_KEY = process.env.PRLT_LINEAR_API_KEY
+    savedEnv.PRLT_LINEAR_TEAM = process.env.PRLT_LINEAR_TEAM
+    savedEnv.LINEAR_TEAM_KEY = process.env.LINEAR_TEAM_KEY
+  })
+
+  beforeEach(() => {
+    delete process.env.LINEAR_API_KEY
+    delete process.env.PRLT_LINEAR_API_KEY
+    delete process.env.PRLT_LINEAR_TEAM
+    delete process.env.LINEAR_TEAM_KEY
+  })
+
+  after(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value !== undefined) process.env[key] = value
+      else delete process.env[key]
+    }
+  })
+
+  it('does not require team key for direct identifier lookup', async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({
+      data: { issue: makeLinearNode() },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+    const issue = await getLinearIssueByIdentifier(
+      { apiKey: 'token-without-team' },
+      'ENG-123',
+      { fetchImpl }
+    )
+
+    expect(issue).to.not.equal(null)
+    expect(issue?.source.name).to.equal('linear')
+    expect(issue?.source.externalKey).to.equal('ENG-123')
   })
 })
 

@@ -33,6 +33,14 @@ import {
   loadLinearConfig,
 } from '../../lib/linear/index.js'
 import type { LinearIssueFilter } from '../../lib/linear/types.js'
+import {
+  type WorkSourceRef,
+  parseWorkSourceRef,
+  formatWorkSourceRef,
+  loadActiveWorkSource,
+  saveActiveWorkSource,
+  getRegisteredWorkSources,
+} from '../../lib/work-source/index.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -54,6 +62,8 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --count 5 --priority P0 --action implement  # Filtered by priority',
     '<%= config.bin %> <%= command.id %> --from-linear                      # Pull Linear issues → PMO → spawn',
     '<%= config.bin %> <%= command.id %> --from-linear ENG-123 ENG-124      # Pull specific Linear issues → spawn',
+    '<%= config.bin %> <%= command.id %> --from linear:ENG                  # Use source override (provider[:context])',
+    '<%= config.bin %> work source set linear:ENG                           # Persist default source for future spawn',
     '<%= config.bin %> <%= command.id %> --from-linear --linear-team ENG    # Pull from specific team',
     '<%= config.bin %> <%= command.id %> --from-linear --linear-state "In Progress"  # Filter by state',
     '<%= config.bin %> <%= command.id %> --count 10 --diet --category ship,grow --action groom  # Combined',
@@ -179,22 +189,21 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Pull issues from Linear, mirror into PMO, then spawn agents',
       default: false,
     }),
+    from: Flags.string({
+      description: 'Source override in provider[:context] format (e.g., pmo, linear:PRO)',
+    }),
     'linear-team': Flags.string({
       description: 'Linear team key to pull issues from (e.g., ENG)',
-      dependsOn: ['from-linear'],
     }),
     'linear-state': Flags.string({
       description: 'Filter Linear issues by state name (e.g., "In Progress")',
-      dependsOn: ['from-linear'],
     }),
     'linear-label': Flags.string({
       description: 'Filter Linear issues by label name',
-      dependsOn: ['from-linear'],
     }),
     'linear-limit': Flags.integer({
       description: 'Maximum number of Linear issues to pull',
       default: 20,
-      dependsOn: ['from-linear'],
     }),
   }
 
@@ -226,10 +235,71 @@ export default class WorkSpawn extends PMOCommand {
     // Parse ticket IDs from args (everything after flags)
     let ticketIdArgs = argv as string[]
 
+    // Resolve source precedence:
+    // 1) --from override (new canonical behavior)
+    // 2) --from-linear (legacy compatibility)
+    // 3) persisted active source
+    // 4) one-time prompt when multiple sources are registered
+    let resolvedSource: WorkSourceRef | null = null
+    const sourceDb = this.storage.getDatabase()
+
+    if (flags.from && flags['from-linear']) {
+      return handleError('CONFLICTING_SOURCE_FLAGS', '--from and --from-linear cannot be used together.')
+    }
+
+    if (flags.from) {
+      try {
+        resolvedSource = parseWorkSourceRef(flags.from)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Invalid value for --from'
+        return handleError('INVALID_SOURCE_OVERRIDE', message)
+      }
+    } else if (flags['from-linear']) {
+      resolvedSource = {
+        provider: 'linear',
+        context: flags['linear-team'],
+      }
+    } else {
+      const activeSource = loadActiveWorkSource(sourceDb)
+      if (activeSource) {
+        resolvedSource = activeSource
+      } else {
+        const registeredSources = getRegisteredWorkSources(sourceDb)
+        if (registeredSources.length > 1) {
+          const selectedRef = await this.selectFromList({
+            message: 'Select the default work source for this workspace:',
+            items: registeredSources,
+            getName: (source) => {
+              const ref = formatWorkSourceRef(source)
+              return source.provider === 'linear'
+                ? `Linear (${source.context ?? 'default team'})`
+                : ref.toUpperCase()
+            },
+            getValue: source => formatWorkSourceRef(source),
+            getCommand: source => `prlt work spawn --from ${formatWorkSourceRef(source)} --json`,
+            jsonMode: jsonMode ? { flags, commandName: 'work spawn' } : null,
+          })
+
+          if (!selectedRef) {
+            return
+          }
+
+          resolvedSource = parseWorkSourceRef(selectedRef)
+          saveActiveWorkSource(sourceDb, resolvedSource)
+
+          if (!jsonMode) {
+            this.log(styles.muted(`Saved active work source: ${formatWorkSourceRef(resolvedSource)}`))
+          }
+        } else if (registeredSources.length === 1) {
+          resolvedSource = registeredSources[0]
+        }
+      }
+    }
+
     // =========================================================================
-    // --from-linear: Pull Linear issues → mirror into PMO → spawn from PMO
+    // Linear source: Pull Linear issues → mirror into PMO → spawn from PMO
     // =========================================================================
-    if (flags['from-linear']) {
+    if (resolvedSource?.provider === 'linear') {
       const db = this.storage.getDatabase()
 
       if (!isLinearConfigured(db)) {
@@ -245,7 +315,7 @@ export default class WorkSpawn extends PMOCommand {
         jsonMode: jsonMode ? {
           flags,
           commandName: 'work spawn',
-          baseCommand: 'prlt work spawn --from-linear',
+          baseCommand: `prlt work spawn --from ${formatWorkSourceRef(resolvedSource)}`,
         } : undefined,
       })
 
@@ -284,7 +354,7 @@ export default class WorkSpawn extends PMOCommand {
       } else {
         // Fetch issues using filters
         const filter: LinearIssueFilter = {
-          teamKey: flags['linear-team'] ?? linearConfig.defaultTeamKey,
+          teamKey: resolvedSource.context ?? flags['linear-team'] ?? linearConfig.defaultTeamKey,
           stateName: flags['linear-state'],
           labelName: flags['linear-label'],
           limit: flags['linear-limit'],
@@ -342,6 +412,11 @@ export default class WorkSpawn extends PMOCommand {
 
       // Replace ticket args with the imported PMO ticket IDs
       ticketIdArgs = pmoTicketIds
+    } else if (resolvedSource && resolvedSource.provider !== 'pmo') {
+      return handleError(
+        'SOURCE_NOT_SUPPORTED',
+        `Source "${resolvedSource.provider}" is configured but not supported by work spawn yet. Use --from pmo or --from linear[:team].`,
+      )
     }
 
     // Try to infer project from ticket IDs if provided

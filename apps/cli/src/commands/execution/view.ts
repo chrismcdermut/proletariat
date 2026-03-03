@@ -122,6 +122,10 @@ export default class ExecutionView extends PMOCommand {
           sessionId: execution.sessionId || null,
           host: execution.host || null,
           logPath: execution.logPath || null,
+          externalSource: execution.externalSource || null,
+          externalKey: execution.externalKey || null,
+          externalId: execution.externalId || null,
+          externalUrl: execution.externalUrl || null,
           startedAt: execution.startedAt.toISOString(),
           completedAt: execution.completedAt?.toISOString() || null,
           exitCode: execution.exitCode ?? null,
@@ -151,6 +155,12 @@ export default class ExecutionView extends PMOCommand {
       this.log(`${styles.muted('Permissions:')}  ${execution.permissionMode === 'safe' ? styles.success('safe') : styles.warning('danger')}`)
       if (execution.branch) {
         this.log(`${styles.muted('Branch:')}       ${execution.branch}`)
+      }
+      if (execution.externalSource || execution.externalKey) {
+        this.log(`${styles.muted('External:')}     ${(execution.externalSource || 'unknown')} ${execution.externalKey ? `(${execution.externalKey})` : ''}`.trimEnd())
+        if (execution.externalUrl) {
+          this.log(`${styles.muted('External URL:')} ${execution.externalUrl}`)
+        }
       }
       this.log('')
 

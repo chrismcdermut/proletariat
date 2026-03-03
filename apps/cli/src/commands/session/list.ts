@@ -73,6 +73,9 @@ export default class SessionList extends PMOCommand {
       const startingExecutions = executionStorage?.listExecutions({ status: 'starting' }) || []
       const activeExecutions = [...runningExecutions, ...startingExecutions]
 
+      // Refresh execution state so dead sessions aren't reported as running.
+      executionStorage?.cleanupStaleExecutions()
+
       // Get list of actual tmux sessions for verification
       const hostTmuxSessions = getHostTmuxSessionNames()
       const containerTmuxSessions = getContainerTmuxSessionMap()
@@ -135,15 +138,14 @@ export default class SessionList extends PMOCommand {
           }
         }
 
-        // Always include sessions from DB that have a sessionId.
-        // When tmux verification fails (e.g., Docker/tmux not accessible from MCP context),
-        // show the session with the DB status instead of silently dropping it.
-        if (actualSessionId) {
+        // Only include active sessions by default.
+        // Use --all to include stale DB records (exists=false).
+        if (actualSessionId && (exists || flags.all)) {
           sessions.push({
             sessionId: actualSessionId,
             ticketId: exec.ticketId,
             agentName: exec.agentName,
-            status: exists ? exec.status : (flags.all ? 'stale' : exec.status),
+            status: exists ? exec.status : 'stale',
             environment: isContainer ? 'container' : 'host',
             containerId,
             exists,

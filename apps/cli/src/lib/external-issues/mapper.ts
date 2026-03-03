@@ -6,6 +6,7 @@
  */
 
 import type { IssueEnvelope, IssueSpawnContext } from './types.js'
+import { validateOrThrow } from './validation.js'
 
 /**
  * Map an IssueEnvelope to spawn context data.
@@ -17,10 +18,12 @@ import type { IssueEnvelope, IssueSpawnContext } from './types.js'
  * The mapping is deterministic: the same IssueEnvelope always produces
  * the same IssueSpawnContext.
  *
- * @param envelope - Validated IssueEnvelope
+ * @param input - IssueEnvelope-like input
  * @returns Spawn context with prompt and metadata
+ * @throws ExternalIssueError when input fails IssueEnvelope validation
  */
-export function mapToSpawnContext(envelope: IssueEnvelope): IssueSpawnContext {
+export function mapToSpawnContext(input: IssueEnvelope | unknown): IssueSpawnContext {
+  const envelope = validateOrThrow(input)
   const prompt = buildPrompt(envelope)
   const metadata = buildMetadata(envelope)
 
