@@ -12,7 +12,9 @@ import {
   saveTerminalOpenInBackground,
   saveTmuxControlMode,
   saveShell,
+  getMirrorToPmoDefault,
   saveCreatePrDefault,
+  saveMirrorToPmoDefault,
   saveFirewallAllowlistDomains,
 } from '../../lib/execution/config.js'
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
@@ -78,6 +80,7 @@ export default class Config extends PromptCommand {
     try {
       // Load current config
       const config = loadExecutionConfig(db)
+      const mirrorToPmoDefault = getMirrorToPmoDefault(db)
 
       // Handle --set flag
       if (flags.set && flags.set.length > 0) {
@@ -120,6 +123,7 @@ export default class Config extends PromptCommand {
             outputMode: config.outputMode,
             permissionMode: config.permissionMode,
             createPrDefault: config.createPrDefault ?? null,
+            mirrorToPmoDefault,
             firewall: {
               allowlistDomains: config.firewall.allowlistDomains,
             },
@@ -145,6 +149,7 @@ export default class Config extends PromptCommand {
           this.log(`  outputMode:       ${config.outputMode}`)
           this.log(`  permissionMode:   ${config.permissionMode}`)
           this.log(`  createPrDefault:  ${config.createPrDefault ?? 'not set (will prompt)'}`)
+          this.log(`  mirrorToPmoDefault: ${mirrorToPmoDefault ?? 'not set (default: true)'}`)
           this.log(`  firewall.allowlistDomains: ${config.firewall.allowlistDomains.join(', ') || '(none)'}`)
           this.log('')
         }
@@ -343,6 +348,9 @@ export default class Config extends PromptCommand {
         break
       case 'execution.create_pr_default':
         saveCreatePrDefault(db, value.toLowerCase() === 'true')
+        break
+      case 'execution.mirror_to_pmo_default':
+        saveMirrorToPmoDefault(db, value.toLowerCase() === 'true')
         break
       case 'firewall.allowlistdomains': {
         const domains = value
