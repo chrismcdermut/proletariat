@@ -151,7 +151,7 @@ function buildExternalSpawnContextMessage(
     : buildLinearSpawnContextMessage(envelope, additionalMessage)
 }
 
-function getTicketExternalMetadata(ticket: Ticket): {
+function getTicketExternalMetadata(ticket: { metadata?: Record<string, string> }): {
   source?: string
   key?: string
   id?: string
@@ -2439,7 +2439,7 @@ export default class WorkStart extends PMOCommand {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }>; metadata?: Record<string, string> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,
