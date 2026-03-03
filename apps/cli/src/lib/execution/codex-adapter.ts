@@ -20,10 +20,10 @@
  *
  * | Permission | Context       | Supported | Notes                                    |
  * |------------|---------------|-----------|------------------------------------------|
- * | danger     | interactive   | Yes       | `codex --yolo --prompt "..."`            |
- * | danger     | background    | Yes       | `codex --yolo --prompt "..."`            |
- * | danger     | non-tty       | Yes       | `codex --yolo --prompt "..."`            |
- * | safe       | interactive   | Yes       | `codex --prompt "..."` (user can approve)|
+ * | danger     | interactive   | Yes       | `codex --yolo "..."`                     |
+ * | danger     | background    | Yes       | `codex --yolo "..."`                     |
+ * | danger     | non-tty       | Yes       | `codex --yolo "..."`                     |
+ * | safe       | interactive   | Yes       | `codex "..."` (user can approve)         |
  * | safe       | background    | No        | Cannot prompt for approval in background |
  * | safe       | non-tty       | No        | Cannot prompt for approval without TTY   |
  */
@@ -183,7 +183,8 @@ export function getCodexCommand(
     args.push('--yolo')
   }
 
-  args.push('--prompt', prompt)
+  // Codex CLI expects the initial prompt as a positional argument.
+  args.push(prompt)
 
   return {
     cmd: 'codex',
