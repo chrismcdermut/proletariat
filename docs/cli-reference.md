@@ -712,6 +712,30 @@ prlt gh token
 
 ---
 
+### Monday.com Integration
+
+#### `prlt monday connect`
+
+Connect Monday.com and configure default board.
+
+```bash
+prlt monday connect --board <board-id>
+prlt monday connect --check
+prlt monday connect --disconnect
+```
+
+#### `prlt monday sync`
+
+Sync PMO tickets to Monday board items.
+
+```bash
+prlt monday sync -P <project-id>
+prlt monday sync --ticket <ticket-id>
+prlt monday sync --dry-run
+```
+
+---
+
 ### Utility Commands
 
 #### `prlt whoami`
