@@ -2259,6 +2259,14 @@ export async function runDocker(
   executor: ExecutorType,
   config: ExecutionConfig
 ): Promise<RunnerResult> {
+  // Check if this is an orchestrator (ticketId === 'prlt' or 'ORCH')
+  const isOrchestrator = context.ticketId === 'prlt' || context.ticketId === 'ORCH'
+
+  if (isOrchestrator) {
+    // Orchestrator needs sibling container pattern with Docker socket mounted
+    return runOrchestratorDocker(context, executor, config)
+  }
+
   const prompt = buildPrompt(context)
   const containerName = `work-${context.ticketId}-${Date.now()}`
 
@@ -2323,6 +2331,129 @@ export async function runDocker(
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to start docker container',
+    }
+  }
+}
+
+/**
+ * Run orchestrator in Docker using sibling container pattern.
+ * The orchestrator container has the Docker socket mounted so it can spawn
+ * agent containers as siblings (not nested).
+ *
+ * Architecture:
+ * - Host Docker daemon
+ *   - orchestrator container (has /var/run/docker.sock mounted)
+ *   - agent-1 container (spawned by orchestrator, sibling)
+ *   - agent-2 container (spawned by orchestrator, sibling)
+ */
+async function runOrchestratorDocker(
+  context: ExecutionContext,
+  executor: ExecutorType,
+  config: ExecutionConfig
+): Promise<RunnerResult> {
+  try {
+    // Check if Docker is running
+    if (!isDockerRunning()) {
+      return {
+        success: false,
+        error: 'Docker is not running. Please start Docker Desktop and try again.',
+      }
+    }
+
+    // Determine orchestrator image
+    // For now, use a base image with prlt CLI installed
+    // TODO: Create dedicated orchestrator Dockerfile
+    const orchestratorImage = process.env.PRLT_ORCHESTRATOR_IMAGE || 'prlt-orchestrator:latest'
+
+    // Check if image exists, if not provide helpful error
+    try {
+      execSync(`docker image inspect ${orchestratorImage}`, { stdio: 'pipe' })
+    } catch {
+      return {
+        success: false,
+        error: `Orchestrator Docker image '${orchestratorImage}' not found.\n` +
+               `Build it first or set PRLT_ORCHESTRATOR_IMAGE environment variable.\n` +
+               `Image requirements:\n` +
+               `  - prlt CLI installed globally\n` +
+               `  - tmux installed\n` +
+               `  - Docker CLI installed (for spawning sibling containers)\n` +
+               `  - OAuth credentials configured`,
+      }
+    }
+
+    // Container name based on orchestrator name
+    const containerName = `prlt-orchestrator-${context.agentName}-${Date.now()}`
+
+    // HQ path (from context)
+    const hqPath = context.hqPath || context.worktreePath
+
+    // Build docker run command with sibling container pattern
+    let dockerCmd = `docker run -d --name ${containerName}`
+
+    // Mount HQ directory (read-write for orchestrator to manage workspace)
+    dockerCmd += ` -v "${hqPath}:/hq"`
+
+    // Mount Docker socket for sibling container pattern
+    dockerCmd += ` -v /var/run/docker.sock:/var/run/docker.sock`
+
+    // Mount Claude credentials volume if it exists
+    if (credentialsVolumeExists()) {
+      dockerCmd += ` -v ${CLAUDE_CREDENTIALS_VOLUME}:/root/.claude`
+    } else if (process.env.ANTHROPIC_API_KEY) {
+      // Fall back to API key if no OAuth credentials
+      dockerCmd += ` -e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`
+    } else {
+      return {
+        success: false,
+        error: 'No Claude credentials found. Either:\n' +
+               '  1. Set up OAuth credentials (recommended): run "claude" in a container first\n' +
+               '  2. Set ANTHROPIC_API_KEY environment variable',
+      }
+    }
+
+    // Working directory
+    dockerCmd += ` -w /hq`
+
+    // Environment variables
+    dockerCmd += ` -e ORCHESTRATOR_NAME="${context.agentName}"`
+
+    // Resource limits
+    if (config.docker.memory) {
+      dockerCmd += ` --memory ${config.docker.memory}`
+    }
+    if (config.docker.cpus) {
+      dockerCmd += ` --cpus ${config.docker.cpus}`
+    }
+
+    // Keep container running (we'll exec into it for commands)
+    dockerCmd += ` ${orchestratorImage}`
+    dockerCmd += ` tail -f /dev/null`  // Keep alive
+
+    // Start the container
+    const containerId = execSync(dockerCmd, { encoding: 'utf-8' }).trim()
+    const shortId = containerId.substring(0, 12)
+
+    // Now exec into the container to start the orchestrator
+    // Use the same executor command pattern but inside the container
+    const prompt = buildPrompt(context)
+    const escapedPrompt = prompt.replace(/'/g, "'\\''")
+    const { cmd } = getExecutorCommand(executor, escapedPrompt, !config.sandboxed)
+
+    // Build the orchestrator start command
+    const orchCmd = `cd /hq && ${cmd} ${escapedPrompt || ''}`
+    const execCmd = `docker exec -d ${shortId} bash -c '${orchCmd}'`
+
+    execSync(execCmd, { stdio: 'pipe' })
+
+    return {
+      success: true,
+      containerId: shortId,
+      sessionId: containerName,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start orchestrator container',
     }
   }
 }

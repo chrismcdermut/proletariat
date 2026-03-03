@@ -20,6 +20,7 @@ import {
   DisplayMode,
   ExecutionContext,
   ExecutorType,
+  ExecutionEnvironment,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution } from '../../lib/execution/runners.js'
@@ -113,6 +114,16 @@ export default class OrchestratorStart extends PromptCommand {
       description: 'Attach to the tmux session in the current terminal (blocking)',
       default: false,
       exclusive: ['background'],
+    }),
+    docker: Flags.boolean({
+      description: 'Run orchestrator in Docker container (sibling pattern with Docker socket mounted)',
+      default: false,
+      exclusive: ['run-on-host'],
+    }),
+    'run-on-host': Flags.boolean({
+      description: 'Run orchestrator directly on host machine (default)',
+      default: false,
+      exclusive: ['docker'],
     }),
   }
 
@@ -345,12 +356,21 @@ export default class OrchestratorStart extends PromptCommand {
       }
     }
 
+    // Determine execution environment
+    let environment: ExecutionEnvironment = 'host'
+    if (flags.docker) {
+      environment = 'docker'
+    } else if (flags['run-on-host']) {
+      environment = 'host'
+    }
+
     // Show what we're doing
     if (!jsonMode) {
       this.log('')
       this.log(styles.muted(`   Starting orchestrator...`))
       this.log(styles.muted(`   Executor: ${selectedExecutor}`))
       this.log(styles.muted(`   Permission mode: ${sandboxed ? 'sandboxed' : 'skip-permissions'}`))
+      this.log(styles.muted(`   Environment: ${environment}`))
       this.log(styles.muted(`   Display mode: ${displayMode}`))
       this.log(styles.muted(`   Directory: ${hqPath}`))
       if (orchestratorName !== 'main') {
@@ -363,7 +383,7 @@ export default class OrchestratorStart extends PromptCommand {
     }
 
     // Launch orchestrator
-    const result = await runExecution('host', context, selectedExecutor, executionConfig, {
+    const result = await runExecution(environment, context, selectedExecutor, executionConfig, {
       displayMode,
     })
 
