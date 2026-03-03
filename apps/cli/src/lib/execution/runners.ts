@@ -191,6 +191,43 @@ export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?:
   }
 }
 
+/**
+ * Check if Claude Code authentication is available on the host system.
+ * Returns true if either:
+ * 1. OAuth credentials exist in ~/.claude/.credentials.json, OR
+ * 2. ANTHROPIC_API_KEY environment variable is set
+ *
+ * This is used to validate auth before spawning host sessions (e.g., orchestrator)
+ * to avoid creating stuck sessions when the keychain is locked (SSH contexts).
+ */
+export function hostCredentialsExist(): boolean {
+  // Check for ANTHROPIC_API_KEY first (works in all contexts, including SSH)
+  if (process.env.ANTHROPIC_API_KEY) {
+    return true
+  }
+
+  // Check for OAuth credentials in ~/.claude/.credentials.json
+  try {
+    const credPath = path.join(os.homedir(), '.claude', '.credentials.json')
+    if (!fs.existsSync(credPath)) {
+      return false
+    }
+
+    const credData = fs.readFileSync(credPath, 'utf-8')
+    const creds = JSON.parse(credData)
+
+    // Check if OAuth credentials exist (similar to Docker check)
+    // Don't check expiration - Claude Code handles token refresh internally
+    if (creds.claudeAiOauth?.accessToken) {
+      return true
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
 // =============================================================================
 // Executor Commands
 // =============================================================================
