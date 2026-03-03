@@ -49,6 +49,10 @@ export const PMO_TABLES = {
   ticket_labels: 'pmo_ticket_labels',
   // Linear integration tables
   linear_issue_map: 'pmo_linear_issue_map',  // Linear issue ↔ PMO ticket mapping
+  // Provider-agnostic external issue/execution mapping
+  external_execution_map: 'pmo_external_execution_map',
+  external_execution_links: 'pmo_external_execution_links',
+  external_execution_prs: 'pmo_external_execution_prs',
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -539,6 +543,47 @@ export const PMO_TABLE_SCHEMAS = {
       PRIMARY KEY (pmo_ticket_id),
       UNIQUE (linear_issue_id)
     )`,
+
+  // Provider-agnostic external issue ↔ execution mapping
+  external_execution_map: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_map} (
+      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'asana', 'monday', 'pmo')),
+      external_id TEXT NOT NULL,
+      external_key TEXT,
+      canonical_url TEXT,
+      latest_state_snapshot TEXT,
+      last_synced_at TIMESTAMP,
+      last_spawned_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (provider, external_id)
+    )`,
+
+  // Linked execution IDs for external mappings
+  external_execution_links: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_links} (
+      provider TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (provider, external_id, execution_id),
+      FOREIGN KEY (provider, external_id)
+        REFERENCES ${PMO_TABLES.external_execution_map}(provider, external_id)
+        ON DELETE CASCADE
+    )`,
+
+  // Linked PR URLs for external mappings
+  external_execution_prs: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_prs} (
+      provider TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      pr_url TEXT NOT NULL,
+      linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (provider, external_id, pr_url),
+      FOREIGN KEY (provider, external_id)
+        REFERENCES ${PMO_TABLES.external_execution_map}(provider, external_id)
+        ON DELETE CASCADE
+    )`,
 } as const;
 
 // =============================================================================
@@ -606,6 +651,9 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_linear_id ON ${PMO_TABLES.linear_issue_map}(linear_issue_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_identifier ON ${PMO_TABLES.linear_issue_map}(linear_identifier);
   CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_team ON ${PMO_TABLES.linear_issue_map}(linear_team_key);
+  CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_map_external_key ON ${PMO_TABLES.external_execution_map}(provider, external_key);
+  CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_links_execution_id ON ${PMO_TABLES.external_execution_links}(execution_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_prs_pr_url ON ${PMO_TABLES.external_execution_prs}(pr_url);
 `;
 
 // =============================================================================
@@ -652,6 +700,9 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
   PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
   PMO_TABLE_SCHEMAS.linear_issue_map,  // Linear issue ↔ PMO ticket mapping
+  PMO_TABLE_SCHEMAS.external_execution_map,  // External issue ↔ execution mapping
+  PMO_TABLE_SCHEMAS.external_execution_links,  // External issue ↔ execution links
+  PMO_TABLE_SCHEMAS.external_execution_prs,  // External issue ↔ PR links
   // Legacy tables (kept for migration, will be dropped after data migrated)
   PMO_TABLE_SCHEMAS.columns,  // DEPRECATED
   PMO_TABLE_SCHEMAS.board_tickets,  // DEPRECATED

@@ -18,6 +18,9 @@ export {
   type ExternalIssueAdapterErrorCode,
   type NormalizedIssueEnvelope,
   type IssueSourceMetadata,
+  type ExternalMappingProvider,
+  type ExternalExecutionMapping,
+  type UpsertExternalExecutionMappingInput,
   ISSUE_SOURCES,
   ExternalIssueError,
   ExternalIssueAdapterError,
@@ -40,3 +43,6 @@ export {
   LinearIssueAdapter,
   JiraIssueAdapter,
 } from './adapters.js'
+
+// Mapping store
+export { ExternalExecutionMappingStore } from './mapping-store.js'
