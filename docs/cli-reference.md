@@ -340,12 +340,24 @@ Options:
   --skip-permissions     Skip confirmation prompts
   --create-pr            Create PRs when done (overrides workspace default)
   --no-pr                [deprecated] Don't create PRs
+  --from <source>        Source override (provider[:context], e.g., pmo, linear:PRO)
 
 # Examples
 prlt work spawn --all --column Planned
 prlt work spawn TKT-001 TKT-002 TKT-003
 prlt work spawn --all --dry-run
 prlt work spawn TKT-001 TKT-002 --create-pr   # Ensure PRs are created
+prlt work spawn --from linear:PRO              # Pull from active Linear team context
+```
+
+#### `prlt work source`
+
+Show or set the active source that `work spawn` uses by default when `--from` is omitted.
+
+```bash
+prlt work source
+prlt work source set linear:PRO
+prlt work source set pmo
 ```
 
 #### `prlt work linear`
