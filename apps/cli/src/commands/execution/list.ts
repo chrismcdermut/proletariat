@@ -60,6 +60,10 @@ export default class ExecutionList extends PMOCommand {
     const executionStorage = new ExecutionStorage(db)
 
     try {
+      // Keep execution status truthful: mark missing tmux/container sessions as stopped
+      // before listing so "running" only reflects actually active work.
+      executionStorage.cleanupStaleExecutions()
+
       const executions = executionStorage.listExecutions({
         status: flags.status as ExecutionStatus | undefined,
         agentName: flags.agent,
