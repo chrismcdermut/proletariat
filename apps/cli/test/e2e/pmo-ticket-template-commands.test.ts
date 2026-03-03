@@ -64,7 +64,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     it('should filter to custom only with --custom', () => {
       // First create a custom template
       createTestTicket(db, 'TKT-001', 'Test Ticket');
-      exec('ticket template save TKT-001 "My Custom Template"');
+      exec('ticket template save TKT-001 "My Custom Template" --description ""');
 
       const output = exec('ticket template list --custom');
 
@@ -156,7 +156,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should create template from ticket', () => {
-      const output = exec('ticket template save TKT-001 "My Template"');
+      const output = exec('ticket template save TKT-001 "My Template" --description ""');
 
       expect(output).to.contain('Created template');
       expect(output).to.contain('My Template');
@@ -181,14 +181,14 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should error when template name already exists', () => {
-      exec('ticket template save TKT-001 "Duplicate Name"');
-      const output = exec('ticket template save TKT-001 "Duplicate Name"');
+      exec('ticket template save TKT-001 "Duplicate Name" --description ""');
+      const output = exec('ticket template save TKT-001 "Duplicate Name" --description ""');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
     it('should accept --template-name flag instead of positional argument', () => {
-      const output = exec('ticket template save TKT-001 --template-name "Flag Template"');
+      const output = exec('ticket template save TKT-001 --template-name "Flag Template" --description ""');
 
       expect(output).to.contain('Created template');
       expect(output).to.contain('Flag Template');
@@ -235,7 +235,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
   describe('prlt ticket template delete', () => {
     beforeEach(() => {
       createTestTicket(db, 'TKT-001', 'Source Ticket');
-      exec('ticket template save TKT-001 "Deletable Template"');
+      exec('ticket template save TKT-001 "Deletable Template" --description ""');
     });
 
     it('should delete custom template', () => {
@@ -264,13 +264,13 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     it('should save ticket as template and create new ticket from it', () => {
       // Create source ticket
       createTestTicket(db, 'TKT-001', 'Sprint Planning Template', {
-        priority: 'MEDIUM',
+        priority: 'P2',
         category: 'chore',
         description: 'Sprint planning checklist',
       });
 
       // Save as template
-      exec('ticket template save TKT-001 "Sprint Planning"');
+      exec('ticket template save TKT-001 "Sprint Planning" --description ""');
 
       // Create new ticket from template
       const output = exec('ticket template apply sprint-planning --title "Sprint 42 Planning"');
@@ -280,7 +280,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE title LIKE ?').get('%Sprint 42%') as { priority: string; category: string } | undefined;
       expect(ticket).to.not.be.undefined;
-      expect(ticket?.priority).to.equal('MEDIUM');
+      expect(ticket?.priority).to.equal('P2');
       expect(ticket?.category).to.equal('chore');
     });
   });
