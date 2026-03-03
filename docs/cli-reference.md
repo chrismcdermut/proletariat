@@ -14,6 +14,28 @@ All commands support these options:
 
 ## Command Namespaces
 
+### Integrations
+
+#### `prlt asana connect`
+
+Authenticate with Asana and optionally save default workspace/project.
+
+```bash
+prlt asana connect
+prlt asana connect --check
+prlt asana connect --workspace "Product Team" --project "Roadmap"
+```
+
+#### `prlt asana sync`
+
+Sync PMO tickets to Asana tasks.
+
+```bash
+prlt asana sync --ticket TKT-001 --task 1234567890
+prlt asana sync --ticket TKT-001 --create-missing --project 987654321
+prlt asana sync --dry-run
+```
+
 ### Workspace Management
 
 #### `prlt init`
