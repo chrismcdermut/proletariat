@@ -7,7 +7,7 @@ import {
 import type { ExecutionContext, ExecutorType, PermissionMode } from '../../src/lib/execution/types.js'
 
 // Codex CLI supported flags — maintained here for contract testing
-const CODEX_SUPPORTED_FLAGS = ['--yolo', '--prompt'] as const
+const CODEX_SUPPORTED_FLAGS = ['--yolo'] as const
 
 /**
  * Codex Spawn Smoke Tests (TKT-1169)
@@ -17,7 +17,7 @@ const CODEX_SUPPORTED_FLAGS = ['--yolo', '--prompt'] as const
  * to these tests — CI will fail otherwise.
  *
  * Contract:
- *   - Prompt is passed via --prompt flag
+ *   - Prompt is passed as a positional argument
  *   - Autonomous mode uses --yolo
  *   - Only flags in CODEX_SUPPORTED_FLAGS are allowed
  */
@@ -44,10 +44,6 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
 
     it('should include --yolo in supported flags', () => {
       expect(CODEX_SUPPORTED_FLAGS).to.include('--yolo')
-    })
-
-    it('should include --prompt in supported flags', () => {
-      expect(CODEX_SUPPORTED_FLAGS).to.include('--prompt')
     })
 
     it('should only use supported flags in danger mode command', () => {
@@ -90,18 +86,18 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
       expect(result.cmd).to.equal('codex')
     })
 
-    it('danger mode: should produce codex --yolo --prompt <prompt>', () => {
+    it('danger mode: should produce codex --yolo <prompt>', () => {
       const prompt = 'implement the feature'
       const result = getExecutorCommand('codex', prompt, true)
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', prompt])
+      expect(result.args).to.deep.equal(['--yolo', prompt])
     })
 
-    it('safe mode: should produce codex --prompt <prompt>', () => {
+    it('safe mode: should produce codex <prompt>', () => {
       const prompt = 'implement the feature'
       const result = getExecutorCommand('codex', prompt, false)
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--prompt', prompt])
+      expect(result.args).to.deep.equal([prompt])
     })
 
     it('should not contain any Claude-specific flags', () => {
@@ -140,7 +136,7 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
       )
 
       expect(command).to.include('docker exec')
-      expect(command).to.include('codex --yolo --prompt')
+      expect(command).to.include('codex --yolo')
       expect(command).to.not.include('--permission-mode')
       expect(command).to.not.include('--dangerously-skip-permissions')
     })
@@ -189,7 +185,7 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
     it('should handle empty prompt', () => {
       const result = getExecutorCommand('codex', '', true)
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', ''])
+      expect(result.args).to.deep.equal(['--yolo', ''])
     })
 
     it('should handle prompt with special characters', () => {

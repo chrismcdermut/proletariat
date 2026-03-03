@@ -60,17 +60,17 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     })
 
     describe('codex executor', () => {
-      it('should return codex command with --yolo and --prompt in danger mode', () => {
+      it('should return codex command with --yolo and positional prompt in danger mode', () => {
         const result = getExecutorCommand('codex', testPrompt, true)
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
+        expect(result.args).to.deep.equal(['--yolo', testPrompt])
       })
 
-      it('should map skipPermissions=false to safe command (--prompt only)', () => {
+      it('should map skipPermissions=false to safe command (prompt only)', () => {
         const withSkip = getExecutorCommand('codex', testPrompt, true)
         const withoutSkip = getExecutorCommand('codex', testPrompt, false)
-        expect(withSkip.args).to.deep.equal(['--yolo', '--prompt', testPrompt])
-        expect(withoutSkip.args).to.deep.equal(['--prompt', testPrompt])
+        expect(withSkip.args).to.deep.equal(['--yolo', testPrompt])
+        expect(withoutSkip.args).to.deep.equal([testPrompt])
       })
 
       it('should not include claude-specific flags', () => {
@@ -128,7 +128,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor (not hardcoded claude)', () => {
       const result = getExecutorCommand('codex', 'build the feature')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', 'build the feature'])
+      expect(result.args).to.deep.equal(['--yolo', 'build the feature'])
     })
 
     it('should use aider binary for aider executor (not hardcoded claude)', () => {
@@ -151,7 +151,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor on VM', () => {
       const result = getExecutorCommand('codex', 'implement on VM')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', 'implement on VM'])
+      expect(result.args).to.deep.equal(['--yolo', 'implement on VM'])
     })
 
     it('should use aider binary for aider executor on VM', () => {
@@ -205,7 +205,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should handle empty prompts', () => {
       const result = getExecutorCommand('codex', '')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', ''])
+      expect(result.args).to.deep.equal(['--yolo', ''])
     })
   })
 
@@ -228,23 +228,21 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
   // buildTmuxScript tests removed - function was removed from runners.ts
 
   describe('Codex CLI flag contract', () => {
-    it('should pass prompt via --prompt flag in danger mode', () => {
+    it('should pass prompt as positional arg in danger mode', () => {
       const result = getExecutorCommand('codex', 'build the feature', true)
-      expect(result.args).to.include('--prompt')
       expect(result.args).to.include('--yolo')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', 'build the feature'])
+      expect(result.args).to.deep.equal(['--yolo', 'build the feature'])
     })
 
-    it('should pass prompt via --prompt flag in safe mode', () => {
+    it('should pass prompt as positional arg in safe mode', () => {
       const result = getExecutorCommand('codex', 'implement feature', false)
-      expect(result.args).to.include('--prompt')
-      expect(result.args).to.deep.equal(['--prompt', 'implement feature'])
+      expect(result.args).to.deep.equal(['implement feature'])
     })
 
     it('should use --yolo for danger mode', () => {
       const result = getExecutorCommand('codex', 'test prompt', true)
       expect(result.args).to.include('--yolo')
-      expect(result.args).to.deep.equal(['--yolo', '--prompt', 'test prompt'])
+      expect(result.args).to.deep.equal(['--yolo', 'test prompt'])
     })
   })
 
