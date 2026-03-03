@@ -126,6 +126,9 @@ export default class MondayConnect extends PMOCommand {
       apiToken = answers.token
     }
 
+    if (!apiToken) {
+      this.error('Monday API token is required.')
+    }
     const client = new MondayClient(apiToken)
 
     let boardId = flags.board ?? getMondayBoardId(db)
