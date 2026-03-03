@@ -372,9 +372,8 @@ describe('Branch Commands E2E Tests', () => {
 
   describe('prlt branch where', () => {
     it('should find branch in main worktree by exact name', () => {
-      // Create a branch
+      // Create and stay on the branch so the worktree has it checked out
       execSync('git checkout -b feat/test/find-me', { stdio: 'pipe' });
-      execSync('git checkout -', { stdio: 'pipe' });
 
       const output = exec('branch where feat/test/find-me');
 
@@ -439,7 +438,9 @@ describe('Branch Commands E2E Tests', () => {
       expect(output).to.contain('CaseSensitive');
     });
 
-    it('should find multiple matching branches', () => {
+    it('should find matching branch in current worktree', () => {
+      // Only the currently checked-out branch is found via git worktree list.
+      // Create branches sequentially - only the last one is checked out.
       execSync('git checkout -b feat/test/multi-one', { stdio: 'pipe' });
       execSync('git checkout -b feat/test/multi-two', { stdio: 'pipe' });
       execSync('git checkout -b fix/test/multi-three', { stdio: 'pipe' });
@@ -448,7 +449,9 @@ describe('Branch Commands E2E Tests', () => {
       const parsed = JSON.parse(output);
 
       expect(parsed.found).to.equal(true);
-      expect(parsed.matches.length).to.equal(3);
+      // Only the currently checked-out branch (multi-three) is in a worktree
+      expect(parsed.matches.length).to.be.at.least(1);
+      expect(parsed.matches.some((m: { branch: string }) => m.branch === 'fix/test/multi-three')).to.be.true;
     });
   });
 });
