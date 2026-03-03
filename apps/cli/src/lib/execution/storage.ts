@@ -14,6 +14,7 @@ import {
   ExecutorType,
   ExecutionEnvironment,
   DisplayMode,
+  PermissionMode,
 } from './types.js'
 
 const T = PMO_TABLES
@@ -29,7 +30,7 @@ interface AgentWorkRow {
   executor: string
   environment: string
   display_mode: string
-  sandboxed: number
+  permission_mode: string
   status: string
   branch: string | null
   pid: string | null
@@ -37,6 +38,10 @@ interface AgentWorkRow {
   session_id: string | null
   host: string | null
   log_path: string | null
+  external_source: string | null
+  external_key: string | null
+  external_id: string | null
+  external_url: string | null
   started_at: number
   completed_at: number | null
   exit_code: number | null
@@ -55,7 +60,7 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     executor: row.executor as ExecutorType,
     environment: (row.environment || 'host') as ExecutionEnvironment,
     displayMode: (row.display_mode || 'terminal') as DisplayMode,
-    sandboxed: row.sandboxed === 1,
+    permissionMode: (row.permission_mode || 'safe') as PermissionMode,
     status: row.status as ExecutionStatus,
     branch: row.branch || undefined,
     pid: row.pid || undefined,
@@ -63,6 +68,10 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     sessionId: row.session_id || undefined,
     host: row.host || undefined,
     logPath: row.log_path || undefined,
+    externalSource: row.external_source || undefined,
+    externalKey: row.external_key || undefined,
+    externalId: row.external_id || undefined,
+    externalUrl: row.external_url || undefined,
     startedAt: new Date(row.started_at),
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
     exitCode: row.exit_code ?? undefined,
@@ -91,13 +100,17 @@ export class ExecutionStorage {
     executor: ExecutorType
     environment: ExecutionEnvironment
     displayMode: DisplayMode
-    sandboxed: boolean
+    permissionMode: PermissionMode
     branch?: string
     pid?: string
     containerId?: string
     sessionId?: string
     host?: string
     logPath?: string
+    externalSource?: string
+    externalKey?: string
+    externalId?: string
+    externalUrl?: string
   }): AgentWork {
     const now = Date.now()
 
@@ -107,9 +120,10 @@ export class ExecutionStorage {
 
     this.db.prepare(`
       INSERT INTO ${T.agent_work} (
-        id, ticket_id, agent_name, executor, environment, display_mode, sandboxed,
-        status, branch, pid, container_id, session_id, host, log_path, started_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)
+        id, ticket_id, agent_name, executor, environment, display_mode, permission_mode,
+        status, branch, pid, container_id, session_id, host, log_path,
+        external_source, external_key, external_id, external_url, started_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       params.ticketId,
@@ -117,13 +131,17 @@ export class ExecutionStorage {
       params.executor,
       params.environment,
       params.displayMode,
-      params.sandboxed ? 1 : 0,
+      params.permissionMode,
       params.branch || null,
       params.pid || null,
       params.containerId || null,
       params.sessionId || null,
       params.host || null,
       params.logPath || null,
+      params.externalSource || null,
+      params.externalKey || null,
+      params.externalId || null,
+      params.externalUrl || null,
       now
     )
 

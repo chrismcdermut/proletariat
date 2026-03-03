@@ -7,7 +7,7 @@
 
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod } from './types.js'
+import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod, PermissionMode } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
 import {
   shouldOutputJson,
@@ -30,7 +30,7 @@ const CONFIG_KEYS = {
   defaultExecutor: 'execution.default_executor',
   autoExecute: 'execution.auto_execute',
   outputMode: 'execution.output_mode',
-  sandboxed: 'execution.sandboxed',
+  permissionMode: 'execution.permission_mode',
   tmuxSession: 'execution.tmux.session',
   tmuxLayout: 'execution.tmux.layout',
   tmuxControlMode: 'execution.tmux.control_mode',
@@ -46,6 +46,7 @@ const CONFIG_KEYS = {
   coderName: 'coder.name',
   authMethod: 'execution.auth_method',
   createPrDefault: 'execution.create_pr_default',
+  mirrorToPmoDefault: 'execution.mirror_to_pmo_default',
 }
 
 /**
@@ -117,10 +118,16 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     config.outputMode = outputMode as OutputMode
   }
 
-  // Load sandboxed preference
-  const sandboxed = getSetting(db, CONFIG_KEYS.sandboxed)
-  if (sandboxed !== null) {
-    config.sandboxed = sandboxed === 'true'
+  // Load permission mode preference
+  const permissionMode = getSetting(db, CONFIG_KEYS.permissionMode)
+  if (permissionMode) {
+    config.permissionMode = permissionMode as PermissionMode
+  } else {
+    // Backward compat: read legacy 'execution.sandboxed' setting
+    const legacySandboxed = getSetting(db, 'execution.sandboxed')
+    if (legacySandboxed !== null) {
+      config.permissionMode = legacySandboxed === 'true' ? 'safe' : 'danger'
+    }
   }
 
   // Load auth method preference
@@ -295,6 +302,24 @@ export function getCreatePrDefault(db: Database.Database): boolean | null {
  */
 export function saveCreatePrDefault(db: Database.Database, createPr: boolean): void {
   setSetting(db, CONFIG_KEYS.createPrDefault, createPr.toString())
+}
+
+/**
+ * Get saved external issue mirror default preference.
+ * Returns null if no preference has been saved.
+ */
+export function getMirrorToPmoDefault(db: Database.Database): boolean | null {
+  const value = getSetting(db, CONFIG_KEYS.mirrorToPmoDefault)
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return null
+}
+
+/**
+ * Save external issue mirror default preference.
+ */
+export function saveMirrorToPmoDefault(db: Database.Database, mirrorToPmo: boolean): void {
+  setSetting(db, CONFIG_KEYS.mirrorToPmoDefault, mirrorToPmo.toString())
 }
 
 /**
@@ -496,8 +521,8 @@ export interface ExecutionPromptOptions {
   environment: ExecutionEnvironment
   /** Skip output mode prompt and use this value instead */
   outputMode?: OutputMode
-  /** Skip permission prompt and use this value instead */
-  skipPermissions?: boolean
+  /** Permission mode override (skips prompt) */
+  permissionMode?: PermissionMode
   /** Skip PR prompt and use this value instead */
   createPR?: boolean
   /** Force re-prompt for terminal preferences */
@@ -514,8 +539,8 @@ export interface ExecutionPromptOptions {
 export interface ExecutionPromptResult {
   /** Execution config with terminal/shell/output settings */
   executionConfig: ExecutionConfig
-  /** Whether to skip permission checks */
-  skipPermissions: boolean
+  /** Permission mode for agent execution */
+  permissionMode: PermissionMode
   /** Whether to create PR when work is ready */
   createPR: boolean
 }
@@ -596,8 +621,8 @@ export async function promptExecutionSettings(
   executionConfig.outputMode = outputMode
 
   // Prompt for permissions mode (unless flag override is provided)
-  let skipPermissions = options.skipPermissions ?? false
-  if (options.skipPermissions === undefined) {
+  let resolvedPermissionMode: PermissionMode = options.permissionMode ?? 'safe'
+  if (options.permissionMode === undefined) {
     const containerNote = (environment === 'devcontainer' || environment === 'docker')
       ? ' (container provides additional isolation)'
       : ''
@@ -614,7 +639,7 @@ export async function promptExecutionSettings(
       )
     }
 
-    const { permissionMode } = await inquirer.prompt([
+    const { permissionMode: selectedMode } = await inquirer.prompt([
       {
         type: 'list',
         name: 'permissionMode',
@@ -623,7 +648,7 @@ export async function promptExecutionSettings(
         default: 'safe',
       },
     ])
-    skipPermissions = permissionMode === 'danger'
+    resolvedPermissionMode = selectedMode as PermissionMode
   }
 
   // Prompt for PR creation when work is complete (unless flag override is provided)
@@ -659,7 +684,7 @@ export async function promptExecutionSettings(
 
   return {
     executionConfig,
-    skipPermissions,
+    permissionMode: resolvedPermissionMode,
     createPR,
   }
 }

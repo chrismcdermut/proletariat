@@ -553,7 +553,7 @@ export async function addRepository(
     // Create worktrees for existing agents
     await createWorktreesForRepo(hqPath, repoName, targetPath);
 
-    // Create devcontainer config for sandboxed execution in the central repo
+    // Create devcontainer config for isolated execution in the central repo
     console.log(styles.muted(`Creating devcontainer config for ${repoName}...`));
     const gitIdentity = getGitIdentity();
     createDevcontainerConfig({

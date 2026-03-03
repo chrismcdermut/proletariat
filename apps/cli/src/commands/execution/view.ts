@@ -114,7 +114,7 @@ export default class ExecutionView extends PMOCommand {
           executor: execution.executor,
           environment: execution.environment,
           displayMode: execution.displayMode,
-          sandboxed: execution.sandboxed,
+          permissionMode: execution.permissionMode,
           status: execution.status,
           branch: execution.branch || null,
           pid: execution.pid || null,
@@ -122,6 +122,10 @@ export default class ExecutionView extends PMOCommand {
           sessionId: execution.sessionId || null,
           host: execution.host || null,
           logPath: execution.logPath || null,
+          externalSource: execution.externalSource || null,
+          externalKey: execution.externalKey || null,
+          externalId: execution.externalId || null,
+          externalUrl: execution.externalUrl || null,
           startedAt: execution.startedAt.toISOString(),
           completedAt: execution.completedAt?.toISOString() || null,
           exitCode: execution.exitCode ?? null,
@@ -148,9 +152,15 @@ export default class ExecutionView extends PMOCommand {
       const envIcon = getEnvironmentIcon(execution.environment)
       this.log(`${styles.muted('Type:')}         ${envIcon} ${execution.environment}`)
       this.log(`${styles.muted('Display:')}      ${execution.displayMode}`)
-      this.log(`${styles.muted('Permissions:')}  ${execution.sandboxed ? styles.success('sandboxed (safe)') : styles.warning('unrestricted (danger)')}`)
+      this.log(`${styles.muted('Permissions:')}  ${execution.permissionMode === 'safe' ? styles.success('safe') : styles.warning('danger')}`)
       if (execution.branch) {
         this.log(`${styles.muted('Branch:')}       ${execution.branch}`)
+      }
+      if (execution.externalSource || execution.externalKey) {
+        this.log(`${styles.muted('External:')}     ${(execution.externalSource || 'unknown')} ${execution.externalKey ? `(${execution.externalKey})` : ''}`.trimEnd())
+        if (execution.externalUrl) {
+          this.log(`${styles.muted('External URL:')} ${execution.externalUrl}`)
+        }
       }
       this.log('')
 

@@ -10,6 +10,8 @@ import {
   saveTerminalOpenInBackground,
   saveTmuxControlMode,
   saveShell,
+  getMirrorToPmoDefault,
+  saveMirrorToPmoDefault,
 } from '../../src/lib/execution/config.js';
 import { DEFAULT_EXECUTION_CONFIG } from '../../src/lib/execution/types.js';
 
@@ -89,6 +91,22 @@ describe('Execution Config', () => {
 
       const config = loadExecutionConfig(db);
       expect(config.terminal.app).to.equal('iTerm');
+    });
+  });
+
+  describe('mirror-to-pmo default config', () => {
+    it('returns null when unset', () => {
+      expect(getMirrorToPmoDefault(db)).to.equal(null);
+    });
+
+    it('saves and reads true', () => {
+      saveMirrorToPmoDefault(db, true);
+      expect(getMirrorToPmoDefault(db)).to.equal(true);
+    });
+
+    it('saves and reads false', () => {
+      saveMirrorToPmoDefault(db, false);
+      expect(getMirrorToPmoDefault(db)).to.equal(false);
     });
   });
 

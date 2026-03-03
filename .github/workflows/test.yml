@@ -18,7 +18,7 @@ on:
 
 # Change-detection scoping:
 # - docs-only PRs skip all test suites entirely
-# - Scoped source changes (pmo, execution) run only affected e2e subsets + full unit tests
+# - Scoped source changes (pmo, execution) run only affected unit + e2e subsets
 # - Core/runtime changes (database, shared lib, config files) trigger the full suite
 # - push to main and workflow_dispatch always run the full suite
 # - The ci-status job serves as a single required check for branch protection
@@ -276,11 +276,42 @@ jobs:
         run: pnpm -r build
 
       - name: Run unit tests
-        run: pnpm --filter @proletariat/cli test:unit
+        working-directory: apps/cli
+        run: |
+          SCOPE="${{ needs.detect-changes.outputs.scope }}"
+          echo "Unit test scope: $SCOPE"
+
+          case "$SCOPE" in
+            full)
+              echo "Running full unit test suite"
+              pnpm test:unit
+              ;;
+            pmo)
+              echo "Running PMO-scoped unit tests"
+              npx mocha --forbid-only "test/unit/pmo-*.test.ts"
+              ;;
+            execution)
+              echo "Running execution-scoped unit tests"
+              npx mocha --forbid-only \
+                "test/unit/execution-*.test.ts" \
+                "test/unit/agent-*.test.ts" \
+                "test/unit/session-*.test.ts" \
+                "test/unit/spawner*.test.ts" \
+                "test/unit/codex-*.test.ts"
+              ;;
+            *)
+              echo "Running full unit test suite (unrecognized scope: $SCOPE)"
+              pnpm test:unit
+              ;;
+          esac
 
       # TKT-1169: Codex spawn smoke tests run as a dedicated step so failures
       # are immediately visible. Any Codex command contract change will fail here.
+      # Only runs for execution or full scope since codex is in the execution domain.
       - name: Codex spawn smoke checks
+        if: |
+          needs.detect-changes.outputs.scope == 'full' ||
+          needs.detect-changes.outputs.scope == 'execution'
         run: pnpm --filter @proletariat/cli mocha --forbid-only "test/unit/codex-spawn-smoke.test.ts"
 
   e2e-tests:

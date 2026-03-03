@@ -64,7 +64,7 @@ describe('Spawner', () => {
         executor TEXT NOT NULL,
         environment TEXT DEFAULT 'host',
         display_mode TEXT DEFAULT 'terminal',
-        sandboxed INTEGER DEFAULT 1,
+        permission_mode TEXT DEFAULT 'safe',
         status TEXT NOT NULL,
         branch TEXT,
         pid TEXT,
@@ -72,6 +72,10 @@ describe('Spawner', () => {
         session_id TEXT,
         host TEXT,
         log_path TEXT,
+        external_source TEXT,
+        external_key TEXT,
+        external_id TEXT,
+        external_url TEXT,
         started_at INTEGER NOT NULL,
         completed_at INTEGER,
         exit_code INTEGER
@@ -121,7 +125,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       executionStorage.updateStatus(exec.id, 'running')
 
@@ -146,7 +150,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
 
       const available = getAvailableAgents(workspaceInfo, executionStorage)
@@ -169,7 +173,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       executionStorage.updateStatus(exec.id, 'completed')
 
@@ -205,7 +209,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       executionStorage.updateStatus(exec1.id, 'running')
 
@@ -215,7 +219,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       executionStorage.updateStatus(exec2.id, 'running')
 
@@ -235,9 +239,9 @@ describe('Spawner', () => {
       db.prepare(`
         INSERT INTO ${PMO_TABLES.agent_work} (
           id, ticket_id, agent_name, executor, environment, display_mode,
-          sandboxed, status, started_at
+          permission_mode, status, started_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run('WORK-STALE', 'TKT-001', 'stale-agent', 'claude', 'host', 'terminal', 1, 'running', oldTime)
+      `).run('WORK-STALE', 'TKT-001', 'stale-agent', 'claude', 'host', 'terminal', 'safe', 'running', oldTime)
 
       // Before getAvailableAgents, agent appears busy
       expect(executionStorage.isAgentAvailable('stale-agent')).to.be.false
@@ -294,7 +298,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       executionStorage.updateStatus(execA.id, 'completed')
 
@@ -304,7 +308,7 @@ describe('Spawner', () => {
         executor: 'claude-code',
         environment: 'host',
         displayMode: 'terminal',
-        sandboxed: true,
+        permissionMode: 'safe',
       })
       executionStorage.updateStatus(execB.id, 'completed')
 

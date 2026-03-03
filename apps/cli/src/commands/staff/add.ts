@@ -328,7 +328,7 @@ export default class Add extends PromptCommand {
       }
 
       if (!flags['no-container']) {
-        this.log(chalk.blue('   Devcontainer config created for sandboxed execution'));
+        this.log(chalk.blue('   Devcontainer config created for isolated execution'));
       }
 
     } catch (error) {

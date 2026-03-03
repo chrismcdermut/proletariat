@@ -208,7 +208,8 @@ export function hostCredentialsExist(): boolean {
 
   // Check for OAuth credentials in ~/.claude/.credentials.json
   try {
-    const credPath = path.join(os.homedir(), '.claude', '.credentials.json')
+    const homeDir = process.env.HOME || os.homedir()
+    const credPath = path.join(homeDir, '.claude', '.credentials.json')
     if (!fs.existsSync(credPath)) {
       return false
     }
@@ -225,6 +226,81 @@ export function hostCredentialsExist(): boolean {
     return false
   } catch {
     return false
+  }
+}
+
+/**
+ * Ensure tmux server has keychain access for Claude Code OAuth.
+ *
+ * On macOS, tmux sessions can lose access to the keychain if the tmux server
+ * was started in a context without keychain access (e.g., from a background
+ * process, SSH session, or parent process with restricted keychain access).
+ *
+ * This function:
+ * 1. Checks if a tmux server is running
+ * 2. Tests if it can access Claude Code OAuth credentials
+ * 3. If not, restarts the tmux server to restore keychain access
+ *
+ * This runs transparently before spawning agent sessions, ensuring OAuth
+ * authentication works without manual intervention.
+ */
+async function ensureTmuxServerHasKeychainAccess(): Promise<void> {
+  // Skip if no tmux server is running (will be started fresh with keychain access)
+  try {
+    const serverRunning = execSync('tmux list-sessions 2>/dev/null || echo ""', {
+      encoding: 'utf-8',
+      stdio: 'pipe'
+    })
+    if (!serverRunning.trim()) {
+      return // No server running, will start fresh
+    }
+  } catch {
+    return // tmux not installed or no server running
+  }
+
+  // Test if tmux server can access Claude Code credentials
+  // We spawn a test session and check if Claude Code can authenticate
+  const testSession = `prlt-keychain-test-${Date.now()}`
+
+  try {
+    // Create test session
+    execSync(`tmux new-session -d -s "${testSession}"`, { stdio: 'pipe' })
+
+    // Send command to check Claude Code auth
+    // Use 'unset CLAUDECODE' to avoid nested session error
+    execSync(
+      `tmux send-keys -t "${testSession}" "unset CLAUDECODE && claude -p 'test' 2>&1 | head -1" Enter`,
+      { stdio: 'pipe' }
+    )
+
+    // Wait for response (Claude Code startup + auth check)
+    await new Promise(resolve => setTimeout(resolve, 3000))
+
+    // Capture output
+    const output = execSync(`tmux capture-pane -t "${testSession}" -p`, {
+      encoding: 'utf-8',
+      stdio: 'pipe'
+    })
+
+    // Clean up test session
+    execSync(`tmux kill-session -t "${testSession}"`, { stdio: 'pipe' })
+
+    // Check if auth failed
+    if (output.includes('Not logged in') || output.includes('Please run /login')) {
+      // Keychain access is broken - restart tmux server
+      // This happens silently - the next tmux session will have keychain access
+      execSync('tmux kill-server', { stdio: 'pipe' })
+      // Brief delay to ensure server fully stops
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+  } catch (_error) {
+    // Test session failed - clean up if it exists
+    try {
+      execSync(`tmux kill-session -t "${testSession}"`, { stdio: 'pipe' })
+    } catch {
+      // Ignore cleanup errors
+    }
+    // Continue - worst case, spawn will fail with clear error message
   }
 }
 
@@ -516,12 +592,12 @@ export async function runHost(
   const windowTitle = buildWindowTitle(context)
 
   const prompt = buildPrompt(context)
-  // Terminal - use sandboxed setting
-  const skipPermissions = !config.sandboxed
+  // Terminal - use permission mode setting
+  const skipPermissions = config.permissionMode === 'danger'
 
   // Validate Codex mode combination before proceeding
   if (executor === 'codex') {
-    const codexPermission: PermissionMode = config.sandboxed ? 'safe' : 'danger'
+    const codexPermission: PermissionMode = config.permissionMode
     const codexContext = resolveCodexExecutionContext(displayMode, config.outputMode)
     const modeError = validateCodexMode(codexPermission, codexContext)
     if (modeError) {
@@ -574,7 +650,8 @@ ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
 cd "${context.worktreePath}"
-${executorInvocation}
+# Run executor in subshell with CLAUDECODE unset (prevents nested session error)
+(unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${executorInvocation})
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
@@ -1115,7 +1192,7 @@ function createDockerContainer(
     `--cpus=${config.devcontainer.cpus}`,
   ]
 
-  // Security flags - these provide the sandboxing
+  // Security flags - these provide the isolation
   const securityFlags = [
     '--cap-add=NET_ADMIN',   // For firewall setup
     '--cap-add=NET_RAW',     // For firewall setup
@@ -1149,10 +1226,10 @@ function createDockerContainer(
  * Run the post-start setup commands in a container.
  * This includes firewall initialization, prlt setup, and Claude settings.
  * @param containerId - Docker container ID
- * @param sandboxed - Whether running in safe mode (true) or danger mode (false)
+ * @param permissionMode - Permission mode: 'safe' requires approval, 'danger' skips checks
  * @param executor - Which executor is being used (determines Claude-specific setup)
  */
-function runContainerSetup(containerId: string, sandboxed: boolean = true, executor: ExecutorType = 'claude-code'): boolean {
+function runContainerSetup(containerId: string, permissionMode: PermissionMode = 'safe', executor: ExecutorType = 'claude-code'): boolean {
   try {
     // Run firewall init (requires sudo since we're running as node user)
     execSync(
@@ -1203,9 +1280,9 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true, execu
         }
       }
 
-      // Only set bypassPermissionsModeAccepted when user chose danger mode (!sandboxed)
+      // Only set bypassPermissionsModeAccepted when user chose danger mode
       // This doesn't modify the host file - only the container copy
-      if (!sandboxed) {
+      if (permissionMode === 'danger') {
         settings.bypassPermissionsModeAccepted = true
       }
 
@@ -1246,7 +1323,7 @@ function runContainerSetup(containerId: string, sandboxed: boolean = true, execu
         `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
         { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
       )
-      console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${!sandboxed})`)
+      console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${permissionMode === 'danger'})`)
 
       // Write ~/.claude/settings.json to skip the dangerous mode permission prompt (TKT-1134)
       // This prevents Claude Code from prompting about permission mode on first run
@@ -1369,10 +1446,10 @@ function ensureDockerContainer(
   }
 
   // Run post-start setup (firewall, prlt, Claude settings)
-  // Pass sandboxed config to determine whether to set bypassPermissionsModeAccepted
+  // Pass permission mode to determine whether to set bypassPermissionsModeAccepted
   // Pass executor to skip Claude-specific setup for non-Claude executors
-  console.debug(`[runners:docker] Running container setup (sandboxed=${config.sandboxed}, executor=${executor})`)
-  if (!runContainerSetup(containerId, config.sandboxed, executor)) {
+  console.debug(`[runners:docker] Running container setup (permissionMode=${config.permissionMode}, executor=${executor})`)
+  if (!runContainerSetup(containerId, config.permissionMode, executor)) {
     console.debug(`[runners:docker] Setup failed, but continuing...`)
     // Don't fail completely - setup might partially work
   }
@@ -1473,7 +1550,7 @@ export function buildDevcontainerCommand(
   promptFile: string,
   containerId?: string,
   outputMode: OutputMode = 'interactive',
-  sandboxed: boolean = true,
+  permissionMode: PermissionMode = 'safe',
   displayMode: DisplayMode = 'terminal'
 ): string {
   // Calculate the relative path from agentDir to worktreePath for cd
@@ -1483,23 +1560,22 @@ export function buildDevcontainerCommand(
   // Build executor command using the centralized getExecutorCommand()
   // This ensures all runners use consistent executor invocation
   let executorCmd: string
+  const skipPermissions = permissionMode === 'danger'
   if (isClaudeExecutor(executor)) {
-    // Claude-specific flags based on output mode and sandboxed setting
+    // Claude-specific flags based on output mode and permission mode
     // - interactive: No -p flag, shows streaming UI (watch Claude work in real-time)
     // - print: Uses -p flag, outputs final result only (better for logs/automation)
     const printFlag = outputMode === 'print' ? '-p ' : ''
-    // sandboxed=true means safe mode (no --dangerously-skip-permissions)
-    // sandboxed=false means danger mode (use --dangerously-skip-permissions)
     // --permission-mode bypassPermissions: skips the "trust this folder" dialog
     const bypassTrustFlag = '--permission-mode bypassPermissions '
-    const permissionsFlag = !sandboxed ? '--dangerously-skip-permissions ' : ''
+    const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     // --effort high: skips the effort level prompt for automated agents (TKT-1134)
     const effortFlag = '--effort high '
     executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}"$(cat ${promptFile})"`
   } else if (executor === 'codex') {
     // Use Codex adapter for mode validation and deterministic command building.
     // Validates that the permission/display combination is supported before building.
-    const codexPermission: PermissionMode = sandboxed ? 'safe' : 'danger'
+    const codexPermission: PermissionMode = permissionMode
     const codexContext = resolveCodexExecutionContext(displayMode, outputMode)
     const modeError = validateCodexMode(codexPermission, codexContext)
     if (modeError) {
@@ -1510,7 +1586,7 @@ export function buildDevcontainerCommand(
     executorCmd = `${codexResult.cmd} ${argsStr}`
   } else {
     // Non-Claude, non-Codex executors: use getExecutorCommand() to get correct command and args
-    const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, !sandboxed)
+    const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, skipPermissions)
     // Replace the placeholder prompt with a file read for shell safety
     const argsStr = args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
     executorCmd = `${cmd} ${argsStr}`
@@ -1616,7 +1692,7 @@ export async function runDevcontainer(
 
     // Build the docker exec command (just runs claude directly)
     // tmux session setup is handled by runDevcontainerInTmux, not buildDevcontainerCommand
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId, config.outputMode, config.sandboxed, displayMode)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId, config.outputMode, config.permissionMode, displayMode)
 
     // Execute based on display mode
     // When sessionManager is 'tmux', always use tmux inside container for session persistence
@@ -1983,11 +2059,13 @@ async function runDevcontainerInTmux(
     // Create a script inside the container that runs claude and keeps shell open
     // TERM must be set for Claude's TUI to render properly
     // Unset CI to prevent Claude from detecting CI environment which suppresses TUI output
+    // Unset CLAUDECODE to allow Claude Code to run (prevents nested session error)
     // Note: We keep DEVCONTAINER set so prlt workspace detection works correctly
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
 export COLORTERM=truecolor
 unset CI
+unset CLAUDECODE
 echo "🚀 Starting: ${sessionName}"
 echo ""
 ${claudeCmd}
@@ -2329,7 +2407,7 @@ export async function runDocker(
 
     // Validate Codex mode: Docker runner is always non-tty (detached with -d)
     if (executor === 'codex') {
-      const codexPermission: PermissionMode = config.sandboxed ? 'safe' : 'danger'
+      const codexPermission: PermissionMode = config.permissionMode
       const modeError = validateCodexMode(codexPermission, 'non-tty')
       if (modeError) {
         return { success: false, error: modeError.message }
@@ -2338,7 +2416,7 @@ export async function runDocker(
 
     // Build executor command using getExecutorCommand() for correct invocation
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, !config.sandboxed)
+    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
 
     // For Claude Code in Docker, use --print for non-interactive output
     // Non-Claude executors use their native command format from getExecutorCommand()
@@ -2411,7 +2489,7 @@ export async function runVm(
 
     // Validate Codex mode: VM runner is always non-tty (SSH + nohup)
     if (executor === 'codex') {
-      const codexPermission: PermissionMode = config.sandboxed ? 'safe' : 'danger'
+      const codexPermission: PermissionMode = config.permissionMode
       const modeError = validateCodexMode(codexPermission, 'non-tty')
       if (modeError) {
         return { success: false, error: modeError.message }
@@ -2420,7 +2498,7 @@ export async function runVm(
 
     // Execute on remote using executor-appropriate command
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, !config.sandboxed)
+    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
 
     // Build the remote command based on executor type
     let remoteCmd: string
@@ -2458,6 +2536,12 @@ export async function runExecution(
   config: ExecutionConfig = DEFAULT_EXECUTION_CONFIG,
   options?: { host?: string; displayMode?: DisplayMode; sessionManager?: SessionManager }
 ): Promise<RunnerResult> {
+  // Ensure tmux server has keychain access for OAuth (host only)
+  // Docker uses claude-credentials volume, devcontainer runs inside container
+  if (environment === 'host') {
+    await ensureTmuxServerHasKeychainAccess()
+  }
+
   switch (environment) {
     case 'devcontainer':
       return runDevcontainer(context, executor, config, options?.displayMode, options?.sessionManager)

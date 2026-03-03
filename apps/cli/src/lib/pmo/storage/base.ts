@@ -316,6 +316,38 @@ export function runMigrations(db: Database.Database): void {
         // Column may already exist
       }
     }
+
+    if (!agentWorkColumnNames.has('external_source')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_source TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!agentWorkColumnNames.has('external_key')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_key TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!agentWorkColumnNames.has('external_id')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_id TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
+
+    if (!agentWorkColumnNames.has('external_url')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_url TEXT`)
+      } catch {
+        // Column may already exist
+      }
+    }
   }
 
   // Migration: Reassign orphaned tickets (TKT-940)
@@ -368,6 +400,40 @@ export function runMigrations(db: Database.Database): void {
       }
     } catch {
       // Non-critical migration - don't fail initialization
+    }
+  }
+
+  // Migration: Rename sandboxed column to permission_mode in agent_work table
+  if (tableExists(T.agent_work)) {
+    const awColumns = db.pragma(`table_info(${T.agent_work})`) as Array<{ name: string }>
+    const awColumnNames = new Set(awColumns.map(c => c.name))
+
+    if (awColumnNames.has('sandboxed') && !awColumnNames.has('permission_mode')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'safe'`)
+        // Migrate existing data: sandboxed=1 → 'safe', sandboxed=0 → 'danger'
+        db.exec(`UPDATE ${T.agent_work} SET permission_mode = CASE WHEN sandboxed = 1 THEN 'safe' ELSE 'danger' END`)
+      } catch {
+        // Column may already exist
+      }
+    }
+  }
+
+  // Migration: Rename execution.sandboxed setting to execution.permission_mode
+  if (tableExists('workspace_settings')) {
+    try {
+      const oldSetting = db.prepare(
+        `SELECT value FROM workspace_settings WHERE key = 'execution.sandboxed'`
+      ).get() as { value: string } | undefined
+      if (oldSetting) {
+        const permMode = oldSetting.value === 'true' ? 'safe' : 'danger'
+        db.prepare(`
+          INSERT INTO workspace_settings (key, value) VALUES ('execution.permission_mode', ?)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        `).run(permMode)
+      }
+    } catch {
+      // Non-critical migration
     }
   }
 

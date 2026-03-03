@@ -13,7 +13,7 @@ import {
   getExecutorDisplayName,
   getExecutorPackage,
 } from '../../src/lib/execution/runners.js'
-import type { ExecutionContext, DisplayMode, TerminalApp, ExecutorType } from '../../src/lib/execution/types.js'
+import type { ExecutionContext, DisplayMode, TerminalApp, ExecutorType, PermissionMode } from '../../src/lib/execution/types.js'
 
 /**
  * Unit tests for execution utility functions
@@ -315,21 +315,19 @@ describe('Execution Utils', () => {
       ...overrides,
     })
 
-    it('should generate codex command with --full-auto and positional prompt in danger mode, no Claude-only flags', () => {
+    it('should generate codex command with --yolo + positional prompt in danger mode and no Claude-only flags', () => {
       const command = buildDevcontainerCommand(
         makeContext(),
         'codex',
         '/workspace/repo/.prlt-prompt.txt',
         'abc123',
         'interactive',
-        false,
+        'danger' as PermissionMode,
         'background'
       )
 
       expect(command).to.include('docker exec')
-      expect(command).to.include('codex --full-auto "$(cat /workspace/repo/.prlt-prompt.txt)"')
-      expect(command).to.not.include('--prompt')
-      expect(command).to.not.include('--yolo')
+      expect(command).to.include('codex --yolo "$(cat /workspace/repo/.prlt-prompt.txt)"')
       expect(command).to.not.include('--permission-mode bypassPermissions')
       expect(command).to.not.include('--dangerously-skip-permissions')
       expect(command).to.not.include(' -p ')
@@ -363,10 +361,10 @@ describe('Execution Utils', () => {
     })
 
     describe('codex executor', () => {
-      it('should return codex command with --full-auto and positional prompt when skipPermissions=true', () => {
+      it('should return codex command with --yolo and positional prompt when skipPermissions=true', () => {
         const result = getExecutorCommand('codex', testPrompt)
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--full-auto', testPrompt])
+        expect(result.args).to.deep.equal(['--yolo', testPrompt])
       })
 
       it('should NOT include Claude-specific flags', () => {
@@ -376,15 +374,10 @@ describe('Execution Utils', () => {
         expect(result.args).to.not.include('bypassPermissions')
       })
 
-      it('should NOT use --prompt flag (TKT-1169 regression)', () => {
-        const result = getExecutorCommand('codex', testPrompt, true)
-        expect(result.args).to.not.include('--prompt')
-      })
-
-      it('should apply Codex-native --full-auto when skipPermissions=true', () => {
+      it('should apply Codex-native --yolo when skipPermissions=true', () => {
         const resultTrue = getExecutorCommand('codex', testPrompt, true)
         const resultFalse = getExecutorCommand('codex', testPrompt, false)
-        expect(resultTrue.args).to.deep.equal(['--full-auto', testPrompt])
+        expect(resultTrue.args).to.deep.equal(['--yolo', testPrompt])
         expect(resultFalse.args).to.deep.equal([testPrompt])
       })
     })
