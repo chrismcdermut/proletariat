@@ -986,6 +986,7 @@ describe('PR Commands JSON Mode', () => {
           'not installed',
           'not authenticated',
           'Failed to push',
+          'Pushing branch',
           'Branch:',
         ];
         const hasValidOutput = validOutputPatterns.some(pattern =>
