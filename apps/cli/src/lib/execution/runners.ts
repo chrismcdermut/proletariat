@@ -191,6 +191,81 @@ export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?:
   }
 }
 
+/**
+ * Ensure tmux server has keychain access for Claude Code OAuth.
+ *
+ * On macOS, tmux sessions can lose access to the keychain if the tmux server
+ * was started in a context without keychain access (e.g., from a background
+ * process, SSH session, or parent process with restricted keychain access).
+ *
+ * This function:
+ * 1. Checks if a tmux server is running
+ * 2. Tests if it can access Claude Code OAuth credentials
+ * 3. If not, restarts the tmux server to restore keychain access
+ *
+ * This runs transparently before spawning agent sessions, ensuring OAuth
+ * authentication works without manual intervention.
+ */
+async function ensureTmuxServerHasKeychainAccess(): Promise<void> {
+  // Skip if no tmux server is running (will be started fresh with keychain access)
+  try {
+    const serverRunning = execSync('tmux list-sessions 2>/dev/null || echo ""', {
+      encoding: 'utf-8',
+      stdio: 'pipe'
+    })
+    if (!serverRunning.trim()) {
+      return // No server running, will start fresh
+    }
+  } catch {
+    return // tmux not installed or no server running
+  }
+
+  // Test if tmux server can access Claude Code credentials
+  // We spawn a test session and check if Claude Code can authenticate
+  const testSession = `prlt-keychain-test-${Date.now()}`
+
+  try {
+    // Create test session
+    execSync(`tmux new-session -d -s "${testSession}"`, { stdio: 'pipe' })
+
+    // Send command to check Claude Code auth
+    // Use 'unset CLAUDECODE' to avoid nested session error
+    execSync(
+      `tmux send-keys -t "${testSession}" "unset CLAUDECODE && claude -p 'test' 2>&1 | head -1" Enter`,
+      { stdio: 'pipe' }
+    )
+
+    // Wait for response (Claude Code startup + auth check)
+    await new Promise(resolve => setTimeout(resolve, 3000))
+
+    // Capture output
+    const output = execSync(`tmux capture-pane -t "${testSession}" -p`, {
+      encoding: 'utf-8',
+      stdio: 'pipe'
+    })
+
+    // Clean up test session
+    execSync(`tmux kill-session -t "${testSession}"`, { stdio: 'pipe' })
+
+    // Check if auth failed
+    if (output.includes('Not logged in') || output.includes('Please run /login')) {
+      // Keychain access is broken - restart tmux server
+      // This happens silently - the next tmux session will have keychain access
+      execSync('tmux kill-server', { stdio: 'pipe' })
+      // Brief delay to ensure server fully stops
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+  } catch (error) {
+    // Test session failed - clean up if it exists
+    try {
+      execSync(`tmux kill-session -t "${testSession}"`, { stdio: 'pipe' })
+    } catch {
+      // Ignore cleanup errors
+    }
+    // Continue - worst case, spawn will fail with clear error message
+  }
+}
+
 // =============================================================================
 // Executor Commands
 // =============================================================================
@@ -537,7 +612,8 @@ ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
 cd "${context.worktreePath}"
-${executorInvocation}
+# Run executor in subshell with CLAUDECODE unset (prevents nested session error)
+(unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${executorInvocation})
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
@@ -1945,11 +2021,13 @@ async function runDevcontainerInTmux(
     // Create a script inside the container that runs claude and keeps shell open
     // TERM must be set for Claude's TUI to render properly
     // Unset CI to prevent Claude from detecting CI environment which suppresses TUI output
+    // Unset CLAUDECODE to allow Claude Code to run (prevents nested session error)
     // Note: We keep DEVCONTAINER set so prlt workspace detection works correctly
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
 export COLORTERM=truecolor
 unset CI
+unset CLAUDECODE
 echo "🚀 Starting: ${sessionName}"
 echo ""
 ${claudeCmd}
@@ -2420,6 +2498,12 @@ export async function runExecution(
   config: ExecutionConfig = DEFAULT_EXECUTION_CONFIG,
   options?: { host?: string; displayMode?: DisplayMode; sessionManager?: SessionManager }
 ): Promise<RunnerResult> {
+  // Ensure tmux server has keychain access for OAuth (host only)
+  // Docker uses claude-credentials volume, devcontainer runs inside container
+  if (environment === 'host') {
+    await ensureTmuxServerHasKeychainAccess()
+  }
+
   switch (environment) {
     case 'devcontainer':
       return runDevcontainer(context, executor, config, options?.displayMode, options?.sessionManager)
