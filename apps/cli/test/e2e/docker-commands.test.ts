@@ -183,7 +183,7 @@ describe('Docker Commands E2E Tests', () => {
       const output = exec('docker clean --machine --help')
 
       expect(output).to.contain('--machine')
-      expect(output).to.contain('machine-readable')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -273,7 +273,7 @@ describe('Docker Commands E2E Tests', () => {
       const output = exec('docker stop --machine --help')
 
       expect(output).to.contain('--machine')
-      expect(output).to.contain('machine-readable')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -346,7 +346,7 @@ describe('Docker Commands E2E Tests', () => {
       const output = exec('docker restart --machine --help')
 
       expect(output).to.contain('--machine')
-      expect(output).to.contain('machine-readable')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -454,7 +454,7 @@ describe('Docker Commands E2E Tests', () => {
       const output = exec('docker prune --machine --help')
 
       expect(output).to.contain('--machine')
-      expect(output).to.contain('machine-readable')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -1351,9 +1351,10 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(statusChoice!.command).to.equal('prlt docker status --json')
 
       // Status command executes directly - no confirmation prompt
-      // It returns status output, not a prompt
+      // It returns JSON status output (the choice command includes --json)
       const output = exec(execChoice(statusChoice!))
-      expect(output).to.include('Docker Status')
+      const json = JSON.parse(output)
+      expect(json).to.have.property('running')
     })
 
     it('should navigate: main menu → select list → direct execution (no prompt)', () => {
