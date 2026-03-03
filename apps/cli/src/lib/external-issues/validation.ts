@@ -26,6 +26,8 @@ const REQUIRED_STRING_FIELDS = [
   'project_key',
 ] as const
 
+const PRIORITY_VALUES = new Set(['P0', 'P1', 'P2', 'P3'])
+
 /**
  * Validate and construct an IssueEnvelope from untyped input.
  *
@@ -153,6 +155,15 @@ export function validateIssueEnvelope(input: unknown): IssueValidationResult {
       field: 'priority',
       message: 'priority must be a string or null',
     })
+  } else if (typeof data.priority === 'string') {
+    const normalizedPriority = data.priority.trim().toUpperCase()
+    if (!PRIORITY_VALUES.has(normalizedPriority)) {
+      errors.push({
+        code: 'INVALID_FIELD_TYPE',
+        field: 'priority',
+        message: 'priority must be one of: P0, P1, P2, P3, or null',
+      })
+    }
   }
 
   // Validate assignee (string or null)
