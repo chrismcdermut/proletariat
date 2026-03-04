@@ -239,7 +239,8 @@ describe('Branch Commands JSON Mode', () => {
     it('should validate provided branch name', () => {
       const output = exec('branch validate feat/chris/add-auth');
 
-      expect(output).to.include('Valid');
+      // In non-TTY mode, output is JSON: { "branch": "...", "valid": true, "parts": { "type": "feat", ... } }
+      expect(output).to.include('"valid"');
       expect(output).to.include('feat');
     });
 

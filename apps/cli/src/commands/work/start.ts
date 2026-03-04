@@ -157,11 +157,19 @@ function getTicketExternalMetadata(ticket: { id: string; metadata?: Record<strin
   id?: string
   url?: string
 } {
+  const metadata = (typeof ticket === 'object'
+    && ticket !== null
+    && 'metadata' in ticket
+    && typeof ticket.metadata === 'object'
+    && ticket.metadata !== null
+    ? ticket.metadata
+    : {}) as Record<string, unknown>
+
   return {
-    source: ticket.metadata?.external_source,
-    key: ticket.metadata?.external_key,
-    id: ticket.metadata?.external_id,
-    url: ticket.metadata?.external_url,
+    source: typeof metadata.external_source === 'string' ? metadata.external_source : undefined,
+    key: typeof metadata.external_key === 'string' ? metadata.external_key : undefined,
+    id: typeof metadata.external_id === 'string' ? metadata.external_id : undefined,
+    url: typeof metadata.external_url === 'string' ? metadata.external_url : undefined,
   }
 }
 
@@ -2439,7 +2447,7 @@ export default class WorkStart extends PMOCommand {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }>; metadata?: Record<string, string> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,

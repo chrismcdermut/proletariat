@@ -81,11 +81,8 @@ describe('Docker Commands E2E Tests', () => {
     it('should report Docker status', () => {
       const output = exec('docker status')
 
-      // Should contain status header
-      expect(output).to.contain('Docker Status')
-
-      // Should show either "Running" or "Not Running"
-      const hasStatus = output.includes('Running') || output.includes('Not Running')
+      // docker status outputs JSON in non-TTY (piped) environments
+      const hasStatus = output.includes('"running"') || output.includes('Docker Status')
       expect(hasStatus).to.be.true
     })
 
@@ -183,7 +180,7 @@ describe('Docker Commands E2E Tests', () => {
       const output = exec('docker clean --machine --help')
 
       expect(output).to.contain('--machine')
-      expect(output).to.contain('machine-readable')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -273,7 +270,7 @@ describe('Docker Commands E2E Tests', () => {
       const output = exec('docker stop --machine --help')
 
       expect(output).to.contain('--machine')
-      expect(output).to.contain('machine-readable')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -346,7 +343,7 @@ describe('Docker Commands E2E Tests', () => {
       const output = exec('docker restart --machine --help')
 
       expect(output).to.contain('--machine')
-      expect(output).to.contain('machine-readable')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -454,7 +451,7 @@ describe('Docker Commands E2E Tests', () => {
       const output = exec('docker prune --machine --help')
 
       expect(output).to.contain('--machine')
-      expect(output).to.contain('machine-readable')
+      expect(output).to.contain('JSON')
     })
   })
 
@@ -1350,10 +1347,9 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(statusChoice).to.exist
       expect(statusChoice!.command).to.equal('prlt docker status --json')
 
-      // Status command executes directly - no confirmation prompt
-      // It returns status output, not a prompt
+      // Status command executes directly with --json - returns JSON data, not a prompt
       const output = exec(execChoice(statusChoice!))
-      expect(output).to.include('Docker Status')
+      expect(output).to.include('"running"')
     })
 
     it('should navigate: main menu → select list → direct execution (no prompt)', () => {

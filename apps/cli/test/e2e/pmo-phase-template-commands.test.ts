@@ -147,7 +147,7 @@ describe('PMO Phase Template Commands E2E Tests', () => {
 
   describe('prlt phase template create', () => {
     it('should create template from workspace phases', () => {
-      const output = exec('phase template create "My Custom Phases"');
+      const output = exec('phase template create "My Custom Phases" --description ""');
 
       // In non-TTY mode, output is JSON; in TTY mode, output is text
       // Check for either format
@@ -167,7 +167,7 @@ describe('PMO Phase Template Commands E2E Tests', () => {
     });
 
     it('should generate slugified ID', () => {
-      exec('phase template create "My Workflow Phases"');
+      exec('phase template create "My Workflow Phases" --description ""');
 
       const template = db.prepare('SELECT id FROM pmo_phase_templates WHERE name = ?').get('My Workflow Phases') as { id: string };
       expect(template.id).to.equal('my-workflow-phases');
@@ -181,21 +181,21 @@ describe('PMO Phase Template Commands E2E Tests', () => {
     });
 
     it('should not be marked as builtin', () => {
-      exec('phase template create "User Phases"');
+      exec('phase template create "User Phases" --description ""');
 
       const template = db.prepare('SELECT is_builtin FROM pmo_phase_templates WHERE name = ?').get('User Phases') as { is_builtin: number };
       expect(template.is_builtin).to.equal(0);
     });
 
     it('should error when name already exists', () => {
-      exec('phase template create "Duplicate"');
-      const output = exec('phase template create "Duplicate"');
+      exec('phase template create "Duplicate" --description ""');
+      const output = exec('phase template create "Duplicate" --description ""');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
     it('should preserve phases in template', () => {
-      exec('phase template create "Preserved Template"');
+      exec('phase template create "Preserved Template" --description ""');
 
       const template = db.prepare('SELECT phases FROM pmo_phase_templates WHERE name = ?').get('Preserved Template') as { phases: string };
       const phases = JSON.parse(template.phases);
@@ -208,7 +208,7 @@ describe('PMO Phase Template Commands E2E Tests', () => {
 
   describe('prlt phase template update', () => {
     beforeEach(() => {
-      exec('phase template create "Updatable Template"');
+      exec('phase template create "Updatable Template" --description ""');
     });
 
     it('should update template name', () => {
@@ -240,7 +240,7 @@ describe('PMO Phase Template Commands E2E Tests', () => {
 
   describe('prlt phase template delete', () => {
     beforeEach(() => {
-      exec('phase template create "Deletable Template"');
+      exec('phase template create "Deletable Template" --description ""');
     });
 
     it('should delete template', () => {
@@ -275,7 +275,7 @@ describe('PMO Phase Template Commands E2E Tests', () => {
       exec('phase template apply product --force');
 
       // Create as custom template
-      exec('phase template create "Product Copy"');
+      exec('phase template create "Product Copy" --description ""');
 
       // Apply default to reset
       exec('phase template apply default --force');
@@ -292,8 +292,8 @@ describe('PMO Phase Template Commands E2E Tests', () => {
     });
 
     it('should list custom templates after creation', () => {
-      exec('phase template create "Custom One"');
-      exec('phase template create "Custom Two"');
+      exec('phase template create "Custom One" --description ""');
+      exec('phase template create "Custom Two" --description ""');
 
       const output = exec('phase template list --custom');
 
@@ -494,10 +494,9 @@ function setupTestDatabase(db: Database.Database) {
       ticket_id TEXT NOT NULL,
       agent_name TEXT NOT NULL,
       executor TEXT NOT NULL,
-      mode TEXT NOT NULL,
       environment TEXT NOT NULL DEFAULT 'host',
       display_mode TEXT NOT NULL DEFAULT 'terminal',
-      sandboxed INTEGER NOT NULL DEFAULT 0,
+      permission_mode TEXT NOT NULL DEFAULT 'safe',
       status TEXT NOT NULL DEFAULT 'starting',
       branch TEXT,
       pid TEXT,
@@ -505,6 +504,10 @@ function setupTestDatabase(db: Database.Database) {
       session_id TEXT,
       host TEXT,
       log_path TEXT,
+      external_source TEXT,
+      external_key TEXT,
+      external_id TEXT,
+      external_url TEXT,
       started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       completed_at TIMESTAMP,
       exit_code INTEGER,
