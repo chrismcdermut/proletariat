@@ -151,7 +151,7 @@ function buildExternalSpawnContextMessage(
     : buildLinearSpawnContextMessage(envelope, additionalMessage)
 }
 
-function getTicketExternalMetadata(ticket: Pick<Ticket, 'metadata'> | { metadata?: Record<string, string> }): {
+function getTicketExternalMetadata(ticket: { id: string; metadata?: Record<string, string> | null }): {
   source?: string
   key?: string
   id?: string

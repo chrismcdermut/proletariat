@@ -172,11 +172,15 @@ export default class AsanaConnect extends PMOCommand {
     this.log('')
     this.log(colors.textMuted('Verifying Asana access token...'))
 
-    const client = new AsanaClient(accessToken!)
+    if (!accessToken) {
+      throw new Error('Asana access token is required')
+    }
+
+    const client = new AsanaClient(accessToken)
 
     try {
       const user = await client.verify()
-      saveAsanaAccessToken(db, accessToken!)
+      saveAsanaAccessToken(db, accessToken)
 
       let workspaceGid: string | undefined
       let workspaceName: string | undefined
