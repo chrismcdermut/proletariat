@@ -7,6 +7,8 @@
 
 import Database from 'better-sqlite3'
 import { PMO_TABLES } from '../pmo/schema.js'
+import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
+import type { ExternalExecutionMapping } from '../external-issues/types.js'
 import type { CreateTicketInput, PMOStorage, WorkflowStatus } from '../pmo/types.js'
 import type {
   LinearIssue,
@@ -19,7 +21,10 @@ import {
 } from './types.js'
 
 export class LinearMapper {
+  private externalMappingStore: ExternalExecutionMappingStore
+
   constructor(private db: Database.Database) {
+    this.externalMappingStore = new ExternalExecutionMappingStore(db)
     this.ensureTable()
   }
 
@@ -191,6 +196,19 @@ export class LinearMapper {
       map.linearUrl,
       map.syncDirection,
     )
+
+    this.externalMappingStore.upsertMapping({
+      provider: 'linear',
+      externalId: map.linearIssueId,
+      externalKey: map.linearIdentifier,
+      canonicalUrl: map.linearUrl,
+      latestStateSnapshot: {
+        pmoTicketId: map.pmoTicketId,
+        linearTeamKey: map.linearTeamKey,
+        syncDirection: map.syncDirection,
+      },
+      lastSyncedAt: new Date(),
+    })
   }
 
   /**
@@ -212,7 +230,12 @@ export class LinearMapper {
       SELECT * FROM ${PMO_TABLES.linear_issue_map} WHERE linear_issue_id = ?
     `).get(linearIssueId) as Record<string, unknown> | undefined
 
-    return row ? this.rowToMap(row) : null
+    if (row) {
+      return this.rowToMap(row)
+    }
+
+    const mapping = this.externalMappingStore.getByExternalId('linear', linearIssueId)
+    return mapping ? this.externalMappingToLinearMap(mapping) : null
   }
 
   /**
@@ -223,7 +246,12 @@ export class LinearMapper {
       SELECT * FROM ${PMO_TABLES.linear_issue_map} WHERE linear_identifier = ?
     `).get(identifier) as Record<string, unknown> | undefined
 
-    return row ? this.rowToMap(row) : null
+    if (row) {
+      return this.rowToMap(row)
+    }
+
+    const mapping = this.externalMappingStore.getByExternalKey('linear', identifier)
+    return mapping ? this.externalMappingToLinearMap(mapping) : null
   }
 
   /**
@@ -246,6 +274,22 @@ export class LinearMapper {
       SET last_synced_at = CURRENT_TIMESTAMP
       WHERE pmo_ticket_id = ?
     `).run(pmoTicketId)
+
+    const map = this.getByTicketId(pmoTicketId)
+    if (map) {
+      this.externalMappingStore.upsertMapping({
+        provider: 'linear',
+        externalId: map.linearIssueId,
+        externalKey: map.linearIdentifier,
+        canonicalUrl: map.linearUrl,
+        latestStateSnapshot: {
+          pmoTicketId: map.pmoTicketId,
+          linearTeamKey: map.linearTeamKey,
+          syncDirection: map.syncDirection,
+        },
+        lastSyncedAt: new Date(),
+      })
+    }
   }
 
   /**
@@ -270,6 +314,35 @@ export class LinearMapper {
       syncDirection: row.sync_direction as LinearIssueMap['syncDirection'],
       lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at as string) : undefined,
       createdAt: new Date(row.created_at as string),
+    }
+  }
+
+  private externalMappingToLinearMap(row: ExternalExecutionMapping): LinearIssueMap | null {
+    const snapshot = row.latestStateSnapshot ?? {}
+    const ticketId = typeof snapshot['pmoTicketId'] === 'string' ? snapshot['pmoTicketId'] : null
+    if (!ticketId) {
+      return null
+    }
+
+    const teamKey = typeof snapshot['linearTeamKey'] === 'string'
+      ? snapshot['linearTeamKey']
+      : (typeof snapshot['teamKey'] === 'string' ? snapshot['teamKey'] : null)
+    const resolvedTeamKey = teamKey
+      ? teamKey
+      : (row.externalKey?.split('-')[0] ?? 'UNKNOWN')
+    const syncDirection = typeof snapshot['syncDirection'] === 'string'
+      ? snapshot['syncDirection']
+      : 'inbound'
+
+    return {
+      pmoTicketId: ticketId,
+      linearIssueId: row.externalId,
+      linearIdentifier: row.externalKey ?? row.externalId,
+      linearTeamKey: resolvedTeamKey,
+      linearUrl: row.canonicalUrl ?? '',
+      syncDirection: syncDirection as LinearIssueMap['syncDirection'],
+      lastSyncedAt: row.lastSyncedAt ?? undefined,
+      createdAt: row.createdAt,
     }
   }
 }

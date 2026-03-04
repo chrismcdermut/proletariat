@@ -438,7 +438,7 @@ describe('Branch Commands E2E Tests', () => {
       expect(output).to.contain('CaseSensitive');
     });
 
-    it('should find multiple matching branches', () => {
+    it('should find matching branch in current worktree', () => {
       // branch where searches worktrees, not all branches
       // Only the currently checked-out branch in the main worktree will be found
       execSync('git checkout -b fix/test/multi-three', { stdio: 'pipe' });
@@ -447,8 +447,9 @@ describe('Branch Commands E2E Tests', () => {
       const parsed = JSON.parse(output);
 
       expect(parsed.found).to.equal(true);
-      // Only the checked-out branch is found in the main worktree
+      // Only the currently checked-out branch (multi-three) is in a worktree
       expect(parsed.matches.length).to.be.at.least(1);
+      expect(parsed.matches.some((m: { branch: string }) => m.branch === 'fix/test/multi-three')).to.be.true;
     });
   });
 });

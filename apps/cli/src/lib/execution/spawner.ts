@@ -20,6 +20,8 @@ import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
+import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
+import { type ExternalMappingProvider } from '../external-issues/types.js'
 import {
   DisplayMode,
   SessionManager,
@@ -132,6 +134,13 @@ function findBaseBranchInContainer(
  * contention when all agents mount the same shared volumes concurrently.
  */
 const SPAWN_STAGGER_DELAY_MS = 2000
+
+const EXTERNAL_MAPPING_PROVIDERS: ReadonlySet<string> = new Set(['linear', 'jira', 'asana', 'monday', 'pmo'])
+
+function getExternalProvider(value: string | undefined): ExternalMappingProvider | null {
+  if (!value) return null
+  return EXTERNAL_MAPPING_PROVIDERS.has(value) ? (value as ExternalMappingProvider) : null
+}
 
 // =============================================================================
 // Types
@@ -639,6 +648,26 @@ export async function spawnAgentForTicket(
     }
 
     await autoExportToBoard(pmoPath, storage, log)
+
+    const externalProvider = getExternalProvider(ticket.metadata?.external_source)
+    const externalId = ticket.metadata?.external_id
+    if (externalProvider && externalId) {
+      const mappingStore = new ExternalExecutionMappingStore(db)
+      mappingStore.upsertMapping({
+        provider: externalProvider,
+        externalId,
+        externalKey: ticket.metadata?.external_key ?? null,
+        canonicalUrl: ticket.metadata?.external_url ?? null,
+        latestStateSnapshot: {
+          ticketId: ticket.id,
+          ticketStatus: ticket.statusName ?? null,
+          ticketCategory: ticket.statusCategory ?? null,
+          teamKey: ticket.metadata?.external_project ?? null,
+        },
+        executionId: execution.id,
+        lastSpawnedAt: new Date(),
+      })
+    }
 
     return {
       success: true,

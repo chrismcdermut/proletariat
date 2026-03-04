@@ -21,6 +21,11 @@ export type IssueSource = 'linear' | 'jira'
  */
 export const ISSUE_SOURCES = ['linear', 'jira'] as const
 
+/**
+ * Providers supported by the external execution mapping store.
+ */
+export type ExternalMappingProvider = 'linear' | 'jira' | 'asana' | 'monday' | 'pmo'
+
 // =============================================================================
 // IssueEnvelope - Canonical External Issue Format
 // =============================================================================
@@ -174,6 +179,38 @@ export interface ExternalIssueAdapter {
    * @throws ExternalIssueError if the query fails
    */
   fetchByQuery(query: Record<string, unknown>): Promise<IssueEnvelope[]>
+}
+
+/**
+ * Provider-agnostic external issue ↔ execution mapping record.
+ */
+export interface ExternalExecutionMapping {
+  provider: ExternalMappingProvider
+  externalId: string
+  externalKey: string | null
+  canonicalUrl: string | null
+  latestStateSnapshot: Record<string, unknown> | null
+  executionIds: string[]
+  prUrls: string[]
+  lastSyncedAt: Date | null
+  lastSpawnedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Upsert payload for provider-agnostic external issue mapping.
+ */
+export interface UpsertExternalExecutionMappingInput {
+  provider: ExternalMappingProvider
+  externalId: string
+  externalKey?: string | null
+  canonicalUrl?: string | null
+  latestStateSnapshot?: Record<string, unknown> | null
+  executionId?: string
+  prUrl?: string
+  lastSyncedAt?: Date
+  lastSpawnedAt?: Date
 }
 
 // =============================================================================

@@ -381,6 +381,9 @@ Add `position INTEGER` to:
 - `pmo_ticket_specs`
 - `pmo_ticket_templates`
 - `pmo_ticket_dependencies`
+- `pmo_external_execution_map`
+- `pmo_external_execution_links`
+- `pmo_external_execution_prs`
 - `pmo_project_specs`
 - `pmo_spec_abilities`
 - `pmo_spec_fields`

@@ -714,6 +714,10 @@ export function execProduction(cmd: string): string {
     const env = getIsolatedEnv('production');
     env.PRLT_HQ_PATH = process.cwd();
     env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected
+    // Force text output unless the command explicitly requests JSON via flags.
+    if (!wantsJsonOutput(cmd)) {
+      env.PRLT_FORCE_TEXT = '1';
+    }
 
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',

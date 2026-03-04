@@ -1,5 +1,11 @@
 import { validateOrThrow } from './validation.js'
-import { ExternalIssueError, type ExternalIssueAdapter, type IssueEnvelope } from './types.js'
+import { ExternalExecutionMappingStore } from './mapping-store.js'
+import {
+  ExternalIssueError,
+  type ExternalIssueAdapter,
+  type ExternalExecutionMapping,
+  type IssueEnvelope,
+} from './types.js'
 
 type FetchIssueByKey = (key: string) => Promise<unknown>
 type FetchIssuesByQuery = (query: Record<string, unknown>) => Promise<unknown[]>
@@ -262,6 +268,37 @@ export class LinearIssueAdapter implements ExternalIssueAdapter {
     const rawIssues = await fetchIssuesByQuery(query)
     return rawIssues.map((raw) => this.normalize(raw))
   }
+
+  persistMapping(
+    store: ExternalExecutionMappingStore,
+    envelope: IssueEnvelope,
+    params?: { executionId?: string; prUrl?: string; lastSyncedAt?: Date; lastSpawnedAt?: Date }
+  ): ExternalExecutionMapping {
+    return store.upsertMapping({
+      provider: this.source,
+      externalId: envelope.external_id,
+      externalKey: envelope.external_key,
+      canonicalUrl: envelope.url,
+      latestStateSnapshot: {
+        status: envelope.status,
+        priority: envelope.priority,
+        assignee: envelope.assignee,
+        projectKey: envelope.project_key,
+      },
+      executionId: params?.executionId,
+      prUrl: params?.prUrl,
+      lastSyncedAt: params?.lastSyncedAt,
+      lastSpawnedAt: params?.lastSpawnedAt,
+    })
+  }
+
+  readMappingByExternalId(store: ExternalExecutionMappingStore, externalId: string): ExternalExecutionMapping | null {
+    return store.getByExternalId(this.source, externalId)
+  }
+
+  readMappingsByExecutionId(store: ExternalExecutionMappingStore, executionId: string): ExternalExecutionMapping[] {
+    return store.findByExecutionId(executionId).filter((mapping) => mapping.provider === this.source)
+  }
 }
 
 export class JiraIssueAdapter implements ExternalIssueAdapter {
@@ -312,5 +349,36 @@ export class JiraIssueAdapter implements ExternalIssueAdapter {
     const fetchIssuesByQuery = getFetchByQueryOrThrow(this.source, this.fetchByQueryImpl)
     const rawIssues = await fetchIssuesByQuery(query)
     return rawIssues.map((raw) => this.normalize(raw))
+  }
+
+  persistMapping(
+    store: ExternalExecutionMappingStore,
+    envelope: IssueEnvelope,
+    params?: { executionId?: string; prUrl?: string; lastSyncedAt?: Date; lastSpawnedAt?: Date }
+  ): ExternalExecutionMapping {
+    return store.upsertMapping({
+      provider: this.source,
+      externalId: envelope.external_id,
+      externalKey: envelope.external_key,
+      canonicalUrl: envelope.url,
+      latestStateSnapshot: {
+        status: envelope.status,
+        priority: envelope.priority,
+        assignee: envelope.assignee,
+        projectKey: envelope.project_key,
+      },
+      executionId: params?.executionId,
+      prUrl: params?.prUrl,
+      lastSyncedAt: params?.lastSyncedAt,
+      lastSpawnedAt: params?.lastSpawnedAt,
+    })
+  }
+
+  readMappingByExternalId(store: ExternalExecutionMappingStore, externalId: string): ExternalExecutionMapping | null {
+    return store.getByExternalId(this.source, externalId)
+  }
+
+  readMappingsByExecutionId(store: ExternalExecutionMappingStore, executionId: string): ExternalExecutionMapping[] {
+    return store.findByExecutionId(executionId).filter((mapping) => mapping.provider === this.source)
   }
 }

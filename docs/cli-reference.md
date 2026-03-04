@@ -360,16 +360,20 @@ prlt work source set linear:PRO
 prlt work source set pmo
 ```
 
-#### `prlt work linear`
+#### `prlt work jira`
 
-List/select Linear issues, create or update linked internal ticket context, and spawn work using `work start`.
+List/select Jira issues, create or update linked internal ticket context, and spawn work using `work start`.
 
 ```bash
-prlt work linear [options]
+prlt work jira [options]
 
 Options:
-  --team <key>           Linear team key (fallback: PRLT_LINEAR_TEAM)
-  --issue <id>           Linear issue identifier (e.g., ENG-123)
+  --host <url>           Jira host URL (fallback: PRLT_JIRA_HOST or JIRA_HOST)
+  --email <email>        Jira account email (fallback: PRLT_JIRA_EMAIL or JIRA_EMAIL)
+  --token <token>        Jira API token (fallback: PRLT_JIRA_API_TOKEN or JIRA_API_TOKEN)
+  --project-key <key>    Jira project key (fallback: PRLT_JIRA_PROJECT or JIRA_PROJECT_KEY)
+  --jql <query>          Custom JQL for listing issues
+  --issue <key>          Jira issue key (e.g., PROJ-123)
   --limit <n>            Number of issues to fetch (default: 20)
   --action <action>      Work action for spawn (default: implement)
   --display <mode>       terminal | background | foreground
@@ -378,8 +382,8 @@ Options:
   --yes                  Skip downstream confirmation prompts
 
 # Examples
-prlt work linear --team ENG
-prlt work linear --team ENG --issue ENG-123 --yes --display terminal --skip-permissions
+prlt work jira --host https://myorg.atlassian.net --project-key PROJ
+prlt work jira --host https://myorg.atlassian.net --issue PROJ-123 --yes --display terminal --skip-permissions
 ```
 
 #### `prlt work list`

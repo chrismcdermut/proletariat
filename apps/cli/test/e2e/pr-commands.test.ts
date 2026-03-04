@@ -659,10 +659,19 @@ function createTicket(db: Database.Database, title: string, columnId: string): s
   ticketCounter++;
   const ticketId = `TKT-${String(ticketCounter).padStart(3, '0')}`;
 
+  // Map column IDs to workflow status IDs (default workflow)
+  const statusIdMap: Record<string, string> = {
+    'backlog': 'default-backlog',
+    'in-progress': 'default-in-progress',
+    'in-review': 'default-review',
+    'done': 'default-done',
+  };
+  const statusId = statusIdMap[columnId] || 'default-backlog';
+
   db.prepare(`
-    INSERT INTO pmo_tickets (id, project_id, title, status)
-    VALUES (?, 'test-project', ?, ?)
-  `).run(ticketId, title, columnId === 'done' ? 'done' : 'active');
+    INSERT INTO pmo_tickets (id, project_id, title, status, status_id)
+    VALUES (?, 'test-project', ?, ?, ?)
+  `).run(ticketId, title, columnId === 'done' ? 'done' : 'active', statusId);
 
   db.prepare(`
     INSERT INTO pmo_board_tickets (project_id, ticket_id, column_id, position)
