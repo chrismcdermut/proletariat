@@ -264,7 +264,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     it('should save ticket as template and create new ticket from it', () => {
       // Create source ticket
       createTestTicket(db, 'TKT-001', 'Sprint Planning Template', {
-        priority: 'MEDIUM',
+        priority: 'P2',
         category: 'chore',
         description: 'Sprint planning checklist',
       });
@@ -280,7 +280,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE title LIKE ?').get('%Sprint 42%') as { priority: string; category: string } | undefined;
       expect(ticket).to.not.be.undefined;
-      expect(ticket?.priority).to.be.oneOf(['MEDIUM', 'P2']);
+      expect(ticket?.priority).to.equal('P2');
       expect(ticket?.category).to.equal('chore');
     });
   });

@@ -1347,9 +1347,11 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(statusChoice).to.exist
       expect(statusChoice!.command).to.equal('prlt docker status --json')
 
-      // Status command executes directly with --json - returns JSON data, not a prompt
+      // Status command executes directly - no confirmation prompt
+      // It returns JSON status output (the choice command includes --json)
       const output = exec(execChoice(statusChoice!))
-      expect(output).to.include('"running"')
+      const json = JSON.parse(output)
+      expect(json).to.have.property('running')
     })
 
     it('should navigate: main menu → select list → direct execution (no prompt)', () => {
