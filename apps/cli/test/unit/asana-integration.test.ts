@@ -62,6 +62,10 @@ describe('Asana Integration', () => {
       expect(isAsanaConfigured(db)).to.equal(false)
     })
 
+    it('returns null access token when unset in env and DB', () => {
+      expect(getAsanaAccessToken(db)).to.equal(null)
+    })
+
     it('saves and loads token/workspace/project settings', () => {
       saveAsanaAccessToken(db, 'token-1')
       saveAsanaWorkspace(db, 'ws-1', 'Workspace One')
