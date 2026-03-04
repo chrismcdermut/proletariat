@@ -65,6 +65,7 @@ export default class Status extends PMOCommand {
       outputSuccessAsJson({
         agents: allStatuses,
       }, createMetadata('agent status', flags));
+      return;
     }
 
     // Agent mode config for prompts

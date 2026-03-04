@@ -306,7 +306,7 @@ describe('PMO Board Views Storage Tests', () => {
         sortBy: 'priority',
       });
 
-      const board = await storage.getBoardWithView(view.id);
+      const board = await storage.getBoardWithView('test-project', view.id);
 
       // Check first column has tickets sorted by priority
       const backlog = board.columns.find(c => c.name === 'Backlog');
@@ -329,7 +329,7 @@ describe('PMO Board Views Storage Tests', () => {
         sortBy: 'title',
       });
 
-      const board = await storage.getBoardWithView(view.id);
+      const board = await storage.getBoardWithView('test-project', view.id);
 
       // Check first column has tickets sorted by title
       const backlog = board.columns.find(c => c.name === 'Backlog');
