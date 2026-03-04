@@ -99,16 +99,16 @@ export interface OutputMetadata {
   prModeSource?: string
   /** Warning message when PR creation is disabled for code-modifying actions */
   prWarning?: string
-  /** External issue metadata (if ticket is linked to an external source) */
+  /** External issue context propagated by work start confirmation flow */
   externalIssue?: {
     source: string | null
     key: string | null
     id: string | null
     url: string | null
   }
-  /** Whether external issue state should be mirrored to PMO during work start */
+  /** Resolved mirror-to-PMO behavior for --from-issue flow */
   mirrorToPmo?: boolean | null
-  /** Source used to resolve mirrorToPmo */
+  /** Source used to resolve mirror-to-PMO behavior */
   mirrorToPmoSource?: string | null
 }
 
