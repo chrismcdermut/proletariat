@@ -151,15 +151,7 @@ function buildExternalSpawnContextMessage(
     : buildLinearSpawnContextMessage(envelope, additionalMessage)
 }
 
-function getTicketExternalMetadata(ticket: {
-  id?: string
-  metadata?: {
-    external_source?: string
-    external_key?: string
-    external_id?: string
-    external_url?: string
-  } | null
-}): {
+function getTicketExternalMetadata(ticket: { id: string; metadata?: Record<string, string> | null }): {
   source?: string
   key?: string
   id?: string

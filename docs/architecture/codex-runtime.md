@@ -29,10 +29,10 @@ The execution context is derived from how the agent is displayed and whether out
 
 | Permission | Context | Supported | Codex Invocation |
 |-----------|---------|-----------|-----------------|
-| danger | interactive | Yes | `codex --yolo --prompt "..."` |
-| danger | background | Yes | `codex --yolo --prompt "..."` |
-| danger | non-tty | Yes | `codex --yolo --prompt "..."` |
-| safe | interactive | Yes | `codex --prompt "..."` |
+| danger | interactive | Yes | `codex --yolo "..."` |
+| danger | background | Yes | `codex --yolo "..."` |
+| danger | non-tty | Yes | `codex --yolo "..."` |
+| safe | interactive | Yes | `codex "..."` |
 | safe | background | **No** | Error: needs TTY for approval prompts |
 | safe | non-tty | **No** | Error: needs TTY for approval prompts |
 
