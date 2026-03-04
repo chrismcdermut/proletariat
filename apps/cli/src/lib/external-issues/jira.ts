@@ -7,33 +7,62 @@ import {
 import { JiraIssueAdapter } from './adapters.js'
 
 const DEFAULT_JIRA_API_PATH = '/rest/api/3'
+const JIRA_ISSUE_FIELDS = [
+  'summary',
+  'description',
+  'labels',
+  'priority',
+  'status',
+  'project',
+  'issuetype',
+  'assignee',
+] as const
 
 export interface JiraAdapterConfig {
   baseUrl?: string
+  host?: string
   email?: string
   apiToken?: string
+  projectKey?: string
+  jql?: string
+}
+
+interface JiraIssueSearchResponse {
+  issues?: unknown[]
+  errorMessages?: string[]
 }
 
 interface JiraIssueResponse {
   id?: string
   key?: string
-  self?: string
   fields?: Record<string, unknown>
+  errorMessages?: string[]
 }
 
 function normalizeBaseUrl(value: string): string {
-  return value.replace(/\/+$/, '')
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed
+  }
+  return `https://${trimmed}`
 }
 
 function ensureJiraConfig(config: JiraAdapterConfig): Required<JiraAdapterConfig> {
-  const baseUrl = config.baseUrl || process.env.PRLT_JIRA_BASE_URL || process.env.JIRA_BASE_URL
+  const baseUrl = config.baseUrl
+    || config.host
+    || process.env.PRLT_JIRA_BASE_URL
+    || process.env.JIRA_BASE_URL
+    || process.env.PRLT_JIRA_HOST
+    || process.env.JIRA_HOST
   const email = config.email || process.env.PRLT_JIRA_EMAIL || process.env.JIRA_EMAIL || ''
   const apiToken = config.apiToken || process.env.PRLT_JIRA_API_TOKEN || process.env.JIRA_API_TOKEN
+  const projectKey = config.projectKey || process.env.PRLT_JIRA_PROJECT || process.env.JIRA_PROJECT_KEY || ''
+  const jql = config.jql || process.env.PRLT_JIRA_JQL || ''
 
   if (!baseUrl) {
     throw new ExternalIssueAdapterError(
       'MISSING_CONFIG',
-      'Missing Jira base URL. Set PRLT_JIRA_BASE_URL or JIRA_BASE_URL.',
+      'Missing Jira base URL. Set PRLT_JIRA_BASE_URL/JIRA_BASE_URL or PRLT_JIRA_HOST/JIRA_HOST.',
     )
   }
 
@@ -46,9 +75,20 @@ function ensureJiraConfig(config: JiraAdapterConfig): Required<JiraAdapterConfig
 
   return {
     baseUrl: normalizeBaseUrl(baseUrl),
+    host: normalizeBaseUrl(baseUrl),
     email,
     apiToken,
+    projectKey,
+    jql,
   }
+}
+
+function ensureIssueKey(key: string): string {
+  const trimmed = key.trim().toUpperCase()
+  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(trimmed)) {
+    throw new ExternalIssueAdapterError('BAD_PAYLOAD', `Invalid Jira issue key: "${key}".`)
+  }
+  return trimmed
 }
 
 function buildAuthHeader(config: Required<JiraAdapterConfig>): string {
@@ -56,7 +96,46 @@ function buildAuthHeader(config: Required<JiraAdapterConfig>): string {
     const token = Buffer.from(`${config.email}:${config.apiToken}`).toString('base64')
     return `Basic ${token}`
   }
+
   return `Bearer ${config.apiToken}`
+}
+
+function buildListJql(config: Required<JiraAdapterConfig>, explicitJql?: string): string {
+  const jql = explicitJql?.trim() || config.jql.trim()
+  if (jql.length > 0) {
+    return jql
+  }
+
+  const projectKey = config.projectKey.trim()
+  if (!projectKey) {
+    throw new ExternalIssueAdapterError(
+      'MISSING_CONFIG',
+      'Missing Jira project key/JQL. Pass --project-key or --jql, or set PRLT_JIRA_PROJECT/PRLT_JIRA_JQL.',
+    )
+  }
+
+  return `project = "${projectKey}" AND statusCategory != Done ORDER BY updated DESC`
+}
+
+function getErrorMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== 'object') {
+    return fallback
+  }
+
+  const errorMessages = (payload as { errorMessages?: unknown }).errorMessages
+  if (Array.isArray(errorMessages) && typeof errorMessages[0] === 'string' && errorMessages[0].trim()) {
+    return errorMessages[0].trim()
+  }
+
+  return fallback
+}
+
+async function parseJsonOrThrow(response: Response): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch {
+    throw new ExternalIssueAdapterError('BAD_PAYLOAD', 'Jira response was not valid JSON.')
+  }
 }
 
 function deriveJiraCategory(envelope: IssueEnvelope): string {
@@ -80,11 +159,6 @@ function ensureIssueShape(issue: JiraIssueResponse): asserts issue is Required<P
   }
 }
 
-function toIssueEnvelope(rawIssue: unknown): IssueEnvelope {
-  const adapter = new JiraIssueAdapter()
-  return adapter.normalize(rawIssue)
-}
-
 export function normalizeJiraIssue(rawIssue: unknown): IssueEnvelope {
   if (!rawIssue || typeof rawIssue !== 'object') {
     throw new ExternalIssueAdapterError('BAD_PAYLOAD', 'Jira issue payload is invalid.', rawIssue)
@@ -92,7 +166,9 @@ export function normalizeJiraIssue(rawIssue: unknown): IssueEnvelope {
 
   const issue = rawIssue as JiraIssueResponse
   ensureIssueShape(issue)
-  return toIssueEnvelope(issue)
+
+  const adapter = new JiraIssueAdapter()
+  return adapter.normalize(issue)
 }
 
 export function normalizeJiraIssueToEnvelope(rawIssue: unknown): NormalizedIssueEnvelope {
@@ -149,28 +225,27 @@ export function buildJiraSpawnContextMessage(
   return lines.join('\n')
 }
 
+export function buildJiraIssueChoiceCommand(issueKey: string, projectId?: string): string {
+  let command = `prlt work jira --issue ${issueKey} --json`
+  if (projectId) {
+    command += ` -P ${projectId}`
+  }
+  return command
+}
+
 export async function getJiraIssueByKey(
   configInput: JiraAdapterConfig,
-  key: string,
+  issueKey: string,
   options?: {
     fetchImpl?: typeof fetch
   },
 ): Promise<NormalizedIssueEnvelope | null> {
   const config = ensureJiraConfig(configInput)
   const fetchImpl = options?.fetchImpl || fetch
-
+  const key = ensureIssueKey(issueKey)
   const baseApiUrl = `${config.baseUrl}${DEFAULT_JIRA_API_PATH}`
-  const fields = [
-    'summary',
-    'description',
-    'labels',
-    'priority',
-    'status',
-    'project',
-    'assignee',
-    'issuetype',
-  ].join(',')
-  const issueUrl = `${baseApiUrl}/issue/${encodeURIComponent(key)}?fields=${encodeURIComponent(fields)}`
+  const fields = encodeURIComponent(JIRA_ISSUE_FIELDS.join(','))
+  const issueUrl = `${baseApiUrl}/issue/${encodeURIComponent(key)}?fields=${fields}`
 
   const response = await fetchImpl(issueUrl, {
     method: 'GET',
@@ -191,13 +266,66 @@ export async function getJiraIssueByKey(
     return null
   }
 
+  const payload = await parseJsonOrThrow(response)
+
   if (!response.ok) {
+    const msg = getErrorMessage(payload, `Jira request failed with status ${response.status}.`)
+    throw new ExternalIssueAdapterError('REQUEST_FAILED', msg, payload)
+  }
+
+  return normalizeJiraIssueToEnvelope(payload)
+}
+
+export async function listJiraIssues(
+  configInput: JiraAdapterConfig,
+  options?: {
+    limit?: number
+    jql?: string
+    fetchImpl?: typeof fetch
+  },
+): Promise<NormalizedIssueEnvelope[]> {
+  const config = ensureJiraConfig(configInput)
+  const fetchImpl = options?.fetchImpl || fetch
+  const limit = Math.max(1, Math.min(options?.limit ?? 20, 100))
+  const jql = buildListJql(config, options?.jql)
+  const baseApiUrl = `${config.baseUrl}${DEFAULT_JIRA_API_PATH}`
+
+  const response = await fetchImpl(`${baseApiUrl}/search`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: buildAuthHeader(config),
+    },
+    body: JSON.stringify({
+      jql,
+      maxResults: limit,
+      fields: JIRA_ISSUE_FIELDS,
+    }),
+  })
+
+  if (response.status === 401 || response.status === 403) {
     throw new ExternalIssueAdapterError(
-      'REQUEST_FAILED',
-      `Jira request failed with status ${response.status}.`,
+      'AUTH_FAILED',
+      'Jira authentication failed. Verify your Jira credentials.',
     )
   }
 
-  const payload = await response.json() as JiraIssueResponse
-  return normalizeJiraIssueToEnvelope(payload)
+  const payload = await parseJsonOrThrow(response)
+
+  if (!response.ok) {
+    const msg = getErrorMessage(payload, `Jira request failed with status ${response.status}.`)
+    throw new ExternalIssueAdapterError('REQUEST_FAILED', msg, payload)
+  }
+
+  const data = payload as JiraIssueSearchResponse
+  if (!Array.isArray(data.issues)) {
+    throw new ExternalIssueAdapterError(
+      'BAD_PAYLOAD',
+      'Jira response payload was missing issues array.',
+      payload,
+    )
+  }
+
+  return data.issues.map(normalizeJiraIssueToEnvelope)
 }
