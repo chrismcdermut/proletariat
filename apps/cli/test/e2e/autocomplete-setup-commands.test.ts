@@ -292,9 +292,12 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.result.installed).to.equal(true);
 
       // Verify the config file was actually created
-      const bashrcPath = path.join(fakeHome, '.bashrc');
-      expect(fs.existsSync(bashrcPath)).to.equal(true);
-      const content = fs.readFileSync(bashrcPath, 'utf-8');
+      // On macOS, bash uses .bash_profile; on Linux, .bashrc
+      const bashConfigFile = process.platform === 'darwin'
+        ? path.join(fakeHome, '.bash_profile')
+        : path.join(fakeHome, '.bashrc');
+      expect(fs.existsSync(bashConfigFile)).to.equal(true);
+      const content = fs.readFileSync(bashConfigFile, 'utf-8');
       expect(content).to.include('prlt autocomplete');
     });
 
@@ -416,9 +419,12 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(installResult!.result.installed).to.equal(true);
 
       // Step 5: Verify the actual config file exists on disk
-      const bashrcPath = path.join(fakeHome, '.bashrc');
-      expect(fs.existsSync(bashrcPath)).to.equal(true);
-      const content = fs.readFileSync(bashrcPath, 'utf-8');
+      // On macOS, bash uses .bash_profile; on Linux, .bashrc
+      const bashConfigFile = process.platform === 'darwin'
+        ? path.join(fakeHome, '.bash_profile')
+        : path.join(fakeHome, '.bashrc');
+      expect(fs.existsSync(bashConfigFile)).to.equal(true);
+      const content = fs.readFileSync(bashConfigFile, 'utf-8');
       expect(content).to.include('prlt autocomplete');
       expect(content).to.include('autocomplete:script bash');
     });

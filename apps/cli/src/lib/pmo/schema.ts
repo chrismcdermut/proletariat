@@ -49,6 +49,9 @@ export const PMO_TABLES = {
   ticket_labels: 'pmo_ticket_labels',
   // Linear integration tables
   linear_issue_map: 'pmo_linear_issue_map',  // Linear issue ↔ PMO ticket mapping
+  // Monday.com integration tables
+  monday_item_map: 'pmo_monday_item_map',  // Monday item ↔ PMO ticket mapping
+  // Asana integration tables
   asana_task_map: 'pmo_asana_task_map',  // Asana task ↔ PMO ticket mapping
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
@@ -544,6 +547,21 @@ export const PMO_TABLE_SCHEMAS = {
       PRIMARY KEY (pmo_ticket_id),
       UNIQUE (linear_issue_id)
     )`,
+
+  // Monday.com integration: item ↔ PMO ticket mapping
+  monday_item_map: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.monday_item_map} (
+      pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      monday_board_id TEXT NOT NULL,
+      monday_item_id TEXT NOT NULL,
+      monday_item_name TEXT NOT NULL,
+      monday_item_url TEXT,
+      sync_direction TEXT NOT NULL DEFAULT 'outbound',
+      last_synced_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (pmo_ticket_id),
+      UNIQUE (monday_item_id)
+    )`,
 } as const;
 
 // =============================================================================
@@ -611,6 +629,8 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_linear_id ON ${PMO_TABLES.linear_issue_map}(linear_issue_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_identifier ON ${PMO_TABLES.linear_issue_map}(linear_identifier);
   CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_team ON ${PMO_TABLES.linear_issue_map}(linear_team_key);
+  CREATE INDEX IF NOT EXISTS idx_pmo_monday_item_map_item_id ON ${PMO_TABLES.monday_item_map}(monday_item_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_monday_item_map_board_id ON ${PMO_TABLES.monday_item_map}(monday_board_id);
 `;
 
 // =============================================================================
@@ -657,6 +677,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
   PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
   PMO_TABLE_SCHEMAS.linear_issue_map,  // Linear issue ↔ PMO ticket mapping
+  PMO_TABLE_SCHEMAS.monday_item_map,  // Monday item ↔ PMO ticket mapping
   // Legacy tables (kept for migration, will be dropped after data migrated)
   PMO_TABLE_SCHEMAS.columns,  // DEPRECATED
   PMO_TABLE_SCHEMAS.board_tickets,  // DEPRECATED
