@@ -172,6 +172,19 @@ export default class AsanaConnect extends PMOCommand {
     this.log('')
     this.log(colors.textMuted('Verifying Asana access token...'))
 
+    if (!accessToken) {
+      if (jsonMode) {
+        outputErrorAsJson(
+          'ACCESS_TOKEN_REQUIRED',
+          'Asana access token required. Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN.',
+          createMetadata('asana connect', flags),
+        )
+        this.exit(1)
+      }
+
+      this.log(colors.error('Asana access token is required.'))
+      this.exit(1)
+    }
     const client = new AsanaClient(accessToken)
 
     try {

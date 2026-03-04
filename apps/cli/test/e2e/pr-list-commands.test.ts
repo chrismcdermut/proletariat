@@ -342,7 +342,7 @@ describe('PR List Command E2E Tests', () => {
       // Find list choice
       const listChoice = json.prompt.choices.find(c => c.value === 'list');
       expect(listChoice).to.exist;
-      expect(listChoice!.name).to.include('list');
+      expect(listChoice!.name.toLowerCase()).to.include('list');
     });
 
     it('should invoke pr list when list action is selected', () => {

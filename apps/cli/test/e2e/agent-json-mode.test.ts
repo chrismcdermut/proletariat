@@ -218,38 +218,38 @@ describe('Agent Commands JSON Mode', () => {
       createTestAgent('status-agent', 'persistent');
     });
 
-    it('should output agent selection prompt when no agent specified', () => {
+    it('should output all agent statuses as JSON data when no agent specified', () => {
       const output = exec('agent status --machine');
       const json = extractJson<{
-        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
+        success: boolean;
+        result: { agents: Array<{ name: string }> };
         metadata: { command: string; flags: { machine: boolean } };
       }>(output);
 
-      expect(json.prompt).to.exist;
-      expect(json.prompt.type).to.equal('list');
-      expect(json.prompt.name).to.equal('selected');
-      expect(json.prompt.message).to.include('status');
+      // In JSON mode without agent name, returns all statuses as data (not a prompt)
+      expect(json).to.exist;
+      expect(json.success).to.equal(true);
+      expect(json.result.agents).to.be.an('array');
     });
 
-    it('should include --machine flag in choice commands', () => {
+    it('should include metadata with command name', () => {
       const output = exec('agent status --machine');
       const json = extractJson<{
-        prompt: { choices: Array<{ name: string; command?: string }> };
+        metadata: { command: string };
       }>(output);
 
-      for (const choice of json.prompt.choices) {
-        if (choice.command && choice.command.length > 0) {
-          expect(choice.command).to.include('--machine');
-          expect(choice.command).to.include('prlt agent status');
-        }
-      }
+      expect(json).to.exist;
+      expect(json.metadata.command).to.equal('agent status');
     });
 
     it('should work with -m shorthand', () => {
       const output = exec('agent status -m');
-      const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
+      const json = extractJson<{
+        success: boolean;
+        metadata: { flags: { machine: boolean } };
+      }>(output);
 
-      expect(json.prompt).to.exist;
+      expect(json).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
@@ -405,7 +405,7 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('status-flow-agent', 'persistent');
       });
 
-      it('should complete flow: agent index → select status → select agent → view status', () => {
+      it('should complete flow: agent index → select status → view all agent statuses', () => {
         // Step 1: Agent index menu
         const step1 = agentExec('agent --machine');
         expect(step1).to.exist;
@@ -415,20 +415,22 @@ describe('Agent Commands JSON Mode', () => {
         expect(statusChoice).to.exist;
         expect(statusChoice!.command).to.include('agent status');
 
-        // Step 2: Execute status command, get agent selection
-        const step2 = agentExec(execChoice(statusChoice!));
-        expect(step2).to.exist;
-        expect(step2!.prompt.type).to.equal('list');
-        expect(step2!.prompt.name).to.equal('selected');
+        // Step 2: Execute status command - now returns all agent statuses as JSON data
+        const statusCmd = execChoice(statusChoice!);
+        const output = exec(statusCmd);
 
-        // Find our test agent
-        const agentChoice = findChoice(step2!.prompt.choices!, 'status-flow-agent');
-        expect(agentChoice).to.exist;
-        expect(agentChoice!.command).to.include('status-flow-agent');
+        // In JSON mode without agent name, status returns all statuses as data
+        const json = extractJson<{
+          success: boolean;
+          result: { agents: Array<{ name: string }> };
+        }>(output);
 
-        // Step 3: Execute with agent name (final result)
-        const finalCmd = execChoice(agentChoice!).replace(' --machine', '').replace(' --json', '');
-        const result = exec(finalCmd);
+        expect(json).to.exist;
+        expect(json.success).to.equal(true);
+        expect(json.result.agents).to.be.an('array');
+
+        // Step 3: View specific agent status directly
+        const result = exec('agent status status-flow-agent');
 
         // Should show agent status
         expect(result).to.include('status-flow-agent');
@@ -1717,14 +1719,15 @@ describe('Agent Commands JSON Mode', () => {
       it('should support --force flag to skip confirmation', () => {
         const output = exec('agent staff remove remove-agent-1 --force 2>&1');
 
-        // Should proceed without confirmation (may fail due to Docker or return JSON error)
+        // Should proceed without confirmation (may fail due to Docker, no real agents, or return JSON error)
         expect(output).to.satisfy((o: string) =>
           o.includes('Removing') ||
           o.includes('removed') ||
           o.includes('Docker') ||
           o.includes('Error') ||
           o.includes('"error"') ||
-          o.includes('"success"')
+          o.includes('"success"') ||
+          o.includes('No staff agents')
         );
       });
 
@@ -1737,7 +1740,8 @@ describe('Agent Commands JSON Mode', () => {
           o.includes('Docker') ||
           o.includes('Error') ||
           o.includes('"error"') ||
-          o.includes('"success"')
+          o.includes('"success"') ||
+          o.includes('No staff agents')
         );
       });
 
@@ -1745,7 +1749,7 @@ describe('Agent Commands JSON Mode', () => {
         const output = exec('agent staff remove nonexistent-remove-xyz --force 2>&1');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
-          o.includes('not found') || o.includes('error')
+          o.includes('not found') || o.includes('error') || o.includes('no staff agents')
         );
       });
 

@@ -23,7 +23,7 @@ import {
   PermissionMode,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution } from '../../lib/execution/runners.js'
+import { runExecution, hostCredentialsExist } from '../../lib/execution/runners.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import {
@@ -197,6 +197,39 @@ export default class OrchestratorStart extends PromptCommand {
         choices: executorChoices,
       }])
       selectedExecutor = executor
+    }
+
+    // Validate Claude Code authentication for claude-code executor
+    if (selectedExecutor === 'claude-code' && !hostCredentialsExist()) {
+      const errorMsg = 'Claude Code authentication is not available. This usually happens when the macOS keychain is locked in SSH sessions.'
+      const remediation = [
+        '',
+        'To fix this, choose one of the following:',
+        '',
+        '1. Unlock the keychain:',
+        '   security unlock-keychain',
+        '',
+        '2. Set the ANTHROPIC_API_KEY environment variable:',
+        '   export ANTHROPIC_API_KEY=your-api-key',
+        '',
+        '3. Login to Claude Code:',
+        '   claude /login',
+        '',
+      ].join('\n')
+
+      if (jsonMode) {
+        outputErrorAsJson(
+          'AUTH_UNAVAILABLE',
+          errorMsg + '\n' + remediation,
+          createMetadata('orchestrator start', flags)
+        )
+        return
+      }
+
+      this.log('')
+      this.log(styles.error(errorMsg))
+      this.log(remediation)
+      return
     }
 
     // Permission mode selection

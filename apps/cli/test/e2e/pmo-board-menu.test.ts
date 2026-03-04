@@ -10,6 +10,7 @@ import {
   findChoiceByValue,
   execChoice,
   execFinal,
+  setupProductionSchema,
 } from './test-helpers.js';
 
 /**
@@ -55,21 +56,11 @@ describe('PMO Board Menu E2E Tests', () => {
       created: new Date().toISOString(),
     }), 'utf-8');
 
-    // Create an empty database file - the CLI will create schema on first access
-    const db = new Database(dbPath);
-    db.close();
+    // Initialize database with production schema (creates all PMO tables)
+    const pmoPath = path.join(testDir, 'pmo');
+    const initDb = setupProductionSchema(dbPath, pmoPath);
 
-    // Run a simple command to initialize the database with proper schema
-    // This lets the CLI's own schema creation handle all tables, migrations, and seeding
-    try {
-      exec('board --action view');
-    } catch {
-      // Expected - no project yet, but schema is now created
-    }
-
-    // Create the default project in the initialized DB
-    const initDb = new Database(dbPath);
-    initDb.pragma('foreign_keys = ON');
+    // Create the default project
     const now = new Date().toISOString();
     initDb.prepare(`
       INSERT OR IGNORE INTO pmo_projects (id, name, workflow_id, is_archived, status, created_at, updated_at)

@@ -81,11 +81,8 @@ describe('Docker Commands E2E Tests', () => {
     it('should report Docker status', () => {
       const output = exec('docker status')
 
-      // Should contain status header
-      expect(output).to.contain('Docker Status')
-
-      // Should show either "Running" or "Not Running"
-      const hasStatus = output.includes('Running') || output.includes('Not Running')
+      // docker status outputs JSON in non-TTY (piped) environments
+      const hasStatus = output.includes('"running"') || output.includes('Docker Status')
       expect(hasStatus).to.be.true
     })
 
