@@ -502,6 +502,50 @@ export const pmoContainers = sqliteTable('containers', {
 }))
 
 /**
+ * Provider-agnostic external issue ↔ execution mapping.
+ */
+export const pmoExternalExecutionMap = sqliteTable('pmo_external_execution_map', {
+  provider: text('provider', { enum: ['linear', 'jira', 'asana', 'monday', 'pmo'] }).notNull(),
+  externalId: text('external_id').notNull(),
+  externalKey: text('external_key'),
+  canonicalUrl: text('canonical_url'),
+  latestStateSnapshot: text('latest_state_snapshot'),
+  lastSyncedAt: text('last_synced_at'),
+  lastSpawnedAt: text('last_spawned_at'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.provider, table.externalId] }),
+  idxExternalKey: index('idx_pmo_external_execution_map_external_key').on(table.provider, table.externalKey),
+}))
+
+/**
+ * Linked execution IDs for external mappings.
+ */
+export const pmoExternalExecutionLinks = sqliteTable('pmo_external_execution_links', {
+  provider: text('provider').notNull(),
+  externalId: text('external_id').notNull(),
+  executionId: text('execution_id').notNull(),
+  linkedAt: text('linked_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.provider, table.externalId, table.executionId] }),
+  idxExecutionId: index('idx_pmo_external_execution_links_execution_id').on(table.executionId),
+}))
+
+/**
+ * Linked PR URLs for external mappings.
+ */
+export const pmoExternalExecutionPrs = sqliteTable('pmo_external_execution_prs', {
+  provider: text('provider').notNull(),
+  externalId: text('external_id').notNull(),
+  prUrl: text('pr_url').notNull(),
+  linkedAt: text('linked_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.provider, table.externalId, table.prUrl] }),
+  idxPrUrl: index('idx_pmo_external_execution_prs_pr_url').on(table.prUrl),
+}))
+
+/**
  * ID sequence counters
  */
 export const pmoIdSequences = sqliteTable('id_sequences', {
@@ -879,3 +923,12 @@ export type NewDbPmoBoardView = typeof pmoBoardViews.$inferInsert
 
 export type DbPmoAgentWorkRecord = typeof pmoAgentWork.$inferSelect
 export type NewDbPmoAgentWorkRecord = typeof pmoAgentWork.$inferInsert
+
+export type DbPmoExternalExecutionMap = typeof pmoExternalExecutionMap.$inferSelect
+export type NewDbPmoExternalExecutionMap = typeof pmoExternalExecutionMap.$inferInsert
+
+export type DbPmoExternalExecutionLink = typeof pmoExternalExecutionLinks.$inferSelect
+export type NewDbPmoExternalExecutionLink = typeof pmoExternalExecutionLinks.$inferInsert
+
+export type DbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferSelect
+export type NewDbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferInsert
