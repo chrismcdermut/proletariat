@@ -444,8 +444,8 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     it('should display sandbox status correctly', () => {
-      createExecution(db, 'TKT-001', 'agent-1', 'running', { sandboxed: true });
-      createExecution(db, 'TKT-002', 'agent-2', 'running', { sandboxed: false });
+      createExecution(db, 'TKT-001', 'agent-1', 'running', { permission_mode: 'safe' });
+      createExecution(db, 'TKT-002', 'agent-2', 'running', { permission_mode: 'danger' });
 
       const output = exec('execution list');
       expect(output).to.contain('safe');
@@ -1158,7 +1158,7 @@ function createExecution(
     executor?: string;
     environment?: string;
     display_mode?: string;
-    sandboxed?: boolean;
+    permission_mode?: string;
     branch?: string;
     pid?: string;
     container_id?: string;
@@ -1173,7 +1173,7 @@ function createExecution(
   db.prepare(`
     INSERT INTO agent_work (
       id, ticket_id, agent_name, status, executor,
-      environment, display_mode, sandboxed, branch,
+      environment, display_mode, permission_mode, branch,
       pid, container_id, session_id, host, log_path
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1185,7 +1185,7 @@ function createExecution(
     options.executor || 'claude-code',
     options.environment || 'host',
     options.display_mode || 'terminal',
-    options.sandboxed !== undefined ? (options.sandboxed ? 1 : 0) : 1,
+    options.permission_mode || 'safe',
     options.branch || null,
     options.pid || null,
     options.container_id || null,

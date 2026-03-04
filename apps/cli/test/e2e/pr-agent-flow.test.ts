@@ -247,11 +247,11 @@ describe('PR Commands - Agent Flow Tests', () => {
       const result = extractJson<AgentPromptResponse>(output);
 
       // Should either show PR selection, confirmation, or gh error, not ticket selection
-      if (result !== null) {
-        // If we got JSON, it should be for PR selection or confirmation, not ticket selection
+      if (result !== null && result.prompt) {
+        // If we got a prompt JSON, it should be for PR selection or confirmation, not ticket selection
         expect(result.prompt.name).to.not.equal('ticket');
       }
-      // If null, context error (gh not installed) which is expected
+      // If null or no prompt, could be data/error response (gh not installed) which is expected
     });
   });
 

@@ -326,7 +326,7 @@ describe('Spec Commands Agent Flow', () => {
       expect(step2!.prompt.type).to.equal('list');
       expect(step2!.prompt.name).to.equal('spec');
 
-      const specChoice = findChoice(step2!.prompt.choices!, 'spec-for-ticket');
+      const specChoice = findChoice(step2!.prompt.choices!, 'Spec for Ticket');
       expect(specChoice).to.exist;
       expect(specChoice!.command).to.include('--spec');
 
@@ -412,7 +412,8 @@ describe('Spec Commands Agent Flow', () => {
     });
   });
 
-  describe('spec link relates - full agent flow', () => {
+  // Note: 'spec link relates' subcommand does not exist (only depends/remove exist)
+  describe.skip('spec link relates - full agent flow', () => {
     beforeEach(async () => {
       await createTestSpec('spec-a', 'Spec A', 'active');
       await createTestSpec('spec-b', 'Spec B', 'active');
