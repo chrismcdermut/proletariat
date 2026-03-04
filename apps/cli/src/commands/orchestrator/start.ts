@@ -63,6 +63,17 @@ export function findRunningOrchestratorSessions(hostSessions: string[]): string[
   return hostSessions.filter(s => s.startsWith('prlt-orchestrator-'))
 }
 
+export function resolveOrchestratorName(name?: string): string {
+  const normalized = name?.trim()
+  return normalized && normalized.length > 0 ? normalized : 'main'
+}
+
+export function buildOrchestratorAttachCommand(name: string): string {
+  return name === 'main'
+    ? 'prlt orchestrator attach'
+    : `prlt orchestrator attach --name ${name}`
+}
+
 export default class OrchestratorStart extends PromptCommand {
   static description = 'Start the orchestrator agent in a tmux session'
 
@@ -120,7 +131,6 @@ export default class OrchestratorStart extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStart)
     const jsonMode = shouldOutputJson(flags)
-    const orchestratorName = flags.name || 'main'
 
     // Resolve HQ path first (needed for scoped session name)
     const hqPath = findHQRoot(process.cwd())
@@ -132,6 +142,21 @@ export default class OrchestratorStart extends PromptCommand {
       this.error('Not in an HQ workspace. Run "prlt init" first.')
     }
 
+    // Resolve orchestrator name (interactive prompt when --name is omitted)
+    let orchestratorName = resolveOrchestratorName(flags.name)
+    if (!flags.name && !jsonMode) {
+      const { selectedName } = await this.prompt<{ selectedName: string }>([{
+        type: 'input',
+        name: 'selectedName',
+        message: 'Orchestrator name:',
+        default: 'main',
+      }])
+      orchestratorName = resolveOrchestratorName(selectedName)
+    }
+
+    const attachCommand = buildOrchestratorAttachCommand(orchestratorName)
+    const attachArgs = orchestratorName === 'main' ? [] : ['--name', orchestratorName]
+
     // Build session name scoped to this HQ
     const hqName = getHeadquartersNameFromPath(hqPath)
     const sessionName = buildOrchestratorSessionName(hqName, orchestratorName)
@@ -142,7 +167,7 @@ export default class OrchestratorStart extends PromptCommand {
       if (jsonMode) {
         outputErrorAsJson(
           'ALREADY_RUNNING',
-          `Orchestrator is already running (session: ${sessionName}). Use "prlt orchestrator attach${flags.name ? ` --name ${flags.name}` : ''}" to reattach.`,
+          `Orchestrator is already running (session: ${sessionName}). Use "${attachCommand}" to reattach.`,
           createMetadata('orchestrator start', flags),
         )
         return
@@ -152,13 +177,12 @@ export default class OrchestratorStart extends PromptCommand {
       this.log(styles.warning(`Orchestrator is already running (session: ${sessionName})`))
       this.log('')
 
-      const attachArgs = flags.name ? ['--name', flags.name] : []
       const { choice } = await this.prompt<{ choice: string }>([{
         type: 'list',
         name: 'choice',
         message: 'What would you like to do?',
         choices: [
-          { name: 'Attach to running orchestrator', value: 'attach', command: `prlt orchestrator attach${flags.name ? ` --name ${flags.name}` : ''} --json` },
+          { name: 'Attach to running orchestrator', value: 'attach', command: `${attachCommand} --json` },
           { name: 'Cancel', value: 'cancel' },
         ],
       }], jsonMode ? { flags, commandName: 'orchestrator start' } : null)
@@ -341,9 +365,9 @@ export default class OrchestratorStart extends PromptCommand {
       displayMode = 'foreground'
     } else {
       const displayChoices = [
-        { name: 'New terminal tab — opens attached to the tmux session', value: 'terminal', command: `prlt orchestrator start${flags.name ? ` --name ${flags.name}` : ''} --json` },
-        { name: 'Current session — attach to tmux here (foreground, blocking)', value: 'foreground', command: `prlt orchestrator start${flags.name ? ` --name ${flags.name}` : ''} --foreground --json` },
-        { name: 'Background — start detached, attach later', value: 'background', command: `prlt orchestrator start${flags.name ? ` --name ${flags.name}` : ''} --background --json` },
+        { name: 'New terminal tab — opens attached to the tmux session', value: 'terminal', command: `prlt orchestrator start${orchestratorName !== 'main' ? ` --name ${orchestratorName}` : ''} --json` },
+        { name: 'Current session — attach to tmux here (foreground, blocking)', value: 'foreground', command: `prlt orchestrator start${orchestratorName !== 'main' ? ` --name ${orchestratorName}` : ''} --foreground --json` },
+        { name: 'Background — start detached, attach later', value: 'background', command: `prlt orchestrator start${orchestratorName !== 'main' ? ` --name ${orchestratorName}` : ''} --background --json` },
       ]
       const displayMessage = 'How do you want to view the orchestrator?'
 
@@ -434,7 +458,7 @@ export default class OrchestratorStart extends PromptCommand {
       if (displayMode === 'background') {
         this.log(styles.success(`Orchestrator started in background`))
         this.log(styles.muted(`   Session: ${result.sessionId || sessionName}`))
-        this.log(styles.muted(`   Attach with: prlt orchestrator attach${flags.name ? ` --name ${flags.name}` : ''}`))
+        this.log(styles.muted(`   Attach with: ${attachCommand}`))
       } else {
         this.log(styles.success(`Orchestrator started`))
         if (result.sessionId) {
