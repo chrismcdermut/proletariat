@@ -440,7 +440,56 @@ export function runExecutorPreflight(
   return { ok: true }
 }
 
+/**
+ * Build a role-specific prompt for orchestrator sessions.
+ * Unlike ticket workers, orchestrators are long-running managers that delegate work.
+ */
+function buildOrchestratorPrompt(context: ExecutionContext): string {
+  const hqName = context.hqName || 'workspace'
+  let prompt = `# Orchestrator: ${hqName}\n\n`
+  prompt += `You are the orchestrator for the **${hqName}** workspace using the prlt ecosystem.\n\n`
+
+  prompt += `## Your Role\n`
+  prompt += `- View and manage work using \`prlt\` CLI commands or MCP tools\n`
+  prompt += `- Delegate tasks to agents — do NOT implement work yourself\n`
+  prompt += `- Monitor agent progress, review completed work, and manage the board\n`
+  prompt += `- Spawn agents for Ready tickets, review PRs, merge completed work\n\n`
+
+  prompt += `## Available Tools\n`
+  prompt += `- Board: \`prlt board\`, \`prlt ticket list\`, \`prlt ticket show <id>\`, \`prlt work status\`\n`
+  prompt += `- Agents: \`prlt work start <ticket-id>\`, \`prlt session list\`, \`prlt session peek <session>\`, \`prlt session poke <session> "message"\`\n`
+  prompt += `- PRs: \`gh pr list\`, \`gh pr view\`, \`gh pr merge\`\n`
+  prompt += `- MCP: All prlt MCP tools are available\n\n`
+
+  // Load .orchestrator-context.md from HQ root if it exists
+  if (context.hqPath) {
+    const contextFilePath = path.join(context.hqPath, '.orchestrator-context.md')
+    if (fs.existsSync(contextFilePath)) {
+      try {
+        const contextContent = fs.readFileSync(contextFilePath, 'utf-8').trim()
+        if (contextContent) {
+          prompt += `## Workspace Context\n\n${contextContent}\n\n`
+        }
+      } catch {
+        // Ignore read errors
+      }
+    }
+  }
+
+  // Include user's custom prompt or action content
+  if (context.actionPrompt) {
+    prompt += `## Instructions\n\n${context.actionPrompt}\n`
+  }
+
+  return prompt
+}
+
 function buildPrompt(context: ExecutionContext): string {
+  // Orchestrator sessions get a role-specific prompt instead of the generic ticket format
+  if (context.isOrchestrator) {
+    return buildOrchestratorPrompt(context)
+  }
+
   let prompt = ''
 
   // For revisions, lead with the PR feedback
