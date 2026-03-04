@@ -26,6 +26,7 @@ import {
 import { runExecution, hostCredentialsExist } from '../../lib/execution/runners.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
   loadExecutionConfig,
   getTerminalApp,
@@ -72,6 +73,75 @@ export function buildOrchestratorAttachCommand(name: string): string {
   return name === 'main'
     ? 'prlt orchestrator attach'
     : `prlt orchestrator attach --name ${name}`
+}
+
+export function extractOrchestratorNameFromSession(sessionName: string, hqName: string): string | null {
+  const prefix = `prlt-orchestrator-${sanitizeName(hqName) || 'default'}-`
+  if (!sessionName.startsWith(prefix)) {
+    return null
+  }
+
+  const extracted = sessionName.slice(prefix.length)
+  return extracted.length > 0 ? extracted : null
+}
+
+export function collectReservedOrchestratorNames(
+  agentNames: string[],
+  hostSessions: string[],
+  hqName: string,
+): Set<string> {
+  const reserved = new Set<string>()
+
+  for (const agentName of agentNames) {
+    const normalized = resolveOrchestratorName(sanitizeName(agentName).toLowerCase())
+    reserved.add(normalized)
+  }
+
+  for (const session of hostSessions) {
+    const extracted = extractOrchestratorNameFromSession(session, hqName)
+    if (!extracted) continue
+    reserved.add(resolveOrchestratorName(extracted.toLowerCase()))
+  }
+
+  return reserved
+}
+
+function nextAvailableName(baseName: string, reserved: Set<string>): string {
+  const normalizedBase = resolveOrchestratorName(baseName.toLowerCase())
+  if (!reserved.has(normalizedBase)) {
+    return normalizedBase
+  }
+
+  let suffix = 2
+  while (reserved.has(`${normalizedBase}-${suffix}`)) {
+    suffix += 1
+  }
+
+  return `${normalizedBase}-${suffix}`
+}
+
+export function buildAvailableOrchestratorNames(reserved: Set<string>, maxNames: number = 8): string[] {
+  const orderedBases = ['main', ...Array.from(reserved).sort()]
+  const suggestions: string[] = []
+  const taken = new Set<string>(reserved)
+
+  for (const base of orderedBases) {
+    const candidate = nextAvailableName(base, taken)
+    if (suggestions.includes(candidate)) continue
+    suggestions.push(candidate)
+    taken.add(candidate)
+
+    if (suggestions.length >= maxNames) {
+      break
+    }
+  }
+
+  return suggestions
+}
+
+export function findGlobalOrchestratorNameConflict(name: string, reserved: Set<string>): string | null {
+  const normalized = resolveOrchestratorName(sanitizeName(name).toLowerCase())
+  return reserved.has(normalized) ? normalized : null
 }
 
 export default class OrchestratorStart extends PromptCommand {
@@ -143,26 +213,63 @@ export default class OrchestratorStart extends PromptCommand {
     }
 
     // Resolve orchestrator name (interactive prompt when --name is omitted)
+    const workspaceInfo = getWorkspaceInfo()
+    const hqName = getHeadquartersNameFromPath(hqPath)
+    const hostSessions = getHostTmuxSessionNames()
+    const reservedAgentNames = new Set(
+      workspaceInfo.agents.map(agent => resolveOrchestratorName(sanitizeName(agent.name).toLowerCase())),
+    )
+    const reservedNames = collectReservedOrchestratorNames(
+      workspaceInfo.agents.map(agent => agent.name),
+      hostSessions,
+      hqName,
+    )
+
     let orchestratorName = resolveOrchestratorName(flags.name)
     if (!flags.name && !jsonMode) {
+      const availableNames = buildAvailableOrchestratorNames(reservedNames)
       const { selectedName } = await this.prompt<{ selectedName: string }>([{
-        type: 'input',
+        type: 'list',
         name: 'selectedName',
-        message: 'Orchestrator name:',
-        default: 'main',
+        message: 'Select orchestrator name:',
+        choices: [
+          ...availableNames.map(name => ({
+            name,
+            value: name,
+            command: `prlt orchestrator start --name ${name} --json`,
+          })),
+          { name: 'Custom...', value: '__custom__' },
+        ],
       }])
-      orchestratorName = resolveOrchestratorName(selectedName)
+
+      if (selectedName === '__custom__') {
+        const defaultCustomName = availableNames[0] || 'main'
+        const { customName } = await this.prompt<{ customName: string }>([{
+          type: 'input',
+          name: 'customName',
+          message: 'Enter orchestrator name:',
+          default: defaultCustomName,
+          validate: (input: unknown) => {
+            const normalized = resolveOrchestratorName(sanitizeName(String(input ?? '')).toLowerCase())
+            if (reservedNames.has(normalized)) {
+              return `Name "${normalized}" is already in use by an agent or orchestrator session.`
+            }
+            return true
+          },
+        }])
+        orchestratorName = resolveOrchestratorName(customName)
+      } else {
+        orchestratorName = resolveOrchestratorName(selectedName)
+      }
     }
 
     const attachCommand = buildOrchestratorAttachCommand(orchestratorName)
     const attachArgs = orchestratorName === 'main' ? [] : ['--name', orchestratorName]
 
     // Build session name scoped to this HQ
-    const hqName = getHeadquartersNameFromPath(hqPath)
     const sessionName = buildOrchestratorSessionName(hqName, orchestratorName)
 
     // Check if orchestrator is already running
-    const hostSessions = getHostTmuxSessionNames()
     if (hostSessions.includes(sessionName)) {
       if (jsonMode) {
         outputErrorAsJson(
@@ -191,6 +298,19 @@ export default class OrchestratorStart extends PromptCommand {
         await this.config.runCommand('orchestrator:attach', attachArgs)
       }
       return
+    }
+
+    const conflict = findGlobalOrchestratorNameConflict(orchestratorName, reservedAgentNames)
+    if (conflict) {
+      if (jsonMode) {
+        outputErrorAsJson(
+          'NAME_CONFLICT',
+          `Orchestrator name "${conflict}" is already in use by a staff/temp agent. Choose a unique name with --name.`,
+          createMetadata('orchestrator start', flags),
+        )
+        return
+      }
+      this.error(`Orchestrator name "${conflict}" is already in use by a staff/temp agent. Choose a different name.`)
     }
 
     // Executor selection
