@@ -47,6 +47,7 @@ export interface LinearIssue {
     name: string
   }
   estimate?: number
+  dueDate?: string
   url: string
   createdAt: string
   updatedAt: string

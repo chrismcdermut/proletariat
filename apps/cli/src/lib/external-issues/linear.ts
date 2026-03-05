@@ -24,6 +24,13 @@ const LINEAR_ISSUES_QUERY = `
         description
         url
         priority
+        estimate
+        dueDate
+        assignee {
+          id
+          name
+          email
+        }
         labels {
           nodes {
             name
@@ -32,6 +39,9 @@ const LINEAR_ISSUES_QUERY = `
         state {
           name
           type
+        }
+        team {
+          key
         }
       }
     }
@@ -47,6 +57,13 @@ const LINEAR_ISSUE_BY_IDENTIFIER_QUERY = `
       description
       url
       priority
+      estimate
+      dueDate
+      assignee {
+        id
+        name
+        email
+      }
       labels {
         nodes {
           name
@@ -55,6 +72,9 @@ const LINEAR_ISSUE_BY_IDENTIFIER_QUERY = `
       state {
         name
         type
+      }
+      team {
+        key
       }
     }
   }
@@ -71,11 +91,21 @@ interface LinearIssueNode {
   description?: string | null
   url?: string
   priority?: number | null
+  estimate?: number | null
+  dueDate?: string | null
+  assignee?: {
+    id?: string
+    name?: string
+    email?: string
+  } | null
   labels?: {
     nodes?: LinearIssueLabel[]
   }
   state?: {
     name?: string
+  }
+  team?: {
+    key?: string
   }
 }
 
@@ -160,7 +190,7 @@ export function normalizeLinearIssue(rawIssue: unknown): IssueEnvelope {
     .map(label => label.name?.trim())
     .filter((name): name is string => Boolean(name))
 
-  const [projectKey] = issue.identifier.split('-')
+  const projectKey = issue.team?.key || issue.identifier.split('-')[0]
 
   return {
     source: 'linear',
@@ -173,7 +203,7 @@ export function normalizeLinearIssue(rawIssue: unknown): IssueEnvelope {
     status: issue.state?.name || 'Unknown',
     url: issue.url,
     project_key: projectKey || 'UNKNOWN',
-    assignee: null,
+    assignee: issue.assignee?.name || null,
     item_type: 'issue',
     raw: rawIssue as Record<string, unknown>,
   }
