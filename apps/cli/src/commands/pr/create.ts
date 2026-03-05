@@ -24,6 +24,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
+import { trackPRCreated } from '../../lib/telemetry/analytics.js';
 
 export default class PRCreate extends PMOCommand {
   static description = 'Create a GitHub pull request from the current branch';
@@ -254,6 +255,9 @@ export default class PRCreate extends PMOCommand {
     if (!result.success) {
       this.error(`Failed to create PR: ${result.error}`);
     }
+
+    // Track PR creation analytics
+    trackPRCreated({ source: 'prlt' });
 
     // Store PR URL in ticket metadata
     if (ticket && result.url && this.hasPMO) {

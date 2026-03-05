@@ -1,30 +1,46 @@
 import { Command } from '@oclif/core'
-import { isTelemetryEnabled } from '../../lib/telemetry.js'
-import { colors } from '../../lib/colors.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson, outputSuccessAsJson, createMetadata } from '../../lib/prompt-json.js'
+import { getTelemetryStatus } from '../../lib/telemetry/analytics.js'
+import { styles } from '../../lib/styles.js'
 
 export default class Telemetry extends Command {
-  static description = 'Manage anonymous crash reporting telemetry'
+  static description = 'Show telemetry status'
 
   static examples = [
-    '<%= config.bin %> telemetry status',
-    '<%= config.bin %> telemetry enable',
-    '<%= config.bin %> telemetry disable',
+    '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --json',
   ]
 
+  static flags = {
+    ...machineOutputFlags,
+  }
+
   async run(): Promise<void> {
-    const enabled = isTelemetryEnabled()
+    const { flags } = await this.parse(Telemetry)
+    const jsonMode = shouldOutputJson(flags)
+    const status = getTelemetryStatus()
+
+    if (jsonMode) {
+      outputSuccessAsJson({
+        enabled: status.enabled,
+        machineId: status.machineId,
+        envOverride: status.envOverride,
+        envVar: status.envVar ?? null,
+      }, createMetadata('telemetry', flags))
+    }
 
     this.log('')
-    this.log(colors.primary('Telemetry'))
+    this.log(styles.header('Telemetry Status'))
     this.log('')
-    this.log(`  Status: ${enabled ? colors.success('enabled') : colors.error('disabled')}`)
+    this.log(`  Status:     ${status.enabled ? styles.success('enabled') : styles.error('disabled')}`)
+    this.log(`  Machine ID: ${styles.muted(status.machineId)}`)
+    if (status.envOverride) {
+      this.log(`  Override:   ${styles.warning(`Disabled via ${status.envVar} env var`)}`)
+    }
     this.log('')
-    this.log('  Proletariat collects anonymous crash reports to improve the CLI.')
-    this.log('  No personal data is collected.')
-    this.log('')
-    this.log(`  ${colors.textMuted('prlt telemetry enable')}   Enable crash reporting`)
-    this.log(`  ${colors.textMuted('prlt telemetry disable')}  Disable crash reporting`)
-    this.log(`  ${colors.textMuted('prlt telemetry status')}   Show current status`)
+    this.log(styles.muted('  Telemetry helps us improve prlt. No PII is ever collected.'))
+    this.log(styles.muted('  Run "prlt telemetry disable" to opt out.'))
     this.log('')
   }
 }

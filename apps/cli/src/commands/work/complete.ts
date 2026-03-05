@@ -11,6 +11,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { trackWorkCompleted } from '../../lib/telemetry/analytics.js';
 
 export default class WorkComplete extends PMOCommand {
   static description = 'Mark work as complete (moves ticket to Done column)';
@@ -128,6 +129,12 @@ export default class WorkComplete extends PMOCommand {
       const runningExecution = executionStorage.getRunningExecution(ticketId!);
       if (runningExecution) {
         executionStorage.updateStatus(runningExecution.id, 'completed');
+
+        // Track work completion analytics
+        const startTime = runningExecution.startedAt ? new Date(runningExecution.startedAt).getTime() : 0;
+        const durationMs = startTime > 0 ? Date.now() - startTime : 0;
+        trackWorkCompleted({ durationMs, prCreated: false });
+
         this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
       }
 

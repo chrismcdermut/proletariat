@@ -1,14 +1,15 @@
 import { Command } from '@oclif/core'
-import { writeTelemetryConfig } from '../../lib/telemetry.js'
-import { colors } from '../../lib/colors.js'
-import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
+import { shouldOutputJson, outputSuccessAsJson, createMetadata } from '../../lib/prompt-json.js'
+import { enableTelemetry } from '../../lib/telemetry/analytics.js'
+import { writeTelemetryConfig } from '../../lib/telemetry.js'
+import { styles } from '../../lib/styles.js'
 
 export default class TelemetryEnable extends Command {
-  static description = 'Enable anonymous crash reporting'
+  static description = 'Enable anonymous telemetry'
 
   static examples = [
-    '<%= config.bin %> telemetry enable',
+    '<%= config.bin %> <%= command.id %>',
   ]
 
   static flags = {
@@ -19,16 +20,14 @@ export default class TelemetryEnable extends Command {
     const { flags } = await this.parse(TelemetryEnable)
     const jsonMode = shouldOutputJson(flags)
 
+    // Enable both Statsig analytics and Sentry crash reporting
+    enableTelemetry()
     writeTelemetryConfig({ enabled: true })
 
     if (jsonMode) {
-      this.log(JSON.stringify({ telemetry: 'enabled' }))
-      return
+      outputSuccessAsJson({ enabled: true }, createMetadata('telemetry enable', flags))
     }
 
-    this.log('')
-    this.log(colors.success('Telemetry enabled.'))
-    this.log(colors.textMuted('Anonymous crash reports will be sent to help improve the CLI.'))
-    this.log('')
+    this.log(styles.success('Telemetry enabled. Thank you for helping improve prlt!'))
   }
 }
