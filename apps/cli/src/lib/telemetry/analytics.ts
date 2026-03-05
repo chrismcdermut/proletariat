@@ -1,7 +1,7 @@
 /**
  * Product Analytics (Statsig) & Event Tracking
  *
- * Provides anonymous usage analytics for the CLI using Statsig server SDK.
+ * Provides anonymous usage analytics for the CLI using Statsig client SDK.
  * All data is anonymous — identified by a machine UUID only, no PII is ever sent.
  *
  * Telemetry can be disabled via:
@@ -20,8 +20,8 @@ import * as path from 'node:path'
 import * as crypto from 'node:crypto'
 import { getMachineConfigDir, ensureMachineConfigDir } from '../machine-config.js'
 
-// Statsig server SDK key (placeholder — replace with real key in production)
-const STATSIG_SERVER_KEY = 'secret-placeholder'
+// Statsig client SDK key (public — safe to embed in open source repos)
+const STATSIG_CLIENT_KEY = 'client-kvxMxRhn9NFSmH8orl7e2W9nYTfWVS7Kjf7yRTdIecc'
 
 // Flush timeout — don't let analytics delay CLI exit
 const FLUSH_TIMEOUT_MS = 2000
@@ -43,24 +43,23 @@ interface TelemetryConfig {
 }
 
 /**
- * Minimal interface for the Statsig singleton methods we use.
- * Avoids importing the full Statsig type at the module level.
+ * Minimal interface for the Statsig client instance methods we use.
+ * Uses loose return types to avoid coupling to SDK internals.
  */
-interface StatsigClient {
+interface StatsigClientInstance {
+  initializeAsync(): Promise<unknown>
   logEvent(
-    user: { userID: string; custom?: Record<string, unknown> },
     eventName: string,
     value?: string | number | null,
-    metadata?: Record<string, unknown> | null,
+    metadata?: Record<string, string> | null,
   ): void
-  checkGate(user: { userID: string }, gateName: string): boolean
-  getConfig(user: { userID: string }, configName: string): { get<T>(key: string, defaultValue: T): T }
-  flush(timeout?: number): Promise<void>
-  shutdown(timeout?: number): void
+  checkGate(gateName: string): boolean
+  getDynamicConfig(configName: string): { get(key: string, defaultValue: unknown): unknown }
+  shutdown(): void
 }
 
 // Module-level state
-let statsigClient: StatsigClient | null = null
+let statsigClient: StatsigClientInstance | null = null
 let telemetryConfig: TelemetryConfig | null = null
 let cliVersion: string | null = null
 
@@ -215,16 +214,6 @@ export function getMachineId(): string {
 // ─── Statsig Client ──────────────────────────────────────────────────────────
 
 /**
- * Get the Statsig user object for the current machine.
- */
-function getStatsigUser(): { userID: string; custom?: Record<string, unknown> } {
-  return {
-    userID: getMachineId(),
-    ...(cliVersion ? { custom: { cli_version: cliVersion } } : {}),
-  }
-}
-
-/**
  * Initialize the Statsig SDK. Called from the init hook.
  * No-op if telemetry is disabled.
  */
@@ -236,19 +225,17 @@ export async function initAnalytics(version: string): Promise<void> {
   showTelemetryNotice()
 
   try {
-    const statsigModule = await import('statsig-node')
-    // statsig-node exports a CJS-style module; the Statsig singleton is on .default
-    const Statsig = statsigModule.default as unknown as StatsigClient & {
-      initialize(key: string, options?: { initTimeoutMs?: number }): Promise<unknown>
-    }
-    await Statsig.initialize(STATSIG_SERVER_KEY, {
-      initTimeoutMs: 3000,
-    })
-    statsigClient = Statsig
+    const { StatsigClient: StatsigClientClass } = await import('@statsig/js-client')
+    const client = new StatsigClientClass(
+      STATSIG_CLIENT_KEY,
+      { userID: getMachineId(), custom: { cli_version: version } },
+    )
+    await client.initializeAsync()
+    statsigClient = client
 
-    // Share Statsig module with feature-flags for synchronous gate checks
-    const { setStatsigModule } = await import('./feature-flags.js')
-    setStatsigModule(Statsig)
+    // Share Statsig client with feature-flags for synchronous gate checks
+    const { setStatsigClient } = await import('./feature-flags.js')
+    setStatsigClient(client)
   } catch {
     // If Statsig can't initialize, fail silently — analytics should never break the CLI
     statsigClient = null
@@ -268,11 +255,15 @@ export function trackEvent(eventName: string, value?: string | number | null, me
   if (!statsigClient || !isTelemetryEnabled()) return
 
   try {
-    const user = getStatsigUser()
-    statsigClient.logEvent(user, eventName, value, {
-      ...metadata,
-      cli_version: cliVersion,
-    })
+    // Convert metadata values to strings as required by the client SDK
+    const stringMetadata: Record<string, string> | null = metadata
+      ? Object.fromEntries(
+          Object.entries({ ...metadata, cli_version: cliVersion }).map(([k, v]) => [k, String(v)]),
+        )
+      : cliVersion
+        ? { cli_version: cliVersion }
+        : null
+    statsigClient.logEvent(eventName, value, stringMetadata)
   } catch {
     // Never let analytics errors affect the CLI
   }
@@ -372,10 +363,8 @@ export async function shutdownAnalytics(): Promise<void> {
   if (!statsigClient) return
 
   try {
-    await Promise.race([
-      statsigClient.flush(FLUSH_TIMEOUT_MS),
-      new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS)),
-    ])
+    // Give the client a moment to flush, but don't block the CLI
+    await new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS))
     statsigClient.shutdown()
   } catch {
     // Never let shutdown errors affect the CLI
@@ -383,8 +372,8 @@ export async function shutdownAnalytics(): Promise<void> {
     statsigClient = null
     // Clear feature-flags module reference
     try {
-      const { setStatsigModule } = await import('./feature-flags.js')
-      setStatsigModule(null)
+      const { setStatsigClient } = await import('./feature-flags.js')
+      setStatsigClient(null)
     } catch {
       // Ignore
     }
