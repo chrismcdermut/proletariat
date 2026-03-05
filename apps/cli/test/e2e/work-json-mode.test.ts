@@ -517,6 +517,9 @@ describe('Work Commands JSON Mode', () => {
       createTestTicket('TKT-030', 'Start ticket 1', 'status-backlog');
       createTestTicket('TKT-031', 'Start ticket 2', 'status-backlog');
       createTestTicket('TKT-032', 'In progress ticket', 'status-in-progress');
+
+      // Seed coder name to avoid interactive prompt blocking JSON mode
+      db.prepare("INSERT OR IGNORE INTO pmo_settings (key, value) VALUES ('coder.name', 'test-coder')").run();
     });
 
     it('should output ticket selection prompt when no ticket ID provided', () => {
