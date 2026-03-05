@@ -258,7 +258,7 @@ describe('Session Commands E2E Tests', () => {
   // =========================================================================
   describe('prlt session list', () => {
     it('should return JSON array when DB has no execution records', () => {
-      const output = execProduction('session list');
+      const output = execProduction('session list --json');
       // Output is JSON in non-TTY (piped) environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
       expect(sessions).to.be.an('array');
@@ -275,7 +275,7 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       // Sessions are always shown from DB, even without tmux verification
-      const output = execProduction('session list');
+      const output = execProduction('session list --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string; exists: boolean; source: string; ticketId: string }>;
       expect(sessions).to.be.an('array');
       // Filter to DB-sourced sessions for our seeded ticket (host may have real orphan tmux sessions)
@@ -296,7 +296,7 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = execProduction('session list --all');
+      const output = execProduction('session list --all --json');
 
       // Output is JSON array in non-TTY environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -316,7 +316,7 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = execProduction('session list --all');
+      const output = execProduction('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ status: string }>;
       const staleSessions = sessions.filter(s => s.status === 'stale');
       expect(staleSessions.length).to.be.greaterThanOrEqual(1);
@@ -340,7 +340,7 @@ describe('Session Commands E2E Tests', () => {
         },
       ]);
 
-      const output = execProduction('session list --all');
+      const output = execProduction('session list --all --json');
 
       // Output is JSON array in non-TTY environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -364,7 +364,7 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = execProduction('session list --all');
+      const output = execProduction('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
       const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
       expect(session).to.not.be.undefined;
@@ -380,7 +380,7 @@ describe('Session Commands E2E Tests', () => {
         environment: 'host',
       }]);
 
-      const output = execProduction('session list --all');
+      const output = execProduction('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string; environment: string }>;
       const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
       expect(session).to.not.be.undefined;
@@ -482,7 +482,7 @@ describe('Session Commands E2E Tests', () => {
       expect(listChoice!.command).to.equal('prlt session list --json');
 
       // Step 3: Agent executes the list command
-      const listOutput = execProduction('session list');
+      const listOutput = execProduction('session list --json');
 
       // Step 4: Verify END RESULT - check list returns valid JSON array
       const sessions = JSON.parse(listOutput) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
