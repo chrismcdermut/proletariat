@@ -36,6 +36,7 @@ jobs:
       run_tests: ${{ steps.classify.outputs.run_tests }}
       scope: ${{ steps.classify.outputs.scope }}
       reason: ${{ steps.classify.outputs.reason }}
+      e2e_shards: ${{ steps.classify.outputs.e2e_shards }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +55,7 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: ${{ github.event_name }} event (not a pull request)" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","other"]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -63,6 +65,7 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: unable to compute merge-base with origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","other"]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CHANGED=$(git diff --name-only "$MERGE_BASE" HEAD)
@@ -71,6 +74,7 @@ jobs:
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
             echo "scope=none" >> "$GITHUB_OUTPUT"
             echo "reason=No files changed" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=[]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -158,27 +162,32 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: core/shared files changed (database, lib, config, CI, or unscoped source)" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","other"]' >> "$GITHUB_OUTPUT"
 
           elif [[ "$HAS_PMO" == "true" && "$HAS_EXECUTION" == "true" ]]; then
             # Multiple domains changed, run full suite
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: changes span multiple domains (pmo + execution)" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","other"]' >> "$GITHUB_OUTPUT"
 
           elif [[ "$HAS_PMO" == "true" ]]; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=pmo" >> "$GITHUB_OUTPUT"
             echo "reason=Scoped run: only PMO-related files changed (ticket/project/board management)" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo"]' >> "$GITHUB_OUTPUT"
 
           elif [[ "$HAS_EXECUTION" == "true" ]]; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=execution" >> "$GITHUB_OUTPUT"
             echo "reason=Scoped run: only execution-related files changed (work/agent/docker orchestration)" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["execution"]' >> "$GITHUB_OUTPUT"
 
           else
             # Only docs and/or scripts changed
             echo "run_tests=false" >> "$GITHUB_OUTPUT"
             echo "scope=docs-only" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=[]' >> "$GITHUB_OUTPUT"
             PARTS=""
             [[ "$HAS_DOCS" == "true" ]] && PARTS="documentation"
             [[ "$HAS_SCRIPTS" == "true" ]] && PARTS="${PARTS:+$PARTS + }scripts"
@@ -335,10 +344,11 @@ jobs:
       needs.detect-changes.outputs.run_tests == 'true' &&
       needs.build.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     strategy:
       matrix:
         node-version: [lts/*]
+        shard: ${{ fromJson(needs.detect-changes.outputs.e2e_shards) }}
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -395,27 +405,31 @@ jobs:
       - name: Build
         run: pnpm -r build
 
-      - name: Run e2e tests
+      - name: Run e2e tests (${{ matrix.shard }})
         working-directory: apps/cli
         run: |
-          SCOPE="${{ needs.detect-changes.outputs.scope }}"
-          echo "E2E scope: $SCOPE"
+          SHARD="${{ matrix.shard }}"
+          echo "E2E shard: $SHARD"
 
-          case "$SCOPE" in
-            full)
-              echo "Running full e2e suite"
-              pnpm test:e2e
-              ;;
+          case "$SHARD" in
             pmo)
-              echo "Running PMO-scoped e2e tests"
+              echo "Running PMO e2e tests"
               npx mocha --forbid-only "test/e2e/pmo-*.test.ts"
               ;;
             execution)
-              echo "Running execution-scoped e2e tests"
+              echo "Running execution/work e2e tests"
               npx mocha --forbid-only "test/e2e/work-*.test.ts" "test/e2e/*-agent-flow.test.ts"
               ;;
+            other)
+              echo "Running remaining e2e tests"
+              npx mocha --forbid-only \
+                --ignore "test/e2e/pmo-*.test.ts" \
+                --ignore "test/e2e/work-*.test.ts" \
+                --ignore "test/e2e/*-agent-flow.test.ts" \
+                "test/e2e/**/*.test.ts"
+              ;;
             *)
-              echo "Running full e2e suite (unrecognized scope: $SCOPE)"
+              echo "Unknown shard: $SHARD, running full suite"
               pnpm test:e2e
               ;;
           esac
@@ -447,12 +461,15 @@ jobs:
           echo "| detect-changes | ${{ needs.detect-changes.result }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| build | $BUILD |" >> "$GITHUB_STEP_SUMMARY"
           echo "| unit-tests | $UNIT |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| e2e-tests | $E2E |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| e2e-tests (all shards) | $E2E |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**E2E shards:** ${{ needs.detect-changes.outputs.e2e_shards }}" >> "$GITHUB_STEP_SUMMARY"
 
           echo ""
           echo "=== CI Results ==="
           echo "Scope: $SCOPE"
           echo "Reason: $REASON"
+          echo "E2E shards: ${{ needs.detect-changes.outputs.e2e_shards }}"
           echo "detect-changes: ${{ needs.detect-changes.result }}"
           echo "build: $BUILD"
           echo "unit-tests: $UNIT"
