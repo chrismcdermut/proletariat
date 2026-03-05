@@ -448,6 +448,8 @@ export default class OrchestratorStart extends PromptCommand {
       actionPrompt,
       modifiesCode: false,
       hqPath,
+      isOrchestrator: true,
+      hqName,
     }
 
     // Build execution config

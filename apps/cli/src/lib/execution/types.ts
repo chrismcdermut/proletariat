@@ -177,6 +177,9 @@ export interface ExecutionContext {
   // PR feedback context (for work revise)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
+  // Orchestrator context
+  isOrchestrator?: boolean // Whether this is an orchestrator session (long-running manager, not a ticket worker)
+  hqName?: string // HQ workspace name (used in orchestrator prompt)
 }
 
 // =============================================================================
