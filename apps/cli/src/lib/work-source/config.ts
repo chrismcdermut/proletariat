@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import { loadLinearConfig } from '../linear/config.js'
+import { loadJiraConfig } from '../jira/config.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 const ACTIVE_SOURCE_KEY = 'work.active_source'
@@ -87,6 +88,14 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
     providers.set('linear', {
       provider: 'linear',
       context: linearConfig.defaultTeamKey ?? undefined,
+    })
+  }
+
+  const jiraConfig = loadJiraConfig(db)
+  if (jiraConfig) {
+    providers.set('jira', {
+      provider: 'jira',
+      context: jiraConfig.projectKey ?? undefined,
     })
   }
 
