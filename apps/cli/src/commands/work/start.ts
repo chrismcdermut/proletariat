@@ -755,7 +755,7 @@ export default class WorkStart extends PMOCommand {
 
         if (sessionAction === 'attach') {
           // Attach to existing session
-          execSync(`tmux attach -t "${existingSession.sessionName}"`, { stdio: 'inherit' })
+          execSync(`tmux attach -d -t "${existingSession.sessionName}"`, { stdio: 'inherit' })
           db.close()
           return
         }

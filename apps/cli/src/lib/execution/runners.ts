@@ -91,9 +91,11 @@ export function buildTmuxAttachCommand(useControlMode: boolean, includeUnicodeFl
   const unicodeFlag = includeUnicodeFlag ? '-u ' : ''
   if (useControlMode) {
     // Always use -u with -CC for proper iTerm integration
-    return `tmux -u -CC attach`
+    // -d detaches other clients to prevent multi-attach lockups
+    return `tmux -u -CC attach -d`
   }
-  return `tmux ${unicodeFlag}attach`
+  // -d detaches other clients to prevent multi-attach lockups
+  return `tmux ${unicodeFlag}attach -d`
 }
 
 /**
@@ -785,7 +787,7 @@ exec $SHELL
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "tmux -u -CC attach -t \\"${sessionName}\\""
+                write text "tmux -u -CC attach -d -t \\"${sessionName}\\""
               end tell
             end tell
           end tell
@@ -798,7 +800,7 @@ exec $SHELL
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "tmux -u -CC attach -t \\"${sessionName}\\""
+                write text "tmux -u -CC attach -d -t \\"${sessionName}\\""
               end tell
             end tell
           end tell
@@ -2245,7 +2247,7 @@ exec bash
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -d -t \\"${sessionName}\\""
               end tell
             end tell
           end tell
@@ -2258,7 +2260,7 @@ exec bash
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -t \\"${sessionName}\\""
+                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -d -t \\"${sessionName}\\""
               end tell
             end tell
           end tell

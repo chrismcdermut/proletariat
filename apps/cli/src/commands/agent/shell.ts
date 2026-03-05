@@ -130,7 +130,7 @@ export default class Shell extends PMOCommand {
         const sessionName = existingSessions[0];
         this.log(colors.primary(`\nAttaching to session: ${sessionName}`));
         try {
-          execSync(`tmux attach-session -t "${sessionName}"`, { stdio: 'inherit' });
+          execSync(`tmux attach-session -d -t "${sessionName}"`, { stdio: 'inherit' });
         } catch {
           // User detached or session ended
           this.log(colors.textMuted('\nDetached from session.'));
