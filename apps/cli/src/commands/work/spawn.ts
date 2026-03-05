@@ -41,6 +41,21 @@ import {
   saveActiveWorkSource,
   getRegisteredWorkSources,
 } from '../../lib/work-source/index.js'
+import {
+  isJiraConfigured,
+  loadJiraConfig,
+} from '../../lib/jira/index.js'
+import {
+  listJiraIssues,
+  getJiraIssueByKey,
+  buildJiraTicketDescription,
+  buildJiraMetadata,
+  type JiraAdapterConfig,
+} from '../../lib/external-issues/jira.js'
+import {
+  ExternalIssueAdapterError,
+  type NormalizedIssueEnvelope,
+} from '../../lib/external-issues/types.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -68,6 +83,10 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --from-linear --linear-state "In Progress"  # Filter by state',
     '<%= config.bin %> <%= command.id %> --count 10 --diet --category ship,grow --action groom  # Combined',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 --create-pr  # Create PR when work is ready',
+    '<%= config.bin %> <%= command.id %> --from jira:PROJ                  # Pull Jira issues → PMO → spawn',
+    '<%= config.bin %> <%= command.id %> --from jira:PROJ PROJ-123 PROJ-456  # Pull specific Jira issues',
+    '<%= config.bin %> <%= command.id %> --from jira --jira-project PROJ   # Jira with explicit project key',
+    '<%= config.bin %> work source set jira:PROJ                           # Persist Jira as default source',
   ]
 
   static flags = {
@@ -190,7 +209,7 @@ export default class WorkSpawn extends PMOCommand {
       default: false,
     }),
     from: Flags.string({
-      description: 'Source override in provider[:context] format (e.g., pmo, linear:PRO)',
+      description: 'Source override in provider[:context] format (e.g., pmo, linear:PRO, jira:PROJ)',
     }),
     'linear-team': Flags.string({
       description: 'Linear team key to pull issues from (e.g., ENG)',
@@ -205,6 +224,57 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Maximum number of Linear issues to pull',
       default: 20,
     }),
+    // Jira integration flags
+    'jira-project': Flags.string({
+      description: 'Jira project key to pull issues from (e.g., PROJ)',
+    }),
+    'jira-jql': Flags.string({
+      description: 'Custom JQL for filtering Jira issues',
+    }),
+    'jira-limit': Flags.integer({
+      description: 'Maximum number of Jira issues to pull',
+      default: 20,
+    }),
+  }
+
+  private async findLinkedJiraTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
+    const tickets = await this.storage.listTickets(projectId)
+    return tickets.find((ticket) => {
+      const source = ticket.metadata?.external_source
+      const key = ticket.metadata?.external_key
+      const id = ticket.metadata?.external_id
+      return source === 'jira'
+        && (key === envelope.source.externalKey || id === envelope.source.externalId)
+    })
+  }
+
+  private async findOrCreateJiraTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket> {
+    const existing = await this.findLinkedJiraTicket(projectId, envelope)
+    const description = buildJiraTicketDescription(envelope)
+    const metadata = buildJiraMetadata(envelope)
+
+    if (existing) {
+      return this.storage.updateTicket(existing.id, {
+        title: envelope.title,
+        description,
+        priority: envelope.priority ?? undefined,
+        category: envelope.category ?? undefined,
+        labels: envelope.labels,
+        metadata: {
+          ...existing.metadata,
+          ...metadata,
+        },
+      })
+    }
+
+    return this.storage.createTicket(projectId, {
+      title: envelope.title,
+      description,
+      priority: envelope.priority ?? undefined,
+      category: envelope.category ?? undefined,
+      labels: envelope.labels,
+      metadata,
+    })
   }
 
   async execute(): Promise<void> {
@@ -474,10 +544,155 @@ export default class WorkSpawn extends PMOCommand {
 
       // Replace ticket args with the imported PMO ticket IDs
       ticketIdArgs = pmoTicketIds
+    } else if (resolvedSource?.provider === 'jira') {
+      // =========================================================================
+      // Jira source: Pull Jira issues → mirror into PMO → spawn from PMO
+      // =========================================================================
+      const db = this.storage.getDatabase()
+
+      if (!isJiraConfigured(db)) {
+        return handleError('JIRA_NOT_CONFIGURED', 'Jira is not configured. Set PRLT_JIRA_BASE_URL and PRLT_JIRA_API_TOKEN environment variables, or use "prlt jira auth".')
+      }
+
+      const jiraConfig = loadJiraConfig(db)!
+
+      // Determine project first (needed for ticket creation)
+      const jiraProjectId = await this.requireProject({
+        jsonMode: jsonMode ? {
+          flags,
+          commandName: 'work spawn',
+          baseCommand: `prlt work spawn --from ${formatWorkSourceRef(resolvedSource)}`,
+        } : undefined,
+      })
+
+      // Get project workflow statuses for mapping
+      const workflow = await this.storage.getProjectWorkflow(jiraProjectId)
+      if (!workflow) {
+        return handleError('NO_WORKFLOW', 'Project has no workflow configured.')
+      }
+
+      // Resolve Jira project key from: context > flag > config
+      const jiraProjectKey = resolvedSource.context ?? flags['jira-project'] ?? jiraConfig.projectKey
+
+      // Check if args are Jira identifiers (e.g., PROJ-123)
+      const jiraIdentifiers = ticketIdArgs.filter((id) => /^[A-Z][A-Z0-9_]*-\d+$/i.test(id))
+      const pmoTicketIds: string[] = []
+
+      const jiraAdapterConfig: JiraAdapterConfig = {
+        baseUrl: jiraConfig.baseUrl,
+        email: jiraConfig.email,
+        apiToken: jiraConfig.apiToken,
+        projectKey: jiraProjectKey,
+        jql: flags['jira-jql'],
+      }
+
+      if (jiraIdentifiers.length > 0) {
+        // Fetch and import specific Jira issues
+        if (!jsonMode) {
+          this.log(styles.muted(`Pulling ${jiraIdentifiers.length} issue(s) from Jira...`))
+        }
+
+        for (const identifier of jiraIdentifiers) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const envelope = await getJiraIssueByKey(jiraAdapterConfig, identifier)
+            if (!envelope) {
+              if (!jsonMode) this.warn(`Jira issue not found: ${identifier}`)
+              continue
+            }
+
+            // eslint-disable-next-line no-await-in-loop
+            const ticket = await this.findOrCreateJiraTicket(jiraProjectId, envelope)
+            pmoTicketIds.push(ticket.id)
+            if (!jsonMode) {
+              this.log(styles.muted(`  Imported: ${identifier} → ${ticket.id}`))
+            }
+          } catch (error) {
+            if (error instanceof ExternalIssueAdapterError) {
+              return handleError(`JIRA_${error.code}`, error.message)
+            }
+            throw error
+          }
+        }
+      } else {
+        // Fetch issues using filters
+        if (!jsonMode) {
+          this.log(styles.muted(`Pulling issues from Jira (project: ${jiraProjectKey ?? 'all'})...`))
+        }
+
+        let issues: NormalizedIssueEnvelope[]
+        try {
+          issues = await listJiraIssues(jiraAdapterConfig, {
+            limit: flags['jira-limit'],
+            jql: flags['jira-jql'],
+          })
+        } catch (error) {
+          if (error instanceof ExternalIssueAdapterError) {
+            return handleError(`JIRA_${error.code}`, error.message)
+          }
+          const msg = error instanceof Error ? error.message : 'Failed to fetch Jira issues.'
+          return handleError('JIRA_REQUEST_FAILED', msg)
+        }
+
+        if (issues.length === 0) {
+          if (jsonMode) {
+            outputSuccessAsJson({
+              imported: 0,
+              spawned: 0,
+              message: 'No matching Jira issues found.',
+            }, createMetadata('work spawn', flags))
+            return
+          }
+          this.log(styles.muted('No matching Jira issues found.'))
+          return
+        }
+
+        if (!jsonMode) {
+          this.log(styles.muted(`Found ${issues.length} issue(s). Importing into PMO...`))
+        }
+
+        let imported = 0
+        let skipped = 0
+
+        for (const envelope of issues) {
+          // eslint-disable-next-line no-await-in-loop
+          const existing = await this.findLinkedJiraTicket(jiraProjectId, envelope)
+          if (existing) {
+            pmoTicketIds.push(existing.id)
+            skipped++
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            const ticket = await this.findOrCreateJiraTicket(jiraProjectId, envelope)
+            pmoTicketIds.push(ticket.id)
+            imported++
+          }
+        }
+
+        if (!jsonMode) {
+          if (imported > 0) this.log(styles.success(`  Imported: ${imported}`))
+          if (skipped > 0) this.log(styles.muted(`  Already imported: ${skipped}`))
+        }
+      }
+
+      if (pmoTicketIds.length === 0) {
+        return handleError('NO_JIRA_ISSUES', 'No Jira issues were imported. Nothing to spawn.')
+      }
+
+      if (!jsonMode) {
+        this.log('')
+        this.log(styles.header(`Spawning agents for ${pmoTicketIds.length} imported ticket(s)...`))
+        this.log('')
+      }
+
+      // Replace ticket args with the imported PMO ticket IDs
+      ticketIdArgs = pmoTicketIds
+
+      // Sync board
+      await autoExportToBoard(this.pmoPath, this.storage)
     } else if (resolvedSource && resolvedSource.provider !== 'pmo') {
       return handleError(
         'SOURCE_NOT_SUPPORTED',
-        `Source "${resolvedSource.provider}" is configured but not supported by work spawn yet. Use --from pmo or --from linear[:team].`,
+        `Source "${resolvedSource.provider}" is configured but not supported by work spawn yet. Use --from pmo, --from linear[:team], or --from jira[:project].`,
       )
     }
 

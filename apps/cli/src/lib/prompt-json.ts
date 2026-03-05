@@ -110,6 +110,11 @@ export interface OutputMetadata {
   mirrorToPmo?: boolean | null
   /** Source used to resolve mirror-to-PMO behavior */
   mirrorToPmoSource?: string | null
+  /** How the external issue source was resolved (flag, active-source, interactive) */
+  sourceResolution?: {
+    method: string
+    provider: string
+  }
 }
 
 /**

@@ -59,6 +59,13 @@ import {
 } from '../../lib/external-issues/jira.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
+import {
+  parseWorkSourceRef,
+  formatWorkSourceRef,
+  loadActiveWorkSource,
+  saveActiveWorkSource,
+  getRegisteredWorkSources,
+} from '../../lib/work-source/index.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -187,6 +194,9 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 --prompt "Add unit tests for the API"  # Custom prompt',
     '<%= config.bin %> <%= command.id %> --from-issue --source linear --key ENG-123',
     '<%= config.bin %> <%= command.id %> --from-issue --source jira --key PROJ-123 --mirror-to-pmo',
+    '<%= config.bin %> <%= command.id %> --from linear:ENG-123              # Unified: provider:key shorthand',
+    '<%= config.bin %> <%= command.id %> --from jira:PROJ-123               # Unified: Jira shorthand',
+    '<%= config.bin %> <%= command.id %> --from-issue                       # Uses workspace active source',
   ]
 
   static args = {
@@ -218,6 +228,9 @@ export default class WorkStart extends PMOCommand {
     }),
     message: Flags.string({
       description: 'Additional instructions appended to any action prompt',
+    }),
+    from: Flags.string({
+      description: 'External issue ref in provider:key format (e.g., linear:ENG-123, jira:PROJ-456). Shorthand for --from-issue --source X --key Y.',
     }),
     'from-issue': Flags.boolean({
       description: 'Start from external issue source instead of internal ticket id',
@@ -367,11 +380,22 @@ export default class WorkStart extends PMOCommand {
     input: {
       source?: string
       key?: string
+      db?: Database.Database
     },
     jsonMode: boolean,
-  ): Promise<{ source: IssueSource; key: string }> {
+  ): Promise<{ source: IssueSource; key: string; sourceResolution: { method: string; provider: string } }> {
     let source = input.source
     let key = input.key
+    let sourceResolutionMethod = 'flag'
+
+    // If no explicit source flag, try workspace active source
+    if (!isIssueSource(source) && input.db) {
+      const activeSource = loadActiveWorkSource(input.db)
+      if (activeSource && isIssueSource(activeSource.provider)) {
+        source = activeSource.provider
+        sourceResolutionMethod = 'active-source'
+      }
+    }
 
     const sourceResolver = new FlagResolver<{ source?: string }>({
       commandName: 'work start',
@@ -387,12 +411,20 @@ export default class WorkStart extends PMOCommand {
       default: isIssueSource(source) ? source : undefined,
       when: () => !isIssueSource(source),
       choices: () => [
-        { name: 'Linear', value: 'linear', command: 'prlt work start --from-issue --source linear --json' },
-        { name: 'Jira', value: 'jira', command: 'prlt work start --from-issue --source jira --json' },
+        { name: 'Linear', value: 'linear', command: 'prlt work start --from linear:ISSUE-KEY --json' },
+        { name: 'Jira', value: 'jira', command: 'prlt work start --from jira:ISSUE-KEY --json' },
       ],
     })
     const sourceResult = await sourceResolver.resolve()
-    source = source ?? sourceResult.source
+    if (!isIssueSource(source)) {
+      source = sourceResult.source
+      sourceResolutionMethod = 'interactive'
+
+      // Persist selected source as default
+      if (input.db && isIssueSource(source)) {
+        saveActiveWorkSource(input.db, { provider: source })
+      }
+    }
 
     if (!isIssueSource(source)) {
       throw new Error('Invalid source')
@@ -400,7 +432,7 @@ export default class WorkStart extends PMOCommand {
 
     const keyResolver = new FlagResolver<{ key?: string }>({
       commandName: 'work start',
-      baseCommand: `prlt work start --from-issue --source ${source}`,
+      baseCommand: `prlt work start --from ${source}:`,
       jsonMode,
       flags: {},
     })
@@ -420,7 +452,11 @@ export default class WorkStart extends PMOCommand {
       throw new Error('Issue key is required')
     }
 
-    return { source, key: resolvedKey }
+    return {
+      source,
+      key: resolvedKey,
+      sourceResolution: { method: sourceResolutionMethod, provider: source },
+    }
   }
 
   async execute(): Promise<void> {
@@ -488,25 +524,54 @@ export default class WorkStart extends PMOCommand {
       let externalIssueContextMessage: string | undefined
       let fromIssueMirror: boolean | undefined
       let fromIssueMirrorSource: string | undefined
+      let sourceResolutionMeta: { method: string; provider: string } | undefined
 
-      if (flags['from-issue']) {
+      // Handle --from shorthand: parse provider:key into source + key
+      let fromFlag = flags.from as string | undefined
+      let fromIssueActive = flags['from-issue']
+
+      if (fromFlag) {
+        if (flags['from-issue'] || flags.source || flags.key) {
+          db.close()
+          return handleError('CONFLICTING_FLAGS', '--from cannot be used with --from-issue, --source, or --key. Use either --from provider:key or --from-issue --source X --key Y.')
+        }
+        fromIssueActive = true
+        // Parse provider:key from --from value
+        const colonIndex = fromFlag.indexOf(':')
+        if (colonIndex !== -1) {
+          flags.source = fromFlag.slice(0, colonIndex).toLowerCase()
+          flags.key = fromFlag.slice(colonIndex + 1).trim()
+        } else {
+          // Provider only, no key - will prompt for key
+          flags.source = fromFlag.toLowerCase()
+        }
+      }
+
+      if (fromIssueActive) {
         if (ticketId) {
           db.close()
-          return handleError('INVALID_FLAGS', 'Cannot provide a ticket ID positional argument when using --from-issue.')
+          return handleError('INVALID_FLAGS', 'Cannot provide a ticket ID positional argument when using --from-issue or --from.')
         }
 
+        const fromBaseCmd = fromFlag ? `prlt work start --from ${fromFlag}` : 'prlt work start --from-issue'
         projectId = projectId || await this.requireProject({
           jsonMode: {
             flags,
             commandName: 'work start',
-            baseCommand: 'prlt work start --from-issue',
+            baseCommand: fromBaseCmd,
           },
         })
 
         const sourceAndKey = await this.resolveIssueSourceAndKey({
           source: flags.source,
           key: flags.key,
+          db,
         }, jsonMode)
+        sourceResolutionMeta = sourceAndKey.sourceResolution
+
+        if (!jsonMode && sourceResolutionMeta.method !== 'flag') {
+          this.log(styles.muted(`Source resolved via ${sourceResolutionMeta.method}: ${sourceResolutionMeta.provider}`))
+        }
 
         const envMirrorDefault = parseBooleanSetting(process.env.PRLT_MIRROR_TO_PMO_DEFAULT)
         const configMirrorDefault = getMirrorToPmoDefault(db)
@@ -629,9 +694,12 @@ export default class WorkStart extends PMOCommand {
               url: externalMetadata.url ?? null,
             }
           }
-          if (flags['from-issue']) {
+          if (fromIssueActive) {
             metadata.mirrorToPmo = fromIssueMirror ?? null
             metadata.mirrorToPmoSource = fromIssueMirrorSource ?? null
+            if (sourceResolutionMeta) {
+              metadata.sourceResolution = sourceResolutionMeta
+            }
           }
 
           // Build the confirm command with --yes
