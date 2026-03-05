@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { isValidHQ } from '../workspace.js';
+import { throwIfNativeBindingError } from '../database/native-validation.js';
 
 /**
  * Resolve PMO path from stored value.
@@ -53,7 +54,10 @@ function hasPMOTables(dbPath: string): boolean {
     db.close();
 
     return result !== undefined;
-  } catch {
+  } catch (error) {
+    // If the native binding is broken, surface it immediately instead of
+    // silently returning false (which makes the CLI say "PMO not found").
+    throwIfNativeBindingError(error, 'hasPMOTables');
     return false;
   }
 }

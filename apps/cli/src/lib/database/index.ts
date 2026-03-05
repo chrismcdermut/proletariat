@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getThemePersistentDir, isEphemeralAgentName } from '../themes.js';
 import { PMO_SCHEMA_SQL } from '../pmo/schema.js';
+import { throwIfNativeBindingError } from './native-validation.js';
 
 export interface WorkspaceConfig {
   id: number;
@@ -212,7 +213,13 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
     throw new Error(`Database not found: ${dbPath}. Run 'prlt init' first.`);
   }
 
-  const db = new Database(dbPath);
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath);
+  } catch (error) {
+    throwIfNativeBindingError(error, 'openWorkspaceDatabase');
+    throw error;
+  }
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');  // Wait up to 5 seconds if database is locked
 
@@ -362,7 +369,13 @@ export function createWorkspaceDatabase(
   fs.writeFileSync(configPath, JSON.stringify(bootstrapConfig, null, 2));
 
   // Create and setup SQLite database
-  const db = new Database(dbPath);
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath);
+  } catch (error) {
+    throwIfNativeBindingError(error, 'createWorkspaceDatabase');
+    throw error;
+  }
 
   // Enable foreign keys
   db.pragma('foreign_keys = ON');
@@ -971,7 +984,13 @@ export function removeAgentsFromDatabase(workspacePath: string, agentNames: stri
  * Used by pmo init to detect existing PMO before storage layer is available.
  */
 export function checkPMOExists(dbPath: string): { exists: boolean; projectCount: number; ticketCount: number } {
-  const db = new Database(dbPath);
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath);
+  } catch (error) {
+    throwIfNativeBindingError(error, 'checkPMOExists');
+    throw error;
+  }
   try {
     const result = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
@@ -999,7 +1018,13 @@ export function checkPMOExists(dbPath: string): { exists: boolean; projectCount:
  * Used for bootstrapping queries before storage layer is available.
  */
 export function getPMOSetting(dbPath: string, key: string): string | null {
-  const db = new Database(dbPath);
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath);
+  } catch (error) {
+    throwIfNativeBindingError(error, 'getPMOSetting');
+    throw error;
+  }
   try {
     const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get(key) as { value: string } | undefined;
     return result?.value ?? null;
@@ -1015,7 +1040,13 @@ export function getPMOSetting(dbPath: string, key: string): string | null {
  * Used during PMO reinitialization.
  */
 export function dropPMOTables(dbPath: string, tables: string[]): void {
-  const db = new Database(dbPath);
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath);
+  } catch (error) {
+    throwIfNativeBindingError(error, 'dropPMOTables');
+    throw error;
+  }
   try {
     for (const table of tables) {
       try {

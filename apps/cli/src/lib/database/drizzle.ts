@@ -8,6 +8,7 @@
 import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import Database from 'better-sqlite3'
 import * as schema from './drizzle-schema.js'
+import { throwIfNativeBindingError } from './native-validation.js'
 
 export type DrizzleDB = BetterSQLite3Database<typeof schema>
 
@@ -24,7 +25,13 @@ export function createDrizzleConnection(db: Database.Database): DrizzleDB {
  * Configures pragmas for optimal performance and reliability.
  */
 export function openDrizzleDatabase(dbPath: string): { db: DrizzleDB; sqliteDb: Database.Database } {
-  const sqliteDb = new Database(dbPath)
+  let sqliteDb: Database.Database
+  try {
+    sqliteDb = new Database(dbPath)
+  } catch (error) {
+    throwIfNativeBindingError(error, 'openDrizzleDatabase')
+    throw error
+  }
 
   // Configure pragmas
   sqliteDb.pragma('foreign_keys = ON')
