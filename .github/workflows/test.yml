@@ -445,22 +445,24 @@ jobs:
 
       - name: Verify no failures
         run: |
-          # Fail if any job that ran actually failed
-          if [[ "${{ needs.detect-changes.result }}" == "failure" ]]; then
-            echo "FAIL: detect-changes failed"
-            exit 1
-          fi
-          if [[ "${{ needs.build.result }}" == "failure" ]]; then
-            echo "FAIL: build failed"
-            exit 1
-          fi
-          if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
-            echo "FAIL: unit-tests failed"
-            exit 1
-          fi
-          if [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then
-            echo "FAIL: e2e-tests failed"
-            exit 1
-          fi
+          # Fail on any terminal state that is not success/skipped.
+          # This prevents cancelled/timed-out jobs from producing a false green.
+          assert_ok_or_skipped() {
+            local name="$1"
+            local result="$2"
+            case "$result" in
+              success|skipped)
+                ;;
+              *)
+                echo "FAIL: $name result=$result"
+                exit 1
+                ;;
+            esac
+          }
+
+          assert_ok_or_skipped "detect-changes" "${{ needs.detect-changes.result }}"
+          assert_ok_or_skipped "build" "${{ needs.build.result }}"
+          assert_ok_or_skipped "unit-tests" "${{ needs.unit-tests.result }}"
+          assert_ok_or_skipped "e2e-tests" "${{ needs.e2e-tests.result }}"
 
           echo "All checks passed (or were appropriately skipped)."
