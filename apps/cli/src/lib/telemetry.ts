@@ -15,7 +15,7 @@ import * as path from 'node:path'
 import { getMachineConfigDir, ensureMachineConfigDir } from './machine-config.js'
 
 // Sentry DSN — safe to embed, only allows sending events (not reading)
-const SENTRY_DSN = 'https://examplePublicKey@o0.ingest.sentry.io/0'
+const SENTRY_DSN = 'https://dfc8445d17ed9bb0c56f680ed28f72f8@o4510992964714496.ingest.us.sentry.io/4510992973037568'
 
 interface TelemetryConfig {
   enabled?: boolean
