@@ -354,6 +354,31 @@ describe('listLinearIssues', () => {
     }
   })
 
+  it('throws RATE_LIMITED for 429 responses', async () => {
+    const fetchImpl = async () => new Response('{}', { status: 429 })
+    try {
+      await listLinearIssues({ team: 'ENG', apiKey: 'token' }, { fetchImpl })
+      expect.fail('expected to throw')
+    } catch (error) {
+      expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+      expect((error as ExternalIssueAdapterError).code).to.equal('RATE_LIMITED')
+      expect((error as ExternalIssueAdapterError).message).to.match(/rate limit/i)
+    }
+  })
+
+  it('throws RATE_LIMITED on GraphQL rate-limit errors', async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({
+      errors: [{ message: 'Rate limit exceeded, retry after 1000ms' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    try {
+      await listLinearIssues({ team: 'ENG', apiKey: 'token' }, { fetchImpl })
+      expect.fail('expected to throw')
+    } catch (error) {
+      expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+      expect((error as ExternalIssueAdapterError).code).to.equal('RATE_LIMITED')
+    }
+  })
+
   it('returns NormalizedIssueEnvelopes on success', async () => {
     const fetchImpl = async () => new Response(JSON.stringify({
       data: { issues: { nodes: [makeLinearNode()] } },
@@ -405,6 +430,81 @@ describe('getLinearIssueByIdentifier', () => {
     expect(issue).to.not.equal(null)
     expect(issue?.source.name).to.equal('linear')
     expect(issue?.source.externalKey).to.equal('ENG-123')
+  })
+
+  it('returns null when issue is not found', async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({
+      data: { issue: null },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+    const issue = await getLinearIssueByIdentifier(
+      { apiKey: 'token' },
+      'ENG-999',
+      { fetchImpl }
+    )
+
+    expect(issue).to.equal(null)
+  })
+
+  it('returns null on GraphQL not-found error', async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({
+      errors: [{ message: 'Entity not found' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+    const issue = await getLinearIssueByIdentifier(
+      { apiKey: 'token' },
+      'ENG-999',
+      { fetchImpl }
+    )
+
+    expect(issue).to.equal(null)
+  })
+
+  it('throws AUTH_FAILED for 401 responses', async () => {
+    const fetchImpl = async () => new Response('{}', { status: 401 })
+    try {
+      await getLinearIssueByIdentifier({ apiKey: 'bad-token' }, 'ENG-123', { fetchImpl })
+      expect.fail('expected to throw')
+    } catch (error) {
+      expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+      expect((error as ExternalIssueAdapterError).code).to.equal('AUTH_FAILED')
+    }
+  })
+
+  it('throws RATE_LIMITED for 429 responses', async () => {
+    const fetchImpl = async () => new Response('{}', { status: 429 })
+    try {
+      await getLinearIssueByIdentifier({ apiKey: 'token' }, 'ENG-123', { fetchImpl })
+      expect.fail('expected to throw')
+    } catch (error) {
+      expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+      expect((error as ExternalIssueAdapterError).code).to.equal('RATE_LIMITED')
+      expect((error as ExternalIssueAdapterError).message).to.match(/rate limit/i)
+    }
+  })
+
+  it('throws RATE_LIMITED on GraphQL rate-limit errors', async () => {
+    const fetchImpl = async () => new Response(JSON.stringify({
+      errors: [{ message: 'Too many requests, please try again later' }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    try {
+      await getLinearIssueByIdentifier({ apiKey: 'token' }, 'ENG-123', { fetchImpl })
+      expect.fail('expected to throw')
+    } catch (error) {
+      expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+      expect((error as ExternalIssueAdapterError).code).to.equal('RATE_LIMITED')
+    }
+  })
+
+  it('throws REQUEST_FAILED for 500 responses', async () => {
+    const fetchImpl = async () => new Response('{}', { status: 500 })
+    try {
+      await getLinearIssueByIdentifier({ apiKey: 'token' }, 'ENG-123', { fetchImpl })
+      expect.fail('expected to throw')
+    } catch (error) {
+      expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+      expect((error as ExternalIssueAdapterError).code).to.equal('REQUEST_FAILED')
+    }
   })
 })
 

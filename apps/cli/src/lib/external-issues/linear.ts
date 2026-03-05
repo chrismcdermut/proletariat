@@ -290,6 +290,13 @@ export async function getLinearIssueByIdentifier(
     )
   }
 
+  if (response.status === 429) {
+    throw new ExternalIssueAdapterError(
+      'RATE_LIMITED',
+      'Linear API rate limit exceeded. Wait a moment and try again.',
+    )
+  }
+
   if (!response.ok) {
     throw new ExternalIssueAdapterError(
       'REQUEST_FAILED',
@@ -310,6 +317,9 @@ export async function getLinearIssueByIdentifier(
     // "not found" should be treated as null, not hard failure.
     if (/not found/i.test(message)) {
       return null
+    }
+    if (/rate.?limit|too many requests|throttl/i.test(message)) {
+      throw new ExternalIssueAdapterError('RATE_LIMITED', `Linear API rate limit exceeded: ${message}`)
     }
     throw new ExternalIssueAdapterError('REQUEST_FAILED', `Linear API error: ${message}`)
   }
@@ -355,6 +365,13 @@ export async function listLinearIssues(
     )
   }
 
+  if (response.status === 429) {
+    throw new ExternalIssueAdapterError(
+      'RATE_LIMITED',
+      'Linear API rate limit exceeded. Wait a moment and try again.',
+    )
+  }
+
   if (!response.ok) {
     throw new ExternalIssueAdapterError(
       'REQUEST_FAILED',
@@ -368,6 +385,9 @@ export async function listLinearIssues(
     const message = payload.errors[0]?.message || 'Unknown Linear API error.'
     if (/auth|token|forbidden|unauthorized/i.test(message)) {
       throw new ExternalIssueAdapterError('AUTH_FAILED', `Linear authentication failed: ${message}`)
+    }
+    if (/rate.?limit|too many requests|throttl/i.test(message)) {
+      throw new ExternalIssueAdapterError('RATE_LIMITED', `Linear API rate limit exceeded: ${message}`)
     }
     throw new ExternalIssueAdapterError('REQUEST_FAILED', `Linear API error: ${message}`)
   }
