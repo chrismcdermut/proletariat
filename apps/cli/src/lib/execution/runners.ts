@@ -333,8 +333,6 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
       const codexResult = getCodexCommand(prompt, codexPermission, 'interactive')
       return { cmd: codexResult.cmd, args: codexResult.args }
     }
-    case 'aider':
-      return { cmd: 'aider', args: ['--message', prompt] }
     case 'custom':
       // Custom executor should be configured
       return { cmd: 'echo', args: ['Custom executor not configured'] }
@@ -363,7 +361,6 @@ export function getExecutorDisplayName(executor: ExecutorType): string {
   switch (executor) {
     case 'claude-code': return 'Claude Code'
     case 'codex': return 'Codex'
-    case 'aider': return 'Aider'
     case 'custom': return 'Custom'
     default: return 'Claude Code'
   }
@@ -376,7 +373,6 @@ export function getExecutorPackage(executor: ExecutorType): string | null {
   switch (executor) {
     case 'claude-code': return '@anthropic-ai/claude-code'
     case 'codex': return '@openai/codex'
-    case 'aider': return null  // aider is Python-based, installed via pip
     case 'custom': return null
     default: return '@anthropic-ai/claude-code'
   }

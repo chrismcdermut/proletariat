@@ -33,7 +33,7 @@ export default class WorkSpawnAll extends PMOCommand {
     executor: Flags.string({
       char: 'e',
       description: 'Override executor',
-      options: ['claude-code', 'codex', 'aider', 'custom'],
+      options: ['claude-code', 'codex', 'custom'],
     }),
   }
 

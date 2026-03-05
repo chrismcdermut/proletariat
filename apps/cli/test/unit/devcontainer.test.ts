@@ -651,13 +651,6 @@ describe('Devcontainer', () => {
         expect(credentialMount).to.not.exist
       })
 
-      it('should NOT include claude-credentials mount for aider executor', () => {
-        const options = makeOptions({ executor: 'aider' })
-        const result = generateDevcontainerJson(options)
-
-        const credentialMount = result.mounts.find(m => m.includes('claude-credentials'))
-        expect(credentialMount).to.not.exist
-      })
     })
 
     describe('generateDockerfile', () => {

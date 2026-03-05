@@ -57,7 +57,7 @@ export default class WorkReview extends PMOCommand {
     executor: Flags.string({
       char: 'e',
       description: 'Override executor',
-      options: ['claude-code', 'codex', 'aider', 'custom'],
+      options: ['claude-code', 'codex', 'custom'],
     }),
     'run-on-host': Flags.boolean({
       description: 'Run on host even if devcontainer exists (bypasses sandbox)',

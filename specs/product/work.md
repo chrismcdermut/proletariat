@@ -82,7 +82,7 @@ When spawning multiple agents (`work spawn` or `work watch`):
 | id | string | auto | - | WORK-001 format |
 | ticket_id | ref | ✓ | - | Ticket being worked on |
 | agent_name | ref | ✓ | - | Agent doing the work |
-| executor | enum | | claude-code | claude-code, codex, aider |
+| executor | enum | | claude-code | claude-code, codex, custom |
 | mode | enum | | interactive | interactive, autonomous |
 | environment | enum | | host | host, devcontainer, docker, vm |
 | display_mode | enum | | terminal | terminal, foreground, background, tmux |
@@ -164,12 +164,6 @@ the constant and the smoke tests.
 |------|---------|
 | Safe | `claude <prompt>` |
 | Danger | `claude --permission-mode bypassPermissions --dangerously-skip-permissions --effort high <prompt>` |
-
-### Aider
-
-| Mode | Command |
-|------|---------|
-| All | `aider --message <prompt>` |
 
 ## Related Domains
 
