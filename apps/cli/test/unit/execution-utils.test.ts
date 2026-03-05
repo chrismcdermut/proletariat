@@ -166,22 +166,22 @@ describe('Execution Utils', () => {
   describe('buildTmuxAttachCommand', () => {
     it('should return -u -CC attach for control mode (always includes -u)', () => {
       const result = buildTmuxAttachCommand(true)
-      expect(result).to.equal('tmux -u -CC attach')
+      expect(result).to.equal('tmux -u -CC attach -d')
     })
 
     it('should return regular attach without control mode', () => {
       const result = buildTmuxAttachCommand(false)
-      expect(result).to.equal('tmux attach')
+      expect(result).to.equal('tmux attach -d')
     })
 
     it('should include -u flag when unicode flag is requested', () => {
       const result = buildTmuxAttachCommand(false, true)
-      expect(result).to.equal('tmux -u attach')
+      expect(result).to.equal('tmux -u attach -d')
     })
 
     it('should include both -u and -CC flags when both are requested', () => {
       const result = buildTmuxAttachCommand(true, true)
-      expect(result).to.equal('tmux -u -CC attach')
+      expect(result).to.equal('tmux -u -CC attach -d')
     })
   })
 
@@ -213,7 +213,7 @@ describe('Execution Utils', () => {
       const useControlMode = shouldUseControlMode('Terminal', true)
       const attachCmd = buildTmuxAttachCommand(useControlMode)
       expect(attachCmd).to.not.include('-CC')
-      expect(attachCmd).to.equal('tmux attach')
+      expect(attachCmd).to.equal('tmux attach -d')
     })
   })
 
