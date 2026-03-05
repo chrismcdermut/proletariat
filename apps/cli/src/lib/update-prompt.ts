@@ -14,6 +14,7 @@
 import { execSync } from 'node:child_process'
 import type { UpdateInfo } from './update-check.js'
 import { dismissVersion } from './update-check.js'
+import { checkTapStaleness } from './brew-tap-check.js'
 
 // ---------------------------------------------------------------------------
 // Environment guards
@@ -115,10 +116,38 @@ export async function showUpdatePrompt(info: UpdateInfo): Promise<UpdateAction> 
 // ---------------------------------------------------------------------------
 
 /**
+ * For brew installs, repair a stale tap before running the upgrade.
+ * If the tap is healthy this is a no-op.
+ */
+function repairStaleTapIfNeeded(info: UpdateInfo): void {
+  if (info.packageManager !== 'brew') return
+
+  try {
+    const tapResult = checkTapStaleness()
+    if (!tapResult.isStale) return
+
+    console.log('Repairing stale Homebrew tap first...')
+    console.log('')
+    for (const cmd of tapResult.remediationCommands) {
+      // Skip the final upgrade command — we run it below as the main update
+      if (cmd.startsWith('brew upgrade')) continue
+      console.log(`Running: ${cmd}`)
+      execSync(cmd, { stdio: 'inherit', timeout: 60_000 })
+    }
+    console.log('')
+  } catch {
+    // Best-effort — continue with the upgrade anyway
+  }
+}
+
+/**
  * Execute the update command, then exit.
  * Runs synchronously so the user sees output in real time.
+ * For brew installs, repairs a stale tap first if needed.
  */
 function executeUpdate(info: UpdateInfo): never {
+  repairStaleTapIfNeeded(info)
+
   console.log('')
   console.log(`Running: ${info.updateCommand}`)
   console.log('')

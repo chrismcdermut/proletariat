@@ -4,6 +4,7 @@ import { readMachineConfig } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
 import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
 import { handleUpdatePrompt } from '../lib/update-prompt.js'
+import { checkTapStaleness, printStaleTapWarning } from '../lib/brew-tap-check.js'
 import { initSentry } from '../lib/telemetry.js'
 import { initAnalytics } from '../lib/telemetry/analytics.js'
 
@@ -73,6 +74,18 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     const updateInfo = getCachedUpdateInfo(config.version)
     await handleUpdatePrompt(updateInfo)
     triggerBackgroundCheck(updateInfo.packageManager)
+
+    // ── Stale Homebrew tap check ───────────────────────────────────────
+    // For brew-managed installs, detect when the local tap is behind
+    // origin/main. A stale tap causes `brew upgrade` to silently no-op.
+    if (updateInfo.packageManager === 'brew') {
+      try {
+        const tapResult = checkTapStaleness()
+        await printStaleTapWarning(tapResult)
+      } catch {
+        // Never let tap-check errors break the CLI
+      }
+    }
   } catch {
     // Never let update-check errors break the CLI
   }
