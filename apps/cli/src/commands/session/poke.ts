@@ -221,9 +221,34 @@ export default class SessionPoke extends PMOCommand {
       const activeExecutions = [...runningExecutions, ...startingExecutions]
 
       // Find matching execution by exact agent name or exact ticket ID
-      const match = activeExecutions.find(exec =>
+      let match = activeExecutions.find(exec =>
         exec.agentName === identifier || exec.ticketId === identifier,
       )
+
+      // Orchestrator prefix matching: when identifier is "orchestrator",
+      // find executions with agentName "orchestrator" or "orchestrator-*"
+      if (!match && identifier === 'orchestrator') {
+        const orchestratorMatches = activeExecutions.filter(exec =>
+          exec.agentName === 'orchestrator' || exec.agentName.startsWith('orchestrator-'),
+        )
+
+        if (orchestratorMatches.length === 1) {
+          match = orchestratorMatches[0]
+        } else if (orchestratorMatches.length > 1) {
+          const names = orchestratorMatches.map(e => e.agentName).join(', ')
+          if (jsonMode) {
+            outputErrorAsJson(
+              'MULTIPLE_ORCHESTRATORS',
+              `Multiple orchestrators running: ${names}. Specify one directly.`,
+              createMetadata('session poke', flags),
+            )
+          }
+          this.log('')
+          this.log(styles.error(`Multiple orchestrators running: ${names}. Specify one directly.`))
+          this.log('')
+          return null
+        }
+      }
 
       if (!match) {
         if (jsonMode) {
