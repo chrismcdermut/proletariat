@@ -20,13 +20,15 @@ import {
 } from '../../lib/linear/index.js'
 
 export default class LinearAuth extends PMOCommand {
-  static description = 'Authenticate with Linear and configure workspace connection'
+  static description = 'Authenticate with Linear (alias for "prlt linear connect")'
+
+  static hidden = true
 
   static examples = [
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --check',
-    '<%= config.bin %> <%= command.id %> --force',
-    'LINEAR_API_KEY=lin_api_... <%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> linear connect',
+    '<%= config.bin %> linear connect --check',
+    '<%= config.bin %> linear connect --force',
+    'LINEAR_API_KEY=lin_api_... <%= config.bin %> linear connect',
   ]
 
   static flags = {

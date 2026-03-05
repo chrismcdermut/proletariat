@@ -303,7 +303,7 @@ export default class WorkSpawn extends PMOCommand {
       const db = this.storage.getDatabase()
 
       if (!isLinearConfigured(db)) {
-        return handleError('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear auth" first.')
+        return handleError('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear connect" first.')
       }
 
       const linearConfig = loadLinearConfig(db)!

@@ -78,10 +78,10 @@ export default class LinearImport extends PMOCommand {
     // Check Linear is configured
     if (!isLinearConfigured(db)) {
       if (jsonMode) {
-        outputErrorAsJson('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear auth" first.', createMetadata('linear import', flags))
+        outputErrorAsJson('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear connect" first.', createMetadata('linear import', flags))
         this.exit(1)
       }
-      this.error('Linear is not configured. Run "prlt linear auth" first.')
+      this.error('Linear is not configured. Run "prlt linear connect" first.')
     }
 
     const config = loadLinearConfig(db)!
