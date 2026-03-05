@@ -49,10 +49,10 @@ export default class LinearSyncCommand extends PMOCommand {
 
     if (!isLinearConfigured(db)) {
       if (jsonMode) {
-        outputErrorAsJson('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear auth" first.', createMetadata('linear sync', flags))
+        outputErrorAsJson('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear connect" first.', createMetadata('linear sync', flags))
         this.exit(1)
       }
-      this.error('Linear is not configured. Run "prlt linear auth" first.')
+      this.error('Linear is not configured. Run "prlt linear connect" first.')
     }
 
     const config = loadLinearConfig(db)!
