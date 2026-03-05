@@ -18,10 +18,10 @@ describe('better-sqlite3 native validation', () => {
       'unit-test'
     )
 
-    expect(message).to.include('better-sqlite3 native module validation failed (unit-test).')
+    expect(message).to.include('better-sqlite3 native module failed to load (unit-test).')
     expect(message).to.include('node v22.8.0 (ABI 127) on darwin-arm64')
     expect(message).to.include('npm rebuild better-sqlite3')
-    expect(message).to.include('npm uninstall -g @proletariat/cli && npm install -g @proletariat/cli')
+    expect(message).to.include('pnpm install -g @proletariat/cli --force')
   })
 
   it('throws with contextual message when loader fails', async () => {
