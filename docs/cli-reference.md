@@ -298,7 +298,8 @@ Options:
   --mode <mode>          Execution mode (docker, terminal, tmux, etc.)
   --action <action>      Action (implement, groom, review)
   --prompt <text>        Custom prompt
-  --from-issue           Resolve ticket from external issue source
+  --from <provider:key>  Unified shorthand (e.g., --from linear:ENG-123, --from jira:PROJ-456)
+  --from-issue           Resolve ticket from external issue source (legacy)
   --source <source>      External source: linear | jira (with --from-issue)
   --key <key>            External issue key (with --from-issue)
   --mirror-to-pmo        Create/update linked PMO ticket from external issue
@@ -309,17 +310,40 @@ Options:
   --run-on-host          Run on host (not container)
   --ephemeral            Use ephemeral agent
 
+# Source resolution order:
+# 1. --from provider:key (unified shorthand)
+# 2. --from-issue --source X --key Y (explicit flags)
+# 3. --from-issue alone → workspace active source → interactive prompt
+#
+# Mirror-to-PMO resolution order:
+# 1. --mirror-to-pmo / --no-mirror-to-pmo flags (explicit)
+# 2. Environment: PRLT_MIRROR_TO_PMO_DEFAULT
+# 3. Workspace config: execution.mirror_to_pmo_default
+# 4. Default: enabled
+#
 # PR mode resolution order:
 # 1. --create-pr / --no-pr flags (explicit)
 # 2. Workspace config: execution.create_pr_default
 # 3. Interactive prompt (or default in --json --yes mode)
 
-# Examples
+# Examples — unified --from shorthand (preferred)
+prlt work start --from linear:ENG-123
+prlt work start --from jira:PROJ-456
+prlt work start --from jira:PROJ-456 --mirror-to-pmo
+prlt work start --from linear:ENG-123 --no-mirror-to-pmo
+
+# Examples — legacy flag style
+prlt work start --from-issue --source linear --key ENG-123
+prlt work start --from-issue --source jira --key PROJ-123 --mirror-to-pmo
+
+# Examples — active source (uses workspace default when --from-issue without --source)
+prlt work source set linear           # Set Linear as default source
+prlt work start --from-issue --key ENG-123   # Uses Linear from active source
+
+# Examples — general
 prlt work start TKT-001
 prlt work start TKT-001 --mode docker --action implement
 prlt work start TKT-001 --create-pr        # Explicitly create PR
-prlt work start --from-issue --source linear --key ENG-123
-prlt work start --from-issue --source jira --key PROJ-123 --mirror-to-pmo
 ```
 
 #### `prlt work spawn`
@@ -340,24 +364,50 @@ Options:
   --skip-permissions     Skip confirmation prompts
   --create-pr            Create PRs when done (overrides workspace default)
   --no-pr                [deprecated] Don't create PRs
-  --from <source>        Source override (provider[:context], e.g., pmo, linear:PRO)
+  --from <source>        Source override (provider[:context], e.g., pmo, linear:PRO, jira:PROJ)
+  --jira-project <key>   Jira project key for filtering (with --from jira)
+  --jira-jql <query>     Custom JQL for filtering Jira issues
+  --jira-limit <n>       Max Jira issues to pull (default: 20)
 
-# Examples
+# Source resolution order:
+# 1. --from provider[:context] (explicit override)
+# 2. --from-linear (legacy)
+# 3. Persisted active source (prlt work source set ...)
+# 4. Interactive prompt (when multiple sources registered)
+
+# Examples — Linear source
+prlt work spawn --from linear:ENG                  # Pull Linear issues (team ENG)
+prlt work spawn --from linear:ENG ENG-123 ENG-124  # Specific Linear issues
+prlt work spawn --from-linear --linear-team ENG    # Legacy Linear flags
+
+# Examples — Jira source
+prlt work spawn --from jira:PROJ                   # Pull Jira issues (project PROJ)
+prlt work spawn --from jira:PROJ PROJ-123 PROJ-456 # Specific Jira issues
+prlt work spawn --from jira --jira-project PROJ    # Explicit project key
+prlt work spawn --from jira --jira-jql 'assignee = currentUser()'  # Custom JQL
+
+# Examples — PMO source
 prlt work spawn --all --column Planned
 prlt work spawn TKT-001 TKT-002 TKT-003
 prlt work spawn --all --dry-run
-prlt work spawn TKT-001 TKT-002 --create-pr   # Ensure PRs are created
-prlt work spawn --from linear:PRO              # Pull from active Linear team context
+prlt work spawn TKT-001 TKT-002 --create-pr       # Ensure PRs are created
+
+# Persist default source
+prlt work source set linear:ENG
+prlt work source set jira:PROJ
+prlt work spawn                                    # Uses persisted source
 ```
 
 #### `prlt work source`
 
-Show or set the active source that `work spawn` uses by default when `--from` is omitted.
+Show or set the active source that `work spawn` and `work start --from-issue` use by default when `--from` is omitted.
 
 ```bash
-prlt work source
-prlt work source set linear:PRO
-prlt work source set pmo
+prlt work source                    # Show active and registered sources
+prlt work source set linear:PRO     # Set Linear (team PRO) as default
+prlt work source set jira:PROJ      # Set Jira (project PROJ) as default
+prlt work source set pmo            # Reset to PMO tickets
+prlt work source --json             # JSON output for agents
 ```
 
 #### `prlt work jira`
