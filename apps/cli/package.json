@@ -68,6 +68,9 @@
   ],
   "homepage": "https://proletariat.ai/",
   "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
     "cli",
     "multi-agent",
     "ai-agents",
