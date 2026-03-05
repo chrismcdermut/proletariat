@@ -10,7 +10,12 @@ import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames, captureTmuxPane } from '../../lib/execution/session-utils.js'
 import { findHQRoot } from '../../lib/workspace.js'
 import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
-import { buildOrchestratorSessionName, findRunningOrchestratorSessions } from './start.js'
+import {
+  buildOrchestratorSessionName,
+  findRunningOrchestratorSessions,
+  findHQOrchestratorSessions,
+  extractOrchestratorNameFromSession,
+} from './start.js'
 
 export default class OrchestratorStatus extends PromptCommand {
   static description = 'Check if the orchestrator is running'
@@ -43,54 +48,91 @@ export default class OrchestratorStatus extends PromptCommand {
     const hostSessions = getHostTmuxSessionNames()
 
     // Resolve session name: try HQ-scoped first, fall back to discovery
-    let sessionName: string | undefined
     const hqPath = findHQRoot(process.cwd())
+
     if (hqPath) {
       const hqName = getHeadquartersNameFromPath(hqPath)
-      sessionName = buildOrchestratorSessionName(hqName, flags.name || 'main')
-    }
 
-    // If in HQ, check specifically for this HQ's session
-    if (sessionName) {
-      const isRunning = hostSessions.includes(sessionName)
+      if (flags.name) {
+        // Explicit --name: check that specific orchestrator
+        const sessionName = buildOrchestratorSessionName(hqName, flags.name)
+        const isRunning = hostSessions.includes(sessionName)
 
-      let recentOutput: string | null = null
-      if (isRunning && flags.peek) {
-        recentOutput = captureTmuxPane(sessionName, flags.lines)
+        let recentOutput: string | null = null
+        if (isRunning && flags.peek) {
+          recentOutput = captureTmuxPane(sessionName, flags.lines)
+        }
+
+        if (jsonMode) {
+          outputSuccessAsJson({
+            running: isRunning,
+            sessionId: isRunning ? sessionName : null,
+            name: flags.name,
+            ...(recentOutput !== null && { recentOutput }),
+          }, createMetadata('orchestrator status', flags as Record<string, unknown>))
+          return
+        }
+
+        this.log('')
+        if (isRunning) {
+          this.log(styles.success(`Orchestrator "${flags.name}" is running`))
+          this.log(styles.muted(`   Session: ${sessionName}`))
+          this.log(styles.muted(`   Attach: prlt orchestrator attach --name ${flags.name}`))
+
+          if (recentOutput) {
+            this.log('')
+            this.log(styles.header('Recent output:'))
+            this.log(styles.muted('─'.repeat(60)))
+            this.log(recentOutput)
+            this.log(styles.muted('─'.repeat(60)))
+          }
+        } else {
+          this.log(styles.muted(`Orchestrator "${flags.name}" is not running.`))
+          this.log(styles.muted('Start it with: prlt orchestrator start'))
+        }
+        this.log('')
+        return
       }
+
+      // No --name: show status for ALL orchestrators in this HQ
+      const hqSessions = findHQOrchestratorSessions(hostSessions, hqName)
 
       if (jsonMode) {
         outputSuccessAsJson({
-          running: isRunning,
-          sessionId: isRunning ? sessionName : null,
-          ...(recentOutput !== null && { recentOutput }),
+          running: hqSessions.length > 0,
+          sessions: hqSessions.map(s => ({
+            sessionId: s,
+            name: extractOrchestratorNameFromSession(s, hqName) || s,
+          })),
         }, createMetadata('orchestrator status', flags as Record<string, unknown>))
         return
       }
 
       this.log('')
-      if (isRunning) {
-        this.log(styles.success(`Orchestrator is running`))
-        this.log(styles.muted(`   Session: ${sessionName}`))
-        this.log(styles.muted(`   Attach: prlt orchestrator attach`))
-        this.log(styles.muted(`   Poke:   prlt session poke orchestrator "message"`))
-
-        if (recentOutput) {
-          this.log('')
-          this.log(styles.header('Recent output:'))
-          this.log(styles.muted('─'.repeat(60)))
-          this.log(recentOutput)
-          this.log(styles.muted('─'.repeat(60)))
-        }
+      if (hqSessions.length === 0) {
+        this.log(styles.muted('No orchestrator sessions running.'))
+        this.log(styles.muted('Start one with: prlt orchestrator start'))
       } else {
-        this.log(styles.muted('Orchestrator is not running.'))
-        this.log(styles.muted('Start it with: prlt orchestrator start'))
+        this.log(styles.success(`${hqSessions.length} orchestrator session(s) running:`))
+        for (const s of hqSessions) {
+          const name = extractOrchestratorNameFromSession(s, hqName) || s
+          this.log(styles.muted(`   ${name} (${s})`))
+          this.log(styles.muted(`     Attach: prlt orchestrator attach --name ${name}`))
+          if (flags.peek) {
+            const output = captureTmuxPane(s, flags.lines)
+            if (output) {
+              this.log(styles.muted('─'.repeat(60)))
+              this.log(output)
+              this.log(styles.muted('─'.repeat(60)))
+            }
+          }
+        }
       }
       this.log('')
       return
     }
 
-    // Not in HQ — discover all running orchestrator sessions
+    // Not in HQ — discover all running orchestrator sessions globally
     const runningSessions = findRunningOrchestratorSessions(hostSessions)
 
     if (jsonMode) {

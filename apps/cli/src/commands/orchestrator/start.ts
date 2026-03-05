@@ -34,11 +34,13 @@ import {
   detectShell,
   detectTerminalApp,
 } from '../../lib/execution/config.js'
+import { ensureBuiltinThemes } from '../../lib/themes.js'
+import { getActiveTheme, getAvailableThemeNames } from '../../lib/database/index.js'
 
 /**
  * Sanitize a name segment for use in tmux session names.
  */
-function sanitizeName(name: string): string {
+export function sanitizeName(name: string): string {
   return name
     .replace(/[^a-zA-Z0-9._-]/g, '-')
     .replace(/-+/g, '-')
@@ -62,6 +64,15 @@ export function buildOrchestratorSessionName(hqName: string, name: string = 'mai
  */
 export function findRunningOrchestratorSessions(hostSessions: string[]): string[] {
   return hostSessions.filter(s => s.startsWith('prlt-orchestrator-'))
+}
+
+/**
+ * Find orchestrator sessions scoped to a specific HQ workspace.
+ * Filters sessions by 'prlt-orchestrator-{sanitizedHqName}-' prefix.
+ */
+export function findHQOrchestratorSessions(hostSessions: string[], hqName: string): string[] {
+  const prefix = `prlt-orchestrator-${sanitizeName(hqName) || 'default'}-`
+  return hostSessions.filter(s => s.startsWith(prefix))
 }
 
 export function resolveOrchestratorName(name?: string): string {
@@ -226,20 +237,50 @@ export default class OrchestratorStart extends PromptCommand {
     )
 
     let orchestratorName = resolveOrchestratorName(flags.name)
-    if (!flags.name && !jsonMode) {
-      const availableNames = buildAvailableOrchestratorNames(reservedNames)
+    if (!flags.name) {
+      // Try theme-based names first
+      ensureBuiltinThemes(hqPath)
+      const activeTheme = getActiveTheme(hqPath)
+      let availableNames: string[]
+
+      if (activeTheme) {
+        const themeNames = getAvailableThemeNames(hqPath, activeTheme.id)
+        // Filter out names that are reserved by running orchestrators or agents
+        availableNames = themeNames
+          .filter(n => !reservedNames.has(n.toLowerCase()))
+          .slice(0, 8)
+      } else {
+        availableNames = []
+      }
+
+      // Fall back to buildAvailableOrchestratorNames if no theme names available
+      if (availableNames.length === 0) {
+        availableNames = buildAvailableOrchestratorNames(reservedNames)
+      }
+
+      const nameChoices = [
+        ...availableNames.map(name => ({
+          name,
+          value: name,
+          command: `prlt orchestrator start --name ${name} --json`,
+        })),
+        { name: 'Custom...', value: '__custom__' },
+      ]
+      const nameMessage = 'Select orchestrator name:'
+
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'selectedName', nameMessage, nameChoices),
+          createMetadata('orchestrator start', flags),
+        )
+        return
+      }
+
       const { selectedName } = await this.prompt<{ selectedName: string }>([{
         type: 'list',
         name: 'selectedName',
-        message: 'Select orchestrator name:',
-        choices: [
-          ...availableNames.map(name => ({
-            name,
-            value: name,
-            command: `prlt orchestrator start --name ${name} --json`,
-          })),
-          { name: 'Custom...', value: '__custom__' },
-        ],
+        message: nameMessage,
+        choices: nameChoices,
       }])
 
       if (selectedName === '__custom__') {
@@ -554,7 +595,7 @@ export default class OrchestratorStart extends PromptCommand {
           const executionStorage = new ExecutionStorage(db)
           executionStorage.createExecution({
             ticketId: 'ORCH',
-            agentName: 'orchestrator',
+            agentName: `orchestrator-${orchestratorName}`,
             executor: selectedExecutor,
             environment: 'host',
             displayMode,

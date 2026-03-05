@@ -10,6 +10,8 @@ import {
   shouldOutputJson,
   outputErrorAsJson,
   outputSuccessAsJson,
+  outputPromptAsJson,
+  buildPromptConfig,
   createMetadata,
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
@@ -18,7 +20,12 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { findHQRoot } from '../../lib/workspace.js'
 import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 import { loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
-import { buildOrchestratorSessionName, findRunningOrchestratorSessions } from './start.js'
+import {
+  buildOrchestratorSessionName,
+  findRunningOrchestratorSessions,
+  findHQOrchestratorSessions,
+  extractOrchestratorNameFromSession,
+} from './start.js'
 
 /**
  * Detect the terminal emulator from environment variables.
@@ -97,15 +104,50 @@ export default class OrchestratorAttach extends PromptCommand {
     // Resolve session name: try HQ-scoped first, fall back to discovery
     let sessionName: string | undefined
     const hqPath = findHQRoot(process.cwd())
+
     if (hqPath) {
       const hqName = getHeadquartersNameFromPath(hqPath)
-      sessionName = buildOrchestratorSessionName(hqName, flags.name || 'main')
-      if (!hostSessions.includes(sessionName)) {
-        sessionName = undefined // Not running for this HQ
+
+      if (flags.name) {
+        // Explicit --name: look for that specific orchestrator
+        sessionName = buildOrchestratorSessionName(hqName, flags.name)
+        if (!hostSessions.includes(sessionName)) {
+          sessionName = undefined
+        }
+      } else {
+        // No --name: discover ALL orchestrators in this HQ
+        const hqSessions = findHQOrchestratorSessions(hostSessions, hqName)
+        if (hqSessions.length === 1) {
+          sessionName = hqSessions[0]
+        } else if (hqSessions.length > 1) {
+          const sessionChoices = hqSessions.map(s => ({
+            name: extractOrchestratorNameFromSession(s, hqName) || s,
+            value: s,
+            command: `prlt orchestrator attach --name "${extractOrchestratorNameFromSession(s, hqName) || s}" --json`,
+          }))
+          const selectMessage = 'Multiple orchestrator sessions found. Select one to attach:'
+
+          if (jsonMode) {
+            outputPromptAsJson(
+              buildPromptConfig('list', 'session', selectMessage, sessionChoices),
+              createMetadata('orchestrator attach', flags),
+            )
+            return
+          }
+
+          const { session } = await this.prompt<{ session: string }>([{
+            type: 'list',
+            name: 'session',
+            message: selectMessage,
+            choices: sessionChoices,
+          }])
+          sessionName = session
+        }
+        // If 0 found, fall through to global discovery below
       }
     }
 
-    // If not in HQ or session not found, discover running orchestrator sessions
+    // If not in HQ or session not found, discover running orchestrator sessions globally
     if (!sessionName) {
       const runningSessions = findRunningOrchestratorSessions(hostSessions)
       if (runningSessions.length === 0) {
@@ -126,16 +168,27 @@ export default class OrchestratorAttach extends PromptCommand {
         sessionName = runningSessions[0]
       } else {
         // Multiple sessions — let user pick
+        const sessionChoices = runningSessions.map(s => ({
+          name: s,
+          value: s,
+          command: `prlt orchestrator attach --name "${s}" --json`,
+        }))
+        const selectMessage = 'Multiple orchestrator sessions found. Select one to attach:'
+
+        if (jsonMode) {
+          outputPromptAsJson(
+            buildPromptConfig('list', 'session', selectMessage, sessionChoices),
+            createMetadata('orchestrator attach', flags),
+          )
+          return
+        }
+
         const { session } = await this.prompt<{ session: string }>([{
           type: 'list',
           name: 'session',
-          message: 'Multiple orchestrator sessions found. Select one to attach:',
-          choices: runningSessions.map(s => ({
-            name: s,
-            value: s,
-            command: `prlt orchestrator attach --name "${s}" --json`,
-          })),
-        }], jsonMode ? { flags, commandName: 'orchestrator attach' } : null)
+          message: selectMessage,
+          choices: sessionChoices,
+        }])
         sessionName = session
       }
     }
