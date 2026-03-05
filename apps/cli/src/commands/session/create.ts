@@ -104,7 +104,7 @@ export default class SessionCreate extends PMOCommand {
     if (!flags.detach) {
       this.log(styles.info(`Attaching to session: ${sessionName}`))
       try {
-        execSync(`tmux attach -t "${sessionName}"`, { stdio: 'inherit' })
+        execSync(`tmux attach -d -t "${sessionName}"`, { stdio: 'inherit' })
       } catch {
         this.log(styles.muted(`Session "${sessionName}" is running in detached mode.`))
         this.log(styles.muted(`Attach with: tmux attach -t "${sessionName}"`))
