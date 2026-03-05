@@ -32,6 +32,8 @@ const FLUSH_TIMEOUT_MS = 2000
 interface TelemetryConfig {
   /** Whether telemetry is enabled (default: true) */
   enabled: boolean
+  /** Whether the first-run notice has been shown */
+  noticeShown: boolean
   /** Anonymous machine ID (UUID v4) */
   machineId: string
   /** When telemetry was first initialized */
@@ -86,6 +88,7 @@ function readTelemetryConfig(): TelemetryConfig {
   // Create new config with generated machine ID
   telemetryConfig = {
     enabled: true,
+    noticeShown: false,
     machineId: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -171,6 +174,34 @@ export function getTelemetryStatus(): {
   return { enabled: config.enabled, machineId: config.machineId, envOverride: false }
 }
 
+// ─── First-Run Notice ────────────────────────────────────────────────────────
+
+/**
+ * Show a one-time notice that telemetry is active.
+ * Only shown in interactive TTY sessions.
+ */
+function showTelemetryNotice(): void {
+  const config = readTelemetryConfig()
+  if (config.noticeShown) return
+  if (!process.stdout.isTTY) {
+    // Mark as shown so we don't try again, but don't print in non-TTY
+    config.noticeShown = true
+    writeTelemetryConfig(config)
+    return
+  }
+
+  console.log('')
+  console.log('Proletariat collects anonymous usage analytics to improve the CLI.')
+  console.log('No personal data is collected. You can opt out at any time:')
+  console.log('')
+  console.log('  prlt telemetry disable')
+  console.log('')
+
+  config.noticeShown = true
+  telemetryConfig = config
+  writeTelemetryConfig(config)
+}
+
 // ─── Machine ID ──────────────────────────────────────────────────────────────
 
 /**
@@ -200,6 +231,8 @@ export async function initAnalytics(version: string): Promise<void> {
   cliVersion = version
 
   if (!isTelemetryEnabled()) return
+
+  showTelemetryNotice()
 
   try {
     const statsigModule = await import('statsig-node')
