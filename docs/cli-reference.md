@@ -386,6 +386,8 @@ prlt work jira --host https://myorg.atlassian.net --project-key PROJ
 prlt work jira --host https://myorg.atlassian.net --issue PROJ-123 --yes --display terminal --skip-permissions
 ```
 
+> **Operator guide:** For setup, troubleshooting, and fallback modes when spawning from external issue sources (Linear/Jira), see the [External Issue Spawn Runbook](runbook-external-issue-spawn.md).
+
 #### `prlt work list`
 
 List active work.
