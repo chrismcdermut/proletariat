@@ -195,9 +195,10 @@ export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?:
 
 /**
  * Check if Claude Code authentication is available on the host system.
- * Returns true if either:
- * 1. OAuth credentials exist in ~/.claude/.credentials.json, OR
- * 2. ANTHROPIC_API_KEY environment variable is set
+ * Returns true if any of:
+ * 1. ANTHROPIC_API_KEY environment variable is set
+ * 2. OAuth credentials exist in ~/.claude/.credentials.json (Claude Code 1.x)
+ * 3. OAuth credentials exist in macOS keychain (Claude Code 2.x)
  *
  * This is used to validate auth before spawning host sessions (e.g., orchestrator)
  * to avoid creating stuck sessions when the keychain is locked (SSH contexts).
@@ -208,27 +209,42 @@ export function hostCredentialsExist(): boolean {
     return true
   }
 
-  // Check for OAuth credentials in ~/.claude/.credentials.json
+  // Check for OAuth credentials in ~/.claude/.credentials.json (Claude Code 1.x)
   try {
     const homeDir = process.env.HOME || os.homedir()
     const credPath = path.join(homeDir, '.claude', '.credentials.json')
-    if (!fs.existsSync(credPath)) {
-      return false
+    if (fs.existsSync(credPath)) {
+      const credData = fs.readFileSync(credPath, 'utf-8')
+      const creds = JSON.parse(credData)
+
+      // Check if OAuth credentials exist (similar to Docker check)
+      // Don't check expiration - Claude Code handles token refresh internally
+      if (creds.claudeAiOauth?.accessToken) {
+        return true
+      }
     }
-
-    const credData = fs.readFileSync(credPath, 'utf-8')
-    const creds = JSON.parse(credData)
-
-    // Check if OAuth credentials exist (similar to Docker check)
-    // Don't check expiration - Claude Code handles token refresh internally
-    if (creds.claudeAiOauth?.accessToken) {
-      return true
-    }
-
-    return false
   } catch {
-    return false
+    // Fall through to keychain check
   }
+
+  // Check for Claude Code 2.x keychain-based auth (macOS)
+  // Claude Code 2.x stores OAuth tokens in the macOS keychain under service
+  // "Claude Code-credentials". If the keychain is locked (e.g., SSH sessions),
+  // this check will fail, which is the desired behavior — we want to surface
+  // the error early rather than create stuck sessions.
+  if (process.platform === 'darwin') {
+    try {
+      execSync('security find-generic-password -s "Claude Code-credentials" 2>/dev/null', {
+        stdio: 'pipe',
+        timeout: 5000,
+      })
+      return true
+    } catch {
+      // Keychain entry not found or keychain is locked
+    }
+  }
+
+  return false
 }
 
 /**
