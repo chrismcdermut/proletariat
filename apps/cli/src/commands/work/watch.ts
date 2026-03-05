@@ -21,6 +21,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
+import { onShutdown } from '../../lib/signal-handler.js'
 
 export default class WorkWatch extends PMOCommand {
   static description = 'Watch a column and auto-spawn agents for new tickets'
@@ -128,17 +129,11 @@ export default class WorkWatch extends PMOCommand {
     const db = new Database(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
-    // Handle graceful shutdown
-    const cleanup = async () => {
+    // Register graceful shutdown via centralized signal handler
+    onShutdown(() => {
       this.isRunning = false
-      this.log('')
-      this.log(styles.muted('Stopping watch...'))
       db.close()
-      process.exit(0)
-    }
-
-    process.on('SIGINT', cleanup)
-    process.on('SIGTERM', cleanup)
+    })
 
     try {
       // Get board columns for selection

@@ -12,6 +12,7 @@ import {
   createMetadata,
   shouldOutputJson,
 } from '../../lib/prompt-json.js'
+import { trackChildProcess } from '../../lib/signal-handler.js'
 
 export default class ExecutionLogs extends PMOCommand {
   static description = 'View execution logs'
@@ -148,11 +149,8 @@ export default class ExecutionLogs extends PMOCommand {
           stdio: 'inherit',
         })
 
-        // Handle Ctrl+C
-        process.on('SIGINT', () => {
-          tailProcess.kill()
-          process.exit(0)
-        })
+        // Track for automatic cleanup on Ctrl+C
+        trackChildProcess(tailProcess)
 
         await new Promise((resolve) => {
           tailProcess.on('close', resolve)

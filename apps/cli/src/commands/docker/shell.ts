@@ -9,6 +9,7 @@ import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, isContainerRunning } from '../../lib/docker/resolve.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { trackChildProcess } from '../../lib/signal-handler.js'
 
 export default class DockerShell extends Command {
   static description = 'Open a shell in a running container (by execution ID, agent name, or container ID)'
@@ -109,10 +110,12 @@ export default class DockerShell extends Command {
 
       dockerArgs.push(result.containerId, flags.shell)
 
-      // Spawn interactive shell
+      // Spawn interactive shell - track for cleanup on Ctrl+C
       const proc = spawn('docker', dockerArgs, {
         stdio: 'inherit',
       })
+
+      trackChildProcess(proc)
 
       proc.on('error', (err) => {
         this.error(`Failed to open shell: ${err.message}`)

@@ -10,6 +10,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
+import { trackChildProcess } from '../../lib/signal-handler.js';
 
 export default class GHLogin extends Command {
   static description = 'Login to GitHub CLI for PR workflow';
@@ -78,11 +79,13 @@ export default class GHLogin extends Command {
 
     this.log(styles.muted('Starting GitHub authentication...\n'));
 
-    // Run gh auth login interactively
+    // Run gh auth login interactively - track for cleanup on Ctrl+C
     const child = spawn('gh', ['auth', 'login'], {
       stdio: 'inherit',
       shell: true,
     });
+
+    trackChildProcess(child);
 
     await new Promise<void>((resolve, reject) => {
       child.on('close', (code) => {

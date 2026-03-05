@@ -11,6 +11,7 @@ import {
   createMetadata,
   type JsonFlags,
 } from '../prompt-json.js';
+import { withSignalSafePrompt } from '../signal-handler.js';
 
 /**
  * Base flags for JSON/agent mode support
@@ -229,15 +230,17 @@ export abstract class PMOCommand extends PromptCommand {
     }
 
     // Interactive mode - prompt for selection
-    const { selectedProjectId } = await inquirer.prompt([{
-      type: 'list',
-      name: 'selectedProjectId',
-      message: 'Select project:',
-      choices: sortedProjects.map(p => ({
-        name: `${p.name} (${p.id})`,
-        value: p.id,
-      })),
-    }]);
+    const { selectedProjectId } = await withSignalSafePrompt(() =>
+      inquirer.prompt([{
+        type: 'list',
+        name: 'selectedProjectId',
+        message: 'Select project:',
+        choices: sortedProjects.map(p => ({
+          name: `${p.name} (${p.id})`,
+          value: p.id,
+        })),
+      }])
+    );
 
     return selectedProjectId;
   }
@@ -343,12 +346,14 @@ export abstract class PMOCommand extends PromptCommand {
       );
     }
 
-    const { selection } = await inquirer.prompt([{
-      type: 'list',
-      name: 'selection',
-      message,
-      choices: interactiveChoices,
-    }]);
+    const { selection } = await withSignalSafePrompt(() =>
+      inquirer.prompt([{
+        type: 'list',
+        name: 'selection',
+        message,
+        choices: interactiveChoices,
+      }])
+    );
 
     if (selection === '__cancel__' || selection === '__separator__') {
       return null;
@@ -412,13 +417,15 @@ export abstract class PMOCommand extends PromptCommand {
     }
 
     // Interactive mode
-    const { value } = await inquirer.prompt([{
-      type: 'input',
-      name: 'value',
-      message,
-      default: defaultValue,
-      validate,
-    }]);
+    const { value } = await withSignalSafePrompt(() =>
+      inquirer.prompt([{
+        type: 'input',
+        name: 'value',
+        message,
+        default: defaultValue,
+        validate,
+      }])
+    );
 
     return value;
   }

@@ -16,6 +16,7 @@ import * as crypto from 'node:crypto';
 import { watch, FSWatcher } from 'chokidar';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { parseBoard } from './markdown.js';
+import { onShutdown } from '../signal-handler.js';
 
 export interface WatcherOptions {
   /** Debounce delay in milliseconds (default: 500) */
@@ -257,7 +258,7 @@ export function startWatcher(
 
 /**
  * Run watcher as a foreground process (for CLI command)
- * Handles SIGINT/SIGTERM for graceful shutdown
+ * Uses centralized signal handler for graceful shutdown
  */
 export async function runWatcherForeground(
   pmoPath: string,
@@ -266,14 +267,10 @@ export async function runWatcherForeground(
 ): Promise<void> {
   const watcher = startWatcher(pmoPath, storageType, options);
 
-  // Handle graceful shutdown
-  const shutdown = async () => {
+  // Register cleanup via centralized signal handler
+  onShutdown(async () => {
     await watcher.stop();
-    process.exit(0);
-  };
-
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  });
 
   // Keep process alive
   await new Promise(() => {

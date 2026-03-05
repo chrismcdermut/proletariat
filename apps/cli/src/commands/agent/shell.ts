@@ -18,6 +18,7 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import {
   shouldOutputJson,
 } from '../../lib/prompt-json.js';
+import { trackChildProcess } from '../../lib/signal-handler.js';
 
 export default class Shell extends PMOCommand {
   static description = 'Open an interactive shell in an agent workspace';
@@ -292,6 +293,8 @@ export default class Shell extends PMOCommand {
         stdio: 'inherit'
       });
 
+      trackChildProcess(child);
+
       await new Promise<void>((resolve, reject) => {
         child.on('close', (code) => {
           if (code === 0) {
@@ -359,6 +362,8 @@ exec bash
         stdio: 'inherit',
         cwd: agentDir,
       });
+
+      trackChildProcess(child);
 
       await new Promise<void>((resolve, reject) => {
         child.on('close', (code) => {
