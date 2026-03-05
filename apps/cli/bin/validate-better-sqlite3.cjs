@@ -25,14 +25,25 @@ function buildMessage(error, context) {
   const reason = error instanceof Error ? error.message : String(error)
 
   return [
-    `better-sqlite3 native module validation failed (${context}).`,
-    `Runtime: node ${info.nodeVersion} (ABI ${info.abi}) on ${info.platform}-${info.arch}.${nodeMajorHint}`,
-    `Load error: ${reason}`,
+    '',
+    '╔══════════════════════════════════════════════════════════════════╗',
+    '║  better-sqlite3 native module validation failed                ║',
+    '╚══════════════════════════════════════════════════════════════════╝',
+    '',
+    `Context: ${context}`,
+    `Runtime: node ${info.nodeVersion} (ABI ${info.abi}) on ${info.platform}-${info.arch}${nodeMajorHint}`,
+    `Error:   ${reason}`,
     '',
     'Fix steps:',
-    '1. Rebuild native bindings for this runtime: npm rebuild better-sqlite3',
-    '2. Verify runtime architecture: node -p "process.platform + \'-\' + process.arch + \' abi=\' + process.versions.modules"',
-    '3. Reinstall with your active Node version if needed: npm uninstall -g @proletariat/cli && npm install -g @proletariat/cli',
+    '1. Rebuild native bindings: npm rebuild better-sqlite3',
+    '2. If globally installed, reinstall: pnpm install -g @proletariat/cli --force',
+    '   (or: npm install -g @proletariat/cli --force)',
+    '3. Verify architecture: node -p "process.platform + \'-\' + process.arch"',
+    '',
+    'If the problem persists, ensure you have build tools installed:',
+    '  macOS:  xcode-select --install',
+    '  Linux:  sudo apt-get install build-essential python3',
+    '',
   ].join('\n')
 }
 

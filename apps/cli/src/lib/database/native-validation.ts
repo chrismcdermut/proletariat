@@ -44,15 +44,15 @@ export function buildBetterSqlite3ValidationMessage(
     : `- Unsupported Node major for this CLI: ${info.nodeMajor} (supported: ${SUPPORTED_NODE_MAJORS.join(', ')})`
 
   const lines = [
-    `better-sqlite3 native module validation failed (${context}).`,
+    `better-sqlite3 native module failed to load (${context}).`,
     `Runtime: node ${info.nodeVersion} (ABI ${info.abi}) on ${info.platform}-${info.arch}.`,
-    `Load error: ${reason}`,
+    `Error: ${reason}`,
     '',
     'Fix steps:',
-    '1. Rebuild native bindings for the current runtime: `npm rebuild better-sqlite3`',
-    '2. Verify runtime architecture: `node -p "process.platform + \'-\' + process.arch + \' abi=\' + process.versions.modules"`',
-    '3. If globally installed, reinstall CLI with current Node: `npm uninstall -g @proletariat/cli && npm install -g @proletariat/cli`',
-    '4. If running tests from source, reinstall workspace deps: `pnpm install`',
+    '1. Rebuild native bindings: npm rebuild better-sqlite3',
+    '2. If globally installed, reinstall: pnpm install -g @proletariat/cli --force',
+    '   (or: npm install -g @proletariat/cli --force)',
+    '3. If running from source, reinstall workspace deps: pnpm install',
   ]
 
   if (nodeMajorHint) {
