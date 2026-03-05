@@ -214,14 +214,8 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
       expect(claudeResult.args).to.include('--permission-mode')
     })
 
-    it('Codex changes should not affect Aider command generation', () => {
-      const aiderResult = getExecutorCommand('aider', 'test', true)
-      expect(aiderResult.cmd).to.equal('aider')
-      expect(aiderResult.args).to.include('--message')
-    })
-
     it('each executor should produce a unique command binary', () => {
-      const executors: ExecutorType[] = ['claude-code', 'codex', 'aider']
+      const executors: ExecutorType[] = ['claude-code', 'codex']
       const cmds = executors.map(e => getExecutorCommand(e, 'test').cmd)
       const unique = new Set(cmds)
       expect(unique.size).to.equal(executors.length)

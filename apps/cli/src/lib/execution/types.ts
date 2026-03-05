@@ -77,7 +77,6 @@ export type PermissionMode =
 export type ExecutorType =
   | 'claude-code'
   | 'codex'
-  | 'aider'
   | 'custom'
 
 // =============================================================================

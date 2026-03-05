@@ -164,7 +164,7 @@ describe('ExecutionView', () => {
     })
 
     it('returns different executor types', () => {
-      const executorTypes = ['claude-code', 'codex', 'aider', 'custom'] as const
+      const executorTypes = ['claude-code', 'codex', 'custom'] as const
 
       for (const executor of executorTypes) {
         storage.createExecution({
@@ -178,7 +178,7 @@ describe('ExecutionView', () => {
       }
 
       const executions = storage.listExecutions({ limit: 10 })
-      expect(executions).to.have.length(4)
+      expect(executions).to.have.length(3)
 
       for (const exec of executions) {
         expect(executorTypes).to.include(exec.executor)

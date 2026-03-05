@@ -46,7 +46,7 @@ Agents are AI coding assistants that can be assigned to work on tickets. Each ag
 | id | string | auto | - | WORK-001 format |
 | ticket_id | ref | ✓ | - | Ticket being worked on |
 | agent_name | ref | ✓ | - | Agent doing the work |
-| executor | enum | | claude-code | claude-code, codex, aider |
+| executor | enum | | claude-code | claude-code, codex, custom |
 | environment | enum | | host | host, devcontainer, docker, vm |
 | display_mode | enum | | terminal | terminal, foreground, background, tmux |
 | sandboxed | boolean | | true | Whether permissions are restricted |

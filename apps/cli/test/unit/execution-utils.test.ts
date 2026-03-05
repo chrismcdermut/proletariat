@@ -382,20 +382,6 @@ describe('Execution Utils', () => {
       })
     })
 
-    describe('aider executor', () => {
-      it('should return aider command with --message flag', () => {
-        const result = getExecutorCommand('aider', testPrompt)
-        expect(result.cmd).to.equal('aider')
-        expect(result.args).to.deep.equal(['--message', testPrompt])
-      })
-
-      it('should NOT include Claude-specific flags', () => {
-        const result = getExecutorCommand('aider', testPrompt, true)
-        expect(result.args).to.not.include('--dangerously-skip-permissions')
-        expect(result.args).to.not.include('-p')
-      })
-    })
-
     describe('custom executor', () => {
       it('should return echo fallback', () => {
         const result = getExecutorCommand('custom', testPrompt)
@@ -405,7 +391,7 @@ describe('Execution Utils', () => {
     })
 
     describe('all executor types', () => {
-      const executors: ExecutorType[] = ['claude-code', 'codex', 'aider', 'custom']
+      const executors: ExecutorType[] = ['claude-code', 'codex', 'custom']
 
       it('should return a cmd and args for every executor type', () => {
         for (const executor of executors) {
@@ -427,10 +413,6 @@ describe('Execution Utils', () => {
       expect(isClaudeExecutor('codex')).to.be.false
     })
 
-    it('should return false for aider', () => {
-      expect(isClaudeExecutor('aider')).to.be.false
-    })
-
     it('should return false for custom', () => {
       expect(isClaudeExecutor('custom')).to.be.false
     })
@@ -445,10 +427,6 @@ describe('Execution Utils', () => {
       expect(getExecutorDisplayName('codex')).to.equal('Codex')
     })
 
-    it('should return "Aider" for aider', () => {
-      expect(getExecutorDisplayName('aider')).to.equal('Aider')
-    })
-
     it('should return "Custom" for custom', () => {
       expect(getExecutorDisplayName('custom')).to.equal('Custom')
     })
@@ -461,10 +439,6 @@ describe('Execution Utils', () => {
 
     it('should return @openai/codex for codex', () => {
       expect(getExecutorPackage('codex')).to.equal('@openai/codex')
-    })
-
-    it('should return null for aider (Python-based)', () => {
-      expect(getExecutorPackage('aider')).to.be.null
     })
 
     it('should return null for custom', () => {

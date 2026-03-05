@@ -179,7 +179,7 @@ export default class OrchestratorStart extends PromptCommand {
     executor: Flags.string({
       char: 'e',
       description: 'Executor type',
-      options: ['claude-code', 'codex', 'aider', 'custom'],
+      options: ['claude-code', 'codex', 'custom'],
     }),
     'skip-permissions': Flags.boolean({
       description: 'Skip permission checks (shorthand for --permission-mode danger)',
@@ -362,8 +362,8 @@ export default class OrchestratorStart extends PromptCommand {
       const executorChoices = [
         { name: 'Claude Code', value: 'claude-code', command: 'prlt orchestrator start --executor claude-code --json' },
         { name: 'Codex', value: 'codex', command: 'prlt orchestrator start --executor codex --json' },
-        { name: 'Aider', value: 'aider', command: 'prlt orchestrator start --executor aider --json' },
         { name: 'Custom', value: 'custom', command: 'prlt orchestrator start --executor custom --json' },
+        { name: 'Request executor support...', value: 'request-support' },
       ]
       const executorMessage = 'Select executor:'
 
@@ -375,13 +375,17 @@ export default class OrchestratorStart extends PromptCommand {
         return
       }
 
-      const { executor } = await this.prompt<{ executor: ExecutorType }>([{
+      const { executor } = await this.prompt<{ executor: string }>([{
         type: 'list',
         name: 'executor',
         message: executorMessage,
         choices: executorChoices,
       }])
-      selectedExecutor = executor
+      if (executor === 'request-support') {
+        this.log('Request support for a new executor at: https://github.com/chrismcdermut/proletariat/issues')
+        return
+      }
+      selectedExecutor = executor as ExecutorType
     }
 
     // Validate Claude Code authentication for claude-code executor

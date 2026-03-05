@@ -12,7 +12,7 @@ import type { ExecutionContext, ExecutorType } from '../../src/lib/execution/typ
  * TKT-1083: Finalize Codex behavior on Docker/VM runtimes
  *
  * Ensures that Docker and VM runners use the correct executor command
- * for all executor types (claude-code, codex, aider, custom) instead
+ * for all executor types (claude-code, codex, custom) instead
  * of hardcoding 'claude'.
  */
 describe('Codex Runtime Behavior (TKT-1083)', () => {
@@ -81,14 +81,6 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
       })
     })
 
-    describe('aider executor', () => {
-      it('should return aider command with --message flag', () => {
-        const result = getExecutorCommand('aider', testPrompt, true)
-        expect(result.cmd).to.equal('aider')
-        expect(result.args).to.deep.equal(['--message', testPrompt])
-      })
-    })
-
     describe('custom executor', () => {
       it('should return echo placeholder', () => {
         const result = getExecutorCommand('custom', testPrompt, true)
@@ -98,7 +90,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
 
     describe('all executors produce distinct commands', () => {
       it('should map each executor to a unique command binary', () => {
-        const executors: ExecutorType[] = ['claude-code', 'codex', 'aider']
+        const executors: ExecutorType[] = ['claude-code', 'codex']
         const commands = executors.map(e => getExecutorCommand(e, testPrompt).cmd)
 
         // Each executor should produce a different command
@@ -109,12 +101,6 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
       it('codex should use codex binary, not claude', () => {
         const result = getExecutorCommand('codex', testPrompt)
         expect(result.cmd).to.equal('codex')
-        expect(result.cmd).to.not.equal('claude')
-      })
-
-      it('aider should use aider binary, not claude', () => {
-        const result = getExecutorCommand('aider', testPrompt)
-        expect(result.cmd).to.equal('aider')
         expect(result.cmd).to.not.equal('claude')
       })
     })
@@ -129,12 +115,6 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
       const result = getExecutorCommand('codex', 'build the feature')
       expect(result.cmd).to.equal('codex')
       expect(result.args).to.deep.equal(['--yolo', 'build the feature'])
-    })
-
-    it('should use aider binary for aider executor (not hardcoded claude)', () => {
-      const result = getExecutorCommand('aider', 'fix the bug')
-      expect(result.cmd).to.equal('aider')
-      expect(result.args).to.deep.equal(['--message', 'fix the bug'])
     })
 
     it('should still use claude for claude-code executor in Docker', () => {
@@ -154,11 +134,6 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
       expect(result.args).to.deep.equal(['--yolo', 'implement on VM'])
     })
 
-    it('should use aider binary for aider executor on VM', () => {
-      const result = getExecutorCommand('aider', 'implement on VM')
-      expect(result.cmd).to.equal('aider')
-      expect(result.args[0]).to.equal('--message')
-    })
   })
 
   describe('Codex in devcontainer runtime', () => {
@@ -251,7 +226,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
      * Verifies that all four runtime environments now use the same
      * getExecutorCommand() function, ensuring consistent behavior.
      */
-    const executors: ExecutorType[] = ['claude-code', 'codex', 'aider', 'custom']
+    const executors: ExecutorType[] = ['claude-code', 'codex', 'custom']
 
     for (const executor of executors) {
       it(`should produce deterministic command for ${executor} executor`, () => {
@@ -266,7 +241,6 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
       const expectedBinaries: Record<string, string> = {
         'claude-code': 'claude',
         'codex': 'codex',
-        'aider': 'aider',
         'custom': 'echo',
       }
 
