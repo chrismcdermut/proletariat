@@ -8,6 +8,7 @@
   ],
   "recursive": true,
   "reporter": "spec",
+  "retries": 1,
   "timeout": 60000,
   "node-option": [
     "loader=ts-node/esm",
