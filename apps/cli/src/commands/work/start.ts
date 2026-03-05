@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard, type Ticket } from '../../lib/pmo/index.js'
+import { trackAgentSpawned } from '../../lib/telemetry/analytics.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -2183,6 +2184,14 @@ export default class WorkStart extends PMOCommand {
       })
 
       if (result.success) {
+        // Track agent spawn analytics
+        trackAgentSpawned({
+          executor,
+          environment,
+          action: context.actionId || 'implement',
+          ephemeral: isEphemeralAgent,
+        })
+
         // Update execution record with process info
         executionStorage.updateStatus(execution.id, 'running')
         executionStorage.updateProcessInfo(execution.id, {

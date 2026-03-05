@@ -5,6 +5,7 @@ import { findHQRoot } from '../lib/workspace.js'
 import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
 import { handleUpdatePrompt } from '../lib/update-prompt.js'
 import { initSentry } from '../lib/telemetry.js'
+import { initAnalytics } from '../lib/telemetry/analytics.js'
 
 /**
  * Init hook - runs before every command
@@ -16,6 +17,8 @@ import { initSentry } from '../lib/telemetry.js'
  * A user is considered "first-time" if:
  * - No workspaces are registered in machine config (~/.proletariat/config.json)
  * - AND they're not currently inside a valid HQ directory
+ *
+ * Also initializes analytics (Statsig) for telemetry and feature flags.
  */
 const hook: Hook<'init'> = async function ({ id, argv, config }) {
   // Initialize Sentry as early as possible for crash reporting
@@ -50,6 +53,14 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
       argv?.includes('--version') || argv?.includes('-v')) {
     return
   }
+
+  // Initialize analytics (async, non-blocking on failure)
+  // Store command start time for duration tracking in postrun hook
+  ;(globalThis as Record<string, unknown>).__prlt_command_start = Date.now()
+  ;(globalThis as Record<string, unknown>).__prlt_command_id = id
+  initAnalytics(config.version).catch(() => {
+    // Analytics initialization should never block CLI execution
+  })
 
   if (shouldValidateNativeModules(id)) {
     await validateBetterSqlite3NativeBinding({ context: `command "${id}"` })
