@@ -347,26 +347,26 @@ Clean up your tmux session when done.`,
         category: 'test',
         priority: 'P2',
       })
-      this.log(styles.success(`   Created QA ticket: ${ticket.id}`))
+      if (!jsonMode) this.log(styles.success(`   Created QA ticket: ${ticket.id}`))
 
       // Create ephemeral agent
-      this.log(styles.muted('   Creating ephemeral agent...'))
+      if (!jsonMode) this.log(styles.muted('   Creating ephemeral agent...'))
       let ephemeralResult: { name: string; worktreePath: string }
       try {
         ephemeralResult = await createEphemeralAgent(workspaceInfo, {
           skipDevcontainer: environment === 'host',
-          log: (msg) => this.log(styles.muted(`   ${msg}`)),
+          log: (msg) => { if (!jsonMode) this.log(styles.muted(`   ${msg}`)) },
         })
       } catch (agentError) {
         // Rollback ticket
-        this.log(styles.muted('   Rolling back ticket creation...'))
+        if (!jsonMode) this.log(styles.muted('   Rolling back ticket creation...'))
         try { await storage.deleteTicket(ticket.id) } catch { /* ignore */ }
         throw agentError
       }
 
       const agentName = ephemeralResult.name
       const agentDir = ephemeralResult.worktreePath
-      this.log(styles.success(`   Agent: ${agentName}`))
+      if (!jsonMode) this.log(styles.success(`   Agent: ${agentName}`))
 
       // Load explore-cli action prompt
       const actionData = await this.getExploreCLIPrompt()

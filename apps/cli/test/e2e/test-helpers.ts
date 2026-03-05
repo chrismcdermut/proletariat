@@ -898,7 +898,12 @@ export function agentExec(cmd: string): AgentPromptResponse | null {
   if (hasContextError(output)) {
     return null;
   }
-  return extractJson<AgentPromptResponse>(output);
+  const json = extractJson<AgentPromptResponse>(output);
+  // Validate the response has the expected prompt structure
+  if (json && (!json.prompt || typeof json.prompt !== 'object')) {
+    return null;
+  }
+  return json;
 }
 
 /**

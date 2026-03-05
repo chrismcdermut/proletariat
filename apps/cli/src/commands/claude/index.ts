@@ -819,7 +819,7 @@ export default class Claude extends PromptCommand {
         priority: 'P2',
       })
 
-      this.log(styles.success(`   Created ticket: ${ticket.id}`))
+      if (!jsonMode) this.log(styles.success(`   Created ticket: ${ticket.id}`))
 
       // Now use the slug from ticket title if not provided
       // Note: slug reserved for future branch naming
@@ -827,19 +827,19 @@ export default class Claude extends PromptCommand {
       const _slug = flags.slug || ticketTitle!.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)
 
       // Create ephemeral agent (with rollback on failure)
-      this.log(styles.muted('   Creating ephemeral agent...'))
+      if (!jsonMode) this.log(styles.muted('   Creating ephemeral agent...'))
       let ephemeralResult: { name: string; worktreePath: string }
       try {
         ephemeralResult = await createEphemeralAgent(workspaceInfo, {
           skipDevcontainer: environment === 'host',
-          log: (msg) => this.log(styles.muted(`   ${msg}`)),
+          log: (msg) => { if (!jsonMode) this.log(styles.muted(`   ${msg}`)) },
         })
       } catch (agentError) {
         // Rollback: delete the ticket we just created
-        this.log(styles.muted('   Rolling back ticket creation due to agent error...'))
+        if (!jsonMode) this.log(styles.muted('   Rolling back ticket creation due to agent error...'))
         try {
           await storage.deleteTicket(ticket.id)
-          this.log(styles.muted(`   Deleted orphaned ticket: ${ticket.id}`))
+          if (!jsonMode) this.log(styles.muted(`   Deleted orphaned ticket: ${ticket.id}`))
         } catch {
           this.warn(`Failed to delete orphaned ticket ${ticket.id}. Manual cleanup may be needed.`)
         }
