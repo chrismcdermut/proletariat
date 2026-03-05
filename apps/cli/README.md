@@ -55,9 +55,9 @@ Agent spawns in its own branch, writes code, opens PR. You review and merge.
 # Quick Start
 
 ```bash
-npm install -g @proletariat/cli    # Install (npm)
+brew install chrismcdermut/proletariat/prlt  # Install (Homebrew, recommended)
 # or
-brew install chrismcdermut/proletariat/prlt  # Install (Homebrew, macOS)
+npm install -g @proletariat/cli              # Install (npm, all platforms)
 
 prlt init                          # Create HQ, add repos, choose theme
 prlt ticket create --title "Add OAuth" --category feature
@@ -129,13 +129,13 @@ Select tickets to spawn, grouped by priority:
 
 ### Installation
 
-#### Homebrew (macOS)
+#### Homebrew (recommended)
 
 ```bash
 brew install chrismcdermut/proletariat/prlt
 ```
 
-Works on both Apple Silicon (arm64) and Intel (x86_64) Macs.
+Works on both Apple Silicon (arm64) and Intel (x86_64) Macs. No compiler needed.
 
 **Upgrade:**
 
@@ -144,16 +144,20 @@ brew update
 brew upgrade prlt
 ```
 
+#### npm / pnpm (all platforms)
+
+```bash
+npm install -g @proletariat/cli
+# or
+pnpm install -g @proletariat/cli
+```
+
+> **pnpm 10+ note:** pnpm 10 blocks native addon build scripts by default. If `prlt` fails with a native module error after install, run `pnpm approve-builds` in the global store and reinstall, or use `npm` / `brew` instead.
+
 **Verify:**
 
 ```bash
 prlt --version
-```
-
-#### npm (all platforms)
-
-```bash
-npm install -g @proletariat/cli
 ```
 
 ### MCP Server
