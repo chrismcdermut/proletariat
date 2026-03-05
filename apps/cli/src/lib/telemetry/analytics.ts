@@ -192,7 +192,8 @@ function showTelemetryNotice(): void {
 
   console.log('')
   console.log('Proletariat collects anonymous usage analytics to improve the CLI.')
-  console.log('No personal data is collected. You can opt out at any time:')
+  console.log('Only command names and durations are tracked — no values, arguments, or personal data.')
+  console.log('You can opt out at any time:')
   console.log('')
   console.log('  prlt telemetry disable')
   console.log('')
