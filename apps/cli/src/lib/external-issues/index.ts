@@ -57,6 +57,19 @@ export {
   getJiraIssueByKey,
 } from './jira.js'
 
+// Linear helpers
+export {
+  normalizeLinearIssue,
+  normalizeLinearIssueToEnvelope,
+  buildLinearTicketDescription,
+  buildLinearMetadata,
+  buildLinearSpawnContextMessage,
+  buildLinearIssueChoiceCommand,
+  getLinearIssueByIdentifier,
+  listLinearIssues,
+  type LinearAdapterConfig,
+} from './linear.js'
+
 export {
   resolveMirrorToPmo,
   type MirrorResolution,

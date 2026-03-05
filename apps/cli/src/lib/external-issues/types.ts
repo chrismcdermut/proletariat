@@ -253,6 +253,7 @@ export type ExternalIssueAdapterErrorCode =
   | 'AUTH_FAILED'
   | 'BAD_PAYLOAD'
   | 'REQUEST_FAILED'
+  | 'RATE_LIMITED'
 
 /**
  * Typed error for external issue adapter operations.
