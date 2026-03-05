@@ -4,6 +4,7 @@ import { readMachineConfig } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
 import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
 import { handleUpdatePrompt } from '../lib/update-prompt.js'
+import { initSentry } from '../lib/telemetry.js'
 
 /**
  * Init hook - runs before every command
@@ -17,8 +18,11 @@ import { handleUpdatePrompt } from '../lib/update-prompt.js'
  * - AND they're not currently inside a valid HQ directory
  */
 const hook: Hook<'init'> = async function ({ id, argv, config }) {
+  // Initialize Sentry as early as possible for crash reporting
+  await initSentry(config.version)
+
   // Commands that work without an HQ still run native module checks.
-  const hqOptionalCommands = ['init', 'commit', 'claude', 'pmo:init']
+  const hqOptionalCommands = ['init', 'commit', 'claude', 'pmo:init', 'telemetry']
   const isHqOptionalCommand = !!id && hqOptionalCommands.some(cmd => id === cmd || id.startsWith(cmd + ':'))
 
   // Skip when running under oclif tooling (manifest, readme generation)
