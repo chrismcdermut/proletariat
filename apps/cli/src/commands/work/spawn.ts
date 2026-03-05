@@ -32,7 +32,7 @@ import {
   isLinearConfigured,
   loadLinearConfig,
 } from '../../lib/linear/index.js'
-import type { LinearIssueFilter } from '../../lib/linear/types.js'
+import type { LinearIssue, LinearIssueFilter } from '../../lib/linear/types.js'
 import {
   type WorkSourceRef,
   parseWorkSourceRef,
@@ -330,8 +330,11 @@ export default class WorkSpawn extends PMOCommand {
       const linearIdentifiers = ticketIdArgs.filter((id) => /^[A-Z]+-\d+$/i.test(id))
       const pmoTicketIds: string[] = []
 
+      // ===== FETCH PHASE =====
+      const fetchedIssues: LinearIssue[] = []
+      const notFoundIds: string[] = []
+
       if (linearIdentifiers.length > 0) {
-        // Fetch and import specific Linear issues
         if (!jsonMode) {
           this.log(styles.muted(`Pulling ${linearIdentifiers.length} issue(s) from Linear...`))
         }
@@ -340,19 +343,13 @@ export default class WorkSpawn extends PMOCommand {
           // eslint-disable-next-line no-await-in-loop
           const issue = await linearClient.getIssueByIdentifier(identifier)
           if (!issue) {
+            notFoundIds.push(identifier)
             if (!jsonMode) this.warn(`Linear issue not found: ${identifier}`)
             continue
           }
-          // eslint-disable-next-line no-await-in-loop
-          const { ticketId, created } = await mapper.importIssue(issue, linearProjectId, this.storage, statuses)
-          pmoTicketIds.push(ticketId)
-          if (!jsonMode) {
-            const action = created ? 'Imported' : 'Already imported'
-            this.log(styles.muted(`  ${action}: ${identifier} → ${ticketId}`))
-          }
+          fetchedIssues.push(issue)
         }
       } else {
-        // Fetch issues using filters
         const filter: LinearIssueFilter = {
           teamKey: resolvedSource.context ?? flags['linear-team'] ?? linearConfig.defaultTeamKey,
           stateName: flags['linear-state'],
@@ -365,39 +362,104 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         const issues = await linearClient.listIssues(filter)
+        fetchedIssues.push(...issues)
+      }
 
-        if (issues.length === 0) {
-          if (jsonMode) {
-            outputSuccessAsJson({
-              imported: 0,
-              spawned: 0,
-              message: 'No matching Linear issues found.',
-            }, createMetadata('work spawn', flags))
-            return
+      if (fetchedIssues.length === 0) {
+        if (jsonMode) {
+          outputSuccessAsJson({
+            imported: 0,
+            spawned: 0,
+            message: 'No matching Linear issues found.',
+          }, createMetadata('work spawn', flags))
+          return
+        }
+        this.log(styles.muted('No matching Linear issues found.'))
+        return
+      }
+
+      // ===== DRY-RUN PREVIEW =====
+      if (flags['dry-run']) {
+        const previewRows = fetchedIssues.map(issue => {
+          const existingMap = mapper.getByLinearId(issue.id)
+          return {
+            linearIdentifier: issue.identifier,
+            linearTitle: issue.title,
+            linearState: issue.state.name,
+            pmoTicketId: existingMap?.pmoTicketId ?? null,
+            action: existingMap ? 'existing' as const : 'will-import' as const,
           }
-          this.log(styles.muted('No matching Linear issues found.'))
+        })
+
+        const newCount = previewRows.filter(r => r.action === 'will-import').length
+        const existingCount = previewRows.filter(r => r.action === 'existing').length
+
+        if (jsonMode) {
+          outputSuccessAsJson({
+            dryRun: true,
+            source: 'linear',
+            mappings: previewRows,
+            summary: {
+              total: previewRows.length,
+              willImport: newCount,
+              existing: existingCount,
+              notFound: notFoundIds.length,
+              wouldSpawn: previewRows.length,
+            },
+            ...(notFoundIds.length > 0 ? { notFound: notFoundIds } : {}),
+          }, createMetadata('work spawn', flags))
           return
         }
 
-        if (!jsonMode) {
-          this.log(styles.muted(`Found ${issues.length} issue(s). Importing into PMO...`))
+        this.log('')
+        this.log(styles.header('Dry Run: Linear \u2192 PMO Mapping'))
+        this.log('')
+        for (const row of previewRows) {
+          const pmoLabel = row.pmoTicketId ?? '(new ticket)'
+          const icon = row.action === 'existing' ? '\u2194' : '\u2192'
+          this.log(`  ${row.linearIdentifier.padEnd(12)} ${icon} ${pmoLabel.padEnd(10)}  ${styles.muted(row.linearTitle)}`)
         }
-
-        const result = await mapper.importIssues(issues, linearProjectId, this.storage, statuses)
-
-        if (!jsonMode) {
-          if (result.imported > 0) this.log(styles.success(`  Imported: ${result.imported}`))
-          if (result.skipped > 0) this.log(styles.muted(`  Already imported: ${result.skipped}`))
-          if (result.errors.length > 0) this.log(styles.error(`  Errors: ${result.errors.length}`))
-        }
-
-        // Collect all PMO ticket IDs (both new and existing)
-        for (const issue of issues) {
-          const existing = mapper.getByLinearId(issue.id)
-          if (existing) {
-            pmoTicketIds.push(existing.pmoTicketId)
+        if (notFoundIds.length > 0) {
+          for (const id of notFoundIds) {
+            this.log(`  ${id.padEnd(12)} \u2717 ${styles.muted('(not found)')}`)
           }
         }
+        this.log('')
+        this.log(styles.muted(`Total: ${previewRows.length} issues (${newCount} new, ${existingCount} existing)${notFoundIds.length > 0 ? `, ${notFoundIds.length} not found` : ''}`))
+        this.log(styles.muted(`Would spawn ${previewRows.length} agent(s).`))
+        return
+      }
+
+      // ===== IMPORT PHASE =====
+      if (!jsonMode) {
+        this.log(styles.muted(`Importing ${fetchedIssues.length} issue(s) into PMO...`))
+      }
+
+      let importedCount = 0
+      let skippedCount = 0
+      const importErrors: string[] = []
+
+      for (const issue of fetchedIssues) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const { ticketId, created } = await mapper.importIssue(issue, linearProjectId, this.storage, statuses)
+          pmoTicketIds.push(ticketId)
+          if (created) importedCount++
+          else skippedCount++
+          if (!jsonMode) {
+            const action = created ? 'Imported' : 'Already imported'
+            this.log(styles.muted(`  ${action}: ${issue.identifier} \u2192 ${ticketId}`))
+          }
+        } catch (error) {
+          importErrors.push(issue.identifier)
+          if (!jsonMode) {
+            this.warn(`Failed to import ${issue.identifier}: ${error instanceof Error ? error.message : error}`)
+          }
+        }
+      }
+
+      if (!jsonMode && fetchedIssues.length > 1) {
+        this.log(styles.muted(`  Summary: ${importedCount} imported, ${skippedCount} existing${importErrors.length > 0 ? `, ${importErrors.length} errors` : ''}`))
       }
 
       if (pmoTicketIds.length === 0) {
