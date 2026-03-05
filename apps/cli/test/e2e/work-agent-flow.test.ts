@@ -11,7 +11,11 @@ import {
   createTestProject,
   createTestTicket,
   execProduction as exec,
+  extractJson,
+  hasContextError,
+  findChoice,
   type TestEnvironment,
+  type AgentPromptResponse,
 } from './test-helpers.js'
 
 /**
@@ -23,75 +27,14 @@ import {
  */
 describe('Work Commands E2E Agent Flow Tests', () => {
   /**
-   * Extract JSON from CLI output that may contain warnings.
-   */
-  function extractJson<T>(output: string): T | null {
-    const lines = output.split('\n')
-    let jsonStart = -1
-
-    for (let i = 0; i < lines.length; i++) {
-      const trimmed = lines[i].trim()
-      if (trimmed.startsWith('{')) {
-        jsonStart = i
-        break
-      }
-    }
-
-    if (jsonStart === -1) {
-      return null
-    }
-
-    const jsonLines = lines.slice(jsonStart).join('\n')
-    try {
-      return JSON.parse(jsonLines) as T
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * Check if output indicates context errors
-   */
-  function hasContextError(output: string): boolean {
-    return (
-      output.includes('Not in a workspace') ||
-      output.includes('No workspace') ||
-      output.includes('No projects found') ||
-      output.includes('No tickets') ||
-      output.includes('No agents found') ||
-      output.includes('ENOENT') ||
-      output.includes('not found') ||
-      output.includes('Error:')
-    )
-  }
-
-  /**
    * Helper to simulate agent flow: execute command, parse JSON
    */
-  function agentExec(cmd: string): {
-    prompt: {
-      type: string
-      name: string
-      message: string
-      choices: Array<{ name: string; value: string; command?: string }>
-    }
-    metadata: { command: string; flags: Record<string, unknown> }
-  } | null {
+  function agentExec(cmd: string): AgentPromptResponse | null {
     const output = exec(cmd)
     if (hasContextError(output)) {
       return null
     }
-    return extractJson(output)
-  }
-
-  /**
-   * Helper to find a choice by partial name match
-   */
-  function findChoice(
-    choices: Array<{ name: string; value: string; command?: string }>,
-    pattern: string
-  ): { name: string; value: string; command?: string } | undefined {
-    return choices.find(c => c.name.toLowerCase().includes(pattern.toLowerCase()))
+    return extractJson<AgentPromptResponse>(output)
   }
 
   describe('work --help', () => {

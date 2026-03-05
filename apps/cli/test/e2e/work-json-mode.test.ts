@@ -8,31 +8,20 @@ import {
   createPMODirectories,
   addWorkspaceTables,
   exec,
+  extractJson as extractJsonOrNull,
   type TestEnvironment,
 } from './test-helpers.js';
 
 /**
- * Extract JSON from CLI output that may contain warnings.
- * Looks for the first line starting with { or [ and parses from there.
+ * Asserting wrapper around shared extractJson.
+ * Throws if no valid JSON is found (appropriate for test assertions).
  */
 function extractJson<T>(output: string): T {
-  const lines = output.split('\n');
-  let jsonStart = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      jsonStart = i;
-      break;
-    }
+  const result = extractJsonOrNull<T>(output);
+  if (result === null) {
+    throw new Error(`No JSON found in output (${output.length} chars): ${output.substring(0, 500)}...`);
   }
-
-  if (jsonStart === -1) {
-    throw new Error(`No JSON found in output: ${output.substring(0, 500)}...`);
-  }
-
-  const jsonLines = lines.slice(jsonStart).join('\n');
-  return JSON.parse(jsonLines) as T;
+  return result;
 }
 
 /**

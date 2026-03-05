@@ -684,12 +684,14 @@ export default class WorkStart extends PMOCommand {
         const blockers = await this.storage.getTicketBlockers(ticketId!)
         const incompleteBlockers = blockers.filter(b => b.status !== 'done' && b.status !== 'canceled')
 
-        this.log('')
-        this.log(styles.warning(`⚠️  ${ticketId} is blocked by:`))
-        for (const blocker of incompleteBlockers) {
-          this.log(styles.muted(`   - ${blocker.id}: ${blocker.title} (${blocker.status})`))
+        if (!jsonMode) {
+          this.log('')
+          this.log(styles.warning(`⚠️  ${ticketId} is blocked by:`))
+          for (const blocker of incompleteBlockers) {
+            this.log(styles.muted(`   - ${blocker.id}: ${blocker.title} (${blocker.status})`))
+          }
+          this.log('')
         }
-        this.log('')
 
         // Use FlagResolver for blocked ticket confirmation
         const blockedResolver = new FlagResolver<{ startAnyway?: string }>({
@@ -721,8 +723,10 @@ export default class WorkStart extends PMOCommand {
       // Check for existing tmux session for this ticket
       const existingSession = getTicketTmuxSession(ticketId!)
       if (existingSession && !flags.force) {
-        this.log('')
-        this.log(styles.warning(`Ticket ${ticketId} has an active tmux session (${existingSession.agent})`))
+        if (!jsonMode) {
+          this.log('')
+          this.log(styles.warning(`Ticket ${ticketId} has an active tmux session (${existingSession.agent})`))
+        }
 
         // Use FlagResolver for session action
         const sessionResolver = new FlagResolver<{ sessionAction?: string }>({
@@ -822,13 +826,15 @@ export default class WorkStart extends PMOCommand {
         // Or prompt for agent selection if staff agents exist
 
         // Get staff agents that exist on disk (warns about missing directories)
-        const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
+        const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => {
+          if (!jsonMode) this.log(msg)
+        })
 
         if (activeStaffAgents.length > 0) {
           // Clean up stale executions before checking availability (TKT-604)
           // This fixes agents appearing as "busy" when their sessions have terminated
           const cleanedUp = executionStorage.cleanupStaleExecutions()
-          if (cleanedUp > 0) {
+          if (cleanedUp > 0 && !jsonMode) {
             this.log(styles.muted(`   Cleaned up ${cleanedUp} stale execution(s)`))
           }
 
@@ -880,31 +886,31 @@ export default class WorkStart extends PMOCommand {
 
           if (selectedAgent === '__ephemeral__') {
             // Create ephemeral agent
-            this.log(styles.muted('Creating ephemeral agent...'))
+            if (!jsonMode) this.log(styles.muted('Creating ephemeral agent...'))
             const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
               skipDevcontainer: flags['run-on-host'],
-              log: (msg) => this.log(msg),
+              log: (msg) => { if (!jsonMode) this.log(msg) },
               mountMode: flags.clone ? 'clone' : 'worktree',
             })
             agentName = ephemeralResult.name
             agentWorktreePath = ephemeralResult.worktreePath
             isEphemeralAgent = true
-            this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+            if (!jsonMode) this.log(styles.success(`Created ephemeral agent: ${agentName}`))
           } else {
             agentName = selectedAgent
           }
         } else {
           // No pre-registered agents - create ephemeral agent by default
-          this.log(styles.muted('Creating ephemeral agent...'))
+          if (!jsonMode) this.log(styles.muted('Creating ephemeral agent...'))
           const ephemeralResult = await createEphemeralAgent(workspaceInfo, {
             skipDevcontainer: flags['run-on-host'],
-            log: (msg) => this.log(msg),
+            log: (msg) => { if (!jsonMode) this.log(msg) },
             mountMode: flags.clone ? 'clone' : 'worktree',
           })
           agentName = ephemeralResult.name
           agentWorktreePath = ephemeralResult.worktreePath
           isEphemeralAgent = true
-          this.log(styles.success(`Created ephemeral agent: ${agentName}`))
+          if (!jsonMode) this.log(styles.success(`Created ephemeral agent: ${agentName}`))
         }
       }
 
@@ -923,7 +929,7 @@ export default class WorkStart extends PMOCommand {
 
       // Check for running execution on this ticket (warning only, allows parallel work)
       const runningExecution = executionStorage.getRunningExecution(ticketId!)
-      if (runningExecution) {
+      if (runningExecution && !jsonMode) {
         this.log(styles.warning(`⚠️  Ticket "${ticketId}" already has work in progress: ${runningExecution.id}`))
         this.log(styles.muted(`   Starting parallel execution. Note: status updates may conflict.`))
       }
@@ -976,16 +982,18 @@ export default class WorkStart extends PMOCommand {
         const gitStatus = getAgentGitStatus(workspaceInfo, assignedAgent)
 
         if (gitStatus.hasUnsavedWork) {
-          this.log(styles.warning(`\n⚠️  Agent "${assignedAgent}" has unsaved work:`))
-          for (const wt of gitStatus.worktrees) {
-            if (wt.hasUncommittedChanges) {
-              this.log(styles.muted(`  ${wt.repoName}: ${wt.uncommittedFiles.length} uncommitted file(s)`))
+          if (!jsonMode) {
+            this.log(styles.warning(`\n⚠️  Agent "${assignedAgent}" has unsaved work:`))
+            for (const wt of gitStatus.worktrees) {
+              if (wt.hasUncommittedChanges) {
+                this.log(styles.muted(`  ${wt.repoName}: ${wt.uncommittedFiles.length} uncommitted file(s)`))
+              }
+              if (wt.hasUnpushedCommits) {
+                this.log(styles.muted(`  ${wt.repoName}: ${wt.unpushedCount} unpushed commit(s) on ${wt.branch}`))
+              }
             }
-            if (wt.hasUnpushedCommits) {
-              this.log(styles.muted(`  ${wt.repoName}: ${wt.unpushedCount} unpushed commit(s) on ${wt.branch}`))
-            }
+            this.log('')
           }
-          this.log('')
 
           // Use FlagResolver for unsaved work action
           const unsavedResolver = new FlagResolver<{ unsavedAction?: string }>({
