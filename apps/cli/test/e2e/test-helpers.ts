@@ -534,9 +534,8 @@ export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEn
   // Clear DEBUG to prevent oclif debug output that pollutes JSON
   delete env.DEBUG;
 
-  // Suppress oclif warn-if-update-available plugin warnings during tests.
-  // Without this, the plugin emits "Updated prlt available!" warnings to stderr
-  // that can leak into command output and break JSON parsing.
+  // Suppress the interactive update prompt during tests.
+  // Without this, the update check could emit prompts that break JSON parsing.
   env.PRLT_SKIP_NEW_VERSION_CHECK = 'true';
 
   // Skip the init hook's first-time-user redirect. Without this, tests that run
