@@ -9,6 +9,10 @@
 
 ### Seize the means of production - Ship 100x.
 
+[![npm](https://img.shields.io/npm/v/@proletariat/cli)](https://www.npmjs.com/package/@proletariat/cli)
+[![MCP Registry](https://img.shields.io/badge/MCP_Registry-listed-green)](https://registry.modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 > **Agent orchestration platform for AI labor.** Spin up workers for all work, on demand.
 >
 > Themed agents, including billionaires - Finally, they work for us.
@@ -151,6 +155,30 @@ prlt --version
 ```bash
 npm install -g @proletariat/cli
 ```
+
+### MCP Server
+
+prlt includes a built-in MCP server with 100+ tools. Add it to your AI client:
+
+**Claude Code** (`~/.claude.json`):
+```json
+{
+  "mcpServers": {
+    "prlt": { "command": "prlt", "args": ["mcp-server"] }
+  }
+}
+```
+
+**Cursor / Other clients** (via npx):
+```json
+{
+  "mcpServers": {
+    "prlt": { "command": "npx", "args": ["-y", "@proletariat/cli", "mcp-server"] }
+  }
+}
+```
+
+Listed on: [MCP Registry](https://registry.modelcontextprotocol.io) | [npm](https://www.npmjs.com/package/@proletariat/cli)
 
 ### Data Model
 
