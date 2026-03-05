@@ -49,7 +49,7 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: ${{ github.event_name }} event (not a pull request)" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["pmo","execution","other"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone"]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -59,7 +59,7 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: unable to compute merge-base with origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["pmo","execution","other"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone"]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CHANGED=$(git diff --name-only "$MERGE_BASE" HEAD)
@@ -156,14 +156,14 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: core/shared files changed (database, lib, config, CI, or unscoped source)" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["pmo","execution","other"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone"]' >> "$GITHUB_OUTPUT"
 
           elif [[ "$HAS_PMO" == "true" && "$HAS_EXECUTION" == "true" ]]; then
             # Multiple domains changed, run full suite
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: changes span multiple domains (pmo + execution)" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["pmo","execution","other"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone"]' >> "$GITHUB_OUTPUT"
 
           elif [[ "$HAS_PMO" == "true" ]]; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
@@ -414,12 +414,44 @@ jobs:
               echo "Running execution/work e2e tests"
               npx mocha --forbid-only "test/e2e/work-*.test.ts" "test/e2e/*-agent-flow.test.ts"
               ;;
-            other)
-              echo "Running remaining e2e tests"
+            json-mode)
+              echo "Running JSON/machine mode e2e tests"
+              npx mocha --forbid-only \
+                "test/e2e/*-json-mode.test.ts" \
+                "test/e2e/json-mode-*.test.ts" \
+                "test/e2e/machine-mode-*.test.ts"
+              ;;
+            integrations)
+              echo "Running integration e2e tests"
+              npx mocha --forbid-only \
+                "test/e2e/gh-*.test.ts" \
+                "test/e2e/pr-*.test.ts" \
+                "test/e2e/branch-*.test.ts" \
+                "test/e2e/linear-*.test.ts" \
+                "test/e2e/monday-*.test.ts" \
+                "test/e2e/mcp-*.test.ts" \
+                "test/e2e/docker-*.test.ts" \
+                "test/e2e/session-*.test.ts" \
+                "test/e2e/execution-*.test.ts"
+              ;;
+            standalone)
+              echo "Running standalone e2e tests"
               npx mocha --forbid-only \
                 --ignore "test/e2e/pmo-*.test.ts" \
                 --ignore "test/e2e/work-*.test.ts" \
                 --ignore "test/e2e/*-agent-flow.test.ts" \
+                --ignore "test/e2e/*-json-mode.test.ts" \
+                --ignore "test/e2e/json-mode-*.test.ts" \
+                --ignore "test/e2e/machine-mode-*.test.ts" \
+                --ignore "test/e2e/gh-*.test.ts" \
+                --ignore "test/e2e/pr-*.test.ts" \
+                --ignore "test/e2e/branch-*.test.ts" \
+                --ignore "test/e2e/linear-*.test.ts" \
+                --ignore "test/e2e/monday-*.test.ts" \
+                --ignore "test/e2e/mcp-*.test.ts" \
+                --ignore "test/e2e/docker-*.test.ts" \
+                --ignore "test/e2e/session-*.test.ts" \
+                --ignore "test/e2e/execution-*.test.ts" \
                 "test/e2e/**/*.test.ts"
               ;;
             *)
