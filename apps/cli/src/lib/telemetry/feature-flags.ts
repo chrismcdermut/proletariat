@@ -13,25 +13,25 @@
  * If Statsig is unavailable or telemetry is disabled, all flags return false.
  */
 
-import { getMachineId, isTelemetryEnabled } from './analytics.js'
+import { isTelemetryEnabled } from './analytics.js'
 
 // Cache for flag values — populated on check, persists for the process lifetime
 const flagCache = new Map<string, boolean>()
 
-// Statsig module reference — set after dynamic import in initAnalytics
-let statsigModule: StatsigModule | null = null
+// Statsig client instance reference — set after initialization in initAnalytics
+let statsigClient: StatsigClientRef | null = null
 
-interface StatsigModule {
-  checkGate(user: { userID: string }, gateName: string): boolean
-  getConfig(user: { userID: string }, configName: string): { get<T>(key: string, defaultValue: T): T }
+interface StatsigClientRef {
+  checkGate(gateName: string): boolean
+  getDynamicConfig(configName: string): { get(key: string, defaultValue: unknown): unknown }
 }
 
 /**
- * Set the Statsig module reference (called from analytics.ts after init).
+ * Set the Statsig client reference (called from analytics.ts after init).
  * @internal
  */
-export function setStatsigModule(mod: StatsigModule | null): void {
-  statsigModule = mod
+export function setStatsigClient(client: StatsigClientRef | null): void {
+  statsigClient = client
 }
 
 /**
@@ -44,7 +44,7 @@ export function setStatsigModule(mod: StatsigModule | null): void {
  * @returns Whether the gate is enabled
  */
 export function isEnabled(gateName: string): boolean {
-  if (!isTelemetryEnabled() || !statsigModule) return false
+  if (!isTelemetryEnabled() || !statsigClient) return false
 
   // Return cached value if available
   if (flagCache.has(gateName)) {
@@ -52,8 +52,7 @@ export function isEnabled(gateName: string): boolean {
   }
 
   try {
-    const user = { userID: getMachineId() }
-    const result = statsigModule.checkGate(user, gateName)
+    const result = statsigClient.checkGate(gateName)
     flagCache.set(gateName, result)
     return result
   } catch {
@@ -75,11 +74,10 @@ export function isEnabled(gateName: string): boolean {
  * @returns The config value, or the default
  */
 export function getConfigValue<T>(configName: string, key: string, defaultValue: T): T {
-  if (!isTelemetryEnabled() || !statsigModule) return defaultValue
+  if (!isTelemetryEnabled() || !statsigClient) return defaultValue
 
   try {
-    const user = { userID: getMachineId() }
-    const config = statsigModule.getConfig(user, configName)
+    const config = statsigClient.getDynamicConfig(configName)
     return config.get(key, defaultValue) as T
   } catch {
     return defaultValue
