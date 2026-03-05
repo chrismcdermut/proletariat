@@ -16,6 +16,7 @@ import {
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
+import { onShutdown } from '../../lib/signal-handler.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -550,16 +551,11 @@ export default class SessionHealth extends PMOCommand {
         }
       }, intervalMs)
 
-      // Handle graceful shutdown
-      const cleanup = () => {
+      // Register cleanup via centralized signal handler
+      onShutdown(() => {
         clearInterval(timer)
-        this.log('')
-        this.log(styles.muted('Watchdog stopped.'))
         resolve()
-      }
-
-      process.on('SIGINT', cleanup)
-      process.on('SIGTERM', cleanup)
+      })
     })
   }
 }

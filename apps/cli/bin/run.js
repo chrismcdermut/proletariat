@@ -9,21 +9,31 @@ if (args.length === 1 && args[0] === '-v') {
   process.argv[2] = '--version'
 }
 
-// Handle process termination gracefully
-process.on('SIGINT', () => {
-  console.log('\n'); // Add newline for clean exit
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  process.exit(0);
-});
+// Install centralized signal handlers for graceful Ctrl+C shutdown.
+// This replaces the old per-handler approach and ensures:
+// - Cleanup callbacks run in order
+// - Tracked child processes are killed
+// - Exit code 130 (standard Unix SIGINT convention)
+// - No stack traces from ERR_USE_AFTER_CLOSE
+import {installSignalHandlers, isExiting} from '../dist/lib/signal-handler.js'
+installSignalHandlers()
 
 try {
   await execute({dir: import.meta.url});
 } catch (error) {
-  // Handle any unhandled errors
-  if (error.code !== 'EEXIT') {
+  if (error.code === 'EEXIT') {
+    // Normal oclif exit - ignore
+  } else if (isExiting()) {
+    // SIGINT triggered during command execution - exit silently with 130
+    process.exit(130);
+  } else if (
+    error.code === 'ERR_USE_AFTER_CLOSE' ||
+    (error.message && error.message.includes('ERR_USE_AFTER_CLOSE')) ||
+    (error.message && error.message.includes('readline was closed'))
+  ) {
+    // Readline/inquirer closed by SIGINT - exit silently
+    process.exit(130);
+  } else {
     console.error(error);
     process.exit(1);
   }

@@ -9,6 +9,7 @@ import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId } from '../../lib/docker/resolve.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { trackChildProcess } from '../../lib/signal-handler.js'
 
 export default class DockerLogs extends Command {
   static description = 'View logs from a container (by execution ID, agent name, or container ID)'
@@ -107,10 +108,12 @@ export default class DockerLogs extends Command {
       db.close()
 
       if (flags.follow) {
-        // Stream logs
+        // Stream logs - track for cleanup on Ctrl+C
         const proc = spawn('docker', dockerArgs, {
           stdio: 'inherit',
         })
+
+        trackChildProcess(proc)
 
         proc.on('error', (err) => {
           this.error(`Failed to get logs: ${err.message}`)

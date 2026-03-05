@@ -9,6 +9,7 @@ import {
   type JsonFlags,
 } from './prompt-json.js';
 import { isPlainOutput, plainText } from './styles.js';
+import { withSignalSafePrompt } from './signal-handler.js';
 
 /**
  * Lightweight base command with prompt() method for JSON mode support.
@@ -169,7 +170,9 @@ export abstract class PromptCommand extends Command {
       return {} as T;
     }
 
-    // Interactive mode: just call inquirer
-    return inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>;
+    // Interactive mode: call inquirer with signal-safe wrapper
+    return withSignalSafePrompt(() =>
+      inquirer.prompt(questions as Parameters<typeof inquirer.prompt>[0]) as Promise<T>
+    );
   }
 }

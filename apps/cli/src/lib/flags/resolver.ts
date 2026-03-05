@@ -48,6 +48,7 @@ import {
   PromptConfig,
 } from '../prompt-json.js';
 import { multiLineInput } from '../multiline-input.js';
+import { withSignalSafePrompt } from '../signal-handler.js';
 
 /**
  * Context available during prompt resolution
@@ -444,8 +445,8 @@ export class FlagResolver<TFlags extends Record<string, unknown> = Record<string
       };
     }
 
-    // Prompt and return value
-    const answers = await inquirer.prompt([question]);
+    // Prompt and return value (with signal-safe wrapper)
+    const answers = await withSignalSafePrompt(() => inquirer.prompt([question]));
     return answers[prompt.flagName];
   }
 
