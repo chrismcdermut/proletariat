@@ -1458,6 +1458,55 @@ export default class WorkStart extends PMOCommand {
       // Auth method resolution for devcontainer environment
       // Only needed for Claude Code executor - other executors handle auth differently
       if (environment === 'devcontainer' && !useApiKey && isClaudeExecutor(executor)) {
+        // First, verify Docker daemon is actually running before checking credentials.
+        // dockerCredentialsExist() runs a Docker command that fails silently when the daemon
+        // is down, which would trigger a misleading OAuth credentials warning.
+        if (!isDockerRunning()) {
+          this.log('')
+          this.log(styles.warning('Docker daemon is not running. Start Docker Desktop or use --run-on-host.'))
+          this.log('')
+
+          if (jsonMode && flags.yes) {
+            // In JSON mode with --yes, auto-switch to host
+            environment = 'host'
+            this.log(styles.muted('Switched to host environment (Docker not running).'))
+          } else {
+            const dockerChoices: Array<{ name: string; value: string }> = [
+              { name: '💻 Switch to host environment', value: 'host' },
+              { name: '✗  Cancel', value: 'cancel' },
+            ]
+            const dockerMessage = 'Docker is not running. What would you like to do?'
+
+            const dockerResolver = new FlagResolver<{ dockerAction?: string }>({
+              commandName: 'work start',
+              baseCommand: `prlt work start ${ticketId}`,
+              jsonMode,
+              flags: {},
+            })
+
+            dockerResolver.addPrompt({
+              flagName: 'dockerAction',
+              type: 'list',
+              message: dockerMessage,
+              choices: () => dockerChoices,
+            })
+
+            const dockerResult = await dockerResolver.resolve()
+            const dockerAction = dockerResult.dockerAction
+
+            if (dockerAction === 'cancel') {
+              db.close()
+              this.log(styles.muted('Cancelled.'))
+              return
+            }
+
+            environment = 'host'
+            this.log(styles.muted('Switched to host environment.'))
+          }
+        }
+
+        // Only check credentials if Docker is running and still using devcontainer
+        if (environment === 'devcontainer') {
         // Check for saved auth method preference
         const savedAuthMethod = getAuthMethod(db)
         const hasApiKey = !!process.env.ANTHROPIC_API_KEY
@@ -1634,6 +1683,7 @@ export default class WorkStart extends PMOCommand {
               }
             }
           }
+        }
         }
       }
 
@@ -2293,6 +2343,37 @@ export default class WorkStart extends PMOCommand {
 
     // Credential check only applies to Claude Code executor
     if (anyUseDevcontainer && isClaudeExecutor(batchExecutor)) {
+      // First, verify Docker daemon is actually running before checking credentials.
+      // dockerCredentialsExist() runs a Docker command that fails silently when the daemon
+      // is down, which would trigger a misleading OAuth credentials warning.
+      if (!isDockerRunning()) {
+        this.log('')
+        this.log(styles.warning('Docker daemon is not running. Start Docker Desktop or use --run-on-host.'))
+        this.log('')
+
+        const { dockerAction } = await this.prompt<{ dockerAction: string }>([
+          {
+            type: 'list',
+            name: 'dockerAction',
+            message: 'Docker is not running. What would you like to do?',
+            choices: [
+              { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host', command: 'prlt work start --all --run-on-host --json' },
+              { name: '✗  Cancel', value: 'cancel', command: '' },
+            ],
+          },
+        ], batchJsonModeConfig)
+
+        if (dockerAction === 'cancel') {
+          db.close()
+          this.log(styles.muted('Cancelled.'))
+          return
+        }
+
+        flags['run-on-host'] = true
+        this.log(styles.muted('All agents will run on host.'))
+      }
+
+      if (!flags['run-on-host']) {
       const hasCredentials = dockerCredentialsExist()
       if (!hasCredentials) {
         const hasApiKey = !!process.env.ANTHROPIC_API_KEY
@@ -2391,6 +2472,7 @@ export default class WorkStart extends PMOCommand {
           }
           this.log('')
         }
+      }
       }
     }
 
