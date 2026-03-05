@@ -2,11 +2,16 @@ import { Hook } from '@oclif/core'
 import { validateBetterSqlite3NativeBinding } from '../lib/database/native-validation.js'
 import { readMachineConfig } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
+import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
+import { handleUpdatePrompt } from '../lib/update-prompt.js'
 
 /**
  * Init hook - runs before every command
  *
- * Detects first-time users and redirects them to the init flow.
+ * 1. Detects first-time users and redirects them to the init flow.
+ * 2. Shows an interactive update prompt when a newer version is cached.
+ * 3. Triggers a background version check for the next startup.
+ *
  * A user is considered "first-time" if:
  * - No workspaces are registered in machine config (~/.proletariat/config.json)
  * - AND they're not currently inside a valid HQ directory
@@ -46,6 +51,18 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     await validateBetterSqlite3NativeBinding({ context: `command "${id}"` })
   }
 
+  // ── Update check ────────────────────────────────────────────────────
+  // Show the interactive update prompt (uses cached data only, never blocks on network).
+  // Then trigger a background fetch so the cache is fresh for the next startup.
+  try {
+    const updateInfo = getCachedUpdateInfo(config.version)
+    await handleUpdatePrompt(updateInfo)
+    triggerBackgroundCheck(updateInfo.packageManager)
+  } catch {
+    // Never let update-check errors break the CLI
+  }
+
+  // ── First-time user detection ───────────────────────────────────────
   // Skip for help-related commands/flags
   // When user runs just `prlt` with no args, id is undefined
   if (!id || id === 'help') {

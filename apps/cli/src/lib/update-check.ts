@@ -1,0 +1,333 @@
+/**
+ * Update Check Module
+ *
+ * Handles background version checking with caching, package manager detection,
+ * and dismissed version tracking. Never blocks startup with network calls —
+ * uses cached values for display and checks in the background.
+ *
+ * Cache file: ~/.proletariat/version-check.json
+ * Schema:
+ * {
+ *   "latest_version": "0.3.53",
+ *   "last_checked_at": "2024-01-01T00:00:00.000Z",
+ *   "dismissed_version": "0.3.53" | null
+ * }
+ */
+
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { execSync } from 'node:child_process'
+import { getMachineConfigDir, ensureMachineConfigDir } from './machine-config.js'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface VersionCheckCache {
+  latest_version: string | null
+  last_checked_at: string | null
+  dismissed_version: string | null
+}
+
+export type PackageManager = 'brew' | 'npm'
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Minimum hours between version checks */
+const CHECK_INTERVAL_HOURS = 20
+
+/** npm package name for registry lookup */
+const NPM_PACKAGE_NAME = '@proletariat/cli'
+
+/** Homebrew Cask API URL for formula lookup */
+const BREW_FORMULA_API = 'https://formulae.brew.sh/api/formula/chrismcdermut/proletariat/prlt.json'
+
+/** Environment variable override for package manager (like Codex's CODEX_MANAGED_BY_NPM) */
+const PACKAGE_MANAGER_ENV = 'PRLT_MANAGED_BY'
+
+// ---------------------------------------------------------------------------
+// Cache file management
+// ---------------------------------------------------------------------------
+
+function getCachePath(): string {
+  return path.join(getMachineConfigDir(), 'version-check.json')
+}
+
+function getDefaultCache(): VersionCheckCache {
+  return {
+    latest_version: null,
+    last_checked_at: null,
+    dismissed_version: null,
+  }
+}
+
+export function readCache(): VersionCheckCache {
+  const cachePath = getCachePath()
+  if (!fs.existsSync(cachePath)) {
+    return getDefaultCache()
+  }
+
+  try {
+    const content = fs.readFileSync(cachePath, 'utf-8')
+    const parsed = JSON.parse(content) as Partial<VersionCheckCache>
+    return {
+      latest_version: parsed.latest_version ?? null,
+      last_checked_at: parsed.last_checked_at ?? null,
+      dismissed_version: parsed.dismissed_version ?? null,
+    }
+  } catch {
+    return getDefaultCache()
+  }
+}
+
+export function writeCache(cache: VersionCheckCache): void {
+  ensureMachineConfigDir()
+  const cachePath = getCachePath()
+  const tempPath = `${cachePath}.tmp.${process.pid}`
+
+  try {
+    fs.writeFileSync(tempPath, JSON.stringify(cache, null, 2), 'utf-8')
+    fs.renameSync(tempPath, cachePath)
+  } catch {
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath)
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Check timing
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if enough time has elapsed since the last check.
+ */
+export function shouldCheck(cache: VersionCheckCache): boolean {
+  if (!cache.last_checked_at) {
+    return true
+  }
+
+  const lastChecked = new Date(cache.last_checked_at).getTime()
+  if (Number.isNaN(lastChecked)) {
+    return true
+  }
+
+  const hoursElapsed = (Date.now() - lastChecked) / (1000 * 60 * 60)
+  return hoursElapsed >= CHECK_INTERVAL_HOURS
+}
+
+// ---------------------------------------------------------------------------
+// Package manager detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect how prlt was installed.
+ *
+ * Priority:
+ * 1. PRLT_MANAGED_BY env var (explicit override)
+ * 2. Binary path heuristic (Homebrew prefixes → brew, otherwise npm)
+ */
+export function detectPackageManager(): PackageManager {
+  // 1. Env var override
+  const envOverride = process.env[PACKAGE_MANAGER_ENV]?.toLowerCase()
+  if (envOverride === 'brew' || envOverride === 'homebrew') return 'brew'
+  if (envOverride === 'npm') return 'npm'
+
+  // 2. Binary path heuristic
+  try {
+    const binPath = execSync('which prlt', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 3000,
+    }).trim()
+
+    if (binPath.startsWith('/opt/homebrew/') || binPath.startsWith('/usr/local/')) {
+      return 'brew'
+    }
+  } catch {
+    // which failed — fall through to npm
+  }
+
+  return 'npm'
+}
+
+/**
+ * Get the update command string for the detected package manager.
+ */
+export function getUpdateCommand(pm: PackageManager): string {
+  if (pm === 'brew') {
+    return 'brew upgrade chrismcdermut/proletariat/prlt'
+  }
+  return 'npm install -g @proletariat/cli'
+}
+
+// ---------------------------------------------------------------------------
+// Version fetching
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the latest version from the Homebrew Formulae API.
+ * Returns null on any error.
+ */
+async function fetchBrewVersion(): Promise<string | null> {
+  try {
+    const response = await fetch(BREW_FORMULA_API, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) return null
+
+    const data = await response.json() as { versions?: { stable?: string } }
+    return data?.versions?.stable ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fetch the latest version from the npm registry.
+ * Returns null on any error.
+ */
+async function fetchNpmVersion(): Promise<string | null> {
+  try {
+    const url = `https://registry.npmjs.org/${NPM_PACKAGE_NAME}/latest`
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) return null
+
+    const data = await response.json() as { version?: string }
+    return data?.version ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fetch the latest version using the appropriate source for the package manager.
+ * For brew installs, uses the Homebrew API (avoids false positives from npm).
+ * Falls back to npm registry if brew API fails.
+ */
+export async function fetchLatestVersion(pm: PackageManager): Promise<string | null> {
+  if (pm === 'brew') {
+    const brewVersion = await fetchBrewVersion()
+    if (brewVersion) return brewVersion
+    // Fall back to npm if brew API unavailable
+  }
+
+  return fetchNpmVersion()
+}
+
+// ---------------------------------------------------------------------------
+// Version comparison
+// ---------------------------------------------------------------------------
+
+/**
+ * Compare two semver-like version strings.
+ * Returns true if `latest` is newer than `current`.
+ */
+export function isNewerVersion(current: string, latest: string): boolean {
+  const parse = (v: string) => v.replace(/^v/, '').split('.').map(Number)
+  const c = parse(current)
+  const l = parse(latest)
+
+  for (let i = 0; i < Math.max(c.length, l.length); i++) {
+    const cv = c[i] ?? 0
+    const lv = l[i] ?? 0
+    if (lv > cv) return true
+    if (lv < cv) return false
+  }
+
+  return false
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export interface UpdateInfo {
+  /** Whether an update is available (and not dismissed) */
+  updateAvailable: boolean
+  /** The current CLI version */
+  currentVersion: string
+  /** The latest available version (from cache) */
+  latestVersion: string | null
+  /** Detected package manager */
+  packageManager: PackageManager
+  /** The command to run the update */
+  updateCommand: string
+}
+
+/**
+ * Check if an update is available using cached data only (synchronous, never blocks).
+ * Returns update info if an update is available and not dismissed.
+ */
+export function getCachedUpdateInfo(currentVersion: string): UpdateInfo {
+  const cache = readCache()
+  const pm = detectPackageManager()
+  const updateCommand = getUpdateCommand(pm)
+
+  const latestVersion = cache.latest_version
+  const updateAvailable =
+    latestVersion !== null &&
+    isNewerVersion(currentVersion, latestVersion) &&
+    cache.dismissed_version !== latestVersion
+
+  return {
+    updateAvailable,
+    currentVersion,
+    latestVersion,
+    packageManager: pm,
+    updateCommand,
+  }
+}
+
+/**
+ * Perform a background version check and update the cache.
+ * This is fire-and-forget — errors are silently ignored.
+ * Does not block the calling process.
+ */
+export function triggerBackgroundCheck(pm: PackageManager): void {
+  const cache = readCache()
+
+  if (!shouldCheck(cache)) {
+    return
+  }
+
+  // Fire and forget — don't await, don't block
+  fetchLatestVersion(pm)
+    .then((latest) => {
+      if (latest) {
+        const updatedCache = readCache() // Re-read to avoid races
+        updatedCache.latest_version = latest
+        updatedCache.last_checked_at = new Date().toISOString()
+        writeCache(updatedCache)
+      }
+    })
+    .catch(() => {
+      // Silently ignore — never fail startup due to version check
+    })
+}
+
+/**
+ * Dismiss updates for a specific version. The prompt won't show again
+ * until a newer version is available.
+ */
+export function dismissVersion(version: string): void {
+  const cache = readCache()
+  cache.dismissed_version = version
+  writeCache(cache)
+}
+
+/**
+ * Dismiss updates for the current session only (no persistence).
+ * This is the default "Skip" behavior — just don't persist anything.
+ */
+export function dismissSession(): void {
+  // No-op — the prompt simply won't show again until next startup
+}
