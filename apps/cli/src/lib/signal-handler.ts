@@ -22,6 +22,7 @@
  */
 
 import type { ChildProcess } from 'node:child_process'
+import { shutdownAnalytics } from './telemetry/analytics.js'
 
 /** Cleanup callback - should be fast and not throw */
 type CleanupFn = () => void | Promise<void>
@@ -61,6 +62,13 @@ async function shutdown(): Promise<void> {
     }
   }
   cleanupCallbacks.length = 0
+
+  // Flush pending analytics events before exit
+  try {
+    await shutdownAnalytics()
+  } catch {
+    // Never let analytics errors block shutdown
+  }
 
   // Exit with 130 = 128 + 2 (SIGINT)
   process.exit(130)

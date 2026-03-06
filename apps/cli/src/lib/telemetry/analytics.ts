@@ -62,6 +62,7 @@ interface StatsigClientInstance {
 let statsigClient: StatsigClientInstance | null = null
 let telemetryConfig: TelemetryConfig | null = null
 let cliVersion: string | null = null
+let initPromise: Promise<void> | null = null
 
 // ─── Telemetry Config ────────────────────────────────────────────────────────
 
@@ -217,29 +218,33 @@ export function getMachineId(): string {
  * Initialize the Statsig SDK. Called from the init hook.
  * No-op if telemetry is disabled.
  */
-export async function initAnalytics(version: string): Promise<void> {
+export function initAnalytics(version: string): Promise<void> {
   cliVersion = version
 
-  if (!isTelemetryEnabled()) return
+  if (!isTelemetryEnabled()) return Promise.resolve()
 
   showTelemetryNotice()
 
-  try {
-    const { StatsigClient: StatsigClientClass } = await import('@statsig/js-client')
-    const client = new StatsigClientClass(
-      STATSIG_CLIENT_KEY,
-      { userID: getMachineId(), custom: { cli_version: version } },
-    )
-    await client.initializeAsync()
-    statsigClient = client
+  initPromise = (async () => {
+    try {
+      const { StatsigClient: StatsigClientClass } = await import('@statsig/js-client')
+      const client = new StatsigClientClass(
+        STATSIG_CLIENT_KEY,
+        { userID: getMachineId(), custom: { cli_version: version } },
+      )
+      await client.initializeAsync()
+      statsigClient = client
 
-    // Share Statsig client with feature-flags for synchronous gate checks
-    const { setStatsigClient } = await import('./feature-flags.js')
-    setStatsigClient(client)
-  } catch {
-    // If Statsig can't initialize, fail silently — analytics should never break the CLI
-    statsigClient = null
-  }
+      // Share Statsig client with feature-flags for synchronous gate checks
+      const { setStatsigClient } = await import('./feature-flags.js')
+      setStatsigClient(client)
+    } catch {
+      // If Statsig can't initialize, fail silently — analytics should never break the CLI
+      statsigClient = null
+    }
+  })()
+
+  return initPromise
 }
 
 // ─── Event Tracking ──────────────────────────────────────────────────────────
@@ -360,6 +365,16 @@ export function trackMCPToolCalled(options: {
  * Called from the postrun hook. Times out to avoid blocking CLI exit.
  */
 export async function shutdownAnalytics(): Promise<void> {
+  // Wait for init to complete so late-tracked events have a client
+  if (initPromise) {
+    try {
+      await initPromise
+    } catch {
+      // Init may have failed — continue to cleanup
+    }
+    initPromise = null
+  }
+
   if (!statsigClient) return
 
   try {
