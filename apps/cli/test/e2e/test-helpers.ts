@@ -1177,6 +1177,31 @@ function isolateEnvForInProcess(
 }
 
 /**
+ * Runs an async function with process.exit mocked to throw instead of terminating.
+ *
+ * CLI commands in JSON/machine mode call process.exit() to signal completion:
+ * - process.exit(0): success result
+ * - process.exit(1): error result
+ * - process.exit(2): needs input (prompt output)
+ *
+ * When running in-process, these would kill the mocha test runner. This wrapper
+ * replaces process.exit with a throw so @oclif/test's captureOutput catches it
+ * and returns the already-captured stdout/stderr alongside the error.
+ */
+async function withMockedProcessExit<T>(fn: () => Promise<T>): Promise<T> {
+  const originalExit = process.exit;
+  process.exit = ((code?: number) => {
+    throw new Error(`process.exit(${code ?? 0})`);
+  }) as never;
+
+  try {
+    return await fn();
+  } finally {
+    process.exit = originalExit;
+  }
+}
+
+/**
  * Executes a CLI command in-process using oclif's runCommand.
  * This is the async equivalent of exec() — no child process is spawned.
  *
@@ -1198,12 +1223,14 @@ export async function execInProcess(cmd: string): Promise<string> {
   const restore = isolateEnvForInProcess(cmd);
 
   try {
-    const { stdout, stderr, error } = await runCommand(cmd, CLI_ROOT, {
-      stripAnsi: true,
-      // Use 'production' NODE_ENV so oclif loads compiled dist/commands
-      // instead of trying to load TypeScript source files from src/commands
-      testNodeEnv: 'production',
-    });
+    const { stdout, stderr, error } = await withMockedProcessExit(() =>
+      runCommand(cmd, CLI_ROOT, {
+        stripAnsi: true,
+        // Use 'production' NODE_ENV so oclif loads compiled dist/commands
+        // instead of trying to load TypeScript source files from src/commands
+        testNodeEnv: 'production',
+      })
+    );
 
     if (error) {
       // Match exec() behavior: return stdout if available, then stderr, then error message
@@ -1238,10 +1265,12 @@ export async function execInProcessAsHuman(
   });
 
   try {
-    const { stdout, stderr, error } = await runCommand(cmd, CLI_ROOT, {
-      stripAnsi: true,
-      testNodeEnv: 'production',
-    });
+    const { stdout, stderr, error } = await withMockedProcessExit(() =>
+      runCommand(cmd, CLI_ROOT, {
+        stripAnsi: true,
+        testNodeEnv: 'production',
+      })
+    );
 
     if (error) {
       if (stdout.trim()) {
@@ -1272,10 +1301,12 @@ export async function execInProcessAsAgent(
   const restore = isolateEnvForInProcess(jsonCmd, env);
 
   try {
-    const { stdout, stderr, error } = await runCommand(jsonCmd, CLI_ROOT, {
-      stripAnsi: true,
-      testNodeEnv: 'production',
-    });
+    const { stdout, stderr, error } = await withMockedProcessExit(() =>
+      runCommand(jsonCmd, CLI_ROOT, {
+        stripAnsi: true,
+        testNodeEnv: 'production',
+      })
+    );
 
     if (error) {
       if (stdout.trim()) {
