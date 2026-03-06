@@ -13,7 +13,7 @@
 
 import { execSync } from 'node:child_process'
 import type { UpdateInfo } from './update-check.js'
-import { dismissVersion } from './update-check.js'
+import { dismissVersion, getStaleTapCommands } from './update-check.js'
 
 // ---------------------------------------------------------------------------
 // Environment guards
@@ -48,6 +48,34 @@ export function shouldSuppressPrompt(): boolean {
   if (process.env.PRLT_TEST_ENV) return true
 
   return false
+}
+
+// ---------------------------------------------------------------------------
+// Stale tap guidance
+// ---------------------------------------------------------------------------
+
+/**
+ * Print a warning and remediation commands when the local Homebrew tap
+ * is behind origin/main. This is shown:
+ * - Alongside the update prompt (if an update is available)
+ * - After a failed `brew upgrade` (stale tap is a common cause)
+ * - Independently when the tap is stale even if versions look current
+ */
+export async function printStaleTapGuidance(): Promise<void> {
+  const chalk = (await import('chalk')).default
+  const commands = getStaleTapCommands()
+
+  console.log('')
+  console.log(chalk.yellow('⚠️  Your Homebrew tap is out of date.'))
+  console.log(chalk.dim('   The local tap checkout is behind origin/main, which can'))
+  console.log(chalk.dim('   cause `brew upgrade` to report "already installed" on old versions.'))
+  console.log('')
+  console.log(chalk.white('   To fix, run:'))
+  console.log('')
+  for (const cmd of commands) {
+    console.log(`     ${chalk.cyan(cmd)}`)
+  }
+  console.log('')
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +146,7 @@ export async function showUpdatePrompt(info: UpdateInfo): Promise<UpdateAction> 
  * Execute the update command, then exit.
  * Runs synchronously so the user sees output in real time.
  */
-function executeUpdate(info: UpdateInfo): never {
+async function executeUpdate(info: UpdateInfo): Promise<never> {
   console.log('')
   console.log(`Running: ${info.updateCommand}`)
   console.log('')
@@ -135,6 +163,12 @@ function executeUpdate(info: UpdateInfo): never {
     console.error('')
     console.error('Update failed. You can try running the command manually:')
     console.error(`  ${info.updateCommand}`)
+
+    // If brew upgrade failed and the tap is stale, show remediation
+    if (info.packageManager === 'brew' && info.staleTap?.isStale) {
+      await printStaleTapGuidance()
+    }
+
     process.exit(1)
   }
 }
@@ -146,8 +180,8 @@ function executeUpdate(info: UpdateInfo): never {
 /**
  * Handle the full update prompt flow:
  * 1. Check if prompt should be suppressed
- * 2. Check if an update is available (from cache)
- * 3. Show interactive prompt
+ * 2. If brew tap is stale, print self-heal guidance
+ * 3. If an update is available, show interactive prompt
  * 4. Handle the user's choice
  *
  * Returns true if the process should continue (skip/skip_version),
@@ -155,13 +189,19 @@ function executeUpdate(info: UpdateInfo): never {
  */
 export async function handleUpdatePrompt(info: UpdateInfo): Promise<void> {
   if (shouldSuppressPrompt()) return
+
+  // Show stale tap guidance when detected (even if no version update is cached)
+  if (info.staleTap?.isStale) {
+    await printStaleTapGuidance()
+  }
+
   if (!info.updateAvailable) return
 
   const action = await showUpdatePrompt(info)
 
   switch (action) {
     case 'update':
-      executeUpdate(info)
+      await executeUpdate(info)
       break // unreachable — executeUpdate calls process.exit
 
     case 'skip':

@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { shouldSuppressPrompt } from '../../src/lib/update-prompt.js'
+import { shouldSuppressPrompt, printStaleTapGuidance } from '../../src/lib/update-prompt.js'
 
 describe('Update Prompt', () => {
   let originalEnv: Record<string, string | undefined>
@@ -92,6 +92,31 @@ describe('Update Prompt', () => {
     it('returns true when PRLT_TEST_ENV is set', () => {
       process.env.PRLT_TEST_ENV = '1'
       expect(shouldSuppressPrompt()).to.be.true
+    })
+  })
+
+  describe('printStaleTapGuidance', () => {
+    let logs: string[]
+    let originalLog: typeof console.log
+
+    beforeEach(() => {
+      logs = []
+      originalLog = console.log
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(' '))
+      }
+    })
+
+    afterEach(() => {
+      console.log = originalLog
+    })
+
+    it('prints warning message with remediation commands', async () => {
+      await printStaleTapGuidance()
+      const output = logs.join('\n')
+      expect(output).to.include('Homebrew tap is out of date')
+      expect(output).to.include('brew tap --force')
+      expect(output).to.include('brew upgrade')
     })
   })
 })
