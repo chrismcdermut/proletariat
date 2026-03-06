@@ -3,12 +3,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Board Views & Filtering
  * Tests: prlt board view with filters, grouping, and sorting
  * Spec: pmo-board-views.md
+ *
+ * Uses in-process command execution (execInProcess) for ~5x faster test runs.
  *
  * SKIPPED: Board view command with filters is not yet implemented.
  * See ticket TKT-041 for implementation tracking.
@@ -43,24 +45,24 @@ describe.skip('PMO Board Views E2E Tests', () => {
   });
 
   describe('prlt board view --assignee', () => {
-    it('should filter by assignee', () => {
-      const output = exec('board view --assignee alice');
+    it('should filter by assignee', async () => {
+      const output = await execInProcess('board view --assignee alice');
 
       expect(output).to.contain('alice');
       expect(output).to.not.contain('bob');
       expect(output).to.contain('filtered: assignee=alice');
     });
 
-    it('should show only unassigned tickets', () => {
-      const output = exec('board view --assignee unassigned');
+    it('should show only unassigned tickets', async () => {
+      const output = await execInProcess('board view --assignee unassigned');
 
       expect(output).to.contain('unassigned');
       expect(output).to.not.contain('@alice');
       expect(output).to.not.contain('@bob');
     });
 
-    it('should hide empty columns when filtering', () => {
-      const output = exec('board view --assignee alice');
+    it('should hide empty columns when filtering', async () => {
+      const output = await execInProcess('board view --assignee alice');
 
       // If alice has no tickets in a column, it shouldn't appear
       const columnCount = (output.match(/##/g) || []).length;
@@ -69,40 +71,40 @@ describe.skip('PMO Board Views E2E Tests', () => {
   });
 
   describe('prlt board view --priority', () => {
-    it('should filter by HIGH priority', () => {
-      const output = exec('board view --priority HIGH');
+    it('should filter by HIGH priority', async () => {
+      const output = await execInProcess('board view --priority HIGH');
 
       expect(output).to.contain('P:HIGH');
       expect(output).to.not.contain('P:MEDIUM');
       expect(output).to.not.contain('P:LOW');
     });
 
-    it('should filter by MEDIUM priority', () => {
-      const output = exec('board view --priority MEDIUM');
+    it('should filter by MEDIUM priority', async () => {
+      const output = await execInProcess('board view --priority MEDIUM');
 
       expect(output).to.contain('P:MEDIUM');
       expect(output).to.not.contain('P:HIGH');
     });
 
-    it('should be case-insensitive', () => {
-      const output1 = exec('board view --priority high');
-      const output2 = exec('board view --priority HIGH');
+    it('should be case-insensitive', async () => {
+      const output1 = await execInProcess('board view --priority high');
+      const output2 = await execInProcess('board view --priority HIGH');
 
       expect(output1).to.equal(output2);
     });
   });
 
   describe('prlt board view --column', () => {
-    it('should show only specific column', () => {
-      const output = exec('board view --column "In Progress"');
+    it('should show only specific column', async () => {
+      const output = await execInProcess('board view --column "In Progress"');
 
       expect(output).to.contain('In Progress');
       expect(output).to.not.contain('SHIP BL');
       expect(output).to.contain('showing: In Progress');
     });
 
-    it('should support multiple columns', () => {
-      const output = exec('board view --column "SHIP BL" --column "In Progress"');
+    it('should support multiple columns', async () => {
+      const output = await execInProcess('board view --column "SHIP BL" --column "In Progress"');
 
       expect(output).to.contain('SHIP BL');
       expect(output).to.contain('In Progress');
@@ -111,15 +113,15 @@ describe.skip('PMO Board Views E2E Tests', () => {
   });
 
   describe('prlt board view --status', () => {
-    it('should filter by lifecycle status', () => {
-      const output = exec('board view --status in_progress');
+    it('should filter by lifecycle status', async () => {
+      const output = await execInProcess('board view --status in_progress');
 
       expect(output).to.contain('[IN_PROGRESS]');
       expect(output).to.not.contain('[BACKLOG]');
     });
 
-    it('should filter blocked tickets', () => {
-      const output = exec('board view --status blocked');
+    it('should filter blocked tickets', async () => {
+      const output = await execInProcess('board view --status blocked');
 
       expect(output).to.contain('[BLOCKED]');
       expect(output).to.match(/\d+ blocked tickets/);
@@ -127,8 +129,8 @@ describe.skip('PMO Board Views E2E Tests', () => {
   });
 
   describe('prlt board view with combined filters', () => {
-    it('should apply multiple filters (AND)', () => {
-      const output = exec('board view --assignee alice --priority HIGH');
+    it('should apply multiple filters (AND)', async () => {
+      const output = await execInProcess('board view --assignee alice --priority HIGH');
 
       expect(output).to.contain('filtered: assignee=alice, priority=HIGH');
       expect(output).to.contain('@alice');
@@ -137,24 +139,24 @@ describe.skip('PMO Board Views E2E Tests', () => {
       expect(output).to.not.contain('@bob');
     });
 
-    it('should combine assignee, priority, and column filters', () => {
-      const output = exec('board view --assignee alice --priority HIGH --column "In Progress"');
+    it('should combine assignee, priority, and column filters', async () => {
+      const output = await execInProcess('board view --assignee alice --priority HIGH --column "In Progress"');
 
       expect(output).to.contain('In Progress');
       expect(output).to.contain('@alice');
       expect(output).to.contain('P:HIGH');
     });
 
-    it('should show filtered count vs total', () => {
-      const output = exec('board view --priority HIGH');
+    it('should show filtered count vs total', async () => {
+      const output = await execInProcess('board view --priority HIGH');
 
       expect(output).to.match(/Showing \d+ of \d+ total tickets/);
     });
   });
 
   describe('prlt board view --group-by assignee', () => {
-    it('should group tickets by assignee', () => {
-      const output = exec('board view --group-by assignee');
+    it('should group tickets by assignee', async () => {
+      const output = await execInProcess('board view --group-by assignee');
 
       expect(output).to.contain('grouped by: assignee');
       expect(output).to.contain('👤 alice');
@@ -162,16 +164,16 @@ describe.skip('PMO Board Views E2E Tests', () => {
       expect(output).to.contain('👤 unassigned');
     });
 
-    it('should show column in ticket details when grouped', () => {
-      const output = exec('board view --group-by assignee');
+    it('should show column in ticket details when grouped', async () => {
+      const output = await execInProcess('board view --group-by assignee');
 
       // When grouped by assignee, should show which column each ticket is in
       expect(output).to.contain('[SHIP BL]');
       expect(output).to.contain('[In Progress]');
     });
 
-    it('should show ticket counts per assignee', () => {
-      const output = exec('board view --group-by assignee');
+    it('should show ticket counts per assignee', async () => {
+      const output = await execInProcess('board view --group-by assignee');
 
       expect(output).to.match(/alice \(\d+ tickets\)/);
       expect(output).to.match(/bob \(\d+ tickets\)/);
@@ -179,8 +181,8 @@ describe.skip('PMO Board Views E2E Tests', () => {
   });
 
   describe('prlt board view --group-by priority', () => {
-    it('should group tickets by priority level', () => {
-      const output = exec('board view --group-by priority');
+    it('should group tickets by priority level', async () => {
+      const output = await execInProcess('board view --group-by priority');
 
       expect(output).to.contain('grouped by: priority');
       expect(output).to.contain('🔴 HIGH');
@@ -188,23 +190,23 @@ describe.skip('PMO Board Views E2E Tests', () => {
       expect(output).to.contain('🟢 LOW');
     });
 
-    it('should show assignee and column in grouped view', () => {
-      const output = exec('board view --group-by priority');
+    it('should show assignee and column in grouped view', async () => {
+      const output = await execInProcess('board view --group-by priority');
 
       expect(output).to.contain('@alice');
       expect(output).to.contain('[SHIP BL]');
     });
 
-    it('should show summary with priority breakdown', () => {
-      const output = exec('board view --group-by priority');
+    it('should show summary with priority breakdown', async () => {
+      const output = await execInProcess('board view --group-by priority');
 
       expect(output).to.match(/HIGH: \d+, MEDIUM: \d+, LOW: \d+/);
     });
   });
 
   describe('prlt board view --sort-by', () => {
-    it('should sort by priority (highest first)', () => {
-      const output = exec('board view --sort-by priority');
+    it('should sort by priority (highest first)', async () => {
+      const output = await execInProcess('board view --sort-by priority');
 
       expect(output).to.contain('sorted by: priority');
 
@@ -216,40 +218,40 @@ describe.skip('PMO Board Views E2E Tests', () => {
       }
     });
 
-    it('should sort by created date', () => {
-      const output = exec('board view --sort-by created');
+    it('should sort by created date', async () => {
+      const output = await execInProcess('board view --sort-by created');
 
       expect(output).to.contain('sorted by: created');
     });
 
-    it('should sort by updated date (most recent first)', () => {
-      const output = exec('board view --sort-by updated');
+    it('should sort by updated date (most recent first)', async () => {
+      const output = await execInProcess('board view --sort-by updated');
 
       expect(output).to.contain('sorted by: updated');
     });
 
-    it('should sort alphabetically by title', () => {
-      const output = exec('board view --sort-by title');
+    it('should sort alphabetically by title', async () => {
+      const output = await execInProcess('board view --sort-by title');
 
       expect(output).to.contain('sorted by: title');
     });
 
-    it('should sort by assignee name', () => {
-      const output = exec('board view --sort-by assignee');
+    it('should sort by assignee name', async () => {
+      const output = await execInProcess('board view --sort-by assignee');
 
       expect(output).to.contain('sorted by: assignee');
     });
   });
 
   describe('empty state handling', () => {
-    it('should show message when no tickets match filters', () => {
-      const output = exec('board view --assignee nonexistent');
+    it('should show message when no tickets match filters', async () => {
+      const output = await execInProcess('board view --assignee nonexistent');
 
       expect(output).to.contain('No tickets match filters');
     });
 
-    it('should suggest removing filters if no results', () => {
-      const output = exec('board view --assignee nobody --priority URGENT');
+    it('should suggest removing filters if no results', async () => {
+      const output = await execInProcess('board view --assignee nobody --priority URGENT');
 
       expect(output).to.match(/No tickets match|remove filters/i);
     });

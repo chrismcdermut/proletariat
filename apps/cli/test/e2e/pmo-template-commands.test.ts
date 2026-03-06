@@ -3,11 +3,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 
 /**
- * End-to-end tests for PMO Status Template Commands
+ * End-to-end tests for PMO Status Template Commands (in-process execution)
  * Tests: prlt status template list, apply, save, delete
+ *
+ * Uses execInProcess() for in-process CLI execution instead of spawning subprocesses.
  *
  * SKIPPED: Tests need HQ environment setup. The commands exist and work correctly,
  * but the test environment needs:
@@ -50,36 +52,36 @@ describe.skip('PMO Status Template Commands E2E Tests', () => {
   });
 
   describe('prlt status template list', () => {
-    it('should list all templates', () => {
-      const output = exec('status template list');
+    it('should list all templates', async () => {
+      const output = await execInProcess('status template list');
 
       expect(output).to.contain('Status Templates');
       expect(output).to.contain('kanban');
       expect(output).to.contain('linear');
     });
 
-    it('should show built-in templates section', () => {
-      const output = exec('status template list');
+    it('should show built-in templates section', async () => {
+      const output = await execInProcess('status template list');
 
       expect(output).to.contain('Built-in Templates');
     });
 
-    it('should filter to builtin only with --builtin', () => {
-      const output = exec('status template list --builtin');
+    it('should filter to builtin only with --builtin', async () => {
+      const output = await execInProcess('status template list --builtin');
 
       expect(output).to.contain('Built-in Templates');
       expect(output).not.to.contain('Custom Templates');
     });
 
-    it('should show template descriptions', () => {
-      const output = exec('status template list');
+    it('should show template descriptions', async () => {
+      const output = await execInProcess('status template list');
 
       expect(output).to.contain('Simple kanban');
       expect(output).to.contain('Linear-style');
     });
 
-    it('should output JSON with --json flag', () => {
-      const output = exec('status template list --json');
+    it('should output JSON with --json flag', async () => {
+      const output = await execInProcess('status template list --json');
 
       const templates = JSON.parse(output);
       expect(templates).to.be.an('array');
@@ -89,8 +91,8 @@ describe.skip('PMO Status Template Commands E2E Tests', () => {
   });
 
   describe('prlt status template apply', () => {
-    it('should apply template to default project', () => {
-      const output = exec('status template apply kanban --force');
+    it('should apply template to default project', async () => {
+      const output = await execInProcess('status template apply kanban --force');
 
       expect(output).to.contain('Applied template');
       expect(output).to.contain('Kanban');
@@ -100,8 +102,8 @@ describe.skip('PMO Status Template Commands E2E Tests', () => {
       expect(statuses.length).to.be.greaterThan(0);
     });
 
-    it('should create statuses from template', () => {
-      exec('status template apply kanban --force');
+    it('should create statuses from template', async () => {
+      await execInProcess('status template apply kanban --force');
 
       const statuses = db.prepare('SELECT name FROM pmo_statuses WHERE project_id = ?').all('default') as { name: string }[];
       const names = statuses.map(s => s.name);
@@ -111,25 +113,25 @@ describe.skip('PMO Status Template Commands E2E Tests', () => {
       expect(names).to.include('Done');
     });
 
-    it('should set a default status', () => {
-      exec('status template apply kanban --force');
+    it('should set a default status', async () => {
+      await execInProcess('status template apply kanban --force');
 
       const defaultStatus = db.prepare('SELECT * FROM pmo_statuses WHERE project_id = ? AND is_default = 1').get('default');
       expect(defaultStatus).to.not.be.undefined;
     });
 
-    it('should error when template not found', () => {
-      const output = exec('status template apply non-existent --force');
+    it('should error when template not found', async () => {
+      const output = await execInProcess('status template apply non-existent --force');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should replace existing statuses', () => {
+    it('should replace existing statuses', async () => {
       // First apply kanban
-      exec('status template apply kanban --force');
+      await execInProcess('status template apply kanban --force');
 
       // Then apply linear
-      exec('status template apply linear --force');
+      await execInProcess('status template apply linear --force');
 
       const linearStatuses = db.prepare('SELECT * FROM pmo_statuses WHERE project_id = ?').all('default') as { name: string }[];
       const names = linearStatuses.map(s => s.name);
@@ -140,11 +142,11 @@ describe.skip('PMO Status Template Commands E2E Tests', () => {
       expect(names).to.include('In Progress');
     });
 
-    it('should apply to specific project with --project', () => {
+    it('should apply to specific project with --project', async () => {
       // Create a second project
       createTestProject(db, 'other', 'Other Project');
 
-      exec('status template apply kanban --project other --force');
+      await execInProcess('status template apply kanban --project other --force');
 
       const otherStatuses = db.prepare('SELECT * FROM pmo_statuses WHERE project_id = ?').all('other');
       expect(otherStatuses.length).to.be.greaterThan(0);
@@ -152,13 +154,13 @@ describe.skip('PMO Status Template Commands E2E Tests', () => {
   });
 
   describe('prlt status template save', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
       // Apply a template first so we have statuses to save
-      exec('status template apply kanban --force');
+      await execInProcess('status template apply kanban --force');
     });
 
-    it('should create template from project statuses', () => {
-      const output = exec('status template save "My Custom Template"');
+    it('should create template from project statuses', async () => {
+      const output = await execInProcess('status template save "My Custom Template"');
 
       expect(output).to.contain('Created template');
       expect(output).to.contain('My Custom Template');
@@ -168,36 +170,36 @@ describe.skip('PMO Status Template Commands E2E Tests', () => {
       expect(template).to.not.be.undefined;
     });
 
-    it('should generate slugified ID', () => {
-      exec('status template save "My Workflow Template"');
+    it('should generate slugified ID', async () => {
+      await execInProcess('status template save "My Workflow Template"');
 
       const template = db.prepare('SELECT id FROM pmo_templates WHERE name = ?').get('My Workflow Template') as { id: string };
       expect(template.id).to.equal('my-workflow-template');
     });
 
-    it('should include description when provided', () => {
-      exec('status template save "Team Workflow" --description "Our team custom workflow"');
+    it('should include description when provided', async () => {
+      await execInProcess('status template save "Team Workflow" --description "Our team custom workflow"');
 
       const template = db.prepare('SELECT description FROM pmo_templates WHERE name = ?').get('Team Workflow') as { description: string };
       expect(template.description).to.equal('Our team custom workflow');
     });
 
-    it('should not be marked as builtin', () => {
-      exec('status template save "User Template"');
+    it('should not be marked as builtin', async () => {
+      await execInProcess('status template save "User Template"');
 
       const template = db.prepare('SELECT is_builtin FROM pmo_templates WHERE name = ?').get('User Template') as { is_builtin: number };
       expect(template.is_builtin).to.equal(0);
     });
 
-    it('should error when name already exists', () => {
-      exec('status template save "Duplicate"');
-      const output = exec('status template save "Duplicate"');
+    it('should error when name already exists', async () => {
+      await execInProcess('status template save "Duplicate"');
+      const output = await execInProcess('status template save "Duplicate"');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
-    it('should preserve statuses in template', () => {
-      exec('status template save "Preserved Template"');
+    it('should preserve statuses in template', async () => {
+      await execInProcess('status template save "Preserved Template"');
 
       const template = db.prepare('SELECT statuses FROM pmo_templates WHERE name = ?').get('Preserved Template') as { statuses: string };
       const statuses = JSON.parse(template.statuses);
@@ -209,50 +211,50 @@ describe.skip('PMO Status Template Commands E2E Tests', () => {
   });
 
   describe('prlt status template delete', () => {
-    beforeEach(() => {
-      exec('status template apply kanban --force');
-      exec('status template save "Deletable Template"');
+    beforeEach(async () => {
+      await execInProcess('status template apply kanban --force');
+      await execInProcess('status template save "Deletable Template"');
     });
 
-    it('should delete template', () => {
-      exec('status template delete deletable-template --force');
+    it('should delete template', async () => {
+      await execInProcess('status template delete deletable-template --force');
 
       const template = db.prepare('SELECT * FROM pmo_templates WHERE id = ?').get('deletable-template');
       expect(template).to.be.undefined;
     });
 
-    it('should error when template not found', () => {
-      const output = exec('status template delete non-existent --force');
+    it('should error when template not found', async () => {
+      const output = await execInProcess('status template delete non-existent --force');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should error when deleting built-in template', () => {
-      const output = exec('status template delete kanban --force');
+    it('should error when deleting built-in template', async () => {
+      const output = await execInProcess('status template delete kanban --force');
 
       expect(output.toLowerCase()).to.contain('cannot delete');
     });
 
-    it('should show success message', () => {
-      const output = exec('status template delete deletable-template --force');
+    it('should show success message', async () => {
+      const output = await execInProcess('status template delete deletable-template --force');
 
       expect(output).to.contain('Deleted template');
     });
   });
 
   describe('status template workflow', () => {
-    it('should allow creating and reapplying custom template', () => {
+    it('should allow creating and reapplying custom template', async () => {
       // Apply a template
-      exec('status template apply linear --force');
+      await execInProcess('status template apply linear --force');
 
       // Save as custom template
-      exec('status template save "Linear Copy"');
+      await execInProcess('status template save "Linear Copy"');
 
       // Create new project
       createTestProject(db, 'new-proj', 'New Project');
 
       // Apply saved template
-      exec('status template apply linear-copy --project new-proj --force');
+      await execInProcess('status template apply linear-copy --project new-proj --force');
 
       // Verify it worked
       const statuses = db.prepare('SELECT * FROM pmo_statuses WHERE project_id = ?').all('new-proj');

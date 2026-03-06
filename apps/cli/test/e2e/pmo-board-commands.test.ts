@@ -3,12 +3,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec as execCommand } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 
 /**
  * Integration tests for PMO Board Commands
  * Tests: prlt board view, open, markdown, export, sync, watch
  * Spec: pmo-board-commands.md
+ *
+ * Uses in-process command execution (execInProcess) for ~5x faster test runs.
  *
  * SKIPPED: The board markdown/sync/export operations are available via the
  * interactive 'prlt board' menu, not as separate subcommands.
@@ -55,13 +57,13 @@ describe.skip('PMO Board Commands Integration Tests', () => {
   });
 
   describe('prlt board view', () => {
-    it('should display board with tickets organized by column', () => {
+    it('should display board with tickets organized by column', async () => {
       // Create test tickets
       createTestTicket(db, 'TEST-001', 'Add login screen', 'backlog', 'HIGH');
       createTestTicket(db, 'TEST-002', 'Setup CI/CD', 'backlog', 'MEDIUM');
       createTestTicket(db, 'TEST-003', 'Implement navigation', 'in-progress', 'HIGH');
 
-      const output = execCommand('board view');
+      const output = await execInProcess('board view');
 
       expect(output).to.contain('Board');
       expect(output).to.contain('TEST-001');
@@ -69,17 +71,17 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       expect(output).to.contain('P:HIGH');
     });
 
-    it('should show ticket counts per column', () => {
+    it('should show ticket counts per column', async () => {
       createTestTicket(db, 'TEST-001', 'Ticket 1', 'backlog', 'HIGH');
       createTestTicket(db, 'TEST-002', 'Ticket 2', 'backlog', 'LOW');
 
-      const output = execCommand('board view');
+      const output = await execInProcess('board view');
 
       expect(output).to.match(/Backlog.*\(2\)/);
     });
 
-    it('should handle empty board gracefully', () => {
-      const output = execCommand('board view');
+    it('should handle empty board gracefully', async () => {
+      const output = await execInProcess('board view');
 
       expect(output).to.not.throw;
       expect(output).to.contain('Board');
@@ -87,10 +89,10 @@ describe.skip('PMO Board Commands Integration Tests', () => {
   });
 
   describe('prlt board markdown', () => {
-    it('should output valid Obsidian Kanban markdown', () => {
+    it('should output valid Obsidian Kanban markdown', async () => {
       createTestTicket(db, 'TEST-001', 'Add login screen', 'backlog', 'HIGH');
 
-      const output = execCommand('board markdown');
+      const output = await execInProcess('board markdown');
 
       expect(output).to.contain('## SHIP BL');
       expect(output).to.contain('**TEST-001**');
@@ -99,11 +101,11 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       expect(output).to.contain('**Priority:** HIGH');
     });
 
-    it('should be pipeable to file', () => {
+    it('should be pipeable to file', async () => {
       createTestTicket(db, 'TEST-001', 'Test ticket', 'backlog', 'MEDIUM');
 
       const outputPath = path.join(testDir, 'board-export.md');
-      execCommand(`board markdown > ${outputPath}`);
+      await execInProcess(`board markdown > ${outputPath}`);
 
       expect(fs.existsSync(outputPath)).to.be.true;
       const content = fs.readFileSync(outputPath, 'utf-8');
@@ -112,11 +114,11 @@ describe.skip('PMO Board Commands Integration Tests', () => {
   });
 
   describe('prlt board sync', () => {
-    it('should sync from database to board.md when DB is newer', () => {
+    it('should sync from database to board.md when DB is newer', async () => {
       createTestTicket(db, 'TEST-001', 'New ticket', 'backlog', 'HIGH');
 
       // Run sync (should export to board.md)
-      execCommand('board sync --direction export');
+      await execInProcess('board sync --direction export');
 
       expect(fs.existsSync(boardPath)).to.be.true;
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -124,7 +126,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       expect(content).to.contain('New ticket');
     });
 
-    it('should sync from board.md to database when board is newer', () => {
+    it('should sync from board.md to database when board is newer', async () => {
       // Create board.md manually
       const boardContent = `
 ## SHIP BL
@@ -138,7 +140,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       fs.writeFileSync(boardPath, boardContent);
 
       // Run sync (should import from board.md)
-      execCommand('board sync --direction import');
+      await execInProcess('board sync --direction import');
 
       // Check database
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE id = ?').get('TEST-002') as { title: string } | undefined;
@@ -146,17 +148,17 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       expect(ticket!.title).to.equal('Manual ticket');
     });
 
-    it('should detect and show changes before syncing', () => {
+    it('should detect and show changes before syncing', async () => {
       createTestTicket(db, 'TEST-001', 'Original', 'backlog', 'LOW');
 
       // Export first
-      execCommand('board sync --direction export');
+      await execInProcess('board sync --direction export');
 
       // Modify ticket in DB
       db.prepare('UPDATE pmo_tickets SET title = ? WHERE id = ?').run('Modified', 'TEST-001');
 
       // Sync should show changes
-      const output = execCommand('board sync --dry-run --direction export');
+      const output = await execInProcess('board sync --dry-run --direction export');
 
       expect(output).to.contain('Changes detected');
       expect(output).to.contain('TEST-001');
@@ -164,33 +166,33 @@ describe.skip('PMO Board Commands Integration Tests', () => {
   });
 
   describe('prlt board export', () => {
-    it('should export to markdown format', () => {
+    it('should export to markdown format', async () => {
       createTestTicket(db, 'TEST-001', 'Export test', 'backlog', 'HIGH');
 
       const outputPath = path.join(testDir, 'export.md');
-      execCommand(`board export --format markdown -o ${outputPath}`);
+      await execInProcess(`board export --format markdown -o ${outputPath}`);
 
       expect(fs.existsSync(outputPath)).to.be.true;
       const content = fs.readFileSync(outputPath, 'utf-8');
       expect(content).to.contain('TEST-001');
     });
 
-    it('should export to JSON format', () => {
+    it('should export to JSON format', async () => {
       createTestTicket(db, 'TEST-001', 'JSON test', 'backlog', 'MEDIUM');
 
       const outputPath = path.join(testDir, 'export.json');
-      execCommand(`board export --format json -o ${outputPath}`);
+      await execInProcess(`board export --format json -o ${outputPath}`);
 
       expect(fs.existsSync(outputPath)).to.be.true;
       const data = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       expect(data).to.have.property('columns');
     });
 
-    it('should export to CSV format', () => {
+    it('should export to CSV format', async () => {
       createTestTicket(db, 'TEST-001', 'CSV test', 'backlog', 'LOW');
 
       const outputPath = path.join(testDir, 'export.csv');
-      execCommand(`board export --format csv -o ${outputPath}`);
+      await execInProcess(`board export --format csv -o ${outputPath}`);
 
       expect(fs.existsSync(outputPath)).to.be.true;
       const content = fs.readFileSync(outputPath, 'utf-8');
@@ -199,11 +201,11 @@ describe.skip('PMO Board Commands Integration Tests', () => {
   });
 
   describe('prlt board open', () => {
-    it('should attempt to open board in editor', () => {
+    it('should attempt to open board in editor', async () => {
       // This test is limited - we can't actually launch an editor
       // But we can verify the board.md file exists
       createTestTicket(db, 'TEST-001', 'Test', 'backlog', 'HIGH');
-      execCommand('board sync --direction export');
+      await execInProcess('board sync --direction export');
 
       expect(fs.existsSync(boardPath)).to.be.true;
     });
