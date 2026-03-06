@@ -23,12 +23,12 @@ import {
   createTestProject,
   addWorkspaceTables,
   extractJson as extractJsonOrNull,
-  agentExec,
   findChoice,
   execChoice,
-  exec,
+  execInProcess,
   type TestEnvironment,
   type AgentPromptResponse,
+  hasContextError,
 } from './test-helpers.js';
 
 /**
@@ -46,6 +46,21 @@ function extractJson<T>(output: string): T {
 /**
  * Integration tests for agent namespace JSON mode.
  */
+/**
+ * Local async agentExec that uses execInProcess instead of execProduction.
+ */
+async function agentExecAsync(cmd: string): Promise<AgentPromptResponse | null> {
+  const output = await execInProcess(cmd);
+  if (hasContextError(output)) {
+    return null;
+  }
+  const json = extractJson<AgentPromptResponse>(output);
+  if (json && typeof json === 'object' && !('prompt' in json)) {
+    return null;
+  }
+  return json;
+}
+
 describe('Agent Commands JSON Mode', () => {
   let env: TestEnvironment;
   let db: Database.Database;
@@ -97,8 +112,8 @@ describe('Agent Commands JSON Mode', () => {
       createTestAgent('test-agent-2', 'persistent');
     });
 
-    it('should output valid JSON prompt with --machine flag', () => {
-      const output = exec('agent --machine');
+    it('should output valid JSON prompt with --machine flag', async () => {
+      const output = await execInProcess('agent --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -113,8 +128,8 @@ describe('Agent Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should output valid JSON with --json flag (legacy)', () => {
-      const output = exec('agent --json');
+    it('should output valid JSON with --json flag (legacy)', async () => {
+      const output = await execInProcess('agent --json');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { json: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
@@ -122,16 +137,16 @@ describe('Agent Commands JSON Mode', () => {
       expect(json.metadata.flags.json).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('agent -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('agent -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include --machine flag in choice commands', () => {
-      const output = exec('agent --machine');
+    it('should include --machine flag in choice commands', async () => {
+      const output = await execInProcess('agent --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command?: string }> };
       }>(output);
@@ -144,9 +159,9 @@ describe('Agent Commands JSON Mode', () => {
       }
     });
 
-    it('should produce same structure with --machine and --json', () => {
-      const jsonOutput = exec('agent --json');
-      const machineOutput = exec('agent --machine');
+    it('should produce same structure with --machine and --json', async () => {
+      const jsonOutput = await execInProcess('agent --json');
+      const machineOutput = await execInProcess('agent --machine');
 
       const jsonResult = extractJson<{ prompt: { choices: Array<{ name: string }> } }>(jsonOutput);
       const machineResult = extractJson<{ prompt: { choices: Array<{ name: string }> } }>(machineOutput);
@@ -162,8 +177,8 @@ describe('Agent Commands JSON Mode', () => {
       createTestAgent('temp-agent-1', 'ephemeral');
     });
 
-    it('should output all agents as JSON data when no type specified', () => {
-      const output = exec('agent list --machine');
+    it('should output all agents as JSON data when no type specified', async () => {
+      const output = await execInProcess('agent list --machine');
       const json = extractJson<{
         staff: Array<{ name: string; type: string }>;
         temp: Array<{ name: string; type: string }>;
@@ -177,8 +192,8 @@ describe('Agent Commands JSON Mode', () => {
       expect(json).to.not.have.property('all');
     });
 
-    it('should work with --json flag (legacy)', () => {
-      const output = exec('agent list --json');
+    it('should work with --json flag (legacy)', async () => {
+      const output = await execInProcess('agent list --json');
       const json = extractJson<{
         staff: Array<{ name: string }>;
         temp: Array<{ name: string }>;
@@ -190,8 +205,8 @@ describe('Agent Commands JSON Mode', () => {
       expect(json).to.not.have.property('all');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('agent list -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('agent list -m');
       const json = extractJson<{
         staff: Array<{ name: string }>;
         temp: Array<{ name: string }>;
@@ -203,8 +218,8 @@ describe('Agent Commands JSON Mode', () => {
       expect(json).to.not.have.property('all');
     });
 
-    it('should bypass prompt when --type is specified', () => {
-      const output = exec('agent list --type all');
+    it('should bypass prompt when --type is specified', async () => {
+      const output = await execInProcess('agent list --type all');
 
       // Should show agent listing, not a prompt
       expect(output).to.satisfy((o: string) =>
@@ -218,8 +233,8 @@ describe('Agent Commands JSON Mode', () => {
       createTestAgent('status-agent', 'persistent');
     });
 
-    it('should output all agent statuses as JSON data when no agent specified', () => {
-      const output = exec('agent status --machine');
+    it('should output all agent statuses as JSON data when no agent specified', async () => {
+      const output = await execInProcess('agent status --machine');
       const json = extractJson<{
         success: boolean;
         result: { agents: Array<{ name: string }> };
@@ -232,8 +247,8 @@ describe('Agent Commands JSON Mode', () => {
       expect(json.result.agents).to.be.an('array');
     });
 
-    it('should include metadata with command name', () => {
-      const output = exec('agent status --machine');
+    it('should include metadata with command name', async () => {
+      const output = await execInProcess('agent status --machine');
       const json = extractJson<{
         metadata: { command: string };
       }>(output);
@@ -242,8 +257,8 @@ describe('Agent Commands JSON Mode', () => {
       expect(json.metadata.command).to.equal('agent status');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('agent status -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('agent status -m');
       const json = extractJson<{
         success: boolean;
         metadata: { flags: { machine: boolean } };
@@ -253,8 +268,8 @@ describe('Agent Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should show agent status when name provided', () => {
-      const output = exec('agent status status-agent');
+    it('should show agent status when name provided', async () => {
+      const output = await execInProcess('agent status status-agent');
 
       // Should show status info, not a prompt
       expect(output).to.include('status-agent');
@@ -266,8 +281,8 @@ describe('Agent Commands JSON Mode', () => {
       createTestAgent('visit-agent', 'persistent');
     });
 
-    it('should output agent selection prompt when no agent specified', () => {
-      const output = exec('agent visit --machine');
+    it('should output agent selection prompt when no agent specified', async () => {
+      const output = await execInProcess('agent visit --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -279,8 +294,8 @@ describe('Agent Commands JSON Mode', () => {
       expect(json.prompt.message).to.include('visit');
     });
 
-    it('should include --machine flag in choice commands', () => {
-      const output = exec('agent visit --machine');
+    it('should include --machine flag in choice commands', async () => {
+      const output = await execInProcess('agent visit --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command?: string }> };
       }>(output);
@@ -293,8 +308,8 @@ describe('Agent Commands JSON Mode', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('agent visit -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('agent visit -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
@@ -303,8 +318,8 @@ describe('Agent Commands JSON Mode', () => {
   });
 
   describe('agent discover --machine', () => {
-    it('should output discovery result as JSON with --machine flag', () => {
-      const output = exec('agent discover --machine');
+    it('should output discovery result as JSON with --machine flag', async () => {
+      const output = await execInProcess('agent discover --machine');
       const json = extractJson<{
         success: boolean;
         result: {
@@ -320,22 +335,22 @@ describe('Agent Commands JSON Mode', () => {
       expect(json.result.cleaned).to.be.an('array');
     });
 
-    it('should work with --json flag (legacy)', () => {
-      const output = exec('agent discover --json');
+    it('should work with --json flag (legacy)', async () => {
+      const output = await execInProcess('agent discover --json');
       const json = extractJson<{ success: boolean; result: { discovered: unknown[] } }>(output);
 
       expect(json.success).to.equal(true);
       expect(json.result).to.exist;
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('agent discover -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('agent discover -m');
       const json = extractJson<{ success: boolean }>(output);
 
       expect(json.success).to.equal(true);
     });
 
-    it('should discover agents on disk', () => {
+    it('should discover agents on disk', async () => {
       // Create an agent on disk that's not in database
       // Note: discoverAgentsOnDisk checks for directories in agents/staff and agents/temp
       const newAgentPath = path.join(env.testDir, 'agents', 'staff', 'undiscovered-agent');
@@ -343,7 +358,7 @@ describe('Agent Commands JSON Mode', () => {
       fs.mkdirSync(path.join(newAgentPath, '.git'), { recursive: true });
       fs.writeFileSync(path.join(newAgentPath, '.git', 'HEAD'), 'ref: refs/heads/main\n');
 
-      const output = exec('agent discover --machine');
+      const output = await execInProcess('agent discover --machine');
       const json = extractJson<{
         success: boolean;
         result: { discovered: Array<{ name: string }>; inSync: boolean };
@@ -370,9 +385,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('flow-agent-2', 'persistent');
       });
 
-      it('should complete flow: agent index → select list → view agents as JSON data', () => {
+      it('should complete flow: agent index → select list → view agents as JSON data', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('action');
@@ -385,7 +400,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 2: Execute list command - now returns JSON data directly (no prompt)
         const listCmd = execChoice(listChoice!);
-        const output = exec(listCmd);
+        const output = await execInProcess(listCmd);
 
         // In JSON mode without --type, agent list returns grouped JSON data
         const json = extractJson<{
@@ -405,9 +420,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('status-flow-agent', 'persistent');
       });
 
-      it('should complete flow: agent index → select status → view all agent statuses', () => {
+      it('should complete flow: agent index → select status → view all agent statuses', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'status' choice
@@ -417,7 +432,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 2: Execute status command - now returns all agent statuses as JSON data
         const statusCmd = execChoice(statusChoice!);
-        const output = exec(statusCmd);
+        const output = await execInProcess(statusCmd);
 
         // In JSON mode without agent name, status returns all statuses as data
         const json = extractJson<{
@@ -430,7 +445,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(json.result.agents).to.be.an('array');
 
         // Step 3: View specific agent status directly
-        const result = exec('agent status status-flow-agent');
+        const result = await execInProcess('agent status status-flow-agent');
 
         // Should show agent status
         expect(result).to.include('status-flow-agent');
@@ -442,9 +457,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('visit-flow-agent', 'persistent');
       });
 
-      it('should complete flow: agent index → select visit → select agent → get path', () => {
+      it('should complete flow: agent index → select visit → select agent → get path', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'Visit' choice
@@ -453,7 +468,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(visitChoice!.command).to.include('agent visit');
 
         // Step 2: Execute visit command, get agent selection
-        const step2 = agentExec(execChoice(visitChoice!));
+        const step2 = await agentExecAsync(execChoice(visitChoice!));
         expect(step2).to.exist;
         expect(step2!.prompt.type).to.equal('list');
         expect(step2!.prompt.name).to.equal('selected');
@@ -465,7 +480,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 3: Execute with agent name (final result)
         const finalCmd = execChoice(agentChoice!).replace(' --machine', '').replace(' --json', '');
-        const result = exec(finalCmd);
+        const result = await execInProcess(finalCmd);
 
         // Should show navigation command
         expect(result).to.include('visit-flow-agent');
@@ -474,9 +489,9 @@ describe('Agent Commands JSON Mode', () => {
     });
 
     describe('agent index → discover flow', () => {
-      it('should complete flow: agent index → select discover → get discovery result', () => {
+      it('should complete flow: agent index → select discover → get discovery result', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'Discover' choice
@@ -486,7 +501,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 2: Execute discover command (returns data, not prompt)
         const discoverCmd = execChoice(discoverChoice!);
-        const output = exec(discoverCmd);
+        const output = await execInProcess(discoverCmd);
 
         // Discover returns JSON with results
         const json = extractJson<{
@@ -509,9 +524,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('list-temp-1', 'ephemeral');
       });
 
-      it('should complete flow: agent list --machine → view staff agents in JSON data', () => {
+      it('should complete flow: agent list --machine → view staff agents in JSON data', async () => {
         // agent list --machine now returns all agents as JSON data directly
-        const output = exec('agent list --machine');
+        const output = await execInProcess('agent list --machine');
         const json = extractJson<{
           staff: Array<{ name: string; type: string }>;
           temp: Array<{ name: string; type: string }>;
@@ -523,9 +538,9 @@ describe('Agent Commands JSON Mode', () => {
         expect(json).to.not.have.property('all');
       });
 
-      it('should complete flow: agent list --type staff → view only staff agents', () => {
+      it('should complete flow: agent list --type staff → view only staff agents', async () => {
         // Use --type flag to filter directly
-        const result = exec('agent list --type staff');
+        const result = await execInProcess('agent list --type staff');
 
         // Should show staff agents section (or "no active staff agents" message)
         expect(result.toLowerCase()).to.satisfy((o: string) =>
@@ -533,9 +548,9 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should complete flow: agent list --type temp → view only temp agents', () => {
+      it('should complete flow: agent list --type temp → view only temp agents', async () => {
         // Use --type flag to filter directly
-        const result = exec('agent list --type temp');
+        const result = await execInProcess('agent list --type temp');
 
         // Should show temp agents section (or "no active temp agents" message)
         expect(result.toLowerCase()).to.satisfy((o: string) =>
@@ -549,9 +564,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('compat-agent', 'persistent');
       });
 
-      it('should complete flow with --json flag (legacy)', () => {
+      it('should complete flow with --json flag (legacy)', async () => {
         // Use --json instead of --machine
-        const step1 = agentExec('agent --json');
+        const step1 = await agentExecAsync('agent --json');
         expect(step1).to.exist;
         expect(step1!.prompt.type).to.equal('list');
 
@@ -561,7 +576,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Execute next step with --json - now returns JSON data directly (no prompt)
         const listCmd = execChoice(listChoice!);
-        const output = exec(listCmd);
+        const output = await execInProcess(listCmd);
 
         // agent list --json returns grouped JSON data
         const json = extractJson<{
@@ -580,9 +595,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('staff-flow-agent', 'persistent');
       });
 
-      it('should complete flow: agent index → staff → get submenu', () => {
+      it('should complete flow: agent index → staff → get submenu', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'staff' choice
@@ -591,7 +606,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(staffChoice!.command).to.include('agent staff');
 
         // Step 2: Execute staff command, get submenu
-        const step2 = agentExec(execChoice(staffChoice!));
+        const step2 = await agentExecAsync(execChoice(staffChoice!));
         expect(step2).to.exist;
         expect(step2!.prompt.type).to.equal('list');
         expect(step2!.prompt.name).to.equal('action');
@@ -603,9 +618,9 @@ describe('Agent Commands JSON Mode', () => {
         expect(listChoice!.command).to.include('--machine');
       });
 
-      it('should complete flow: agent index → staff → list → view staff agents', () => {
+      it('should complete flow: agent index → staff → list → view staff agents', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'staff' choice
@@ -613,7 +628,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(staffChoice).to.exist;
 
         // Step 2: Execute staff command, get submenu
-        const step2 = agentExec(execChoice(staffChoice!));
+        const step2 = await agentExecAsync(execChoice(staffChoice!));
         expect(step2).to.exist;
 
         // Find 'List' choice
@@ -622,7 +637,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 3: Execute list command (returns data, not prompt)
         const finalCmd = execChoice(listChoice!).replace(' --machine', '').replace(' --json', '');
-        const result = exec(finalCmd);
+        const result = await execInProcess(finalCmd);
 
         // Should show staff agents or summary
         expect(result.toLowerCase()).to.satisfy((o: string) =>
@@ -630,9 +645,9 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should complete flow: agent index → staff → remove → get agent selection', () => {
+      it('should complete flow: agent index → staff → remove → get agent selection', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'staff' choice
@@ -640,7 +655,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(staffChoice).to.exist;
 
         // Step 2: Execute staff command, get submenu
-        const step2 = agentExec(execChoice(staffChoice!));
+        const step2 = await agentExecAsync(execChoice(staffChoice!));
         expect(step2).to.exist;
 
         // Find 'Remove' choice
@@ -649,7 +664,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(removeChoice!.command).to.include('agent staff remove');
 
         // Step 3: Execute remove command, get agent selection prompt
-        const step3 = agentExec(execChoice(removeChoice!));
+        const step3 = await agentExecAsync(execChoice(removeChoice!));
         expect(step3).to.exist;
         expect(step3!.prompt.type).to.equal('list');
         expect(step3!.prompt.name).to.equal('name');
@@ -659,9 +674,9 @@ describe('Agent Commands JSON Mode', () => {
         expect(agentChoice).to.exist;
       });
 
-      it('should complete flow: staff remove → select agent → get confirmation prompt', () => {
+      it('should complete flow: staff remove → select agent → get confirmation prompt', async () => {
         // Step 1: Direct staff remove command
-        const step1 = agentExec('agent staff remove --machine');
+        const step1 = await agentExecAsync('agent staff remove --machine');
         expect(step1).to.exist;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('name');
@@ -672,7 +687,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 2: Select agent, get confirmation prompt
         // The command would be: agent staff remove staff-flow-agent --machine
-        const step2 = agentExec('agent staff remove staff-flow-agent --machine');
+        const step2 = await agentExecAsync('agent staff remove staff-flow-agent --machine');
         expect(step2).to.exist;
         expect(step2!.prompt.type).to.equal('list');
         expect(step2!.prompt.name).to.equal('confirmed');
@@ -693,9 +708,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('temp-flow-agent', 'ephemeral');
       });
 
-      it('should complete flow: agent index → cleanup → get agent checkbox', () => {
+      it('should complete flow: agent index → cleanup → get agent checkbox', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'cleanup' choice (cleanup is now a top-level action, not under temp submenu)
@@ -704,7 +719,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(cleanupChoice!.command).to.include('agent cleanup');
 
         // Step 2: Execute cleanup command, get agent checkbox prompt
-        const step2 = agentExec(execChoice(cleanupChoice!));
+        const step2 = await agentExecAsync(execChoice(cleanupChoice!));
         expect(step2).to.exist;
         expect(step2!.prompt.type).to.equal('checkbox');
         expect(step2!.prompt.name).to.equal('agents');
@@ -720,9 +735,9 @@ describe('Agent Commands JSON Mode', () => {
         expect(hasAllOption || hasTestAgent || step2!.prompt.choices!.length > 0).to.be.true;
       });
 
-      it('should complete flow: agent index → cleanup → view temp agents in list', () => {
+      it('should complete flow: agent index → cleanup → view temp agents in list', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'List' choice to view temp agents
@@ -731,7 +746,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 2: Execute list command - returns JSON data with temp agents
         const listCmd = execChoice(listChoice!);
-        const output = exec(listCmd);
+        const output = await execInProcess(listCmd);
 
         const json = extractJson<{
           temp: Array<{ name: string }>;
@@ -742,9 +757,9 @@ describe('Agent Commands JSON Mode', () => {
         expect(json.temp).to.be.an('array');
       });
 
-      it('should complete flow: direct cleanup with agent → get confirmation prompt', () => {
+      it('should complete flow: direct cleanup with agent → get confirmation prompt', async () => {
         // Direct cleanup with specific agent triggers the confirmation prompt
-        const step1 = agentExec('agent cleanup temp-flow-agent --machine');
+        const step1 = await agentExecAsync('agent cleanup temp-flow-agent --machine');
         expect(step1).to.exist;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('confirmed');
@@ -763,9 +778,9 @@ describe('Agent Commands JSON Mode', () => {
     });
 
     describe('agent index → themes submenu flow', () => {
-      it('should complete flow: agent index → themes → get submenu', () => {
+      it('should complete flow: agent index → themes → get submenu', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'themes' choice
@@ -774,7 +789,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(themesChoice!.command).to.include('agent themes');
 
         // Step 2: Execute themes command, get submenu
-        const step2 = agentExec(execChoice(themesChoice!));
+        const step2 = await agentExecAsync(execChoice(themesChoice!));
         expect(step2).to.exist;
         expect(step2!.prompt.type).to.equal('list');
         expect(step2!.prompt.name).to.equal('action');
@@ -785,9 +800,9 @@ describe('Agent Commands JSON Mode', () => {
         expect(listChoice!.command).to.include('themes list');
       });
 
-      it('should complete flow: agent index → themes → list → view themes', () => {
+      it('should complete flow: agent index → themes → list → view themes', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'themes' choice
@@ -795,7 +810,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(themesChoice).to.exist;
 
         // Step 2: Execute themes command, get submenu
-        const step2 = agentExec(execChoice(themesChoice!));
+        const step2 = await agentExecAsync(execChoice(themesChoice!));
         expect(step2).to.exist;
 
         // Find 'List' choice
@@ -804,7 +819,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 3: Execute list command (returns data, not prompt)
         const finalCmd = execChoice(listChoice!);
-        const result = exec(finalCmd);
+        const result = await execInProcess(finalCmd);
 
         // Should show themes list (built-in themes like billionaires, toyotas, companies)
         expect(result.toLowerCase()).to.satisfy((o: string) =>
@@ -818,9 +833,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('shell-flow-agent', 'persistent');
       });
 
-      it('should complete flow: agent index → shell → get agent selection', () => {
+      it('should complete flow: agent index → shell → get agent selection', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'shell' choice
@@ -829,7 +844,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(shellChoice!.command).to.include('agent shell');
 
         // Step 2: Execute shell command, get agent selection
-        const step2 = agentExec(execChoice(shellChoice!));
+        const step2 = await agentExecAsync(execChoice(shellChoice!));
         expect(step2).to.exist;
         expect(step2!.prompt.type).to.equal('list');
         expect(step2!.prompt.name).to.equal('selected');
@@ -841,10 +856,10 @@ describe('Agent Commands JSON Mode', () => {
         expect(agentChoice!.command).to.include('--machine');
       });
 
-      it('should complete flow: shell → select agent → get config selection prompt', () => {
+      it('should complete flow: shell → select agent → get config selection prompt', async () => {
         // Step 1: Direct shell command with agent name
         // In JSON mode, this shows the combined config prompt
-        const step1 = agentExec('agent shell shell-flow-agent --machine');
+        const step1 = await agentExecAsync('agent shell shell-flow-agent --machine');
         expect(step1).to.exist;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('config');
@@ -870,9 +885,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('restart-flow-agent', 'persistent');
       });
 
-      it('should complete flow: agent index → restart → get agent selection', () => {
+      it('should complete flow: agent index → restart → get agent selection', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'restart' choice
@@ -882,7 +897,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 2: Execute restart command
         // Note: This may fail with Docker error, but we verify the command path is correct
-        const output = exec(execChoice(restartChoice!));
+        const output = await execInProcess(execChoice(restartChoice!));
 
         // Either get agent selection prompt OR Docker not running error
         expect(output).to.satisfy((o: string) =>
@@ -899,9 +914,9 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('rebuild-flow-agent', 'persistent');
       });
 
-      it('should complete flow: agent index → rebuild → get agent selection', () => {
+      it('should complete flow: agent index → rebuild → get agent selection', async () => {
         // Step 1: Agent index menu
-        const step1 = agentExec('agent --machine');
+        const step1 = await agentExecAsync('agent --machine');
         expect(step1).to.exist;
 
         // Find 'rebuild' choice
@@ -911,7 +926,7 @@ describe('Agent Commands JSON Mode', () => {
 
         // Step 2: Execute rebuild command
         // Note: This may fail with Docker error, but we verify the command path is correct
-        const output = exec(execChoice(rebuildChoice!));
+        const output = await execInProcess(execChoice(rebuildChoice!));
 
         // Either get agent selection prompt OR Docker not running error
         expect(output).to.satisfy((o: string) =>
@@ -924,9 +939,9 @@ describe('Agent Commands JSON Mode', () => {
     });
 
     describe('agent staff add flow', () => {
-      it('should complete flow: agent staff → add → get name selection prompt', () => {
+      it('should complete flow: agent staff → add → get name selection prompt', async () => {
         // Step 1: Agent staff submenu
-        const step1 = agentExec('agent staff --machine');
+        const step1 = await agentExecAsync('agent staff --machine');
         expect(step1).to.exist;
         expect(step1!.prompt.type).to.equal('list');
 
@@ -936,7 +951,7 @@ describe('Agent Commands JSON Mode', () => {
         expect(addChoice!.command).to.include('agent staff add');
 
         // Step 2: Execute add command, get name selection prompt
-        const step2 = agentExec(execChoice(addChoice!));
+        const step2 = await agentExecAsync(execChoice(addChoice!));
         expect(step2).to.exist;
         // Could be 'list' (theme selection) or 'checkbox' (name selection from active theme)
         expect(['list', 'checkbox']).to.include(step2!.prompt.type);
@@ -946,9 +961,9 @@ describe('Agent Commands JSON Mode', () => {
         expect(step2!.prompt.choices!.length).to.be.greaterThan(0);
       });
 
-      it('should complete flow: direct agent staff add --machine', () => {
+      it('should complete flow: direct agent staff add --machine', async () => {
         // Direct command without going through menu
-        const result = agentExec('agent staff add --machine');
+        const result = await agentExecAsync('agent staff add --machine');
         expect(result).to.exist;
 
         // Should get theme/name selection prompt
@@ -959,9 +974,9 @@ describe('Agent Commands JSON Mode', () => {
     });
 
     describe('agent themes set flow', () => {
-      it('should complete flow: agent themes → set → get theme selection prompt', () => {
+      it('should complete flow: agent themes → set → get theme selection prompt', async () => {
         // Direct themes set command
-        const result = agentExec('agent themes set --machine');
+        const result = await agentExecAsync('agent themes set --machine');
         expect(result).to.exist;
         expect(result!.prompt.type).to.equal('list');
         expect(result!.prompt.name).to.equal('theme');
@@ -1013,8 +1028,8 @@ describe('Agent Commands JSON Mode', () => {
     }
 
     describe('agent auth flags', () => {
-      it('should support --machine flag', () => {
-        const output = exec('agent auth --machine');
+      it('should support --machine flag', async () => {
+        const output = await execInProcess('agent auth --machine');
 
         // Either Docker error or success/error response
         expect(output).to.satisfy((o: string) =>
@@ -1033,8 +1048,8 @@ describe('Agent Commands JSON Mode', () => {
         }
       });
 
-      it('should support --check flag with --machine', () => {
-        const output = exec('agent auth --check --machine');
+      it('should support --check flag with --machine', async () => {
+        const output = await execInProcess('agent auth --check --machine');
 
         // Either Docker error or check response
         expect(output).to.satisfy((o: string) =>
@@ -1044,8 +1059,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --json flag (legacy)', () => {
-        const output = exec('agent auth --json');
+      it('should support --json flag (legacy)', async () => {
+        const output = await execInProcess('agent auth --json');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Docker is not running') ||
@@ -1054,8 +1069,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support -m shorthand', () => {
-        const output = exec('agent auth -m');
+      it('should support -m shorthand', async () => {
+        const output = await execInProcess('agent auth -m');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Docker is not running') ||
@@ -1064,9 +1079,9 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should report INTERACTIVE_REQUIRED when trying to authenticate in JSON mode', () => {
+      it('should report INTERACTIVE_REQUIRED when trying to authenticate in JSON mode', async () => {
         // Force flag requires interactive, so should get error in JSON mode
-        const output = exec('agent auth --force --machine');
+        const output = await execInProcess('agent auth --force --machine');
 
         // Either Docker error or interactive required error
         expect(output).to.satisfy((o: string) =>
@@ -1081,8 +1096,8 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('rebuild-flag-agent', 'persistent');
       });
 
-      it('should support --no-cache flag', () => {
-        const output = exec('agent rebuild rebuild-flag-agent --no-cache --machine');
+      it('should support --no-cache flag', async () => {
+        const output = await execInProcess('agent rebuild rebuild-flag-agent --no-cache --machine');
 
         // Either Docker error or rebuild attempt
         expect(output).to.satisfy((o: string) =>
@@ -1092,9 +1107,9 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should accept --no-cache with agent selection prompt', () => {
+      it('should accept --no-cache with agent selection prompt', async () => {
         // Without agent name, should get selection prompt
-        const output = exec('agent rebuild --no-cache --machine');
+        const output = await execInProcess('agent rebuild --no-cache --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Docker is not running') ||
@@ -1109,8 +1124,8 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('login-flag-agent', 'persistent');
       });
 
-      it('should support --machine flag', () => {
-        const output = exec('agent login --machine 2>&1');
+      it('should support --machine flag', async () => {
+        const output = await execInProcess('agent login --machine 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1120,8 +1135,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --json flag (legacy)', () => {
-        const output = exec('agent login --json 2>&1');
+      it('should support --json flag (legacy)', async () => {
+        const output = await execInProcess('agent login --json 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1130,8 +1145,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support -m shorthand', () => {
-        const output = exec('agent login -m 2>&1');
+      it('should support -m shorthand', async () => {
+        const output = await execInProcess('agent login -m 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1140,8 +1155,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should accept agent name directly', () => {
-        const output = exec('agent login login-flag-agent 2>&1');
+      it('should accept agent name directly', async () => {
+        const output = await execInProcess('agent login login-flag-agent 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('login-flag-agent') ||
@@ -1151,8 +1166,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should accept agent name with --machine flag', () => {
-        const output = exec('agent login login-flag-agent --machine 2>&1');
+      it('should accept agent name with --machine flag', async () => {
+        const output = await execInProcess('agent login login-flag-agent --machine 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('login-flag-agent') ||
@@ -1162,8 +1177,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should error for non-existent agent', () => {
-        const output = exec('agent login nonexistent-login-xyz 2>&1');
+      it('should error for non-existent agent', async () => {
+        const output = await execInProcess('agent login nonexistent-login-xyz 2>&1');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') ||
@@ -1178,8 +1193,8 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('restart-flag-agent', 'persistent');
       });
 
-      it('should support --machine flag', () => {
-        const output = exec('agent restart --machine 2>&1');
+      it('should support --machine flag', async () => {
+        const output = await execInProcess('agent restart --machine 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1189,8 +1204,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --json flag (legacy)', () => {
-        const output = exec('agent restart --json 2>&1');
+      it('should support --json flag (legacy)', async () => {
+        const output = await execInProcess('agent restart --json 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1199,8 +1214,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support -m shorthand', () => {
-        const output = exec('agent restart -m 2>&1');
+      it('should support -m shorthand', async () => {
+        const output = await execInProcess('agent restart -m 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1209,8 +1224,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should accept agent name directly', () => {
-        const output = exec('agent restart restart-flag-agent 2>&1');
+      it('should accept agent name directly', async () => {
+        const output = await execInProcess('agent restart restart-flag-agent 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('restart-flag-agent') ||
@@ -1220,8 +1235,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should accept agent name with --machine flag', () => {
-        const output = exec('agent restart restart-flag-agent --machine 2>&1');
+      it('should accept agent name with --machine flag', async () => {
+        const output = await execInProcess('agent restart restart-flag-agent --machine 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('restart-flag-agent') ||
@@ -1231,8 +1246,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should error for non-existent agent', () => {
-        const output = exec('agent restart nonexistent-restart-xyz 2>&1');
+      it('should error for non-existent agent', async () => {
+        const output = await execInProcess('agent restart nonexistent-restart-xyz 2>&1');
 
         // Agent restart may attempt the restart (without pre-validation) or error
         expect(output.toLowerCase()).to.satisfy((o: string) =>
@@ -1245,9 +1260,9 @@ describe('Agent Commands JSON Mode', () => {
     });
 
     describe('agent staff add flags', () => {
-      it('should support --theme flag with name selection', () => {
+      it('should support --theme flag with name selection', async () => {
         // Using built-in theme
-        const result = agentExec('agent staff add --theme billionaires --machine');
+        const result = await agentExecAsync('agent staff add --theme billionaires --machine');
         expect(result).to.exist;
         expect(result!.prompt.type).to.equal('checkbox');
         expect(result!.prompt.name).to.equal('names');
@@ -1257,29 +1272,29 @@ describe('Agent Commands JSON Mode', () => {
         expect(result!.prompt.choices!.length).to.be.greaterThan(0);
       });
 
-      it('should support --theme flag with different themes', () => {
+      it('should support --theme flag with different themes', async () => {
         // Try toyotas theme
-        const result = agentExec('agent staff add --theme toyotas --machine');
+        const result = await agentExecAsync('agent staff add --theme toyotas --machine');
         expect(result).to.exist;
         expect(result!.prompt.type).to.equal('checkbox');
 
         // Try companies theme
-        const result2 = agentExec('agent staff add --theme companies --machine');
+        const result2 = await agentExecAsync('agent staff add --theme companies --machine');
         expect(result2).to.exist;
         expect(result2!.prompt.type).to.equal('checkbox');
       });
 
-      it('should error on invalid theme', () => {
-        const output = exec('agent staff add --theme nonexistent-theme --machine');
+      it('should error on invalid theme', async () => {
+        const output = await execInProcess('agent staff add --theme nonexistent-theme --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('THEME_NOT_FOUND')
         );
       });
 
-      it('should support --no-container flag', () => {
+      it('should support --no-container flag', async () => {
         // --no-container skips devcontainer setup
-        const result = agentExec('agent staff add --theme billionaires --no-container --machine');
+        const result = await agentExecAsync('agent staff add --theme billionaires --no-container --machine');
         expect(result).to.exist;
         expect(result!.prompt.type).to.equal('checkbox');
 
@@ -1287,9 +1302,9 @@ describe('Agent Commands JSON Mode', () => {
         expect(result!.metadata.flags['no-container']).to.equal(true);
       });
 
-      it('should support --clone flag', () => {
+      it('should support --clone flag', async () => {
         // --clone uses git clone instead of worktree
-        const result = agentExec('agent staff add --theme billionaires --clone --machine');
+        const result = await agentExecAsync('agent staff add --theme billionaires --clone --machine');
         expect(result).to.exist;
         expect(result!.prompt.type).to.equal('checkbox');
 
@@ -1297,8 +1312,8 @@ describe('Agent Commands JSON Mode', () => {
         expect(result!.metadata.flags.clone).to.equal(true);
       });
 
-      it('should support combined flags --theme --no-container --clone', () => {
-        const result = agentExec('agent staff add --theme toyotas --no-container --clone --machine');
+      it('should support combined flags --theme --no-container --clone', async () => {
+        const result = await agentExecAsync('agent staff add --theme toyotas --no-container --clone --machine');
         expect(result).to.exist;
         expect(result!.prompt.type).to.equal('checkbox');
 
@@ -1314,8 +1329,8 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('cleanup-temp-2', 'ephemeral');
       });
 
-      it('should support --temp flag (cleanup idle temp agents)', () => {
-        const output = exec('agent cleanup --temp --machine');
+      it('should support --temp flag (cleanup idle temp agents)', async () => {
+        const output = await execInProcess('agent cleanup --temp --machine');
 
         // Should either show confirmation prompt or no agents message
         expect(output).to.satisfy((o: string) =>
@@ -1326,8 +1341,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --all flag (cleanup all temp agents)', () => {
-        const output = exec('agent cleanup --all --machine');
+      it('should support --all flag (cleanup all temp agents)', async () => {
+        const output = await execInProcess('agent cleanup --all --machine');
 
         // Should either show confirmation prompt or no agents message
         expect(output).to.satisfy((o: string) =>
@@ -1337,8 +1352,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --dry-run flag (show what would be cleaned)', () => {
-        const output = exec('agent cleanup cleanup-temp-1 --dry-run --machine');
+      it('should support --dry-run flag (show what would be cleaned)', async () => {
+        const output = await execInProcess('agent cleanup cleanup-temp-1 --dry-run --machine');
 
         // Dry run should show results without prompting
         expect(output).to.satisfy((o: string) =>
@@ -1349,8 +1364,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --yes flag (skip confirmation)', () => {
-        const output = exec('agent cleanup cleanup-temp-1 --yes --machine');
+      it('should support --yes flag (skip confirmation)', async () => {
+        const output = await execInProcess('agent cleanup cleanup-temp-1 --yes --machine');
 
         // Should skip confirmation and proceed (or fail to find agent)
         expect(output).to.satisfy((o: string) =>
@@ -1361,8 +1376,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support -y shorthand for --yes', () => {
-        const output = exec('agent cleanup cleanup-temp-1 -y --machine');
+      it('should support -y shorthand for --yes', async () => {
+        const output = await execInProcess('agent cleanup cleanup-temp-1 -y --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"success"') ||
@@ -1372,8 +1387,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --force flag (force cleanup with uncommitted work)', () => {
-        const output = exec('agent cleanup cleanup-temp-1 --force --machine');
+      it('should support --force flag (force cleanup with uncommitted work)', async () => {
+        const output = await execInProcess('agent cleanup cleanup-temp-1 --force --machine');
 
         // Should proceed with force flag
         expect(output).to.satisfy((o: string) =>
@@ -1384,8 +1399,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support -f shorthand for --force', () => {
-        const output = exec('agent cleanup cleanup-temp-1 -f --machine');
+      it('should support -f shorthand for --force', async () => {
+        const output = await execInProcess('agent cleanup cleanup-temp-1 -f --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1395,8 +1410,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support combined flags --temp --dry-run', () => {
-        const output = exec('agent cleanup --temp --dry-run --machine');
+      it('should support combined flags --temp --dry-run', async () => {
+        const output = await execInProcess('agent cleanup --temp --dry-run --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"success"') ||
@@ -1405,8 +1420,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support combined flags --all --yes', () => {
-        const output = exec('agent cleanup --all --yes --machine');
+      it('should support combined flags --all --yes', async () => {
+        const output = await execInProcess('agent cleanup --all --yes --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"success"') ||
@@ -1415,8 +1430,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --push flag (push before cleanup)', () => {
-        const output = exec('agent cleanup cleanup-temp-1 --push --machine');
+      it('should support --push flag (push before cleanup)', async () => {
+        const output = await execInProcess('agent cleanup cleanup-temp-1 --push --machine');
 
         // Should either prompt for confirmation or handle the agent
         expect(output).to.satisfy((o: string) =>
@@ -1428,8 +1443,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support combined flags --push --yes', () => {
-        const output = exec('agent cleanup cleanup-temp-1 --push --yes --machine');
+      it('should support combined flags --push --yes', async () => {
+        const output = await execInProcess('agent cleanup cleanup-temp-1 --push --yes --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"success"') ||
@@ -1441,8 +1456,8 @@ describe('Agent Commands JSON Mode', () => {
     });
 
     describe('agent themes create flags', () => {
-      it('should support --description flag', () => {
-        const output = exec('agent themes create test-theme-1 --description "A test theme" 2>&1');
+      it('should support --description flag', async () => {
+        const output = await execInProcess('agent themes create test-theme-1 --description "A test theme" 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Created theme') ||
@@ -1451,8 +1466,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support -d shorthand for --description', () => {
-        const output = exec('agent themes create test-theme-2 -d "Another test theme" 2>&1');
+      it('should support -d shorthand for --description', async () => {
+        const output = await execInProcess('agent themes create test-theme-2 -d "Another test theme" 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Created theme') ||
@@ -1460,8 +1475,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --display-name flag', () => {
-        const output = exec('agent themes create test-theme-3 --display-name "Custom Display Name" 2>&1');
+      it('should support --display-name flag', async () => {
+        const output = await execInProcess('agent themes create test-theme-3 --display-name "Custom Display Name" 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Created theme') ||
@@ -1469,8 +1484,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support combined --description and --display-name flags', () => {
-        const output = exec('agent themes create test-theme-4 --display-name "Combined Test" --description "Testing both flags" 2>&1');
+      it('should support combined --description and --display-name flags', async () => {
+        const output = await execInProcess('agent themes create test-theme-4 --display-name "Combined Test" --description "Testing both flags" 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Created theme') ||
@@ -1480,12 +1495,12 @@ describe('Agent Commands JSON Mode', () => {
     });
 
     describe('agent themes add-names', () => {
-      it('should add names to an existing theme', () => {
+      it('should add names to an existing theme', async () => {
         // First create a theme
-        exec('agent themes create test-add-theme --description "Test theme for add-names" 2>&1');
+        await execInProcess('agent themes create test-add-theme --description "Test theme for add-names" 2>&1');
 
         // Then add names to it
-        const output = exec('agent themes add-names test-add-theme hero-1 hero-2 hero-3 2>&1');
+        const output = await execInProcess('agent themes add-names test-add-theme hero-1 hero-2 hero-3 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Added') ||
@@ -1494,12 +1509,12 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should normalize agent names', () => {
+      it('should normalize agent names', async () => {
         // Create theme first
-        exec('agent themes create test-normalize-theme 2>&1');
+        await execInProcess('agent themes create test-normalize-theme 2>&1');
 
         // Add names with mixed case (should be normalized)
-        const output = exec('agent themes add-names test-normalize-theme MyAgent UPPER-CASE 2>&1');
+        const output = await execInProcess('agent themes add-names test-normalize-theme MyAgent UPPER-CASE 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Added') ||
@@ -1509,8 +1524,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should error on non-existent theme', () => {
-        const output = exec('agent themes add-names nonexistent-theme name1 name2 2>&1');
+      it('should error on non-existent theme', async () => {
+        const output = await execInProcess('agent themes add-names nonexistent-theme name1 name2 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('not found') ||
@@ -1518,11 +1533,11 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should error when no names provided', () => {
+      it('should error when no names provided', async () => {
         // Create theme first
-        exec('agent themes create test-empty-theme 2>&1');
+        await execInProcess('agent themes create test-empty-theme 2>&1');
 
-        const output = exec('agent themes add-names test-empty-theme 2>&1');
+        const output = await execInProcess('agent themes add-names test-empty-theme 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('provide') ||
@@ -1538,24 +1553,24 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('list-temp', 'ephemeral');
       });
 
-      it('should support --type staff flag', () => {
-        const output = exec('agent list --type staff');
+      it('should support --type staff flag', async () => {
+        const output = await execInProcess('agent list --type staff');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('staff') || o.includes('no active')
         );
       });
 
-      it('should support --type temp flag', () => {
-        const output = exec('agent list --type temp');
+      it('should support --type temp flag', async () => {
+        const output = await execInProcess('agent list --type temp');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('temp') || o.includes('temporary') || o.includes('no active')
         );
       });
 
-      it('should support --type all flag', () => {
-        const output = exec('agent list --type all');
+      it('should support --type all flag', async () => {
+        const output = await execInProcess('agent list --type all');
 
         // Should show summary or agents
         expect(output.toLowerCase()).to.satisfy((o: string) =>
@@ -1563,16 +1578,16 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --type flag with --machine', () => {
+      it('should support --type flag with --machine', async () => {
         // With --type specified, should bypass prompt and show results
-        const output = exec('agent list --type staff --machine');
+        const output = await execInProcess('agent list --type staff --machine');
 
         // No prompt expected when type is specified
         expect(output).to.not.include('"prompt"');
       });
 
-      it('should support -t shorthand for --type', () => {
-        const output = exec('agent list -t staff');
+      it('should support -t shorthand for --type', async () => {
+        const output = await execInProcess('agent list -t staff');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('staff') || o.includes('no active')
@@ -1585,29 +1600,29 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('direct-status-agent', 'persistent');
       });
 
-      it('should show status when agent name is provided directly', () => {
-        const output = exec('agent status direct-status-agent');
+      it('should show status when agent name is provided directly', async () => {
+        const output = await execInProcess('agent status direct-status-agent');
 
         expect(output).to.include('direct-status-agent');
       });
 
-      it('should show status with --machine flag and agent name', () => {
-        const output = exec('agent status direct-status-agent --machine');
+      it('should show status with --machine flag and agent name', async () => {
+        const output = await execInProcess('agent status direct-status-agent --machine');
 
         // Should return data, not prompt (agent name bypasses selection)
         expect(output).to.include('direct-status-agent');
       });
 
-      it('should error for non-existent agent', () => {
-        const output = exec('agent status nonexistent-agent-xyz 2>&1');
+      it('should error for non-existent agent', async () => {
+        const output = await execInProcess('agent status nonexistent-agent-xyz 2>&1');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('error') || o.includes('no agent')
         );
       });
 
-      it('should error for non-existent agent with --machine', () => {
-        const output = exec('agent status nonexistent-agent-xyz --machine 2>&1');
+      it('should error for non-existent agent with --machine', async () => {
+        const output = await execInProcess('agent status nonexistent-agent-xyz --machine 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('AGENT_NOT_FOUND') ||
@@ -1622,29 +1637,29 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('direct-visit-agent', 'persistent');
       });
 
-      it('should show path when agent name is provided directly', () => {
-        const output = exec('agent visit direct-visit-agent');
+      it('should show path when agent name is provided directly', async () => {
+        const output = await execInProcess('agent visit direct-visit-agent');
 
         expect(output).to.include('direct-visit-agent');
         expect(output).to.include('cd');
       });
 
-      it('should show path with --machine flag and agent name', () => {
-        const output = exec('agent visit direct-visit-agent --machine');
+      it('should show path with --machine flag and agent name', async () => {
+        const output = await execInProcess('agent visit direct-visit-agent --machine');
 
         expect(output).to.include('direct-visit-agent');
       });
 
-      it('should error for non-existent agent', () => {
-        const output = exec('agent visit nonexistent-visit-xyz 2>&1');
+      it('should error for non-existent agent', async () => {
+        const output = await execInProcess('agent visit nonexistent-visit-xyz 2>&1');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('error')
         );
       });
 
-      it('should error for non-existent agent with --machine', () => {
-        const output = exec('agent visit nonexistent-visit-xyz --machine 2>&1');
+      it('should error for non-existent agent with --machine', async () => {
+        const output = await execInProcess('agent visit nonexistent-visit-xyz --machine 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('AGENT_NOT_FOUND') ||
@@ -1659,8 +1674,8 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('direct-shell-agent', 'persistent');
       });
 
-      it('should attempt shell when agent name is provided', () => {
-        const output = exec('agent shell direct-shell-agent 2>&1');
+      it('should attempt shell when agent name is provided', async () => {
+        const output = await execInProcess('agent shell direct-shell-agent 2>&1');
 
         // May fail with Docker/tmux error but should attempt
         expect(output).to.satisfy((o: string) =>
@@ -1671,8 +1686,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should accept --machine flag with agent name', () => {
-        const output = exec('agent shell direct-shell-agent --machine 2>&1');
+      it('should accept --machine flag with agent name', async () => {
+        const output = await execInProcess('agent shell direct-shell-agent --machine 2>&1');
 
         // Could return prompt for config selection, error, or Docker message
         // When agent name is provided, shell command shows config selection in JSON mode
@@ -1686,8 +1701,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should error for non-existent agent', () => {
-        const output = exec('agent shell nonexistent-shell-xyz 2>&1');
+      it('should error for non-existent agent', async () => {
+        const output = await execInProcess('agent shell nonexistent-shell-xyz 2>&1');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('error') || o.includes('docker')
@@ -1701,8 +1716,8 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('remove-agent-2', 'persistent');
       });
 
-      it('should prompt for confirmation when agent name provided', () => {
-        const output = exec('agent staff remove remove-agent-1 --machine 2>&1');
+      it('should prompt for confirmation when agent name provided', async () => {
+        const output = await execInProcess('agent staff remove remove-agent-1 --machine 2>&1');
 
         // Should get confirmation prompt, agent not found, or no agents error
         expect(output).to.satisfy((o: string) =>
@@ -1716,8 +1731,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --force flag to skip confirmation', () => {
-        const output = exec('agent staff remove remove-agent-1 --force 2>&1');
+      it('should support --force flag to skip confirmation', async () => {
+        const output = await execInProcess('agent staff remove remove-agent-1 --force 2>&1');
 
         // Should proceed without confirmation (may fail due to Docker, no real agents, or return JSON error)
         expect(output).to.satisfy((o: string) =>
@@ -1731,8 +1746,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support -f shorthand for --force', () => {
-        const output = exec('agent staff remove remove-agent-2 -f 2>&1');
+      it('should support -f shorthand for --force', async () => {
+        const output = await execInProcess('agent staff remove remove-agent-2 -f 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Removing') ||
@@ -1745,16 +1760,16 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should error for non-existent agent', () => {
-        const output = exec('agent staff remove nonexistent-remove-xyz --force 2>&1');
+      it('should error for non-existent agent', async () => {
+        const output = await execInProcess('agent staff remove nonexistent-remove-xyz --force 2>&1');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('error') || o.includes('no staff agents')
         );
       });
 
-      it('should error for non-existent agent with --machine', () => {
-        const output = exec('agent staff remove nonexistent-remove-xyz --machine 2>&1');
+      it('should error for non-existent agent with --machine', async () => {
+        const output = await execInProcess('agent staff remove nonexistent-remove-xyz --machine 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('AGENT_NOT_FOUND') ||
@@ -1765,8 +1780,8 @@ describe('Agent Commands JSON Mode', () => {
     });
 
     describe('agent staff add with direct agent names', () => {
-      it('should accept direct agent name argument', () => {
-        const output = exec('agent staff add test-direct-agent 2>&1');
+      it('should accept direct agent name argument', async () => {
+        const output = await execInProcess('agent staff add test-direct-agent 2>&1');
 
         // Should attempt to add agent (may fail due to Docker/workspace setup)
         expect(output).to.satisfy((o: string) =>
@@ -1778,8 +1793,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should accept multiple agent names', () => {
-        const output = exec('agent staff add agent-a agent-b 2>&1');
+      it('should accept multiple agent names', async () => {
+        const output = await execInProcess('agent staff add agent-a agent-b 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Adding') ||
@@ -1790,8 +1805,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --no-container flag', () => {
-        const output = exec('agent staff add no-container-agent --no-container 2>&1');
+      it('should support --no-container flag', async () => {
+        const output = await execInProcess('agent staff add no-container-agent --no-container 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Adding') ||
@@ -1801,8 +1816,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support --clone flag', () => {
-        const output = exec('agent staff add clone-agent --clone 2>&1');
+      it('should support --clone flag', async () => {
+        const output = await execInProcess('agent staff add clone-agent --clone 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Adding') ||
@@ -1812,8 +1827,8 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should support combined --theme and --no-container flags', () => {
-        const output = exec('agent staff add --theme billionaires --no-container --machine 2>&1');
+      it('should support combined --theme and --no-container flags', async () => {
+        const output = await execInProcess('agent staff add --theme billionaires --no-container --machine 2>&1');
 
         // Should get name selection from theme or error
         expect(output).to.satisfy((o: string) =>
@@ -1832,8 +1847,8 @@ describe('Agent Commands JSON Mode', () => {
         createTestAgent('error-test-agent', 'persistent');
       });
 
-      it('should handle empty agent list gracefully', () => {
-        const output = exec('agent list --type staff 2>&1');
+      it('should handle empty agent list gracefully', async () => {
+        const output = await execInProcess('agent list --type staff 2>&1');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('no active') ||
@@ -1844,17 +1859,17 @@ describe('Agent Commands JSON Mode', () => {
         );
       });
 
-      it('should handle invalid command gracefully', () => {
-        const output = exec('agent invalidsubcommand 2>&1');
+      it('should handle invalid command gracefully', async () => {
+        const output = await execInProcess('agent invalidsubcommand 2>&1');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('error') || o.includes('not') || o.includes('unknown') || o.includes('help')
         );
       });
 
-      it('should handle missing required arguments', () => {
+      it('should handle missing required arguments', async () => {
         // themes create requires NAME
-        const output = exec('agent themes create 2>&1');
+        const output = await execInProcess('agent themes create 2>&1');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Missing') ||

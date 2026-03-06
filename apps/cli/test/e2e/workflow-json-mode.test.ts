@@ -6,7 +6,7 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  exec,
+  execInProcess,
   setupProductionSchema,
   createTestProject,
   createTestWorkflow,
@@ -76,8 +76,8 @@ describe('Workflow Commands JSON Mode', () => {
   // - createTestTicket(db, projectId, { id, title, status, statusId })
 
   describe('workflow list --machine', () => {
-    it('should output valid JSON with --machine flag', () => {
-      const output = exec('workflow list --machine');
+    it('should output valid JSON with --machine flag', async () => {
+      const output = await execInProcess('workflow list --machine');
       const json = extractJson<Array<{ id: string; name: string; isBuiltin: boolean }>>(output);
 
       expect(json).to.be.an('array');
@@ -87,24 +87,24 @@ describe('Workflow Commands JSON Mode', () => {
       expect(json[0]).to.have.property('isBuiltin');
     });
 
-    it('should output valid JSON with --json flag (legacy)', () => {
-      const output = exec('workflow list --json');
+    it('should output valid JSON with --json flag (legacy)', async () => {
+      const output = await execInProcess('workflow list --json');
       const json = extractJson<Array<{ id: string; name: string }>>(output);
 
       expect(json).to.be.an('array');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('workflow list -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('workflow list -m');
       const json = extractJson<Array<{ id: string; name: string }>>(output);
 
       expect(json).to.be.an('array');
     });
 
-    it('should filter to builtin workflows with --builtin flag', () => {
+    it('should filter to builtin workflows with --builtin flag', async () => {
       createTestWorkflow(db, { id: 'custom-wf', name: 'Custom Workflow' });
 
-      const output = exec('workflow list --builtin --machine');
+      const output = await execInProcess('workflow list --builtin --machine');
       const json = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
 
       expect(json).to.be.an('array');
@@ -113,10 +113,10 @@ describe('Workflow Commands JSON Mode', () => {
       }
     });
 
-    it('should filter to custom workflows with --custom flag', () => {
+    it('should filter to custom workflows with --custom flag', async () => {
       createTestWorkflow(db, { id: 'custom-wf', name: 'Custom Workflow' });
 
-      const output = exec('workflow list --custom --machine');
+      const output = await execInProcess('workflow list --custom --machine');
       const json = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
 
       expect(json).to.be.an('array');
@@ -125,9 +125,9 @@ describe('Workflow Commands JSON Mode', () => {
       }
     });
 
-    it('should produce same structure with --machine and --json', () => {
-      const jsonOutput = exec('workflow list --json');
-      const machineOutput = exec('workflow list --machine');
+    it('should produce same structure with --machine and --json', async () => {
+      const jsonOutput = await execInProcess('workflow list --json');
+      const machineOutput = await execInProcess('workflow list --machine');
 
       const jsonResult = extractJson<Array<{ id: string }>>(jsonOutput);
       const machineResult = extractJson<Array<{ id: string }>>(machineOutput);
@@ -137,8 +137,8 @@ describe('Workflow Commands JSON Mode', () => {
   });
 
   describe('workflow view --machine', () => {
-    it('should output workflow details when ID provided', () => {
-      const output = exec('workflow view default --machine');
+    it('should output workflow details when ID provided', async () => {
+      const output = await execInProcess('workflow view default --machine');
       const json = extractJson<{
         workflow: { id: string; name: string; isBuiltin: boolean };
         statuses: Array<{ id: string; name: string; category: string }>;
@@ -150,8 +150,8 @@ describe('Workflow Commands JSON Mode', () => {
       expect(json.statuses).to.be.an('array');
     });
 
-    it('should output selection prompt when ID not provided', () => {
-      const output = exec('workflow view --machine');
+    it('should output selection prompt when ID not provided', async () => {
+      const output = await execInProcess('workflow view --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -163,8 +163,8 @@ describe('Workflow Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include command field in choices for flag accumulation', () => {
-      const output = exec('workflow view --machine');
+    it('should include command field in choices for flag accumulation', async () => {
+      const output = await execInProcess('workflow view --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string }> };
       }>(output);
@@ -176,8 +176,8 @@ describe('Workflow Commands JSON Mode', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('workflow view -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('workflow view -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
@@ -186,8 +186,8 @@ describe('Workflow Commands JSON Mode', () => {
   });
 
   describe('workflow create --machine', () => {
-    it('should output form prompt when name not provided', () => {
-      const output = exec('workflow create --machine');
+    it('should output form prompt when name not provided', async () => {
+      const output = await execInProcess('workflow create --machine');
       const json = extractJson<{
         prompt: { type: string; fields?: Array<{ name: string; type: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -199,16 +199,16 @@ describe('Workflow Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('workflow create -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('workflow create -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should create workflow when all flags provided', () => {
-      const output = exec('workflow create "New Workflow" --description "Test workflow"');
+    it('should create workflow when all flags provided', async () => {
+      const output = await execInProcess('workflow create "New Workflow" --description "Test workflow"');
 
       expect(output).to.include('Created workflow');
       expect(output).to.include('New Workflow');
@@ -218,8 +218,8 @@ describe('Workflow Commands JSON Mode', () => {
       expect(wf).to.exist;
     });
 
-    it('should create workflow with statuses when --statuses provided', () => {
-      const output = exec('workflow create "Statused Workflow" --statuses "Todo,Doing,Done"');
+    it('should create workflow with statuses when --statuses provided', async () => {
+      const output = await execInProcess('workflow create "Statused Workflow" --statuses "Todo,Doing,Done"');
 
       expect(output).to.include('Created workflow');
 
@@ -237,8 +237,8 @@ describe('Workflow Commands JSON Mode', () => {
       addTestWorkflowStatus(db, 'deletable-wf', { id: 'del-done', name: 'Done', category: 'completed', position: 1 });
     });
 
-    it('should output selection prompt when ID not provided', () => {
-      const output = exec('workflow delete --machine');
+    it('should output selection prompt when ID not provided', async () => {
+      const output = await execInProcess('workflow delete --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -254,8 +254,8 @@ describe('Workflow Commands JSON Mode', () => {
       expect(deletableChoice).to.exist;
     });
 
-    it('should output confirmation prompt when ID provided', () => {
-      const output = exec('workflow delete deletable-wf --machine');
+    it('should output confirmation prompt when ID provided', async () => {
+      const output = await execInProcess('workflow delete deletable-wf --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { flags: { machine: boolean } };
@@ -266,8 +266,8 @@ describe('Workflow Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include force flag in Yes choice command', () => {
-      const output = exec('workflow delete deletable-wf --machine');
+    it('should include force flag in Yes choice command', async () => {
+      const output = await execInProcess('workflow delete deletable-wf --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command?: string; value: unknown }> };
       }>(output);
@@ -278,16 +278,16 @@ describe('Workflow Commands JSON Mode', () => {
       expect(yesChoice!.command).to.include('--json');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('workflow delete -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('workflow delete -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should delete workflow when --force provided', () => {
-      const output = exec('workflow delete deletable-wf --force');
+    it('should delete workflow when --force provided', async () => {
+      const output = await execInProcess('workflow delete deletable-wf --force');
 
       expect(output).to.include('Deleted workflow');
       expect(output).to.include('Deletable Workflow');
@@ -297,15 +297,15 @@ describe('Workflow Commands JSON Mode', () => {
       expect(wf).to.be.undefined;
     });
 
-    it('should reject deletion of built-in workflows', () => {
-      const output = exec('workflow delete default --force');
+    it('should reject deletion of built-in workflows', async () => {
+      const output = await execInProcess('workflow delete default --force');
       expect(output.toLowerCase()).to.include('cannot delete');
     });
 
-    it('should reject deletion of workflow in use by project', () => {
+    it('should reject deletion of workflow in use by project', async () => {
       db.prepare(`UPDATE pmo_projects SET workflow_id = 'deletable-wf' WHERE id = 'test-project'`).run();
 
-      const output = exec('workflow delete deletable-wf --force');
+      const output = await execInProcess('workflow delete deletable-wf --force');
       expect(output.toLowerCase()).to.match(/used by|in use|test.project/i);
     });
   });
@@ -322,8 +322,8 @@ describe('Workflow Commands JSON Mode', () => {
       createTestTicket(db, 'test-project', { id: 'TKT-SWITCH-BASIC', title: 'Switch Test Ticket', status: 'Backlog', statusId: 'default-backlog' });
     });
 
-    it('should output workflow selection prompt when workflow not provided', () => {
-      const output = exec('workflow switch -P test-project --machine');
+    it('should output workflow selection prompt when workflow not provided', async () => {
+      const output = await execInProcess('workflow switch -P test-project --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -335,8 +335,8 @@ describe('Workflow Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include project flag in choices for flag accumulation', () => {
-      const output = exec('workflow switch -P test-project --machine');
+    it('should include project flag in choices for flag accumulation', async () => {
+      const output = await execInProcess('workflow switch -P test-project --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string }> };
       }>(output);
@@ -349,16 +349,16 @@ describe('Workflow Commands JSON Mode', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('workflow switch -P test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('workflow switch -P test-project -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should switch workflow when --force provided', () => {
-      const output = exec('workflow switch test-kanban-wf -P test-project --force');
+    it('should switch workflow when --force provided', async () => {
+      const output = await execInProcess('workflow switch test-kanban-wf -P test-project --force');
 
       expect(output).to.include('Switched');
       expect(output).to.include('Test Kanban');
@@ -368,9 +368,9 @@ describe('Workflow Commands JSON Mode', () => {
       expect(project.workflow_id).to.equal('test-kanban-wf');
     });
 
-    it('should prompt for confirmation when project has tickets', () => {
+    it('should prompt for confirmation when project has tickets', async () => {
       // Ticket already added in beforeEach
-      const output = exec('workflow switch test-kanban-wf -P test-project --machine');
+      const output = await execInProcess('workflow switch test-kanban-wf -P test-project --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; choices: Array<{ name: string; value: unknown; command?: string }> };
       }>(output);
@@ -410,8 +410,8 @@ describe('Workflow Commands JSON Mode', () => {
       };
     }
 
-    function agentExec(cmd: string): AgentPrompt {
-      const output = exec(cmd);
+    async function agentExec(cmd: string): Promise<AgentPrompt> {
+      const output = await execInProcess(cmd);
       return extractJson<AgentPrompt>(output);
     }
 
@@ -438,8 +438,8 @@ describe('Workflow Commands JSON Mode', () => {
     /**
      * Helper to execute final command (strips --json/--machine flags)
      */
-    function execFinal(cmd: string): string {
-      return exec(cmd.replace(' --json', '').replace(' --machine', ''));
+    async function execFinal(cmd: string): Promise<string> {
+      return await execInProcess(cmd.replace(' --json', '').replace(' --machine', ''));
     }
 
     describe('workflow list - agent data retrieval', () => {
@@ -448,8 +448,8 @@ describe('Workflow Commands JSON Mode', () => {
         createTestWorkflow(db, { id: 'agent-wf-2', name: 'Agent Workflow Two' });
       });
 
-      it('should return all workflows as JSON array for agent processing', () => {
-        const output = exec('workflow list --machine');
+      it('should return all workflows as JSON array for agent processing', async () => {
+        const output = await execInProcess('workflow list --machine');
         const workflows = extractJson<Array<{ id: string; name: string; isBuiltin: boolean }>>(output);
 
         expect(workflows).to.be.an('array');
@@ -461,8 +461,8 @@ describe('Workflow Commands JSON Mode', () => {
         expect(customWf!.isBuiltin).to.equal(false);
       });
 
-      it('should filter workflows by type for agent', () => {
-        const output = exec('workflow list --custom --machine');
+      it('should filter workflows by type for agent', async () => {
+        const output = await execInProcess('workflow list --custom --machine');
         const workflows = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
 
         // All returned workflows should be custom
@@ -491,8 +491,8 @@ describe('Workflow Commands JSON Mode', () => {
         expect(result).to.include('Default');
       });
 
-      it('should complete flow with workflow ID provided directly', () => {
-        const output = exec('workflow view default --machine');
+      it('should complete flow with workflow ID provided directly', async () => {
+        const output = await execInProcess('workflow view default --machine');
         const json = extractJson<{ workflow: { id: string; name: string } }>(output);
 
         expect(json.workflow.id).to.equal('default');
@@ -501,14 +501,14 @@ describe('Workflow Commands JSON Mode', () => {
     });
 
     describe('workflow create - full agent flow', () => {
-      it('should complete flow: form prompt → provide flags → workflow created', () => {
+      it('should complete flow: form prompt → provide flags → workflow created', async () => {
         // Agent Step 1: No name provided, get form prompt
         const step1 = agentExec('workflow create --machine');
         expect(step1.prompt.type).to.equal('form');
         expect(step1.prompt.fields).to.be.an('array');
 
         // Agent Step 2: Provide required fields via flags
-        const result = exec('workflow create "Agent Created Workflow" --description "Created by agent"');
+        const result = await execInProcess('workflow create "Agent Created Workflow" --description "Created by agent"');
 
         // Verify workflow was created
         expect(result).to.include('Created workflow');
@@ -519,9 +519,9 @@ describe('Workflow Commands JSON Mode', () => {
         expect(wf).to.exist;
       });
 
-      it('should complete flow with all flags provided directly', () => {
+      it('should complete flow with all flags provided directly', async () => {
         // Agent provides all required flags - no prompts needed
-        const result = exec('workflow create "Direct Workflow" --description "No prompts" --statuses "New,Active,Done"');
+        const result = await execInProcess('workflow create "Direct Workflow" --description "No prompts" --statuses "New,Active,Done"');
 
         expect(result).to.include('Created workflow');
         expect(result).to.include('Direct Workflow');
@@ -571,9 +571,9 @@ describe('Workflow Commands JSON Mode', () => {
         expect(wf).to.be.undefined;
       });
 
-      it('should complete flow with --force flag (skip confirmation)', () => {
+      it('should complete flow with --force flag (skip confirmation)', async () => {
         // Agent uses --force to skip confirmation prompt
-        const result = exec('workflow delete delete-flow-wf --force');
+        const result = await execInProcess('workflow delete delete-flow-wf --force');
 
         expect(result).to.include('Deleted workflow');
 
@@ -628,9 +628,9 @@ describe('Workflow Commands JSON Mode', () => {
         expect(project.workflow_id).to.equal('switch-target-wf');
       });
 
-      it('should complete flow with workflow ID and --force provided directly', () => {
+      it('should complete flow with workflow ID and --force provided directly', async () => {
         // Agent provides workflow ID and --force - no prompts needed
-        const result = exec('workflow switch switch-target-wf -P test-project --force');
+        const result = await execInProcess('workflow switch switch-target-wf -P test-project --force');
 
         expect(result).to.include('Switched');
         expect(result).to.include('Switch Target');

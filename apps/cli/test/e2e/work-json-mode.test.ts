@@ -28,8 +28,8 @@ function extractJson<T>(output: string): T {
  * Setup test database with all tables required for work commands.
  * Includes: workflows, projects, tickets, columns, agent_work, actions, settings.
  */
-function setupTestDatabase(db: Database.Database, pmoPath: string): void {
-  db.exec(`
+async function setupTestDatabase(db: Database.Database, pmoPath: string): Promise<void> {
+  db.await execInProcess(`
     CREATE TABLE IF NOT EXISTS pmo_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -1173,8 +1173,8 @@ describe('Work Commands JSON Mode', () => {
 
     it('work spawn: should output error JSON when no tickets exist', async () => {
       // Remove all tickets by creating empty project scenario
-      db.exec('DELETE FROM pmo_board_tickets');
-      db.exec('DELETE FROM pmo_tickets');
+      db.await execInProcess('DELETE FROM pmo_board_tickets');
+      db.await execInProcess('DELETE FROM pmo_tickets');
 
       const output = await execInProcess('work spawn -P test-project --json');
       const json = extractJson<{
