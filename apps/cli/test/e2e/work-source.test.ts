@@ -9,7 +9,7 @@ import {
   addWorkspaceTables,
   createTestProject,
   createTestTicket,
-  execProduction as exec,
+  execInProcess,
   extractJson,
   type TestEnvironment,
 } from './test-helpers.js'
@@ -53,8 +53,8 @@ describe('work source', () => {
     cleanupTestEnvironment(env)
   })
 
-  it('shows current active source and provider context', () => {
-    const output = exec('work source --json')
+  it('shows current active source and provider context', async () => {
+    const output = await execInProcess('work source --json')
     const json = extractJson<JsonOutput>(output)
 
     expect(json).to.not.equal(null)
@@ -63,8 +63,8 @@ describe('work source', () => {
     expect(json!.result?.registeredSources?.map((source) => source.ref)).to.deep.equal(['pmo'])
   })
 
-  it('persists active source with provider context', () => {
-    const setOutput = exec('work source set linear:PRO --json')
+  it('persists active source with provider context', async () => {
+    const setOutput = await execInProcess('work source set linear:PRO --json')
     const setJson = extractJson<JsonOutput>(setOutput)
     expect(setJson).to.not.equal(null)
     expect(setJson!.type).to.equal('success')
@@ -79,10 +79,10 @@ describe('work source', () => {
     expect(row?.value).to.equal('linear:PRO')
   })
 
-  it('uses persisted active source in work spawn when --from is omitted', () => {
-    exec('work source set linear:PRO --json')
+  it('uses persisted active source in work spawn when --from is omitted', async () => {
+    await execInProcess('work source set linear:PRO --json')
 
-    const output = exec('work spawn -P test-project --json')
+    const output = await execInProcess('work spawn -P test-project --json')
     const json = extractJson<JsonOutput>(output)
 
     expect(json).to.not.equal(null)
@@ -90,17 +90,17 @@ describe('work source', () => {
     expect(json!.error?.code).to.equal('LINEAR_NOT_CONFIGURED')
   })
 
-  it('work spawn --from overrides persisted active source', () => {
-    exec('work source set linear:PRO --json')
+  it('work spawn --from overrides persisted active source', async () => {
+    await execInProcess('work source set linear:PRO --json')
 
-    const output = exec('work spawn TKT-020 -P test-project --from pmo --json')
+    const output = await execInProcess('work spawn TKT-020 -P test-project --from pmo --json')
     const json = extractJson<JsonOutput>(output)
 
     expect(json).to.not.equal(null)
     expect(json!.type).to.not.equal('error')
   })
 
-  it('prompts for source selection when multiple sources are registered and no active source exists', () => {
+  it('prompts for source selection when multiple sources are registered and no active source exists', async () => {
     db.prepare(`
       INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('linear.api_key', 'lin_api_test')
     `).run()
@@ -108,7 +108,7 @@ describe('work source', () => {
       INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('linear.default_team_key', 'PRO')
     `).run()
 
-    const output = exec('work spawn -P test-project --json')
+    const output = await execInProcess('work spawn -P test-project --json')
     const json = extractJson<JsonOutput>(output)
 
     expect(json).to.not.equal(null)
@@ -120,8 +120,8 @@ describe('work source', () => {
   })
 
   // Jira source registration tests
-  it('persists jira as active source with project context', () => {
-    const setOutput = exec('work source set jira:PROJ --json')
+  it('persists jira as active source with project context', async () => {
+    const setOutput = await execInProcess('work source set jira:PROJ --json')
     const setJson = extractJson<JsonOutput>(setOutput)
     expect(setJson).to.not.equal(null)
     expect(setJson!.type).to.equal('success')
@@ -136,7 +136,7 @@ describe('work source', () => {
     expect(row?.value).to.equal('jira:PROJ')
   })
 
-  it('registers Jira as source when configured', () => {
+  it('registers Jira as source when configured', async () => {
     // Configure Jira credentials
     db.prepare(`
       INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('jira.base_url', 'https://test.atlassian.net')
@@ -148,7 +148,7 @@ describe('work source', () => {
       INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('jira.project_key', 'PROJ')
     `).run()
 
-    const output = exec('work source --json')
+    const output = await execInProcess('work source --json')
     const json = extractJson<JsonOutput>(output)
 
     expect(json).to.not.equal(null)
@@ -158,10 +158,10 @@ describe('work source', () => {
     expect(providers).to.include('jira')
   })
 
-  it('uses persisted jira active source in work spawn when --from is omitted', () => {
-    exec('work source set jira:PROJ --json')
+  it('uses persisted jira active source in work spawn when --from is omitted', async () => {
+    await execInProcess('work source set jira:PROJ --json')
 
-    const output = exec('work spawn -P test-project --json')
+    const output = await execInProcess('work spawn -P test-project --json')
     const json = extractJson<JsonOutput>(output)
 
     expect(json).to.not.equal(null)
@@ -169,7 +169,7 @@ describe('work source', () => {
     expect(json!.error?.code).to.equal('JIRA_NOT_CONFIGURED')
   })
 
-  it('prompts for source when linear and jira are both registered and no active source', () => {
+  it('prompts for source when linear and jira are both registered and no active source', async () => {
     // Configure Linear
     db.prepare(`
       INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('linear.api_key', 'lin_api_test')
@@ -189,7 +189,7 @@ describe('work source', () => {
       INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('jira.project_key', 'PROJ')
     `).run()
 
-    const output = exec('work spawn -P test-project --json')
+    const output = await execInProcess('work spawn -P test-project --json')
     const json = extractJson<JsonOutput>(output)
 
     expect(json).to.not.equal(null)
@@ -200,11 +200,11 @@ describe('work source', () => {
     expect(choiceValues).to.include('jira:PROJ')
   })
 
-  it('work spawn --from jira overrides persisted linear active source', () => {
-    exec('work source set linear:PRO --json')
+  it('work spawn --from jira overrides persisted linear active source', async () => {
+    await execInProcess('work source set linear:PRO --json')
 
     // --from jira should override and hit JIRA_NOT_CONFIGURED since no jira creds
-    const output = exec('work spawn TKT-020 -P test-project --from jira --json')
+    const output = await execInProcess('work spawn TKT-020 -P test-project --from jira --json')
     const json = extractJson<JsonOutput>(output)
 
     expect(json).to.not.equal(null)

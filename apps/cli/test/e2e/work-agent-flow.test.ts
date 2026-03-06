@@ -10,7 +10,7 @@ import {
   addWorkspaceTables,
   createTestProject,
   createTestTicket,
-  execProduction as exec,
+  execInProcess,
   extractJson,
   hasContextError,
   findChoice,
@@ -29,8 +29,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
   /**
    * Helper to simulate agent flow: execute command, parse JSON
    */
-  function agentExec(cmd: string): AgentPromptResponse | null {
-    const output = exec(cmd)
+  async function agentExec(cmd: string): Promise<AgentPromptResponse | null> {
+    const output = await execInProcess(cmd)
     if (hasContextError(output)) {
       return null
     }
@@ -38,44 +38,44 @@ describe('Work Commands E2E Agent Flow Tests', () => {
   }
 
   describe('work --help', () => {
-    it('should show help with subcommands', () => {
-      const output = exec('work --help')
+    it('should show help with subcommands', async () => {
+      const output = await execInProcess('work --help')
 
       expect(output).to.contain('COMMANDS')
       expect(output).to.match(/start|spawn/)
     })
 
-    it('should have --json flag in help', () => {
-      const output = exec('work --help')
+    it('should have --json flag in help', async () => {
+      const output = await execInProcess('work --help')
       expect(output).to.contain('--json')
     })
 
-    it('should have --machine flag in help', () => {
-      const output = exec('work --help')
+    it('should have --machine flag in help', async () => {
+      const output = await execInProcess('work --help')
       expect(output).to.match(/--machine|-m/)
     })
   })
 
   describe('work start --help', () => {
-    it('should show help', () => {
-      const output = exec('work start --help')
+    it('should show help', async () => {
+      const output = await execInProcess('work start --help')
       expect(output).to.contain('start')
     })
 
-    it('should have --json flag in help', () => {
-      const output = exec('work start --help')
+    it('should have --json flag in help', async () => {
+      const output = await execInProcess('work start --help')
       expect(output).to.contain('--json')
     })
   })
 
   describe('work spawn --help', () => {
-    it('should show help', () => {
-      const output = exec('work spawn --help')
+    it('should show help', async () => {
+      const output = await execInProcess('work spawn --help')
       expect(output).to.contain('spawn')
     })
 
-    it('should have --json flag in help', () => {
-      const output = exec('work spawn --help')
+    it('should have --json flag in help', async () => {
+      const output = await execInProcess('work spawn --help')
       expect(output).to.contain('--json')
     })
   })
@@ -116,8 +116,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
     })
 
     describe('work main menu - agent navigation', () => {
-      it('should output action menu with --machine flag', () => {
-        const result = agentExec('work -P test-project --machine')
+      it('should output action menu with --machine flag', async () => {
+        const result = await agentExec('work -P test-project --machine')
 
         // Skip if workspace not available
         if (!result) {
@@ -131,8 +131,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
         expect(hasJsonMode).to.equal(true)
       })
 
-      it('should include command field in non-cancel choices', () => {
-        const result = agentExec('work -P test-project --machine')
+      it('should include command field in non-cancel choices', async () => {
+        const result = await agentExec('work -P test-project --machine')
 
         if (!result) {
           return
@@ -145,8 +145,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
         }
       })
 
-      it('should have navigable choices to subcommands', () => {
-        const result = agentExec('work -P test-project --machine')
+      it('should have navigable choices to subcommands', async () => {
+        const result = await agentExec('work -P test-project --machine')
 
         if (!result) {
           return
@@ -175,8 +175,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
     })
 
     describe('work start - ticket selection flow', () => {
-      it('should output ticket selection with --machine', () => {
-        const result = agentExec('work start -P test-project --machine')
+      it('should output ticket selection with --machine', async () => {
+        const result = await agentExec('work start -P test-project --machine')
 
         if (!result) {
           return
@@ -186,8 +186,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
         expect(result.metadata.command).to.equal('work start')
       })
 
-      it('should include command in ticket choices', () => {
-        const result = agentExec('work start -P test-project --machine')
+      it('should include command in ticket choices', async () => {
+        const result = await agentExec('work start -P test-project --machine')
 
         if (!result) {
           return
@@ -202,8 +202,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
     })
 
     describe('work spawn - agent/ticket selection flow', () => {
-      it('should output selection with --machine', () => {
-        const result = agentExec('work spawn -P test-project --machine')
+      it('should output selection with --machine', async () => {
+        const result = await agentExec('work spawn -P test-project --machine')
 
         if (!result) {
           return
@@ -213,8 +213,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
         expect(result.metadata.command).to.equal('work spawn')
       })
 
-      it('should include command in choices', () => {
-        const result = agentExec('work spawn -P test-project --machine')
+      it('should include command in choices', async () => {
+        const result = await agentExec('work spawn -P test-project --machine')
 
         if (!result) {
           return
@@ -229,8 +229,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
     })
 
     describe('work watch - execution selection flow', () => {
-      it('should output selection or error with --machine', () => {
-        const result = agentExec('work watch -P test-project --machine')
+      it('should output selection or error with --machine', async () => {
+        const result = await agentExec('work watch -P test-project --machine')
 
         // work watch requires agents - may return null (NO_AGENTS) in test env
         if (!result) {
@@ -243,9 +243,9 @@ describe('Work Commands E2E Agent Flow Tests', () => {
     })
 
     describe('full agent navigation flow', () => {
-      it('should allow agent to navigate from main menu to start', () => {
+      it('should allow agent to navigate from main menu to start', async () => {
         // Step 1: Get main menu
-        const step1 = agentExec('work -P test-project --machine')
+        const step1 = await agentExec('work -P test-project --machine')
 
         if (!step1) {
           return
@@ -261,9 +261,9 @@ describe('Work Commands E2E Agent Flow Tests', () => {
         expect(startChoice.command).to.include('--json')
       })
 
-      it('should allow agent to navigate from main menu to spawn', () => {
+      it('should allow agent to navigate from main menu to spawn', async () => {
         // Step 1: Get main menu
-        const step1 = agentExec('work -P test-project --machine')
+        const step1 = await agentExec('work -P test-project --machine')
 
         if (!step1) {
           return
@@ -280,9 +280,9 @@ describe('Work Commands E2E Agent Flow Tests', () => {
     })
 
     describe('--machine vs --json equivalence', () => {
-      it('should produce equivalent output structure', () => {
-        const machineOutput = exec('work -P test-project --machine')
-        const jsonOutput = exec('work -P test-project --json')
+      it('should produce equivalent output structure', async () => {
+        const machineOutput = await execInProcess('work -P test-project --machine')
+        const jsonOutput = await execInProcess('work -P test-project --json')
 
         const machineResult = extractJson<{ prompt: { type: string } }>(machineOutput)
         const jsonResult = extractJson<{ prompt: { type: string } }>(jsonOutput)
@@ -293,8 +293,8 @@ describe('Work Commands E2E Agent Flow Tests', () => {
         }
       })
 
-      it('should work with -m shorthand', () => {
-        const result = agentExec('work -P test-project -m')
+      it('should work with -m shorthand', async () => {
+        const result = await agentExec('work -P test-project -m')
 
         if (!result) {
           return
