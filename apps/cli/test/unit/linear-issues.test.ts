@@ -53,6 +53,20 @@ describe('normalizeLinearIssue (IssueEnvelope)', () => {
     expect(envelope.assignee).to.equal(null)
   })
 
+  it('maps assignee name when present', () => {
+    const envelope = normalizeLinearIssue(makeLinearNode({
+      assignee: { id: 'user-1', name: 'Jane Doe', email: 'jane@example.com' },
+    }))
+    expect(envelope.assignee).to.equal('Jane Doe')
+  })
+
+  it('maps project_key from team.key when available', () => {
+    const envelope = normalizeLinearIssue(makeLinearNode({
+      team: { key: 'PLATFORM' },
+    }))
+    expect(envelope.project_key).to.equal('PLATFORM')
+  })
+
   it('maps all Linear priority levels', () => {
     expect(normalizeLinearIssue(makeLinearNode({ priority: 1 })).priority).to.equal('P0')
     expect(normalizeLinearIssue(makeLinearNode({ priority: 2 })).priority).to.equal('P1')

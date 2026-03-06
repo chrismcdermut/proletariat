@@ -267,6 +267,44 @@ describe('Linear Integration', () => {
         const input = mapper.issueToTicketInput(issue, mockStatuses)
         expect(input.labels).to.deep.equal(['bug', 'critical'])
       })
+
+      it('should map assignee name when present', () => {
+        const issue = createMockIssue({
+          assignee: { id: 'user-1', name: 'Jane Doe', email: 'jane@example.com' },
+        })
+        const input = mapper.issueToTicketInput(issue, mockStatuses)
+        expect(input.assignee).to.equal('Jane Doe')
+      })
+
+      it('should leave assignee undefined when not present', () => {
+        const issue = createMockIssue({ assignee: undefined })
+        const input = mapper.issueToTicketInput(issue, mockStatuses)
+        expect(input.assignee).to.be.undefined
+      })
+
+      it('should persist estimate in metadata when available', () => {
+        const issue = createMockIssue({ estimate: 5 })
+        const input = mapper.issueToTicketInput(issue, mockStatuses)
+        expect(input.metadata!['linear.estimate']).to.equal('5')
+      })
+
+      it('should omit estimate from metadata when not available', () => {
+        const issue = createMockIssue({ estimate: undefined })
+        const input = mapper.issueToTicketInput(issue, mockStatuses)
+        expect(input.metadata!['linear.estimate']).to.be.undefined
+      })
+
+      it('should persist due date in metadata when available', () => {
+        const issue = createMockIssue({ dueDate: '2025-06-15' })
+        const input = mapper.issueToTicketInput(issue, mockStatuses)
+        expect(input.metadata!['linear.due_date']).to.equal('2025-06-15')
+      })
+
+      it('should omit due date from metadata when not available', () => {
+        const issue = createMockIssue({ dueDate: undefined })
+        const input = mapper.issueToTicketInput(issue, mockStatuses)
+        expect(input.metadata!['linear.due_date']).to.be.undefined
+      })
     })
 
     describe('Mapping CRUD', () => {
