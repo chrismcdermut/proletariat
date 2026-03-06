@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
-  exec,
+  execInProcess,
   createTestEnvironment,
   cleanupTestEnvironment,
   setupProductionSchema,
@@ -49,8 +49,8 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket create', () => {
-    it('should create ticket with all flags', () => {
-      const output = exec(
+    it('should create ticket with all flags', async () => {
+      const output = await execInProcess(
         'ticket create --title "Add login" --priority HIGH --column "Backlog"'
       );
 
@@ -63,9 +63,9 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(tickets[0].priority).to.equal('HIGH');
     });
 
-    it('should default column to Backlog in JSON mode when not provided', () => {
+    it('should default column to Backlog in JSON mode when not provided', async () => {
       // This is TKT-790: JSON mode should default column to Backlog instead of prompting
-      const output = exec(
+      const output = await execInProcess(
         'ticket create --json --title "JSON mode ticket" --priority HIGH --category bug'
       );
 
@@ -90,8 +90,8 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(status?.name).to.equal('Backlog');
     });
 
-    it('should auto-generate ticket ID', () => {
-      exec('ticket create --title "Test ticket" --column "Backlog"');
+    it('should auto-generate ticket ID', async () => {
+      await execInProcess('ticket create --title "Test ticket" --column "Backlog"');
 
       const tickets = db.prepare('SELECT id FROM pmo_tickets').all() as Array<{ id: string }>;
       expect(tickets).to.have.lengthOf(1);
@@ -100,8 +100,8 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     // kanban.md auto-export is disabled (DB is sole source of truth)
-    it.skip('should add ticket to kanban.md', () => {
-      exec('ticket create --title "Board test" --column "Backlog"');
+    it.skip('should add ticket to kanban.md', async () => {
+      await execInProcess('ticket create --title "Board test" --column "Backlog"');
 
       const boardPath = path.join(testDir, 'pmo/projects/test-project/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -111,15 +111,15 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket move', () => {
-    it('should move ticket between columns', () => {
+    it('should move ticket between columns', async () => {
       // Create ticket
-      exec('ticket create --title "Movable" --column "Backlog"');
+      await execInProcess('ticket create --title "Movable" --column "Backlog"');
 
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Movable') as { id: string };
       const ticketId = ticket.id;
 
       // Move ticket
-      exec(`ticket move ${ticketId} "In Progress"`);
+      await execInProcess(`ticket move ${ticketId} "In Progress"`);
 
       // Verify new column via workflow statuses
       const status = db.prepare(`
@@ -133,11 +133,11 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     // kanban.md auto-export is disabled (DB is sole source of truth)
-    it.skip('should update kanban.md when moving ticket', () => {
-      exec('ticket create --title "Move test" --column "Backlog"');
+    it.skip('should update kanban.md when moving ticket', async () => {
+      await execInProcess('ticket create --title "Move test" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Move test') as { id: string };
 
-      exec(`ticket move ${ticket.id} "Merged"`);
+      await execInProcess(`ticket move ${ticket.id} "Merged"`);
 
       const boardPath = path.join(testDir, 'pmo/projects/test-project/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -149,22 +149,22 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket delete', () => {
-    it('should delete ticket from database', () => {
-      exec('ticket create --title "Delete me" --column "Backlog"');
+    it('should delete ticket from database', async () => {
+      await execInProcess('ticket create --title "Delete me" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Delete me') as { id: string };
 
-      exec(`ticket delete ${ticket.id} --force`);
+      await execInProcess(`ticket delete ${ticket.id} --force`);
 
       const remaining = db.prepare('SELECT * FROM pmo_tickets WHERE id = ?').get(ticket.id);
       expect(remaining).to.be.undefined;
     });
 
     // kanban.md auto-export is disabled (DB is sole source of truth)
-    it.skip('should remove ticket from kanban.md', () => {
-      exec('ticket create --title "Remove from board" --column "Backlog"');
+    it.skip('should remove ticket from kanban.md', async () => {
+      await execInProcess('ticket create --title "Remove from board" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Remove from board') as { id: string };
 
-      exec(`ticket delete ${ticket.id} --force`);
+      await execInProcess(`ticket delete ${ticket.id} --force`);
 
       const boardPath = path.join(testDir, 'pmo/projects/test-project/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -172,11 +172,11 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(content).to.not.contain('Remove from board');
     });
 
-    it('should fully remove ticket from database', () => {
-      exec('ticket create --title "Cascade test" --column "Backlog"');
+    it('should fully remove ticket from database', async () => {
+      await execInProcess('ticket create --title "Cascade test" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Cascade test') as { id: string };
 
-      exec(`ticket delete ${ticket.id} --force`);
+      await execInProcess(`ticket delete ${ticket.id} --force`);
 
       const remaining = db.prepare('SELECT * FROM pmo_tickets WHERE id = ?').get(ticket.id);
       expect(remaining).to.be.undefined;
@@ -184,11 +184,11 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket list', () => {
-    it('should list all tickets', () => {
-      exec('ticket create --title "List test 1" --priority HIGH --column "Backlog"');
-      exec('ticket create --title "List test 2" --priority MEDIUM --column "Backlog"');
+    it('should list all tickets', async () => {
+      await execInProcess('ticket create --title "List test 1" --priority HIGH --column "Backlog"');
+      await execInProcess('ticket create --title "List test 2" --priority MEDIUM --column "Backlog"');
 
-      const output = exec('ticket list');
+      const output = await execInProcess('ticket list');
 
       expect(output).to.contain('List test 1');
       expect(output).to.contain('List test 2');
@@ -197,21 +197,21 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(output).to.contain('[P2]');
     });
 
-    it('should filter by column', () => {
-      exec('ticket create --title "In backlog" --column "Backlog"');
-      exec('ticket create --title "In progress" --column "In Progress"');
+    it('should filter by column', async () => {
+      await execInProcess('ticket create --title "In backlog" --column "Backlog"');
+      await execInProcess('ticket create --title "In progress" --column "In Progress"');
 
-      const output = exec('ticket list --column "In Progress"');
+      const output = await execInProcess('ticket list --column "In Progress"');
 
       expect(output).to.contain('In progress');
       expect(output).to.not.contain('In backlog');
     });
 
-    it('should filter by priority', () => {
-      exec('ticket create --title "High priority" --priority P1 --column "Backlog"');
-      exec('ticket create --title "Low priority" --priority P3 --column "Backlog"');
+    it('should filter by priority', async () => {
+      await execInProcess('ticket create --title "High priority" --priority P1 --column "Backlog"');
+      await execInProcess('ticket create --title "Low priority" --priority P3 --column "Backlog"');
 
-      const output = exec('ticket list --priority P1');
+      const output = await execInProcess('ticket list --priority P1');
 
       expect(output).to.contain('High priority');
       expect(output).to.not.contain('Low priority');
@@ -219,11 +219,11 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket view', () => {
-    it('should show detailed ticket information', () => {
-      exec('ticket create --title "View test" --description "Test description" --priority P1 --column "Backlog"');
+    it('should show detailed ticket information', async () => {
+      await execInProcess('ticket create --title "View test" --description "Test description" --priority P1 --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('View test') as { id: string };
 
-      const output = exec(`ticket view ${ticket.id}`);
+      const output = await execInProcess(`ticket view ${ticket.id}`);
 
       expect(output).to.contain('View test');
       expect(output).to.contain('Test description');
@@ -233,51 +233,51 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket edit', () => {
-    it('should edit ticket title with flag', () => {
-      exec('ticket create --title "Original title" --column "Backlog"');
+    it('should edit ticket title with flag', async () => {
+      await execInProcess('ticket create --title "Original title" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Original title') as { id: string };
 
-      exec(`ticket edit ${ticket.id} --title "Updated title"`);
+      await execInProcess(`ticket edit ${ticket.id} --title "Updated title"`);
 
       const updatedTicket = db.prepare('SELECT title FROM pmo_tickets WHERE id = ?').get(ticket.id) as { title: string };
       expect(updatedTicket.title).to.equal('Updated title');
     });
 
-    it('should edit ticket priority', () => {
-      exec('ticket create --title "Priority test" --priority LOW --column "Backlog"');
+    it('should edit ticket priority', async () => {
+      await execInProcess('ticket create --title "Priority test" --priority LOW --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Priority test') as { id: string };
 
-      exec(`ticket edit ${ticket.id} --priority HIGH`);
+      await execInProcess(`ticket edit ${ticket.id} --priority HIGH`);
 
       const updatedTicket = db.prepare('SELECT priority FROM pmo_tickets WHERE id = ?').get(ticket.id) as { priority: string };
       expect(updatedTicket.priority).to.equal('HIGH');
     });
 
-    it('should edit ticket description', () => {
-      exec('ticket create --title "Desc test" --description "Old desc" --column "Backlog"');
+    it('should edit ticket description', async () => {
+      await execInProcess('ticket create --title "Desc test" --description "Old desc" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Desc test') as { id: string };
 
-      exec(`ticket edit ${ticket.id} --description "New description"`);
+      await execInProcess(`ticket edit ${ticket.id} --description "New description"`);
 
       const updatedTicket = db.prepare('SELECT description FROM pmo_tickets WHERE id = ?').get(ticket.id) as { description: string };
       expect(updatedTicket.description).to.equal('New description');
     });
 
-    it('should edit ticket category', () => {
-      exec('ticket create --title "Category test" --category bug --column "Backlog"');
+    it('should edit ticket category', async () => {
+      await execInProcess('ticket create --title "Category test" --category bug --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Category test') as { id: string };
 
-      exec(`ticket edit ${ticket.id} --category feature`);
+      await execInProcess(`ticket edit ${ticket.id} --category feature`);
 
       const updatedTicket = db.prepare('SELECT category FROM pmo_tickets WHERE id = ?').get(ticket.id) as { category: string };
       expect(updatedTicket.category).to.equal('feature');
     });
 
-    it('should edit multiple fields at once', () => {
-      exec('ticket create --title "Multi test" --priority LOW --category chore --column "Backlog"');
+    it('should edit multiple fields at once', async () => {
+      await execInProcess('ticket create --title "Multi test" --priority LOW --category chore --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Multi test') as { id: string };
 
-      exec(`ticket edit ${ticket.id} --title "New multi" --priority URGENT --category security`);
+      await execInProcess(`ticket edit ${ticket.id} --title "New multi" --priority URGENT --category security`);
 
       const updatedTicket = db.prepare('SELECT title, priority, category FROM pmo_tickets WHERE id = ?').get(ticket.id) as { title: string; priority: string; category: string };
       expect(updatedTicket.title).to.equal('New multi');
@@ -286,22 +286,22 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     // kanban.md auto-export is disabled (DB is sole source of truth)
-    it.skip('should update kanban.md after edit', () => {
-      exec('ticket create --title "Board edit test" --column "Backlog"');
+    it.skip('should update kanban.md after edit', async () => {
+      await execInProcess('ticket create --title "Board edit test" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Board edit test') as { id: string };
 
-      exec(`ticket edit ${ticket.id} --title "Edited for board"`);
+      await execInProcess(`ticket edit ${ticket.id} --title "Edited for board"`);
 
       const boardPath = path.join(testDir, 'pmo/projects/test-project/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
       expect(content).to.contain('Edited for board');
     });
 
-    it('should clear priority with none value', () => {
-      exec('ticket create --title "Clear priority" --priority HIGH --column "Backlog"');
+    it('should clear priority with none value', async () => {
+      await execInProcess('ticket create --title "Clear priority" --priority HIGH --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Clear priority') as { id: string };
 
-      exec(`ticket edit ${ticket.id} --priority none`);
+      await execInProcess(`ticket edit ${ticket.id} --priority none`);
 
       const updatedTicket = db.prepare('SELECT priority FROM pmo_tickets WHERE id = ?').get(ticket.id) as { priority: string | null };
       expect(updatedTicket.priority).to.be.oneOf([null, undefined, '']);
@@ -312,58 +312,58 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket status', () => {
-    it('should display ticket status details', () => {
-      exec('ticket create --title "Status view test" --priority HIGH --category bug --column "Backlog"');
+    it('should display ticket status details', async () => {
+      await execInProcess('ticket create --title "Status view test" --priority HIGH --category bug --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Status view test') as { id: string };
 
-      const output = exec(`ticket status ${ticket.id}`);
+      const output = await execInProcess(`ticket status ${ticket.id}`);
 
       expect(output).to.contain(ticket.id);
       expect(output).to.contain('Status view test');
       expect(output).to.contain('Backlog');
     });
 
-    it('should show priority in status', () => {
-      exec('ticket create --title "Priority status" --priority URGENT --column "Backlog"');
+    it('should show priority in status', async () => {
+      await execInProcess('ticket create --title "Priority status" --priority URGENT --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Priority status') as { id: string };
 
-      const output = exec(`ticket status ${ticket.id}`);
+      const output = await execInProcess(`ticket status ${ticket.id}`);
 
       // formatPriority converts URGENT → [P0]
       expect(output).to.contain('P0');
     });
 
-    it('should show category in status', () => {
-      exec('ticket create --title "Category status" --category security --column "Backlog"');
+    it('should show category in status', async () => {
+      await execInProcess('ticket create --title "Category status" --category security --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Category status') as { id: string };
 
-      const output = exec(`ticket status ${ticket.id}`);
+      const output = await execInProcess(`ticket status ${ticket.id}`);
 
       expect(output).to.contain('security');
     });
 
-    it('should show description in status', () => {
-      exec('ticket create --title "Desc status" --description "This is a detailed description" --column "Backlog"');
+    it('should show description in status', async () => {
+      await execInProcess('ticket create --title "Desc status" --description "This is a detailed description" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Desc status') as { id: string };
 
-      const output = exec(`ticket status ${ticket.id}`);
+      const output = await execInProcess(`ticket status ${ticket.id}`);
 
       expect(output).to.contain('This is a detailed description');
     });
 
-    it('should error for non-existent ticket', () => {
-      const output = exec('ticket status NON-EXISTENT');
+    it('should error for non-existent ticket', async () => {
+      const output = await execInProcess('ticket status NON-EXISTENT');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
   });
 
   describe('prlt ticket complete', () => {
-    it('should move ticket to Done column', () => {
-      exec('ticket create --title "Complete test" --column "Backlog"');
+    it('should move ticket to Done column', async () => {
+      await execInProcess('ticket create --title "Complete test" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Complete test') as { id: string };
 
-      exec(`ticket complete ${ticket.id}`);
+      await execInProcess(`ticket complete ${ticket.id}`);
 
       // Verify via workflow statuses (pmo_board_tickets is deprecated)
       const status = db.prepare(`
@@ -377,11 +377,11 @@ describe('PMO Ticket Commands E2E Tests', () => {
     });
 
     // kanban.md auto-export is disabled (DB is sole source of truth)
-    it.skip('should update kanban.md after completion', () => {
-      exec('ticket create --title "Complete board test" --column "Backlog"');
+    it.skip('should update kanban.md after completion', async () => {
+      await execInProcess('ticket create --title "Complete board test" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Complete board test') as { id: string };
 
-      exec(`ticket complete ${ticket.id}`);
+      await execInProcess(`ticket complete ${ticket.id}`);
 
       const boardPath = path.join(testDir, 'pmo/projects/test-project/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -391,18 +391,18 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(doneSection).to.contain('Complete board test');
     });
 
-    it('should display success message', () => {
-      exec('ticket create --title "Complete msg test" --column "Backlog"');
+    it('should display success message', async () => {
+      await execInProcess('ticket create --title "Complete msg test" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Complete msg test') as { id: string };
 
-      const output = exec(`ticket complete ${ticket.id}`);
+      const output = await execInProcess(`ticket complete ${ticket.id}`);
 
       expect(output).to.contain('Completed');
       expect(output).to.contain(ticket.id);
     });
 
-    it('should error for non-existent ticket', () => {
-      const output = exec('ticket complete NON-EXISTENT');
+    it('should error for non-existent ticket', async () => {
+      const output = await execInProcess('ticket complete NON-EXISTENT');
 
       // Complete command reports no incomplete tickets when ticket doesn't exist
       expect(output.toLowerCase()).to.satisfy((s: string) =>
@@ -416,14 +416,14 @@ describe('PMO Ticket Commands E2E Tests', () => {
     // `ticket link` topic with subcommands (block, relates, duplicates).
     // Epic linking is now done via direct DB operations or ticket create --epic.
 
-    it('should link ticket to epic via DB', () => {
+    it('should link ticket to epic via DB', async () => {
       // Create an epic first
       db.prepare(`
         INSERT INTO pmo_epics (id, project_id, title, status)
         VALUES ('EPIC-001', 'test-project', 'Test Epic', 'active')
       `).run();
 
-      exec('ticket create --title "Link test" --column "Backlog"');
+      await execInProcess('ticket create --title "Link test" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Link test') as { id: string };
 
       db.prepare('UPDATE pmo_tickets SET epic_id = ? WHERE id = ?').run('EPIC-001', ticket.id);
@@ -432,14 +432,14 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(linkedTicket.epic_id).to.equal('EPIC-001');
     });
 
-    it('should unlink ticket from epic via DB', () => {
+    it('should unlink ticket from epic via DB', async () => {
       // Create an epic and linked ticket
       db.prepare(`
         INSERT INTO pmo_epics (id, project_id, title, status)
         VALUES ('EPIC-002', 'test-project', 'Unlink Epic', 'active')
       `).run();
 
-      exec('ticket create --title "Unlink test" --column "Backlog"');
+      await execInProcess('ticket create --title "Unlink test" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Unlink test') as { id: string };
 
       // Link first
@@ -456,19 +456,19 @@ describe('PMO Ticket Commands E2E Tests', () => {
       expect(afterUnlink.epic_id).to.be.null;
     });
 
-    it('should show ticket link subcommands', () => {
-      const output = exec('ticket link --help');
+    it('should show ticket link subcommands', async () => {
+      const output = await execInProcess('ticket link --help');
       // The new ticket link is a topic with subcommands
       expect(output).to.contain('ticket link');
     });
   });
 
   describe('prlt ticket bulk move', () => {
-    it('should move multiple tickets at once', () => {
+    it('should move multiple tickets at once', async () => {
       // Create multiple tickets
-      exec('ticket create --title "Bulk 1" --column "Backlog"');
-      exec('ticket create --title "Bulk 2" --column "Backlog"');
-      exec('ticket create --title "Bulk 3" --column "Backlog"');
+      await execInProcess('ticket create --title "Bulk 1" --column "Backlog"');
+      await execInProcess('ticket create --title "Bulk 2" --column "Backlog"');
+      await execInProcess('ticket create --title "Bulk 3" --column "Backlog"');
 
       db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 1');
       db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bulk 2');
@@ -489,10 +489,10 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket bulk delete', () => {
-    it('should delete multiple tickets', () => {
-      exec('ticket create --title "Delete 1" --column "Backlog"');
-      exec('ticket create --title "Delete 2" --column "Backlog"');
-      exec('ticket create --title "Keep" --column "Backlog"');
+    it('should delete multiple tickets', async () => {
+      await execInProcess('ticket create --title "Delete 1" --column "Backlog"');
+      await execInProcess('ticket create --title "Delete 2" --column "Backlog"');
+      await execInProcess('ticket create --title "Keep" --column "Backlog"');
 
       const beforeCount = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number };
       expect(beforeCount.count).to.equal(3);
@@ -503,9 +503,9 @@ describe('PMO Ticket Commands E2E Tests', () => {
   });
 
   describe('prlt ticket bulk update', () => {
-    it('should update priority for multiple tickets', () => {
-      exec('ticket create --title "Update 1" --priority P3 --column "Backlog"');
-      exec('ticket create --title "Update 2" --priority P3 --column "Backlog"');
+    it('should update priority for multiple tickets', async () => {
+      await execInProcess('ticket create --title "Update 1" --priority P3 --column "Backlog"');
+      await execInProcess('ticket create --title "Update 2" --priority P3 --column "Backlog"');
 
       // Verify both are P3 priority
       const lowTickets = db.prepare('SELECT * FROM pmo_tickets WHERE priority = ?').all('P3');
@@ -537,8 +537,8 @@ describe('ticket create --label alias', () => {
     cleanupTestEnvironment(env);
   });
 
-  it('should accept --label as alias for --labels', () => {
-    const output = exec(
+  it('should accept --label as alias for --labels', async () => {
+    const output = await execInProcess(
       'ticket create --title "Label alias test" --column Backlog --label "bug,ui"'
     );
 
@@ -548,8 +548,8 @@ describe('ticket create --label alias', () => {
     expect(output).to.contain('bug, ui');
   });
 
-  it('should accept --labels (plural) as before', () => {
-    const output = exec(
+  it('should accept --labels (plural) as before', async () => {
+    const output = await execInProcess(
       'ticket create --title "Labels plural test" --column Backlog --labels "feature,backend"'
     );
 

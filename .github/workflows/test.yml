@@ -7,6 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Cancel in-progress runs when a new commit is pushed to the same branch/PR.
+# This prevents wasted CI minutes when iterating on a PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Native module CI expectations:
 # - better-sqlite3 requires a native .node binding compiled for the exact Node.js ABI in use.
 # - pnpm-workspace.yaml lists better-sqlite3 under ignoredBuiltDependencies, so pnpm install

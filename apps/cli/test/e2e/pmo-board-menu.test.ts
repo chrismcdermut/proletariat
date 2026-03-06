@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
-  exec,
+  execInProcess,
   agentExec,
   findChoice,
   findChoiceByValue,
@@ -22,6 +22,10 @@ import {
  *   2. findChoice() → pick a menu item
  *   3. execChoice() → extract the command from the choice
  *   4. execFinal() → execute the command, verify END RESULT
+ *
+ * Uses in-process command execution (execInProcess) for direct exec() calls.
+ * Agent flow tests (agentExec/execFinal) still use execProduction (child process)
+ * because they require the --machine flag JSON pipeline.
  */
 describe('PMO Board Menu E2E Tests', () => {
   let testDir: string;
@@ -234,11 +238,11 @@ describe('PMO Board Menu E2E Tests', () => {
   });
 
   describe('full agentic flow: menu → Sync board', () => {
-    it('should navigate: board menu → "Sync" → apply changes from board.md', () => {
+    it('should navigate: board menu → "Sync" → apply changes from board.md', async () => {
       createTestTicket(dbPath, 'TKT-401', 'Sync flow ticket', 'default-backlog', 'P1');
 
       // Pre-condition: export first so there's a board.md to sync from
-      exec('board --action export');
+      await execInProcess('board --action export');
 
       // Step 1: Agent gets the board menu
       const menu = agentExec('board --machine');
@@ -260,11 +264,11 @@ describe('PMO Board Menu E2E Tests', () => {
       );
     });
 
-    it('should navigate: board menu → "Sync" → detect and apply modified titles', () => {
+    it('should navigate: board menu → "Sync" → detect and apply modified titles', async () => {
       createTestTicket(dbPath, 'TKT-402', 'Before modification', 'default-backlog', 'P1');
 
       // Export to create the board.md
-      exec('board --action export');
+      await execInProcess('board --action export');
 
       // Modify the board.md file
       const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
@@ -309,12 +313,12 @@ describe('PMO Board Menu E2E Tests', () => {
   // Direct --action flag tests (non-agentic, for completeness)
   // =========================================================================
   describe('board --action view (direct)', () => {
-    it('should display board with tickets organized by column', () => {
+    it('should display board with tickets organized by column', async () => {
       createTestTicket(dbPath, 'TKT-001', 'Add login screen', 'default-backlog', 'P1');
       createTestTicket(dbPath, 'TKT-002', 'Setup CI/CD', 'default-backlog', 'P2');
       createTestTicket(dbPath, 'TKT-003', 'Implement navigation', 'default-in-progress', 'P1');
 
-      const output = exec('board --action view');
+      const output = await execInProcess('board --action view');
 
       expect(output).to.include('TKT-001');
       expect(output).to.include('Add login screen');
@@ -324,39 +328,39 @@ describe('PMO Board Menu E2E Tests', () => {
       expect(output).to.include('Implement navigation');
     });
 
-    it('should show ticket counts per column', () => {
+    it('should show ticket counts per column', async () => {
       createTestTicket(dbPath, 'TKT-001', 'Ticket 1', 'default-backlog', 'P1');
       createTestTicket(dbPath, 'TKT-002', 'Ticket 2', 'default-backlog', 'P2');
 
-      const output = exec('board --action view');
+      const output = await execInProcess('board --action view');
 
       expect(output).to.include('(2)');
     });
   });
 
   describe('board --action markdown (direct)', () => {
-    it('should output board as markdown', () => {
+    it('should output board as markdown', async () => {
       createTestTicket(dbPath, 'TKT-001', 'Login feature', 'default-backlog', 'P1');
 
-      const output = exec('board --action markdown');
+      const output = await execInProcess('board --action markdown');
 
       expect(output).to.include('TKT-001');
       expect(output).to.include('Login feature');
     });
 
-    it('should output markdown for empty board', () => {
-      const output = exec('board --action markdown');
+    it('should output markdown for empty board', async () => {
+      const output = await execInProcess('board --action markdown');
       expect(output).to.be.a('string');
     });
   });
 
   describe('board --action export (direct)', () => {
-    it('should export board to kanban.md and overwrite on re-export', () => {
+    it('should export board to kanban.md and overwrite on re-export', async () => {
       createTestTicket(dbPath, 'TKT-001', 'First export', 'default-backlog', 'P1');
-      exec('board --action export');
+      await execInProcess('board --action export');
 
       createTestTicket(dbPath, 'TKT-002', 'Second export', 'default-backlog', 'P2');
-      exec('board --action export');
+      await execInProcess('board --action export');
 
       const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
       const content = fs.readFileSync(kanbanPath, 'utf-8');
@@ -366,33 +370,33 @@ describe('PMO Board Menu E2E Tests', () => {
   });
 
   describe('board --action sync --force (direct)', () => {
-    it('should sync from exported board.md successfully', () => {
+    it('should sync from exported board.md successfully', async () => {
       createTestTicket(dbPath, 'TKT-001', 'Sync test', 'default-backlog', 'P1');
-      exec('board --action export');
+      await execInProcess('board --action export');
 
-      const output = exec('board --action sync --force');
+      const output = await execInProcess('board --action sync --force');
 
       expect(output).to.satisfy((s: string) =>
         s.includes('synced') || s.includes('already in sync')
       );
     });
 
-    it('should detect and apply changes from modified board.md', () => {
+    it('should detect and apply changes from modified board.md', async () => {
       createTestTicket(dbPath, 'TKT-001', 'Original title', 'default-backlog', 'P1');
-      exec('board --action export');
+      await execInProcess('board --action export');
 
       const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
       let content = fs.readFileSync(kanbanPath, 'utf-8');
       content = content.replace('Original title', 'Modified title');
       fs.writeFileSync(kanbanPath, content);
 
-      const output = exec('board --action sync --force');
+      const output = await execInProcess('board --action sync --force');
 
       expect(output).to.include('synced');
     });
 
-    it('should error when board.md does not exist', () => {
-      const output = exec('board --action sync --force');
+    it('should error when board.md does not exist', async () => {
+      const output = await execInProcess('board --action sync --force');
 
       expect(output.toLowerCase()).to.satisfy((s: string) =>
         s.includes('not found') || s.includes('board.md') || s.includes('error')
@@ -401,8 +405,8 @@ describe('PMO Board Menu E2E Tests', () => {
   });
 
   describe('board with project flag', () => {
-    it('should use specified project with -P flag', () => {
-      const output = exec('board --action view -P default');
+    it('should use specified project with -P flag', async () => {
+      const output = await execInProcess('board --action view -P default');
       expect(output).to.include('Total:');
     });
 
