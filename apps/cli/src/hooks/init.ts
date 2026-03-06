@@ -5,7 +5,7 @@ import { findHQRoot } from '../lib/workspace.js'
 import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
 import { handleUpdatePrompt } from '../lib/update-prompt.js'
 import { initSentry } from '../lib/telemetry.js'
-import { initAnalytics } from '../lib/telemetry/analytics.js'
+import { initAnalytics, shutdownAnalytics } from '../lib/telemetry/analytics.js'
 
 /**
  * Init hook - runs before every command
@@ -87,6 +87,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
       // in non-TTY it outputs a JSON prompt for the HQ name
       const { run } = await import('@oclif/core')
       await run(['init'], config)
+      await shutdownAnalytics()
       process.exit(0)
     }
     return
@@ -103,6 +104,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     await run(['init'], config)
 
     console.log(chalk.default.blue(`\n✅ Setup complete! You can now run: prlt ${id}\n`))
+    await shutdownAnalytics()
     process.exit(0)
   }
 }
