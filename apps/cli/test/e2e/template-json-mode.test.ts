@@ -627,7 +627,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     describe('phase template create - full flow (direct flags)', () => {
       it('should create phase template with flags and verify DB', () => {
         // In non-TTY mode (like tests), output is JSON
-        const result = execProduction('template create --type phase "Agent Created" --description "Created by agent"');
+        const result = execProduction('template create --type phase "Agent Created" --description "Created by agent" --json');
         const json = extractJson<{ success: boolean; result: { name: string } }>(result);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -641,7 +641,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
 
       it('should create phase template with direct command and verify DB', () => {
         // In non-TTY mode (like tests), output is JSON
-        const result = execProduction('template create --type phase "Direct Create" --description "Direct test"');
+        const result = execProduction('template create --type phase "Direct Create" --description "Direct test" --json');
         const json = extractJson<{ success: boolean; result: { name: string; phasesCount: number } }>(result);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -796,7 +796,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       });
 
       it('should update template name and description with direct flags', () => {
-        const result = execProduction('template update update-test --name "Updated Name" --description "Updated desc"');
+        const result = execProduction('template update update-test --name "Updated Name" --description "Updated desc" --json');
         const json = extractJson<{ success: boolean; result: { template: { name: string; description: string } } }>(result);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -809,7 +809,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       });
 
       it('should update only name when only name flag provided', () => {
-        const result = execProduction('template update update-test --name "Name Only"');
+        const result = execProduction('template update update-test --name "Name Only" --json');
         const json = extractJson<{ success: boolean }>(result);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -951,7 +951,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       });
 
       it('should save ticket as template with all args', () => {
-        const output = execProduction('template save TKT-SAVE-001 "Saved Bug" --description "From ticket"');
+        const output = execProduction('template save TKT-SAVE-001 "Saved Bug" --description "From ticket" --json');
         const json = extractJson<{ success: boolean; result: { template: { name: string } } }>(output);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -1010,7 +1010,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     describe('phase template lifecycle - complete flow', () => {
       it('should create → list → update → apply → delete a phase template', () => {
         // 1. Create template (non-TTY outputs JSON)
-        const createResult = execProduction('template create --type phase "Lifecycle Phases" --description "Lifecycle test"');
+        const createResult = execProduction('template create --type phase "Lifecycle Phases" --description "Lifecycle test" --json');
         const createJson = extractJson<{ success: boolean; result: { name: string } }>(createResult);
         expect(createJson).to.not.be.null;
         expect(createJson!.success).to.equal(true);
@@ -1031,7 +1031,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(found!.name).to.equal('Lifecycle Phases');
 
         // 3. Update template (non-TTY outputs JSON)
-        const updateResult = execProduction(`template update ${templateId} --name "Updated Lifecycle" --description "Updated desc"`);
+        const updateResult = execProduction(`template update ${templateId} --name "Updated Lifecycle" --description "Updated desc" --json`);
         const updateJson = extractJson<{ success: boolean }>(updateResult);
         expect(updateJson).to.not.be.null;
         expect(updateJson!.success).to.equal(true);
@@ -1071,7 +1071,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         });
 
         // 1. Save ticket as template (non-TTY outputs JSON)
-        const saveResult = execProduction('template save TKT-LIFE-001 "Lifecycle Template" --description "Lifecycle test"');
+        const saveResult = execProduction('template save TKT-LIFE-001 "Lifecycle Template" --description "Lifecycle test" --json');
         const saveJson = extractJson<{ success: boolean }>(saveResult);
         expect(saveJson).to.not.be.null;
         expect(saveJson!.success).to.equal(true);

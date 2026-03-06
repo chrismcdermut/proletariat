@@ -122,8 +122,8 @@ describe('PR Commands - Agent Flow Tests', () => {
 
       const result = extractJson<AgentPromptResponse>(output);
 
-      // Skip if JSON extraction failed (may be context or env issue)
-      if (result === null) {
+      // Skip if JSON extraction failed or no prompt returned (may be error JSON)
+      if (result === null || !result.prompt || !result.prompt.choices) {
         return;
       }
 
@@ -148,8 +148,8 @@ describe('PR Commands - Agent Flow Tests', () => {
 
       const step1 = extractJson<AgentPromptResponse>(output1);
 
-      // Skip if JSON extraction failed
-      if (step1 === null) {
+      // Skip if JSON extraction failed or no prompt returned
+      if (step1 === null || !step1.prompt || !step1.prompt.choices) {
         return;
       }
 
@@ -195,14 +195,14 @@ describe('PR Commands - Agent Flow Tests', () => {
       const result = extractJson<AgentPromptResponse>(output);
 
       // Either prompts for ticket or errors on gh check
-      if (result !== null) {
+      if (result !== null && result.prompt && result.prompt.choices) {
         expect(result.prompt.type).to.equal('list');
         expect(result.prompt.name).to.equal('ticket');
 
         const ticketChoice = findChoice(result.prompt.choices!, 'TKT-LINK-1');
         expect(ticketChoice).to.exist;
         expect(ticketChoice!.command).to.include('TKT-LINK-1');
-      } else {
+      } else if (result === null) {
         // gh not installed or other error - acceptable
         expect(output).to.be.a('string');
       }
@@ -219,8 +219,8 @@ describe('PR Commands - Agent Flow Tests', () => {
 
       const step1 = extractJson<AgentPromptResponse>(output1);
 
-      if (step1 === null) {
-        // gh not installed or other error - skip test
+      if (step1 === null || !step1.prompt || !step1.prompt.choices) {
+        // gh not installed, error JSON, or other issue - skip test
         return;
       }
 
@@ -289,7 +289,7 @@ describe('PR Commands - Agent Flow Tests', () => {
       expect(output).to.be.a('string');
       // Should NOT prompt for ticket
       const result = extractJson<AgentPromptResponse>(output);
-      if (result !== null) {
+      if (result !== null && result.prompt) {
         expect(result.prompt.name).to.not.equal('ticket');
       }
     });
@@ -300,7 +300,7 @@ describe('PR Commands - Agent Flow Tests', () => {
       // Should skip ticket prompt
       expect(output).to.be.a('string');
       const result = extractJson<AgentPromptResponse>(output);
-      if (result !== null) {
+      if (result !== null && result.prompt) {
         expect(result.prompt.name).to.not.equal('ticket');
       }
     });

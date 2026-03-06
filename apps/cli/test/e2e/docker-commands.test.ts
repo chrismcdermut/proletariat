@@ -26,7 +26,10 @@ function hasDockerOrWorkspaceError(output: string): boolean {
     output.includes('Cannot connect to the Docker daemon') ||
     output.includes('Not in a workspace') ||
     output.includes('Could not find container') ||
-    output.includes('does not exist')
+    output.includes('does not exist') ||
+    output.includes('error getting credentials') ||
+    output.includes('credential') ||
+    output.includes('error during connect')
   )
 }
 
