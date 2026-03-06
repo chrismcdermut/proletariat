@@ -4,7 +4,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
 import Database from 'better-sqlite3'
-import { execProduction as exec } from './test-helpers.js'
+import { execInProcess } from './test-helpers.js'
 
 /** Database row type for agent_work queries */
 interface AgentWorkRow {
@@ -74,24 +74,24 @@ describe('Docker Commands E2E Tests', () => {
    * Note: docker status doesn't need a workspace, just checks Docker daemon
    */
   describe('prlt docker status', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker status --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker status --help')
 
       expect(output).to.contain('Check if Docker daemon is running')
       expect(output).to.contain('USAGE')
     })
 
-    it('should report Docker status', () => {
-      const output = exec('docker status')
+    it('should report Docker status', async () => {
+      const output = await execInProcess('docker status')
 
       // docker status outputs JSON in non-TTY (piped) environments
       const hasStatus = output.includes('"running"') || output.includes('Docker Status')
       expect(hasStatus).to.be.true
     })
 
-    it('should indicate when Docker is not available', () => {
+    it('should indicate when Docker is not available', async () => {
       // In test environment, Docker is typically not running
-      const output = exec('docker status')
+      const output = await execInProcess('docker status')
 
       // If Docker isn't running, should show appropriate message
       if (output.includes('Not Running')) {
@@ -104,8 +104,8 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker list
    */
   describe('prlt docker list', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker list --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker list --help')
 
       expect(output).to.contain('Show Docker containers from agent_work table')
       expect(output).to.contain('--all')
@@ -113,22 +113,22 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('USAGE')
     })
 
-    it('should accept --all flag without unknown flag error', () => {
-      const output = exec('docker list --all --help')
+    it('should accept --all flag without unknown flag error', async () => {
+      const output = await execInProcess('docker list --all --help')
 
       expect(output).to.not.contain('Unknown flag')
       expect(output).to.not.contain('Unexpected argument')
     })
 
-    it('should accept --running flag without unknown flag error', () => {
-      const output = exec('docker list --running --help')
+    it('should accept --running flag without unknown flag error', async () => {
+      const output = await execInProcess('docker list --running --help')
 
       expect(output).to.not.contain('Unknown flag')
       expect(output).to.not.contain('Unexpected argument')
     })
 
-    it('should handle missing workspace gracefully', () => {
-      const output = exec('docker list')
+    it('should handle missing workspace gracefully', async () => {
+      const output = await execInProcess('docker list')
 
       const validOutput =
         output.includes('Not in a workspace') ||
@@ -143,8 +143,8 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker clean
    */
   describe('prlt docker clean', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker clean --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker clean --help')
 
       expect(output).to.contain('Remove orphaned containers')
       expect(output).to.contain('--force')
@@ -153,34 +153,34 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('USAGE')
     })
 
-    it('should accept --dry-run flag without unknown flag error', () => {
-      const output = exec('docker clean --dry-run --help')
+    it('should accept --dry-run flag without unknown flag error', async () => {
+      const output = await execInProcess('docker clean --dry-run --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should accept --all flag without unknown flag error', () => {
-      const output = exec('docker clean --all --help')
+    it('should accept --all flag without unknown flag error', async () => {
+      const output = await execInProcess('docker clean --all --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should accept --force flag without unknown flag error', () => {
-      const output = exec('docker clean --force --help')
+    it('should accept --force flag without unknown flag error', async () => {
+      const output = await execInProcess('docker clean --force --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should handle missing workspace gracefully', () => {
-      const output = exec('docker clean --force')
+    it('should handle missing workspace gracefully', async () => {
+      const output = await execInProcess('docker clean --force')
 
       expect(hasDockerOrWorkspaceError(output) ||
         output.includes('No orphaned containers') ||
         output.includes('Removed')).to.be.true
     })
 
-    it('should accept --machine flag for JSON mode support', () => {
-      const output = exec('docker clean --machine --help')
+    it('should accept --machine flag for JSON mode support', async () => {
+      const output = await execInProcess('docker clean --machine --help')
 
       expect(output).to.contain('--machine')
       expect(output).to.contain('JSON')
@@ -191,8 +191,8 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker logs
    */
   describe('prlt docker logs', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker logs --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker logs --help')
 
       expect(output).to.contain('View logs from a container')
       expect(output).to.contain('--follow')
@@ -200,20 +200,20 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('USAGE')
     })
 
-    it('should accept --follow flag without unknown flag error', () => {
-      const output = exec('docker logs --follow --help')
+    it('should accept --follow flag without unknown flag error', async () => {
+      const output = await execInProcess('docker logs --follow --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should accept --tail flag without unknown flag error', () => {
-      const output = exec('docker logs --tail 50 --help')
+    it('should accept --tail flag without unknown flag error', async () => {
+      const output = await execInProcess('docker logs --tail 50 --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should require a target argument', () => {
-      const output = exec('docker logs')
+    it('should require a target argument', async () => {
+      const output = await execInProcess('docker logs')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -222,8 +222,8 @@ describe('Docker Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept execution ID format', () => {
-      const output = exec('docker logs WORK-001')
+    it('should accept execution ID format', async () => {
+      const output = await execInProcess('docker logs WORK-001')
 
       // Should process the command (may fail due to no Docker or no execution)
       expect(
@@ -238,8 +238,8 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker stop
    */
   describe('prlt docker stop', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker stop --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker stop --help')
 
       expect(output).to.contain('Stop a running container')
       expect(output).to.contain('--force')
@@ -247,20 +247,20 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('USAGE')
     })
 
-    it('should accept --force flag without unknown flag error', () => {
-      const output = exec('docker stop --force --help')
+    it('should accept --force flag without unknown flag error', async () => {
+      const output = await execInProcess('docker stop --force --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should accept --time flag without unknown flag error', () => {
-      const output = exec('docker stop --time 30 --help')
+    it('should accept --time flag without unknown flag error', async () => {
+      const output = await execInProcess('docker stop --time 30 --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should require a target argument', () => {
-      const output = exec('docker stop')
+    it('should require a target argument', async () => {
+      const output = await execInProcess('docker stop')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -269,8 +269,8 @@ describe('Docker Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept --machine flag for JSON mode support', () => {
-      const output = exec('docker stop --machine --help')
+    it('should accept --machine flag for JSON mode support', async () => {
+      const output = await execInProcess('docker stop --machine --help')
 
       expect(output).to.contain('--machine')
       expect(output).to.contain('JSON')
@@ -281,8 +281,8 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker shell
    */
   describe('prlt docker shell', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker shell --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker shell --help')
 
       expect(output).to.contain('Open a shell in a running container')
       expect(output).to.contain('--shell')
@@ -290,20 +290,20 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('USAGE')
     })
 
-    it('should accept --shell flag without unknown flag error', () => {
-      const output = exec('docker shell --shell /bin/bash --help')
+    it('should accept --shell flag without unknown flag error', async () => {
+      const output = await execInProcess('docker shell --shell /bin/bash --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should accept --user flag without unknown flag error', () => {
-      const output = exec('docker shell --user root --help')
+    it('should accept --user flag without unknown flag error', async () => {
+      const output = await execInProcess('docker shell --user root --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should require a target argument', () => {
-      const output = exec('docker shell')
+    it('should require a target argument', async () => {
+      const output = await execInProcess('docker shell')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -317,8 +317,8 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker restart
    */
   describe('prlt docker restart', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker restart --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker restart --help')
 
       expect(output).to.contain('Restart a container')
       expect(output).to.contain('--force')
@@ -326,14 +326,14 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('USAGE')
     })
 
-    it('should accept --force flag without unknown flag error', () => {
-      const output = exec('docker restart --force --help')
+    it('should accept --force flag without unknown flag error', async () => {
+      const output = await execInProcess('docker restart --force --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should require a target argument', () => {
-      const output = exec('docker restart')
+    it('should require a target argument', async () => {
+      const output = await execInProcess('docker restart')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -342,8 +342,8 @@ describe('Docker Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept --machine flag for JSON mode support', () => {
-      const output = exec('docker restart --machine --help')
+    it('should accept --machine flag for JSON mode support', async () => {
+      const output = await execInProcess('docker restart --machine --help')
 
       expect(output).to.contain('--machine')
       expect(output).to.contain('JSON')
@@ -354,15 +354,15 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker start
    */
   describe('prlt docker start', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker start --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker start --help')
 
       expect(output).to.contain('Start a stopped container')
       expect(output).to.contain('USAGE')
     })
 
-    it('should require a target argument', () => {
-      const output = exec('docker start')
+    it('should require a target argument', async () => {
+      const output = await execInProcess('docker start')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -371,8 +371,8 @@ describe('Docker Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept execution ID format', () => {
-      const output = exec('docker start WORK-001')
+    it('should accept execution ID format', async () => {
+      const output = await execInProcess('docker start WORK-001')
 
       expect(
         hasDockerOrWorkspaceError(output) ||
@@ -389,15 +389,15 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker sync
    */
   describe('prlt docker sync', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker sync --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker sync --help')
 
       expect(output).to.contain('Sync container status from Docker into the database')
       expect(output).to.contain('USAGE')
     })
 
-    it('should handle missing workspace gracefully', () => {
-      const output = exec('docker sync')
+    it('should handle missing workspace gracefully', async () => {
+      const output = await execInProcess('docker sync')
 
       expect(
         hasDockerOrWorkspaceError(output) ||
@@ -411,8 +411,8 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker prune
    */
   describe('prlt docker prune', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker prune --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker prune --help')
 
       expect(output).to.contain('Remove unused Docker resources')
       expect(output).to.contain('--force')
@@ -422,26 +422,26 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('USAGE')
     })
 
-    it('should accept --dry-run flag without unknown flag error', () => {
-      const output = exec('docker prune --dry-run --help')
+    it('should accept --dry-run flag without unknown flag error', async () => {
+      const output = await execInProcess('docker prune --dry-run --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should accept --all flag without unknown flag error', () => {
-      const output = exec('docker prune --all --help')
+    it('should accept --all flag without unknown flag error', async () => {
+      const output = await execInProcess('docker prune --all --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should accept --volumes flag without unknown flag error', () => {
-      const output = exec('docker prune --volumes --help')
+    it('should accept --volumes flag without unknown flag error', async () => {
+      const output = await execInProcess('docker prune --volumes --help')
 
       expect(output).to.not.contain('Unknown flag')
     })
 
-    it('should handle Docker not running gracefully', () => {
-      const output = exec('docker prune --force')
+    it('should handle Docker not running gracefully', async () => {
+      const output = await execInProcess('docker prune --force')
 
       expect(
         hasDockerOrWorkspaceError(output) ||
@@ -450,8 +450,8 @@ describe('Docker Commands E2E Tests', () => {
       ).to.be.true
     })
 
-    it('should accept --machine flag for JSON mode support', () => {
-      const output = exec('docker prune --machine --help')
+    it('should accept --machine flag for JSON mode support', async () => {
+      const output = await execInProcess('docker prune --machine --help')
 
       expect(output).to.contain('--machine')
       expect(output).to.contain('JSON')
@@ -462,8 +462,8 @@ describe('Docker Commands E2E Tests', () => {
    * prlt docker (main menu)
    */
   describe('prlt docker', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('docker --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('docker --help')
 
       expect(output).to.contain('Manage Docker containers')
       expect(output).to.contain('clean')
@@ -471,8 +471,8 @@ describe('Docker Commands E2E Tests', () => {
       expect(output).to.contain('COMMANDS')
     })
 
-    it('should list available subcommands in examples', () => {
-      const output = exec('docker --help')
+    it('should list available subcommands in examples', async () => {
+      const output = await execInProcess('docker --help')
 
       expect(output).to.contain('prlt docker status')
       expect(output).to.contain('prlt docker list')
@@ -510,8 +510,8 @@ describe('Docker Commands E2E Tests', () => {
       }
     }
 
-    it('prlt docker --json should output action menu as JSON', () => {
-      const output = exec('docker --json')
+    it('prlt docker --json should output action menu as JSON', async () => {
+      const output = await execInProcess('docker --json')
       const json = tryParsePromptJson(output)
 
       if (!json) {
@@ -536,8 +536,8 @@ describe('Docker Commands E2E Tests', () => {
       expect(json.metadata.command).to.equal('docker')
     })
 
-    it('prlt docker clean --json should output confirm prompt or error', () => {
-      const output = exec('docker clean --json')
+    it('prlt docker clean --json should output confirm prompt or error', async () => {
+      const output = await execInProcess('docker clean --json')
       const json = tryParsePromptJson(output)
 
       if (json) {
@@ -552,8 +552,8 @@ describe('Docker Commands E2E Tests', () => {
       }
     })
 
-    it('prlt docker prune --json should output confirm prompt or error', () => {
-      const output = exec('docker prune --json')
+    it('prlt docker prune --json should output confirm prompt or error', async () => {
+      const output = await execInProcess('docker prune --json')
       const json = tryParsePromptJson(output)
 
       if (json) {
@@ -567,8 +567,8 @@ describe('Docker Commands E2E Tests', () => {
       }
     })
 
-    it('prlt docker stop <target> --json should output confirm prompt or error', () => {
-      const output = exec('docker stop test-container --json')
+    it('prlt docker stop <target> --json should output confirm prompt or error', async () => {
+      const output = await execInProcess('docker stop test-container --json')
       const json = tryParsePromptJson(output)
 
       if (json) {
@@ -582,8 +582,8 @@ describe('Docker Commands E2E Tests', () => {
       }
     })
 
-    it('prlt docker restart <target> --json should output confirm prompt or error', () => {
-      const output = exec('docker restart test-container --json')
+    it('prlt docker restart <target> --json should output confirm prompt or error', async () => {
+      const output = await execInProcess('docker restart test-container --json')
       const json = tryParsePromptJson(output)
 
       if (json) {
@@ -597,8 +597,8 @@ describe('Docker Commands E2E Tests', () => {
       }
     })
 
-    it('--force flag should skip confirmation prompt in JSON mode', () => {
-      const output = exec('docker clean --force --json')
+    it('--force flag should skip confirmation prompt in JSON mode', async () => {
+      const output = await execInProcess('docker clean --force --json')
 
       // Should NOT have a prompt JSON when --force is used
       const jsonMatch = output.match(/\{"prompt"/)
@@ -742,8 +742,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   /**
    * Execute command and parse JSON response. Returns null if Docker/workspace error.
    */
-  function agentExec(cmd: string): AgentPrompt | null {
-    const output = exec(cmd)
+  async function agentExec(cmd: string): Promise<AgentPrompt | null> {
+    const output = await execInProcess(cmd)
     if (hasDockerOrWorkspaceError(output)) {
       return null
     }
@@ -786,8 +786,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('docker index menu - prompt schema', () => {
-    it('should output a list prompt with name "action"', () => {
-      const result = agentExec('docker --machine')
+    it('should output a list prompt with name "action"', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -796,8 +796,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.prompt.message).to.include('What would you like to do')
     })
 
-    it('should include metadata with command and flags', () => {
-      const result = agentExec('docker --machine')
+    it('should include metadata with command and flags', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -807,8 +807,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.metadata.flags.machine).to.equal(true)
     })
 
-    it('should have 11 menu choices', () => {
-      const result = agentExec('docker --machine')
+    it('should have 11 menu choices', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -822,8 +822,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('docker index menu - individual choices', () => {
-    it('should have "Check Docker status" choice with correct command', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Check Docker status" choice with correct command', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -833,8 +833,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.equal('prlt docker status --json')
     })
 
-    it('should have "List containers" choice with correct command', () => {
-      const result = agentExec('docker --machine')
+    it('should have "List containers" choice with correct command', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -844,8 +844,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.equal('prlt docker list --json')
     })
 
-    it('should have "View container logs" choice with target placeholder', () => {
-      const result = agentExec('docker --machine')
+    it('should have "View container logs" choice with target placeholder', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -856,8 +856,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.include('<target>')
     })
 
-    it('should have "Start a container" choice with target placeholder', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Start a container" choice with target placeholder', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -868,8 +868,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.include('<target>')
     })
 
-    it('should have "Stop a container" choice with target placeholder', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Stop a container" choice with target placeholder', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -880,8 +880,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.include('<target>')
     })
 
-    it('should have "Shell into container" choice with target placeholder', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Shell into container" choice with target placeholder', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -892,8 +892,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.include('<target>')
     })
 
-    it('should have "Restart a container" choice with target placeholder', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Restart a container" choice with target placeholder', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -904,8 +904,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.include('<target>')
     })
 
-    it('should have "Sync containers" choice with correct command', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Sync containers" choice with correct command', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -915,8 +915,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.equal('prlt docker sync --json')
     })
 
-    it('should have "Clean orphaned containers" choice with correct command', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Clean orphaned containers" choice with correct command', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -926,8 +926,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.equal('prlt docker clean --json')
     })
 
-    it('should have "Prune unused resources" choice with correct command', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Prune unused resources" choice with correct command', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -937,8 +937,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(choice!.command).to.equal('prlt docker prune --json')
     })
 
-    it('should have "Exit" choice', () => {
-      const result = agentExec('docker --machine')
+    it('should have "Exit" choice', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -953,8 +953,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('docker index menu - flag accumulation', () => {
-    it('should include --json in all non-exit choice commands', () => {
-      const result = agentExec('docker --machine')
+    it('should include --json in all non-exit choice commands', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -965,8 +965,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should include <target> in commands requiring a container target', () => {
-      const result = agentExec('docker --machine')
+    it('should include <target> in commands requiring a container target', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -978,8 +978,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should NOT include <target> in commands that do not require one', () => {
-      const result = agentExec('docker --machine')
+    it('should NOT include <target> in commands that do not require one', async () => {
+      const result = await agentExec('docker --machine')
 
       if (!result) return
 
@@ -997,8 +997,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('docker stop - confirmation flow', () => {
-    it('should output confirmation prompt with --machine flag', () => {
-      const result = agentExec('docker stop test-container --machine')
+    it('should output confirmation prompt with --machine flag', async () => {
+      const result = await agentExec('docker stop test-container --machine')
 
       // Skip if Docker not running
       if (!result) return
@@ -1009,8 +1009,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.metadata.command).to.equal('docker stop')
     })
 
-    it('should have Yes and No choices', () => {
-      const result = agentExec('docker stop test-container --machine')
+    it('should have Yes and No choices', async () => {
+      const result = await agentExec('docker stop test-container --machine')
 
       if (!result) return
 
@@ -1023,8 +1023,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(noChoice).to.exist
     })
 
-    it('should include --force flag in Yes choice command', () => {
-      const result = agentExec('docker stop test-container --machine')
+    it('should include --force flag in Yes choice command', async () => {
+      const result = await agentExec('docker stop test-container --machine')
 
       if (!result) return
 
@@ -1038,8 +1038,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should include target in Yes choice command', () => {
-      const result = agentExec('docker stop my-container --machine')
+    it('should include target in Yes choice command', async () => {
+      const result = await agentExec('docker stop my-container --machine')
 
       if (!result) return
 
@@ -1050,8 +1050,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should skip confirmation with --force flag', () => {
-      const output = exec('docker stop test-container --force')
+    it('should skip confirmation with --force flag', async () => {
+      const output = await execInProcess('docker stop test-container --force')
 
       // With --force, should NOT output a prompt - goes straight to action
       // (will fail because container doesn't exist, but no prompt was shown)
@@ -1061,8 +1061,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should work with -m shorthand', () => {
-      const result = agentExec('docker stop test-container -m')
+    it('should work with -m shorthand', async () => {
+      const result = await agentExec('docker stop test-container -m')
 
       if (!result) return
 
@@ -1077,8 +1077,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('docker restart - confirmation flow', () => {
-    it('should output confirmation prompt with --machine flag', () => {
-      const result = agentExec('docker restart test-container --machine')
+    it('should output confirmation prompt with --machine flag', async () => {
+      const result = await agentExec('docker restart test-container --machine')
 
       if (!result) return
 
@@ -1088,8 +1088,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.metadata.command).to.equal('docker restart')
     })
 
-    it('should have Yes and No choices', () => {
-      const result = agentExec('docker restart test-container --machine')
+    it('should have Yes and No choices', async () => {
+      const result = await agentExec('docker restart test-container --machine')
 
       if (!result) return
 
@@ -1101,8 +1101,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(noChoice).to.exist
     })
 
-    it('should include --force flag in Yes choice command', () => {
-      const result = agentExec('docker restart test-container --machine')
+    it('should include --force flag in Yes choice command', async () => {
+      const result = await agentExec('docker restart test-container --machine')
 
       if (!result) return
 
@@ -1115,8 +1115,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should include target in Yes choice command', () => {
-      const result = agentExec('docker restart my-container --machine')
+    it('should include target in Yes choice command', async () => {
+      const result = await agentExec('docker restart my-container --machine')
 
       if (!result) return
 
@@ -1127,8 +1127,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should skip confirmation with --force flag', () => {
-      const output = exec('docker restart test-container --force')
+    it('should skip confirmation with --force flag', async () => {
+      const output = await execInProcess('docker restart test-container --force')
 
       const hasPrompt = output.includes('"prompt"')
       if (!hasDockerOrWorkspaceError(output)) {
@@ -1136,8 +1136,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should work with -m shorthand', () => {
-      const result = agentExec('docker restart test-container -m')
+    it('should work with -m shorthand', async () => {
+      const result = await agentExec('docker restart test-container -m')
 
       if (!result) return
 
@@ -1151,8 +1151,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('docker clean - confirmation flow', () => {
-    it('should output confirmation prompt with --machine flag', () => {
-      const result = agentExec('docker clean --machine')
+    it('should output confirmation prompt with --machine flag', async () => {
+      const result = await agentExec('docker clean --machine')
 
       if (!result) return
 
@@ -1162,8 +1162,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.metadata.command).to.equal('docker clean')
     })
 
-    it('should have Yes and No choices', () => {
-      const result = agentExec('docker clean --machine')
+    it('should have Yes and No choices', async () => {
+      const result = await agentExec('docker clean --machine')
 
       if (!result) return
 
@@ -1173,8 +1173,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(noChoice).to.exist
     })
 
-    it('should include command in Yes choice for flag accumulation', () => {
-      const result = agentExec('docker clean --machine')
+    it('should include command in Yes choice for flag accumulation', async () => {
+      const result = await agentExec('docker clean --machine')
 
       if (!result) return
 
@@ -1186,8 +1186,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should skip confirmation with --force flag', () => {
-      const output = exec('docker clean --force')
+    it('should skip confirmation with --force flag', async () => {
+      const output = await execInProcess('docker clean --force')
 
       const hasPrompt = output.includes('"prompt"')
       if (!hasDockerOrWorkspaceError(output) && !output.includes('No orphaned containers')) {
@@ -1195,8 +1195,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should accept --dry-run to show preview without removing', () => {
-      const output = exec('docker clean --dry-run')
+    it('should accept --dry-run to show preview without removing', async () => {
+      const output = await execInProcess('docker clean --dry-run')
 
       // --dry-run should not ask for confirmation, it just shows preview
       if (!hasDockerOrWorkspaceError(output)) {
@@ -1208,8 +1208,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should work with -m shorthand', () => {
-      const result = agentExec('docker clean -m')
+    it('should work with -m shorthand', async () => {
+      const result = await agentExec('docker clean -m')
 
       if (!result) return
 
@@ -1223,8 +1223,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('docker prune - confirmation flow', () => {
-    it('should output confirmation prompt with --machine flag', () => {
-      const result = agentExec('docker prune --machine')
+    it('should output confirmation prompt with --machine flag', async () => {
+      const result = await agentExec('docker prune --machine')
 
       if (!result) return
 
@@ -1234,8 +1234,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.metadata.command).to.equal('docker prune')
     })
 
-    it('should have Yes and No choices', () => {
-      const result = agentExec('docker prune --machine')
+    it('should have Yes and No choices', async () => {
+      const result = await agentExec('docker prune --machine')
 
       if (!result) return
 
@@ -1245,8 +1245,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(noChoice).to.exist
     })
 
-    it('should include command in Yes choice for flag accumulation', () => {
-      const result = agentExec('docker prune --machine')
+    it('should include command in Yes choice for flag accumulation', async () => {
+      const result = await agentExec('docker prune --machine')
 
       if (!result) return
 
@@ -1258,8 +1258,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should include volumes warning in confirmation message with --volumes', () => {
-      const result = agentExec('docker prune --volumes --machine')
+    it('should include volumes warning in confirmation message with --volumes', async () => {
+      const result = await agentExec('docker prune --volumes --machine')
 
       if (!result) return
 
@@ -1267,8 +1267,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.prompt.message.toLowerCase()).to.include('volume')
     })
 
-    it('should skip confirmation with --force flag', () => {
-      const output = exec('docker prune --force')
+    it('should skip confirmation with --force flag', async () => {
+      const output = await execInProcess('docker prune --force')
 
       const hasPrompt = output.includes('"prompt"')
       if (!hasDockerOrWorkspaceError(output)) {
@@ -1276,16 +1276,16 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('should accept --dry-run to show preview without pruning', () => {
-      const output = exec('docker prune --dry-run')
+    it('should accept --dry-run to show preview without pruning', async () => {
+      const output = await execInProcess('docker prune --dry-run')
 
       if (!hasDockerOrWorkspaceError(output)) {
         expect(output.includes('DRY RUN') || output.includes('preview')).to.be.true
       }
     })
 
-    it('should work with -m shorthand', () => {
-      const result = agentExec('docker prune -m')
+    it('should work with -m shorthand', async () => {
+      const result = await agentExec('docker prune -m')
 
       if (!result) return
 
@@ -1299,9 +1299,9 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('full agent navigation flows', () => {
-    it('should navigate: main menu → select clean → get confirmation prompt', () => {
+    it('should navigate: main menu → select clean → get confirmation prompt', async () => {
       // Step 1: Get main menu
-      const step1 = agentExec('docker --machine')
+      const step1 = await agentExec('docker --machine')
 
       if (!step1) return
 
@@ -1312,7 +1312,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(cleanChoice!.command).to.include('--json')
 
       // Step 3: Execute the clean command from the choice
-      const step2 = agentExec(execChoice(cleanChoice!))
+      const step2 = await agentExec(execChoice(cleanChoice!))
 
       // If Docker not running, step2 will be null (graceful skip)
       if (!step2) return
@@ -1323,8 +1323,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(step2.prompt.choices.length).to.equal(2)
     })
 
-    it('should navigate: main menu → select prune → get confirmation prompt', () => {
-      const step1 = agentExec('docker --machine')
+    it('should navigate: main menu → select prune → get confirmation prompt', async () => {
+      const step1 = await agentExec('docker --machine')
 
       if (!step1) return
 
@@ -1333,7 +1333,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(pruneChoice!.command).to.include('docker prune')
       expect(pruneChoice!.command).to.include('--json')
 
-      const step2 = agentExec(execChoice(pruneChoice!))
+      const step2 = await agentExec(execChoice(pruneChoice!))
 
       if (!step2) return
 
@@ -1341,8 +1341,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(step2.prompt.name).to.equal('confirmed')
     })
 
-    it('should navigate: main menu → select status → direct execution (no prompt)', () => {
-      const step1 = agentExec('docker --machine')
+    it('should navigate: main menu → select status → direct execution (no prompt)', async () => {
+      const step1 = await agentExec('docker --machine')
 
       if (!step1) return
 
@@ -1352,13 +1352,13 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
 
       // Status command executes directly - no confirmation prompt
       // It returns JSON status output (the choice command includes --json)
-      const output = exec(execChoice(statusChoice!))
+      const output = await execInProcess(execChoice(statusChoice!))
       const json = JSON.parse(output)
       expect(json).to.have.property('running')
     })
 
-    it('should navigate: main menu → select list → direct execution (no prompt)', () => {
-      const step1 = agentExec('docker --machine')
+    it('should navigate: main menu → select list → direct execution (no prompt)', async () => {
+      const step1 = await agentExec('docker --machine')
 
       if (!step1) return
 
@@ -1367,8 +1367,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(listChoice!.command).to.equal('prlt docker list --json')
     })
 
-    it('should navigate: main menu → select sync → direct execution (no prompt)', () => {
-      const step1 = agentExec('docker --machine')
+    it('should navigate: main menu → select sync → direct execution (no prompt)', async () => {
+      const step1 = await agentExec('docker --machine')
 
       if (!step1) return
 
@@ -1383,9 +1383,9 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
   // ===========================================================================
 
   describe('--machine vs --json vs -m equivalence', () => {
-    it('--machine and --json should produce equivalent output structure', () => {
-      const machineOutput = exec('docker --machine')
-      const jsonOutput = exec('docker --json')
+    it('--machine and --json should produce equivalent output structure', async () => {
+      const machineOutput = await execInProcess('docker --machine')
+      const jsonOutput = await execInProcess('docker --json')
 
       const machineResult = extractJson<AgentPrompt>(machineOutput)
       const jsonResult = extractJson<AgentPrompt>(jsonOutput)
@@ -1398,9 +1398,9 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       }
     })
 
-    it('--machine and --json should have same choice values', () => {
-      const machineResult = agentExec('docker --machine')
-      const jsonResult = agentExec('docker --json')
+    it('--machine and --json should have same choice values', async () => {
+      const machineResult = await agentExec('docker --machine')
+      const jsonResult = await agentExec('docker --json')
 
       if (!machineResult || !jsonResult) return
 
@@ -1409,8 +1409,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(machineValues).to.deep.equal(jsonValues)
     })
 
-    it('-m shorthand should work for docker index', () => {
-      const result = agentExec('docker -m')
+    it('-m shorthand should work for docker index', async () => {
+      const result = await agentExec('docker -m')
 
       if (!result) return
 
@@ -1420,8 +1420,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.metadata.flags.machine).to.equal(true)
     })
 
-    it('-m shorthand should work for docker stop (Docker-dependent)', () => {
-      const result = agentExec('docker stop test-container -m')
+    it('-m shorthand should work for docker stop (Docker-dependent)', async () => {
+      const result = await agentExec('docker stop test-container -m')
 
       if (!result) return
 
@@ -1430,8 +1430,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.metadata.flags.machine).to.equal(true)
     })
 
-    it('-m shorthand should work for docker clean (Docker-dependent)', () => {
-      const result = agentExec('docker clean -m')
+    it('-m shorthand should work for docker clean (Docker-dependent)', async () => {
+      const result = await agentExec('docker clean -m')
 
       if (!result) return
 
@@ -1440,8 +1440,8 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
       expect(result.metadata.flags.machine).to.equal(true)
     })
 
-    it('-m shorthand should work for docker prune (Docker-dependent)', () => {
-      const result = agentExec('docker prune -m')
+    it('-m shorthand should work for docker prune (Docker-dependent)', async () => {
+      const result = await agentExec('docker prune -m')
 
       if (!result) return
 

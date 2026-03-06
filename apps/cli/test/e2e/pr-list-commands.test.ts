@@ -10,7 +10,7 @@ import {
   createPMODirectories,
   setupProductionSchema,
   createTestProject,
-  exec,
+  execInProcess,
   type TestEnvironment,
 } from './test-helpers.js';
 
@@ -103,9 +103,9 @@ describe('PR List Command E2E Tests', () => {
   }
 
   describe('prlt pr list command structure', () => {
-    it('should have correct command flags', () => {
+    it('should have correct command flags', async () => {
       // Check help output includes expected flags
-      const output = exec('pr list --help');
+      const output = await execInProcess('pr list --help');
 
       expect(output).to.include('--state');
       expect(output).to.include('--format');
@@ -114,9 +114,9 @@ describe('PR List Command E2E Tests', () => {
       expect(output).to.include('--json');
     });
 
-    it('should be accessible via pr menu', () => {
+    it('should be accessible via pr menu', async () => {
       // The pr index command should include list option
-      const output = exec('pr -P test-project --machine');
+      const output = await execInProcess('pr -P test-project --machine');
 
       // Should have list in the menu choices
       expect(output).to.include('list');
@@ -124,8 +124,8 @@ describe('PR List Command E2E Tests', () => {
   });
 
   describe('prlt pr list --machine (JSON mode)', () => {
-    it('should output valid JSON when --machine flag is used', () => {
-      const output = exec('pr list -P test-project --machine');
+    it('should output valid JSON when --machine flag is used', async () => {
+      const output = await execInProcess('pr list -P test-project --machine');
 
       // Must get some output
       expect(output).to.be.a('string');
@@ -148,15 +148,15 @@ describe('PR List Command E2E Tests', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('pr list -P test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('pr list -P test-project -m');
 
       expect(output).to.be.a('string');
       expect(output.length).to.be.greaterThan(0);
     });
 
-    it('should work with --json flag (legacy)', () => {
-      const output = exec('pr list -P test-project --json');
+    it('should work with --json flag (legacy)', async () => {
+      const output = await execInProcess('pr list -P test-project --json');
 
       expect(output).to.be.a('string');
       expect(output.length).to.be.greaterThan(0);
@@ -164,64 +164,64 @@ describe('PR List Command E2E Tests', () => {
   });
 
   describe('prlt pr list with state filter', () => {
-    it('should accept --state open filter', () => {
-      const output = exec('pr list --state open -P test-project --machine');
+    it('should accept --state open filter', async () => {
+      const output = await execInProcess('pr list --state open -P test-project --machine');
 
       expect(output).to.be.a('string');
     });
 
-    it('should accept --state draft filter', () => {
-      const output = exec('pr list --state draft -P test-project --machine');
+    it('should accept --state draft filter', async () => {
+      const output = await execInProcess('pr list --state draft -P test-project --machine');
 
       expect(output).to.be.a('string');
     });
 
-    it('should accept --state all filter', () => {
-      const output = exec('pr list --state all -P test-project --machine');
+    it('should accept --state all filter', async () => {
+      const output = await execInProcess('pr list --state all -P test-project --machine');
 
       expect(output).to.be.a('string');
     });
   });
 
   describe('prlt pr list with format options', () => {
-    it('should accept --format table (default)', () => {
-      const output = exec('pr list --format table -P test-project');
+    it('should accept --format table (default)', async () => {
+      const output = await execInProcess('pr list --format table -P test-project');
 
       expect(output).to.be.a('string');
     });
 
-    it('should accept --format compact', () => {
-      const output = exec('pr list --format compact -P test-project');
+    it('should accept --format compact', async () => {
+      const output = await execInProcess('pr list --format compact -P test-project');
 
       expect(output).to.be.a('string');
     });
 
-    it('should accept --format json', () => {
-      const output = exec('pr list --format json -P test-project');
+    it('should accept --format json', async () => {
+      const output = await execInProcess('pr list --format json -P test-project');
 
       expect(output).to.be.a('string');
     });
   });
 
   describe('prlt pr list with limit option', () => {
-    it('should accept --limit flag', () => {
-      const output = exec('pr list --limit 10 -P test-project --machine');
+    it('should accept --limit flag', async () => {
+      const output = await execInProcess('pr list --limit 10 -P test-project --machine');
 
       expect(output).to.be.a('string');
     });
 
-    it('should accept -l shorthand for limit', () => {
-      const output = exec('pr list -l 5 -P test-project --machine');
+    it('should accept -l shorthand for limit', async () => {
+      const output = await execInProcess('pr list -l 5 -P test-project --machine');
 
       expect(output).to.be.a('string');
     });
   });
 
   describe('prlt pr list error handling', () => {
-    it('should return structured error when gh CLI not installed', () => {
+    it('should return structured error when gh CLI not installed', async () => {
       // Mock gh not installed by running in isolated environment
       // This test depends on gh CLI availability
-      const output = exec('pr list -P test-project --machine');
+      const output = await execInProcess('pr list -P test-project --machine');
 
       // If gh not installed, should have error code
       if (output.includes('GH_NOT_INSTALLED')) {
@@ -237,8 +237,8 @@ describe('PR List Command E2E Tests', () => {
       }
     });
 
-    it('should return structured error when gh CLI not authenticated', () => {
-      const output = exec('pr list -P test-project --machine');
+    it('should return structured error when gh CLI not authenticated', async () => {
+      const output = await execInProcess('pr list -P test-project --machine');
 
       // If gh not authenticated, should have error code
       if (output.includes('GH_NOT_AUTHENTICATED')) {
@@ -262,8 +262,8 @@ describe('PR List Command E2E Tests', () => {
       createTestTicket('TKT-NO-PR', 'Ticket without PR', 'in-progress');
     });
 
-    it('should have ticket association data in JSON output (if gh installed)', () => {
-      const output = exec('pr list -P test-project --machine');
+    it('should have ticket association data in JSON output (if gh installed)', async () => {
+      const output = await execInProcess('pr list -P test-project --machine');
 
       // If we get valid JSON array output
       if (output.startsWith('[')) {
@@ -287,7 +287,7 @@ describe('PR List Command E2E Tests', () => {
       }
     });
 
-    it('should store ticket metadata for association lookup', () => {
+    it('should store ticket metadata for association lookup', async () => {
       // Verify the metadata is in database (what pr list uses)
       const metadata = db.prepare(`
         SELECT ticket_id, key, value FROM pmo_ticket_metadata
@@ -310,8 +310,8 @@ describe('PR List Command E2E Tests', () => {
   });
 
   describe('prlt pr list interactive output', () => {
-    it('should display pull requests header in table format', () => {
-      const output = exec('pr list -P test-project --format table');
+    it('should display pull requests header in table format', async () => {
+      const output = await execInProcess('pr list -P test-project --format table');
 
       // Should show "Pull Requests" header or "No open pull requests"
       expect(output).to.satisfy((s: string) =>
@@ -323,8 +323,8 @@ describe('PR List Command E2E Tests', () => {
       );
     });
 
-    it('should display compact output when requested', () => {
-      const output = exec('pr list -P test-project --format compact');
+    it('should display compact output when requested', async () => {
+      const output = await execInProcess('pr list -P test-project --format compact');
 
       // Should show output or appropriate message
       expect(output).to.be.a('string');
@@ -333,8 +333,8 @@ describe('PR List Command E2E Tests', () => {
   });
 
   describe('pr menu integration', () => {
-    it('should include list in pr menu choices', () => {
-      const output = exec('pr -P test-project --machine');
+    it('should include list in pr menu choices', async () => {
+      const output = await execInProcess('pr -P test-project --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; value: string }> };
       }>(output);
@@ -345,9 +345,9 @@ describe('PR List Command E2E Tests', () => {
       expect(listChoice!.name.toLowerCase()).to.include('list');
     });
 
-    it('should invoke pr list when list action is selected', () => {
+    it('should invoke pr list when list action is selected', async () => {
       // Verify the action 'list' maps to pr:list command
-      const output = exec('pr -a list -P test-project --machine');
+      const output = await execInProcess('pr -a list -P test-project --machine');
 
       // Should invoke pr list command
       // Output depends on gh CLI availability
