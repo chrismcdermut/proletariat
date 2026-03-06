@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
-  execProduction,
+  execInProcess,
   extractJson,
   agentExec,
   findChoiceByValue,
@@ -27,7 +27,7 @@ describe('Session Peek Commands E2E Tests', () => {
   let originalCwd: string;
   let dbPath: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     originalCwd = process.cwd();
     testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'session-peek-e2e-')));
     process.chdir(testDir);
@@ -49,7 +49,7 @@ describe('Session Peek Commands E2E Tests', () => {
     fs.mkdirSync(path.join(testDir, 'pmo', 'projects', 'default'), { recursive: true });
 
     // Trigger PMO table initialization
-    execProduction('session --machine');
+    await execInProcess('session --machine');
 
     // Create workspace tables
     const initDb = new Database(dbPath);
@@ -150,8 +150,8 @@ describe('Session Peek Commands E2E Tests', () => {
   // success data (with target). When no tmux, it returns NO_SESSIONS error.
   // =========================================================================
   describe('prlt session peek --json (output structure)', () => {
-    it('should return valid JSON with known type field', () => {
-      const output = execProduction('session peek --json');
+    it('should return valid JSON with known type field', async () => {
+      const output = await execInProcess('session peek --json');
       const json = extractJson<{ type: string }>(output);
 
       expect(json).to.not.be.null;
@@ -159,8 +159,8 @@ describe('Session Peek Commands E2E Tests', () => {
       expect(json!.type).to.be.oneOf(['error', 'prompt']);
     });
 
-    it('should return NO_SESSIONS error or prompt depending on environment', () => {
-      const output = execProduction('session peek --json');
+    it('should return NO_SESSIONS error or prompt depending on environment', async () => {
+      const output = await execInProcess('session peek --json');
       const json = extractJson<{ type: string; error?: { code: string }; prompt?: { type: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -177,8 +177,8 @@ describe('Session Peek Commands E2E Tests', () => {
   // prlt session peek <target> --json (non-existent target)
   // =========================================================================
   describe('prlt session peek <nonexistent-target> --json', () => {
-    it('should return SESSION_NOT_FOUND or NO_SESSIONS for non-existent target', () => {
-      const output = execProduction('session peek NONEXISTENT-TARGET-12345 --json');
+    it('should return SESSION_NOT_FOUND or NO_SESSIONS for non-existent target', async () => {
+      const output = await execInProcess('session peek NONEXISTENT-TARGET-12345 --json');
       const json = extractJson<{ type: string; error?: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -188,8 +188,8 @@ describe('Session Peek Commands E2E Tests', () => {
       expect(json!.error!.code).to.be.oneOf(['NO_SESSIONS', 'SESSION_NOT_FOUND']);
     });
 
-    it('should return error for non-existent ticket ID', () => {
-      const output = execProduction('session peek TKT-99999 --json');
+    it('should return error for non-existent ticket ID', async () => {
+      const output = await execInProcess('session peek TKT-99999 --json');
       const json = extractJson<{ type: string; error?: { code: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -197,8 +197,8 @@ describe('Session Peek Commands E2E Tests', () => {
       expect(json!.error!.code).to.be.oneOf(['NO_SESSIONS', 'SESSION_NOT_FOUND']);
     });
 
-    it('should return error for non-existent execution ID', () => {
-      const output = execProduction('session peek WORK-ZZZZZZZZ --json');
+    it('should return error for non-existent execution ID', async () => {
+      const output = await execInProcess('session peek WORK-ZZZZZZZZ --json');
       const json = extractJson<{ type: string; error?: { code: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -211,8 +211,8 @@ describe('Session Peek Commands E2E Tests', () => {
   // prlt session peek --lines flag parsing
   // =========================================================================
   describe('prlt session peek --lines flag', () => {
-    it('should accept --lines flag without error', () => {
-      const output = execProduction('session peek --lines 100 --json');
+    it('should accept --lines flag without error', async () => {
+      const output = await execInProcess('session peek --lines 100 --json');
       const json = extractJson<{ type: string; metadata?: { flags?: { lines?: number } } }>(output);
 
       expect(json).to.not.be.null;
@@ -220,8 +220,8 @@ describe('Session Peek Commands E2E Tests', () => {
       expect(json!.type).to.be.oneOf(['error', 'prompt']);
     });
 
-    it('should accept -l shorthand flag', () => {
-      const output = execProduction('session peek -l 25 --json');
+    it('should accept -l shorthand flag', async () => {
+      const output = await execInProcess('session peek -l 25 --json');
       const json = extractJson<{ type: string }>(output);
 
       expect(json).to.not.be.null;
@@ -233,7 +233,7 @@ describe('Session Peek Commands E2E Tests', () => {
   // Agent flow: session menu → peek
   // =========================================================================
   describe('Agent flow: session menu → peek choice', () => {
-    it('should navigate menu → peek choice → execute → verify valid JSON output', () => {
+    it('should navigate menu → peek choice → execute → verify valid JSON output', async () => {
       // Step 1: Get session menu
       const menuResult = agentExec('session --machine');
       expect(menuResult).to.not.be.null;
@@ -245,7 +245,7 @@ describe('Session Peek Commands E2E Tests', () => {
 
       // Step 3: Execute the peek command
       const peekCmd = peekChoice!.command!.replace('prlt ', '');
-      const peekOutput = execProduction(peekCmd);
+      const peekOutput = await execInProcess(peekCmd);
 
       // Step 4: Verify structured JSON output (either error or prompt)
       const json = extractJson<{ type: string }>(peekOutput);
@@ -258,10 +258,10 @@ describe('Session Peek Commands E2E Tests', () => {
   // JSON output structure for success case
   // =========================================================================
   describe('prlt session peek --json (success structure)', () => {
-    it('should include expected fields when session is found and captured', () => {
+    it('should include expected fields when session is found and captured', async () => {
       // This test may not always produce a success result (depends on tmux).
       // But when it does, verify the structure.
-      const output = execProduction('session peek --json');
+      const output = await execInProcess('session peek --json');
       const json = extractJson<{
         type: string;
         result?: {

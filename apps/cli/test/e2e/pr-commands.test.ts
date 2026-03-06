@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 
@@ -183,10 +183,10 @@ describe('PR Commands E2E Tests', () => {
    * Note: Cannot test actual PR creation without GitHub, but we can test prerequisites
    */
   describe('prlt pr create prerequisites', () => {
-    it('should check for gh CLI availability', () => {
+    it('should check for gh CLI availability', async () => {
       // The command should check for gh CLI
       // If gh is not installed/authenticated, it should show appropriate message
-      const output = exec('pr create');
+      const output = await execInProcess('pr create');
 
       // Either shows gh not installed, not authenticated, or proceeds with PR creation
       // All are valid responses depending on environment
@@ -459,19 +459,19 @@ describe('PR Commands E2E Tests', () => {
    * Test that pr commands output proper JSON when --json flag is used
    */
   describe('JSON Mode Output (FlagResolver)', () => {
-    it('prlt pr --json should output prompt config for action selection', () => {
-      const output = exec('pr --json');
+    it('prlt pr --json should output prompt config for action selection', async () => {
+      const output = await execInProcess('pr --json');
 
       // Should output JSON with prompt config
       expect(output).to.include('"type"');
       expect(output).to.include('"action"');
     });
 
-    it('prlt pr status --json should output prompt config for ticket selection', () => {
+    it('prlt pr status --json should output prompt config for ticket selection', async () => {
       // Create a ticket first
       createTicket(db, 'JSON mode test ticket', 'in-progress');
 
-      const output = exec('pr status --json');
+      const output = await execInProcess('pr status --json');
 
       // Command may output "No tickets found." or JSON with prompt config
       if (output.includes('No tickets found') || output.includes('NO_TICKETS')) {
@@ -481,41 +481,41 @@ describe('PR Commands E2E Tests', () => {
       }
     });
 
-    it('prlt pr link --json should output prompt config for ticket selection', () => {
+    it('prlt pr link --json should output prompt config for ticket selection', async () => {
       // Create a ticket first
       createTicket(db, 'Link JSON test ticket', 'in-progress');
 
-      const output = exec('pr link --json');
+      const output = await execInProcess('pr link --json');
 
       // Should output JSON prompt config
       expect(output).to.include('"type"');
     });
 
-    it('prlt pr create with --ticket flag should skip ticket selection prompt', () => {
+    it('prlt pr create with --ticket flag should skip ticket selection prompt', async () => {
       const ticketId = createTicket(db, 'Create test ticket', 'in-progress');
 
       // With ticket provided, should not prompt for ticket
-      const output = exec(`pr create --ticket ${ticketId} --no-link --json`);
+      const output = await execInProcess(`pr create --ticket ${ticketId} --no-link --json`);
 
       // Either outputs error (gh not installed) or proceeds without ticket prompt
       expect(output).to.be.a('string');
     });
 
-    it('prlt pr status with ticket arg should skip selection', () => {
+    it('prlt pr status with ticket arg should skip selection', async () => {
       const ticketId = createTicket(db, 'Status test ticket', 'in-progress');
 
       // With ticket ID provided, should show status directly
-      const output = exec(`pr status ${ticketId}`);
+      const output = await execInProcess(`pr status ${ticketId}`);
 
       // Should show ticket info
       expect(output).to.include(ticketId);
     });
 
-    it('prlt pr link with ticket arg should proceed to PR selection', () => {
+    it('prlt pr link with ticket arg should proceed to PR selection', async () => {
       const ticketId = createTicket(db, 'Link test ticket', 'in-progress');
 
       // With ticket ID provided, should skip ticket selection
-      const output = exec(`pr link ${ticketId} --json`);
+      const output = await execInProcess(`pr link ${ticketId} --json`);
 
       // Should either prompt for PR or error (gh not installed)
       expect(output).to.be.a('string');
