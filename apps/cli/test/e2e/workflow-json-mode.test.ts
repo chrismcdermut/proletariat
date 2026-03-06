@@ -473,9 +473,9 @@ describe('Workflow Commands JSON Mode', () => {
     });
 
     describe('workflow view - full agent flow', () => {
-      it('should complete flow: select workflow → view details', () => {
+      it('should complete flow: select workflow → view details', async () => {
         // Agent Step 1: No workflow ID, get selection prompt
-        const step1 = agentExec('workflow view --machine');
+        const step1 = await agentExec('workflow view --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.choices).to.be.an('array');
 
@@ -485,7 +485,7 @@ describe('Workflow Commands JSON Mode', () => {
         expect(workflowChoice!.command).to.include('--json');
 
         // Agent Step 2: Execute the view command (without --json to get human output)
-        const result = execFinal(execChoice(workflowChoice!));
+        const result = await execFinal(execChoice(workflowChoice!));
 
         // Verify workflow details shown (human readable format includes workflow name)
         expect(result).to.include('Default');
@@ -503,7 +503,7 @@ describe('Workflow Commands JSON Mode', () => {
     describe('workflow create - full agent flow', () => {
       it('should complete flow: form prompt → provide flags → workflow created', async () => {
         // Agent Step 1: No name provided, get form prompt
-        const step1 = agentExec('workflow create --machine');
+        const step1 = await agentExec('workflow create --machine');
         expect(step1.prompt.type).to.equal('form');
         expect(step1.prompt.fields).to.be.an('array');
 
@@ -539,9 +539,9 @@ describe('Workflow Commands JSON Mode', () => {
         addTestWorkflowStatus(db, 'delete-flow-wf', { id: 'dfw-todo', name: 'To Do', category: 'backlog', position: 0, isDefault: true });
       });
 
-      it('should complete flow: select workflow → confirm deletion → workflow deleted', () => {
+      it('should complete flow: select workflow → confirm deletion → workflow deleted', async () => {
         // Agent Step 1: No workflow ID, get workflow selection
-        const step1 = agentExec('workflow delete --machine');
+        const step1 = await agentExec('workflow delete --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.choices).to.be.an('array');
 
@@ -551,7 +551,7 @@ describe('Workflow Commands JSON Mode', () => {
         expect(workflowChoice!.command).to.include('--json');
 
         // Agent Step 2: Select workflow, get confirmation prompt
-        const step2 = agentExec(execChoice(workflowChoice!));
+        const step2 = await agentExec(execChoice(workflowChoice!));
         expect(step2.prompt.type).to.equal('list');
 
         // Find Yes choice
@@ -560,7 +560,7 @@ describe('Workflow Commands JSON Mode', () => {
         expect(yesChoice!.command).to.include('--force');
 
         // Agent Step 3: Confirm deletion
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         // Verify deletion succeeded
         expect(result).to.include('Deleted workflow');
@@ -594,9 +594,9 @@ describe('Workflow Commands JSON Mode', () => {
         createTestTicket(db, 'test-project', { id: 'TKT-SWITCH', title: 'Switch Test Ticket', status: 'Backlog', statusId: 'default-backlog' });
       });
 
-      it('should complete flow: select workflow → confirm switch → workflow switched', () => {
+      it('should complete flow: select workflow → confirm switch → workflow switched', async () => {
         // Agent Step 1: No workflow provided, get workflow selection
-        const step1 = agentExec('workflow switch -P test-project --machine');
+        const step1 = await agentExec('workflow switch -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.choices).to.be.an('array');
 
@@ -607,7 +607,7 @@ describe('Workflow Commands JSON Mode', () => {
         expect(workflowChoice!.command).to.include('--json');
 
         // Agent Step 2: Select workflow, get confirmation prompt
-        const step2 = agentExec(execChoice(workflowChoice!));
+        const step2 = await agentExec(execChoice(workflowChoice!));
         expect(step2.prompt.type).to.equal('list');
 
         // Find Yes choice
@@ -617,7 +617,7 @@ describe('Workflow Commands JSON Mode', () => {
         expect(yesChoice!.command).to.include('-P test-project');
 
         // Agent Step 3: Confirm switch
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         // Verify switch succeeded
         expect(result).to.include('Switched');
@@ -640,9 +640,9 @@ describe('Workflow Commands JSON Mode', () => {
         expect(project.workflow_id).to.equal('switch-target-wf');
       });
 
-      it('should propagate project flag through multi-step flow', () => {
+      it('should propagate project flag through multi-step flow', async () => {
         // Step 1: Initial command with project
-        const step1 = agentExec('workflow switch -P test-project --machine');
+        const step1 = await agentExec('workflow switch -P test-project --machine');
         expect(step1.prompt.choices).to.be.an('array');
 
         // All choices should include project flag
@@ -654,7 +654,7 @@ describe('Workflow Commands JSON Mode', () => {
 
         // Step 2: Follow a choice
         const workflowChoice = findChoice(step1.prompt.choices!, 'Switch Target');
-        const step2 = agentExec(execChoice(workflowChoice!));
+        const step2 = await agentExec(execChoice(workflowChoice!));
 
         // Confirmation choices should still have project flag
         for (const choice of step2.prompt.choices!) {
@@ -671,23 +671,23 @@ describe('Workflow Commands JSON Mode', () => {
         addTestWorkflowStatus(db, 'json-compat-wf', { id: 'jc-todo', name: 'To Do', category: 'backlog', position: 0, isDefault: true });
       });
 
-      it('should complete view flow with --json flag (legacy)', () => {
+      it('should complete view flow with --json flag (legacy)', async () => {
         // Use --json instead of --machine
-        const step1 = agentExec('workflow view --json');
+        const step1 = await agentExec('workflow view --json');
         expect(step1.prompt.type).to.equal('list');
 
         const workflowChoice = findChoice(step1.prompt.choices!, 'Default');
-        const result = execFinal(execChoice(workflowChoice!));
+        const result = await execFinal(execChoice(workflowChoice!));
 
         expect(result).to.include('Default');
       });
 
-      it('should complete delete flow with --json flag (legacy)', () => {
-        const step1 = agentExec('workflow delete json-compat-wf --json');
+      it('should complete delete flow with --json flag (legacy)', async () => {
+        const step1 = await agentExec('workflow delete json-compat-wf --json');
         expect(step1.prompt.type).to.equal('list');
 
         const yesChoice = step1.prompt.choices!.find(c => c.value === 'true');
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         expect(result).to.include('Deleted workflow');
       });

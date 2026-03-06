@@ -366,16 +366,16 @@ describe('Phase Commands JSON Mode', () => {
     }
 
     describe('phase create - full agent flow', () => {
-      it('should complete flow: enter name → select category → phase created', () => {
+      it('should complete flow: enter name → select category → phase created', async () => {
         // Agent Step 1: No name provided, get input prompt
-        const step1 = agentExec('phase create --machine');
+        const step1 = await agentExec('phase create --machine');
         expect(step1.prompt.type).to.equal('input');
         expect(step1.prompt.name).to.equal('name');
         expect(step1.prompt.context).to.exist;
         expect(step1.prompt.context!.hint).to.include('prlt phase create');
 
         // Agent Step 2: Provide name, get category selection
-        const step2 = agentExec('phase create "Agent Created Phase" --machine');
+        const step2 = await agentExec('phase create "Agent Created Phase" --machine');
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.name).to.equal('category');
         expect(step2.prompt.choices).to.be.an('array');
@@ -386,7 +386,7 @@ describe('Phase Commands JSON Mode', () => {
         expect(categoryChoice).to.exist;
 
         // Agent Step 3: Execute the create with category
-        const result = execFinal(execChoice(categoryChoice!));
+        const result = await execFinal(execChoice(categoryChoice!));
 
         // Verify phase was created
         expect(result).to.include('Created phase');
@@ -413,7 +413,7 @@ describe('Phase Commands JSON Mode', () => {
 
       it('should complete flow: select phase → update with flags', async () => {
         // Agent Step 1: No phase ID, get phase selection prompt
-        const step1 = agentExec('phase update --machine');
+        const step1 = await agentExec('phase update --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('phaseId');
         expect(step1.prompt.choices).to.be.an('array');
@@ -452,9 +452,9 @@ describe('Phase Commands JSON Mode', () => {
         createTestPhase(db, { id: 'delete-flow-phase', name: 'Delete Flow Phase', category: 'canceled', position: 0 });
       });
 
-      it('should complete flow: provide ID → confirm deletion → phase deleted', () => {
+      it('should complete flow: provide ID → confirm deletion → phase deleted', async () => {
         // Agent Step 1: Provide phase ID, get confirmation prompt
-        const step1 = agentExec('phase delete delete-flow-phase --machine');
+        const step1 = await agentExec('phase delete delete-flow-phase --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('confirmed');
         expect(step1.prompt.message).to.include('Delete Flow Phase');
@@ -465,7 +465,7 @@ describe('Phase Commands JSON Mode', () => {
         expect(yesChoice!.command).to.include('--force');
 
         // Agent Step 2: Confirm deletion
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         // Verify deletion succeeded
         expect(result).to.include('Deleted phase');
@@ -496,9 +496,9 @@ describe('Phase Commands JSON Mode', () => {
         createTestPhase(db, { id: 'move-flow-3', name: 'Move Flow Third', category: 'started', position: 2 });
       });
 
-      it('should complete flow: select phase → select position → phase moved', () => {
+      it('should complete flow: select phase → select position → phase moved', async () => {
         // Agent Step 1: No phase ID, get phase selection prompt
-        const step1 = agentExec('phase move --machine');
+        const step1 = await agentExec('phase move --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('phaseId');
 
@@ -507,7 +507,7 @@ describe('Phase Commands JSON Mode', () => {
         expect(phaseChoice).to.exist;
 
         // Agent Step 2: Select phase, get position choices
-        const step2 = agentExec(execChoice(phaseChoice!));
+        const step2 = await agentExec(execChoice(phaseChoice!));
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.name).to.equal('position');
         expect(step2.prompt.choices).to.be.an('array');
@@ -518,15 +518,15 @@ describe('Phase Commands JSON Mode', () => {
         expect(positionChoice).to.exist;
 
         // Agent Step 3: Execute the move
-        const result = execFinal(execChoice(positionChoice!));
+        const result = await execFinal(execChoice(positionChoice!));
 
         // Verify move succeeded
         expect(result.toLowerCase()).to.match(/moved|position/);
       });
 
-      it('should complete flow with phase ID provided directly', () => {
+      it('should complete flow with phase ID provided directly', async () => {
         // Agent Step 1: Phase ID provided, get position prompt directly
-        const step1 = agentExec('phase move move-flow-1 --machine');
+        const step1 = await agentExec('phase move move-flow-1 --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('position');
 
@@ -535,7 +535,7 @@ describe('Phase Commands JSON Mode', () => {
         expect(positionChoice).to.exist;
 
         // Execute move
-        const result = execFinal(execChoice(positionChoice!));
+        const result = await execFinal(execChoice(positionChoice!));
         expect(result.toLowerCase()).to.match(/moved|position/);
       });
 
@@ -583,25 +583,25 @@ describe('Phase Commands JSON Mode', () => {
         createTestPhase(db, { id: 'json-compat-phase', name: 'JSON Compat Phase', category: 'unstarted', position: 0 });
       });
 
-      it('should complete create flow with --json flag (legacy)', () => {
+      it('should complete create flow with --json flag (legacy)', async () => {
         // Use --json instead of --machine
-        const step1 = agentExec('phase create "Legacy JSON Phase" --json');
+        const step1 = await agentExec('phase create "Legacy JSON Phase" --json');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('category');
 
         const categoryChoice = findChoice(step1.prompt.choices!, 'Started');
-        const result = execFinal(execChoice(categoryChoice!));
+        const result = await execFinal(execChoice(categoryChoice!));
 
         expect(result).to.include('Created phase');
       });
 
-      it('should complete delete flow with --json flag (legacy)', () => {
-        const step1 = agentExec('phase delete json-compat-phase --json');
+      it('should complete delete flow with --json flag (legacy)', async () => {
+        const step1 = await agentExec('phase delete json-compat-phase --json');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('confirmed');
 
         const yesChoice = step1.prompt.choices!.find(c => c.value === 'true');
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         expect(result).to.include('Deleted phase');
       });

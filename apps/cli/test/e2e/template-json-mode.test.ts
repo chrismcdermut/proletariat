@@ -575,7 +575,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         const result = await agentExecAsync('template --machine');
         expect(result).to.not.be.null;
 
-        const actions = result!.prompt.choices!.map(c => c.value);
+        const actions = result!.prompt.choices!.map((c: { value: string }) => c.value);
         expect(actions).to.include('list');
         expect(actions).to.include('create');
         expect(actions).to.include('apply');
@@ -780,7 +780,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(step1!.prompt.message).to.include('existing phase');
 
         // Find Yes choice
-        const yesChoice = step1!.prompt.choices!.find(c => c.value === 'true');
+        const yesChoice = step1!.prompt.choices!.find((c: { value: string }) => c.value === 'true');
         expect(yesChoice).to.exist;
 
         // Step 2: Apply with --force to skip confirmation
