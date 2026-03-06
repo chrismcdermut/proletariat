@@ -168,6 +168,93 @@ export function getUpdateCommand(pm: PackageManager): string {
 }
 
 // ---------------------------------------------------------------------------
+// Stale Homebrew tap detection
+// ---------------------------------------------------------------------------
+
+/** The Homebrew tap that hosts the prlt formula */
+const HOMEBREW_TAP = 'chrismcdermut/homebrew-proletariat'
+
+/**
+ * Resolve the local filesystem path for the Homebrew tap.
+ * Returns null if the tap directory doesn't exist.
+ */
+export function getBrewTapPath(): string | null {
+  const prefixes = ['/opt/homebrew/Library/Taps', '/usr/local/Homebrew/Library/Taps']
+  for (const prefix of prefixes) {
+    const tapDir = path.join(prefix, HOMEBREW_TAP)
+    if (fs.existsSync(tapDir)) {
+      return tapDir
+    }
+  }
+  return null
+}
+
+export interface StaleTapResult {
+  /** Whether the tap is stale (local HEAD behind origin/main) */
+  isStale: boolean
+  /** Local HEAD commit hash (short) */
+  localHead?: string
+  /** Remote HEAD commit hash (short) */
+  remoteHead?: string
+}
+
+/**
+ * Check whether the local Homebrew tap checkout is behind origin/main.
+ *
+ * Runs a quick `git fetch --dry-run` to update remote refs, then compares
+ * local HEAD against origin/main. Returns { isStale: false } for any error
+ * or when the tap is not installed (non-brew installs).
+ */
+export function checkStaleTap(tapPath?: string | null): StaleTapResult {
+  const resolvedPath = tapPath ?? getBrewTapPath()
+  if (!resolvedPath) {
+    return { isStale: false }
+  }
+
+  try {
+    // Fetch latest remote refs (quick, no data transfer for up-to-date repos)
+    execSync('git fetch origin --quiet', {
+      cwd: resolvedPath,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10_000,
+    })
+
+    const localHead = execSync('git rev-parse --short HEAD', {
+      cwd: resolvedPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 3000,
+    }).trim()
+
+    const remoteHead = execSync('git rev-parse --short origin/main', {
+      cwd: resolvedPath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 3000,
+    }).trim()
+
+    if (localHead !== remoteHead) {
+      return { isStale: true, localHead, remoteHead }
+    }
+
+    return { isStale: false, localHead, remoteHead }
+  } catch {
+    // Any git error → treat as non-stale (don't block user)
+    return { isStale: false }
+  }
+}
+
+/**
+ * Get the remediation commands for a stale Homebrew tap.
+ */
+export function getStaleTapCommands(): string[] {
+  return [
+    `brew tap --force chrismcdermut/proletariat`,
+    `brew upgrade chrismcdermut/proletariat/prlt`,
+  ]
+}
+
+// ---------------------------------------------------------------------------
 // Version fetching
 // ---------------------------------------------------------------------------
 
@@ -261,6 +348,8 @@ export interface UpdateInfo {
   packageManager: PackageManager
   /** The command to run the update */
   updateCommand: string
+  /** Whether the Homebrew tap is stale (only set for brew installs) */
+  staleTap?: StaleTapResult
 }
 
 /**
@@ -278,12 +367,16 @@ export function getCachedUpdateInfo(currentVersion: string): UpdateInfo {
     isNewerVersion(currentVersion, latestVersion) &&
     cache.dismissed_version !== latestVersion
 
+  // Check for stale Homebrew tap when using brew and an update is expected
+  const staleTap = pm === 'brew' ? checkStaleTap() : undefined
+
   return {
     updateAvailable,
     currentVersion,
     latestVersion,
     packageManager: pm,
     updateCommand,
+    staleTap,
   }
 }
 

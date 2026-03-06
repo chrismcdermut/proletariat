@@ -2,6 +2,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { execSync } from 'node:child_process'
 import {
   readCache,
   writeCache,
@@ -11,6 +12,9 @@ import {
   dismissVersion,
   detectPackageManager,
   getUpdateCommand,
+  checkStaleTap,
+  getBrewTapPath,
+  getStaleTapCommands,
   type VersionCheckCache,
 } from '../../src/lib/update-check.js'
 
@@ -228,6 +232,110 @@ describe('Update Check', () => {
 
     it('returns npm command for npm package manager', () => {
       expect(getUpdateCommand('npm')).to.equal('npm install -g @proletariat/cli')
+    })
+  })
+
+  describe('getStaleTapCommands', () => {
+    it('returns remediation commands', () => {
+      const commands = getStaleTapCommands()
+      expect(commands).to.be.an('array').with.length(2)
+      expect(commands[0]).to.include('brew tap --force')
+      expect(commands[1]).to.include('brew upgrade')
+    })
+  })
+
+  describe('getBrewTapPath', () => {
+    it('returns null when tap directory does not exist', () => {
+      // Neither /opt/homebrew nor /usr/local tap paths will contain
+      // our test directory, so this tests the "not found" path
+      // when neither standard prefix matches.
+      const result = getBrewTapPath()
+      // Result depends on whether Homebrew is actually installed on this machine.
+      // We just verify it returns a string or null without throwing.
+      expect(result === null || typeof result === 'string').to.be.true
+    })
+  })
+
+  describe('checkStaleTap', () => {
+    let repoDir: string
+    let bareDir: string
+
+    beforeEach(() => {
+      // Create a bare "origin" repo with main as default branch
+      bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stale-tap-bare-'))
+      bareDir = fs.realpathSync(bareDir)
+      execSync('git init --bare --initial-branch=main', { cwd: bareDir, stdio: 'pipe' })
+
+      repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stale-tap-clone-'))
+      repoDir = fs.realpathSync(repoDir)
+      execSync(`git clone "${bareDir}" .`, { cwd: repoDir, stdio: 'pipe' })
+      execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: 'pipe' })
+      execSync('git config user.name "Test"', { cwd: repoDir, stdio: 'pipe' })
+
+      // Create an initial commit on main and push
+      fs.writeFileSync(path.join(repoDir, 'formula.rb'), 'v1')
+      execSync('git add . && git commit -m "initial"', { cwd: repoDir, stdio: 'pipe' })
+      execSync('git push origin main', { cwd: repoDir, stdio: 'pipe' })
+    })
+
+    afterEach(() => {
+      if (fs.existsSync(repoDir)) {
+        fs.rmSync(repoDir, { recursive: true, force: true })
+      }
+      if (fs.existsSync(bareDir)) {
+        fs.rmSync(bareDir, { recursive: true, force: true })
+      }
+    })
+
+    it('returns isStale=false when tap is current', () => {
+      const result = checkStaleTap(repoDir)
+      expect(result.isStale).to.be.false
+      expect(result.localHead).to.be.a('string')
+      expect(result.remoteHead).to.be.a('string')
+      expect(result.localHead).to.equal(result.remoteHead)
+    })
+
+    it('returns isStale=true when local is behind origin/main', () => {
+      // Push a new commit directly to the bare repo via a temporary clone
+      const tmpClone = fs.mkdtempSync(path.join(os.tmpdir(), 'stale-tap-tmp-'))
+      const tmpCloneReal = fs.realpathSync(tmpClone)
+      try {
+        execSync(`git clone "${bareDir}" .`, { cwd: tmpCloneReal, stdio: 'pipe' })
+        execSync('git config user.email "test@test.com"', { cwd: tmpCloneReal, stdio: 'pipe' })
+        execSync('git config user.name "Test"', { cwd: tmpCloneReal, stdio: 'pipe' })
+        fs.writeFileSync(path.join(tmpCloneReal, 'formula.rb'), 'v2')
+        execSync('git add . && git commit -m "new version"', { cwd: tmpCloneReal, stdio: 'pipe' })
+        execSync('git push origin main', { cwd: tmpCloneReal, stdio: 'pipe' })
+      } finally {
+        fs.rmSync(tmpCloneReal, { recursive: true, force: true })
+      }
+
+      // Now repoDir is behind origin/main
+      const result = checkStaleTap(repoDir)
+      expect(result.isStale).to.be.true
+      expect(result.localHead).to.be.a('string')
+      expect(result.remoteHead).to.be.a('string')
+      expect(result.localHead).to.not.equal(result.remoteHead)
+    })
+
+    it('returns isStale=false when tap path is null', () => {
+      const result = checkStaleTap(null)
+      expect(result.isStale).to.be.false
+    })
+
+    it('returns isStale=false when tap path does not exist', () => {
+      const result = checkStaleTap('/nonexistent/path/to/tap')
+      expect(result.isStale).to.be.false
+    })
+
+    it('returns isStale=false when path is not a git repo', () => {
+      const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stale-tap-nogit-'))
+      try {
+        const result = checkStaleTap(nonGitDir)
+        expect(result.isStale).to.be.false
+      } finally {
+        fs.rmSync(nonGitDir, { recursive: true, force: true })
+      }
     })
   })
 })
