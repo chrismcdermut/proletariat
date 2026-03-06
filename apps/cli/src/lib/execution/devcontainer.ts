@@ -750,6 +750,109 @@ export function createDevcontainerConfig(options: DevcontainerOptions, config?: 
   fs.writeFileSync(setupScriptPath, setupScript, { mode: 0o755 })
 }
 
+// =============================================================================
+// Orchestrator Docker Support
+// =============================================================================
+
+export interface OrchestratorDockerOptions {
+  /** Orchestrator name (e.g., 'main') */
+  orchestratorName: string
+  /** HQ root directory path */
+  hqPath: string
+  /** Timezone for the container */
+  timezone?: string
+  /** prlt channel: "npm", "npm:dev", "gh", "mount", or version like "npm:1.2.3" */
+  prltChannel?: string
+  /** Executor type - determines which CLI tools to install */
+  executor?: ExecutorType
+  /** Git user.name for commit attribution */
+  gitUserName?: string
+  /** Git user.email for commit attribution */
+  gitUserEmail?: string
+}
+
+/**
+ * Generate a Dockerfile for the orchestrator container.
+ *
+ * The orchestrator container is designed for the sibling container pattern:
+ * - Docker socket is mounted from the host so the orchestrator can spawn
+ *   agent containers as siblings (not nested Docker-in-Docker)
+ * - HQ directory is mounted for workspace access
+ * - prlt CLI is installed for orchestration commands
+ * - No firewall needed since orchestrator needs to manage Docker
+ */
+export function generateOrchestratorDockerfile(options: OrchestratorDockerOptions): string {
+  const timezone = options.timezone || 'America/Los_Angeles'
+
+  return `FROM node:22
+
+# Ensure we run as root for apt-get and system setup
+USER root
+
+ARG TZ=${timezone}
+ENV TZ=\${TZ}
+
+# Install system dependencies (no iptables/ipset - orchestrator doesn't use firewall)
+RUN apt-get update && apt-get install -y \\
+    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh tmux \\
+    jq nano vim curl docker.io \\
+    && rm -rf /var/lib/apt/lists/* \\
+    && git lfs install
+
+# Create workspace and claude directories
+RUN mkdir -p /workspace /hq /home/node/.claude \\
+    && chown -R node:node /workspace /hq /home/node/.claude
+
+# Add node user to docker group so it can use Docker socket
+RUN groupadd -f docker && usermod -aG docker node
+
+# Set up persistent bash history
+RUN mkdir -p /commandhistory \\
+    && touch /commandhistory/.bash_history \\
+    && chown -R node:node /commandhistory
+
+# Install git-delta for better diffs (architecture-aware)
+RUN ARCH=$(dpkg --print-architecture) && \\
+    curl -L "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_\${ARCH}.deb" -o /tmp/delta.deb && \\
+    dpkg -i /tmp/delta.deb && \\
+    rm /tmp/delta.deb
+
+# Install zsh with oh-my-zsh
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \\
+    && chsh -s /bin/zsh node
+
+# Configure npm global directory
+RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
+    && chown -R node:node /home/node/.npm-global
+ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
+ENV PATH=/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+
+# Install pnpm and executor CLI as node user
+USER node
+RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
+USER root
+
+# Install prlt CLI
+ARG PRLT_REGISTRY=npm
+ARG PRLT_VERSION=latest
+RUN if [ "\${PRLT_REGISTRY}" = "npm" ] || [ "\${PRLT_REGISTRY}" = "gh" ]; then \\
+      echo "Installing @proletariat/cli@\${PRLT_VERSION} from npm..." && \\
+      npm install -g @proletariat/cli@\${PRLT_VERSION}; \\
+    else \\
+      echo "prlt will be mounted from host (mount mode)"; \\
+    fi
+
+# Set default editor
+ENV EDITOR=nano
+
+# Configure shell history
+ENV HISTFILE=/commandhistory/.bash_history
+
+USER node
+WORKDIR /hq
+`
+}
+
 /**
  * Check if agent has devcontainer configuration
  */

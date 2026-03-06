@@ -1,4 +1,5 @@
 import { Flags } from '@oclif/core'
+import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import Database from 'better-sqlite3'
@@ -18,12 +19,18 @@ import { styles } from '../../lib/styles.js'
 import {
   OutputMode,
   DisplayMode,
+  ExecutionEnvironment,
   ExecutionContext,
   ExecutorType,
   PermissionMode,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
-import { runExecution, hostCredentialsExist } from '../../lib/execution/runners.js'
+import {
+  runExecution,
+  hostCredentialsExist,
+  isDockerRunning,
+  runOrchestratorInDocker,
+} from '../../lib/execution/runners.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -73,6 +80,56 @@ export function findRunningOrchestratorSessions(hostSessions: string[]): string[
 export function findHQOrchestratorSessions(hostSessions: string[], hqName: string): string[] {
   const prefix = `prlt-orchestrator-${sanitizeName(hqName) || 'default'}-`
   return hostSessions.filter(s => s.startsWith(prefix))
+}
+
+/**
+ * Build Docker container name for an orchestrator instance.
+ * Format: 'prlt-orchestrator-{hqName}-{name}'
+ */
+export function buildOrchestratorContainerName(hqName: string, name: string = 'main'): string {
+  const safeHqName = sanitizeName(hqName) || 'default'
+  const safeName = sanitizeName(name) || 'main'
+  return `prlt-orchestrator-${safeHqName}-${safeName}`
+}
+
+/**
+ * Find running Docker-based orchestrator containers.
+ * Returns container names matching 'prlt-orchestrator-*'.
+ */
+export function findRunningOrchestratorContainers(): string[] {
+  try {
+    const output = execSync(
+      'docker ps --filter "name=prlt-orchestrator-" --format "{{.Names}}"',
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim()
+    if (!output) return []
+    return output.split('\n').filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Find Docker orchestrator containers scoped to a specific HQ workspace.
+ */
+export function findHQOrchestratorContainers(hqName: string): string[] {
+  const prefix = `prlt-orchestrator-${sanitizeName(hqName) || 'default'}-`
+  return findRunningOrchestratorContainers().filter(c => c.startsWith(prefix))
+}
+
+/**
+ * Get the Docker container ID for a running orchestrator container.
+ */
+export function getOrchestratorContainerId(containerName: string): string | null {
+  try {
+    const id = execSync(
+      `docker container inspect -f '{{.Id}}' ${containerName}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim()
+    return id ? id.substring(0, 12) : null
+  } catch {
+    return null
+  }
 }
 
 export function resolveOrchestratorName(name?: string): string {
@@ -206,6 +263,16 @@ export default class OrchestratorStart extends PromptCommand {
       description: 'Attach to the tmux session in the current terminal (blocking)',
       default: false,
       exclusive: ['background'],
+    }),
+    docker: Flags.boolean({
+      description: 'Run orchestrator in a Docker container (sibling container pattern)',
+      default: false,
+      exclusive: ['run-on-host'],
+    }),
+    'run-on-host': Flags.boolean({
+      description: 'Run orchestrator on host (default behavior)',
+      default: false,
+      exclusive: ['docker'],
     }),
   }
 
@@ -388,20 +455,57 @@ export default class OrchestratorStart extends PromptCommand {
       selectedExecutor = executor as ExecutorType
     }
 
-    // Validate Claude Code authentication for claude-code executor
-    if (selectedExecutor === 'claude-code' && !hostCredentialsExist()) {
+    // Determine execution environment
+    let environment: ExecutionEnvironment = 'host'
+    if (flags.docker) {
+      environment = 'docker'
+    } else if (!flags['run-on-host'] && !jsonMode) {
+      // Interactive mode: if Docker is available, offer the choice
+      // (unless --run-on-host was explicitly set)
+      if (isDockerRunning()) {
+        const envChoices = [
+          { name: '💻 Host — run directly on this machine (default)', value: 'host', command: 'prlt orchestrator start --run-on-host --json' },
+          { name: '🐳 Docker — run in isolated container (sibling container pattern)', value: 'docker', command: 'prlt orchestrator start --docker --json' },
+        ]
+
+        const { selectedEnv } = await this.prompt<{ selectedEnv: string }>([{
+          type: 'list',
+          name: 'selectedEnv',
+          message: 'Where should the orchestrator run?',
+          choices: envChoices,
+        }])
+        environment = selectedEnv as ExecutionEnvironment
+      }
+    }
+
+    // Validate Docker is running if docker environment was selected
+    if (environment === 'docker' && !isDockerRunning()) {
+      const errorMsg = 'Docker is not running. Please start Docker Desktop and try again, or use --run-on-host.'
+      if (jsonMode) {
+        outputErrorAsJson('DOCKER_NOT_RUNNING', errorMsg, createMetadata('orchestrator start', flags))
+        return
+      }
+      this.error(errorMsg)
+    }
+
+    // Validate Claude Code authentication for host execution
+    // Docker uses OAuth credentials volume, so host auth check only applies to host mode
+    if (environment === 'host' && selectedExecutor === 'claude-code' && !hostCredentialsExist()) {
       const errorMsg = 'Claude Code authentication is not available. This usually happens when the macOS keychain is locked in SSH sessions.'
       const remediation = [
         '',
         'To fix this, choose one of the following:',
         '',
-        '1. Unlock the keychain:',
+        '1. Run orchestrator in Docker (uses OAuth, no keychain needed):',
+        '   prlt orchestrator start --docker',
+        '',
+        '2. Unlock the keychain:',
         '   security unlock-keychain',
         '',
-        '2. Set the ANTHROPIC_API_KEY environment variable:',
+        '3. Set the ANTHROPIC_API_KEY environment variable:',
         '   export ANTHROPIC_API_KEY=your-api-key',
         '',
-        '3. Login to Claude Code:',
+        '4. Login to Claude Code:',
         '   claude /login',
         '',
       ].join('\n')
@@ -574,6 +678,7 @@ export default class OrchestratorStart extends PromptCommand {
     if (!jsonMode) {
       this.log('')
       this.log(styles.muted(`   Starting orchestrator...`))
+      this.log(styles.muted(`   Environment: ${environment}`))
       this.log(styles.muted(`   Executor: ${selectedExecutor}`))
       this.log(styles.muted(`   Permission mode: ${permissionMode}`))
       this.log(styles.muted(`   Display mode: ${displayMode}`))
@@ -588,9 +693,17 @@ export default class OrchestratorStart extends PromptCommand {
     }
 
     // Launch orchestrator
-    const result = await runExecution('host', context, selectedExecutor, executionConfig, {
-      displayMode,
-    })
+    let result
+    if (environment === 'docker') {
+      result = await runOrchestratorInDocker(context, selectedExecutor, executionConfig, {
+        displayMode,
+        sessionName,
+      })
+    } else {
+      result = await runExecution('host', context, selectedExecutor, executionConfig, {
+        displayMode,
+      })
+    }
 
     if (result.success) {
       // Create execution record so `prlt session poke orchestrator "message"` works
@@ -601,10 +714,11 @@ export default class OrchestratorStart extends PromptCommand {
             ticketId: 'ORCH',
             agentName: `orchestrator-${orchestratorName}`,
             executor: selectedExecutor,
-            environment: 'host',
+            environment,
             displayMode,
             permissionMode,
             sessionId: result.sessionId || sessionName,
+            containerId: result.containerId,
           })
         } catch {
           // Non-fatal: poke won't work but orchestrator is running
@@ -614,6 +728,8 @@ export default class OrchestratorStart extends PromptCommand {
       if (jsonMode) {
         outputSuccessAsJson({
           sessionId: result.sessionId || sessionName,
+          containerId: result.containerId,
+          environment,
           executor: selectedExecutor,
           permissionMode,
           displayMode,
@@ -623,13 +739,19 @@ export default class OrchestratorStart extends PromptCommand {
       }
 
       if (displayMode === 'background') {
-        this.log(styles.success(`Orchestrator started in background`))
+        this.log(styles.success(`Orchestrator started in background${environment === 'docker' ? ' (Docker)' : ''}`))
         this.log(styles.muted(`   Session: ${result.sessionId || sessionName}`))
+        if (result.containerId) {
+          this.log(styles.muted(`   Container: ${result.containerId}`))
+        }
         this.log(styles.muted(`   Attach with: ${attachCommand}`))
       } else {
-        this.log(styles.success(`Orchestrator started`))
+        this.log(styles.success(`Orchestrator started${environment === 'docker' ? ' (Docker)' : ''}`))
         if (result.sessionId) {
           this.log(styles.muted(`   Session: ${result.sessionId}`))
+        }
+        if (result.containerId) {
+          this.log(styles.muted(`   Container: ${result.containerId}`))
         }
       }
     } else {
