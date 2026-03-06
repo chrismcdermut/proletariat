@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 
 /**
@@ -40,7 +40,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
   });
 
   describe('prlt ticket spec', () => {
-    it('should link ticket to spec with args', () => {
+    it('should link ticket to spec with args', async () => {
       // Create a spec first
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
@@ -48,11 +48,11 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       `).run();
 
       // Create a ticket
-      exec('ticket create --title "Ticket for spec" --column "Backlog"');
+      await execInProcess('ticket create --title "Ticket for spec" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Ticket for spec') as { id: string };
 
       // Link ticket to spec
-      const output = exec(`ticket spec ${ticket.id} spec-001`);
+      const output = await execInProcess(`ticket spec ${ticket.id} spec-001`);
 
       expect(output).to.contain('Linked');
       expect(output).to.contain(ticket.id);
@@ -63,21 +63,21 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(linkedTicket.spec_id).to.equal('spec-001');
     });
 
-    it('should unlink spec from ticket', () => {
+    it('should unlink spec from ticket', async () => {
       // Create spec and ticket with link
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
         VALUES ('spec-unlink', 'Spec to Unlink', 'active')
       `).run();
 
-      exec('ticket create --title "Ticket to unlink" --column "Backlog"');
+      await execInProcess('ticket create --title "Ticket to unlink" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Ticket to unlink') as { id: string };
 
       // Link first
       db.prepare('UPDATE pmo_tickets SET spec_id = ? WHERE id = ?').run('spec-unlink', ticket.id);
 
       // Unlink
-      const output = exec(`ticket spec ${ticket.id} --unlink`);
+      const output = await execInProcess(`ticket spec ${ticket.id} --unlink`);
 
       expect(output).to.contain('Unlinked');
 
@@ -86,29 +86,29 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(unlinkedTicket.spec_id).to.be.null;
     });
 
-    it('should detect already linked to same spec', () => {
+    it('should detect already linked to same spec', async () => {
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
         VALUES ('spec-same', 'Same Spec', 'active')
       `).run();
 
-      exec('ticket create --title "Same spec ticket" --column "Backlog"');
+      await execInProcess('ticket create --title "Same spec ticket" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Same spec ticket') as { id: string };
 
       // Link first
-      exec(`ticket spec ${ticket.id} spec-same`);
+      await execInProcess(`ticket spec ${ticket.id} spec-same`);
 
       // Try to link again
-      const output = exec(`ticket spec ${ticket.id} spec-same`);
+      const output = await execInProcess(`ticket spec ${ticket.id} spec-same`);
 
       expect(output.toLowerCase()).to.contain('already');
     });
 
-    it('should error for non-existent spec', () => {
-      exec('ticket create --title "Bad spec ticket" --column "Backlog"');
+    it('should error for non-existent spec', async () => {
+      await execInProcess('ticket create --title "Bad spec ticket" --column "Backlog"');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bad spec ticket') as { id: string };
 
-      const output = exec(`ticket spec ${ticket.id} NON-EXISTENT`);
+      const output = await execInProcess(`ticket spec ${ticket.id} NON-EXISTENT`);
 
       // Command may say "not found" or "no specs found" depending on whether any specs exist
       expect(output.toLowerCase()).to.satisfy((s: string) =>
@@ -118,7 +118,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
   });
 
   describe('prlt epic spec', () => {
-    it('should link epic to spec with args', () => {
+    it('should link epic to spec with args', async () => {
       // Create spec
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
@@ -131,7 +131,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('EPIC-LINK', 'test-project', 'Epic for linking', 'active')
       `).run();
 
-      const output = exec('epic spec EPIC-LINK epic-spec-001');
+      const output = await execInProcess('epic spec EPIC-LINK epic-spec-001');
 
       expect(output).to.contain('Linked');
       expect(output).to.contain('EPIC-LINK');
@@ -142,7 +142,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(linkedEpic.spec_id).to.equal('epic-spec-001');
     });
 
-    it('should unlink spec from epic', () => {
+    it('should unlink spec from epic', async () => {
       // Create spec and epic with link
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
@@ -154,7 +154,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('EPIC-UNLINK', 'test-project', 'Epic to unlink', 'active', 'epic-unlink-spec')
       `).run();
 
-      const output = exec('epic spec EPIC-UNLINK --unlink');
+      const output = await execInProcess('epic spec EPIC-UNLINK --unlink');
 
       expect(output).to.contain('Unlinked');
 
@@ -163,7 +163,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(unlinkedEpic.spec_id).to.be.null;
     });
 
-    it('should detect already linked to same spec', () => {
+    it('should detect already linked to same spec', async () => {
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
         VALUES ('epic-same-spec', 'Same Epic Spec', 'active')
@@ -174,18 +174,18 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('EPIC-SAME', 'test-project', 'Same spec epic', 'active', 'epic-same-spec')
       `).run();
 
-      const output = exec('epic spec EPIC-SAME epic-same-spec');
+      const output = await execInProcess('epic spec EPIC-SAME epic-same-spec');
 
       expect(output.toLowerCase()).to.contain('already');
     });
 
-    it('should error for non-existent epic', () => {
+    it('should error for non-existent epic', async () => {
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
         VALUES ('orphan-spec', 'Orphan Spec', 'active')
       `).run();
 
-      const output = exec('epic spec NON-EXISTENT orphan-spec');
+      const output = await execInProcess('epic spec NON-EXISTENT orphan-spec');
 
       // Command may say "not found" or "no epics found" depending on whether any epics exist
       expect(output.toLowerCase()).to.satisfy((s: string) =>
@@ -195,13 +195,13 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
   });
 
   describe('prlt project spec', () => {
-    it('should add spec to project with --add flag', () => {
+    it('should add spec to project with --add flag', async () => {
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
         VALUES ('proj-spec-001', 'Project Spec', 'active')
       `).run();
 
-      const output = exec('project spec test-project --add proj-spec-001');
+      const output = await execInProcess('project spec test-project --add proj-spec-001');
 
       expect(output).to.contain('Added');
       expect(output).to.contain('proj-spec-001');
@@ -215,7 +215,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(link).to.not.be.undefined;
     });
 
-    it('should remove spec from project with --remove flag', () => {
+    it('should remove spec from project with --remove flag', async () => {
       // Add spec to project first
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
@@ -227,7 +227,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('test-project', 'proj-remove-spec')
       `).run();
 
-      const output = exec('project spec test-project --remove proj-remove-spec');
+      const output = await execInProcess('project spec test-project --remove proj-remove-spec');
 
       expect(output).to.contain('Removed');
       expect(output).to.contain('proj-remove-spec');
@@ -240,7 +240,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(link).to.be.undefined;
     });
 
-    it('should handle multiple specs per project', () => {
+    it('should handle multiple specs per project', async () => {
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
         VALUES
@@ -248,8 +248,8 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
           ('multi-spec-2', 'Multi Spec 2', 'active')
       `).run();
 
-      exec('project spec test-project --add multi-spec-1');
-      exec('project spec test-project --add multi-spec-2');
+      await execInProcess('project spec test-project --add multi-spec-1');
+      await execInProcess('project spec test-project --add multi-spec-2');
 
       const links = db.prepare(`
         SELECT * FROM pmo_project_specs
@@ -258,20 +258,20 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(links).to.have.lengthOf(2);
     });
 
-    it('should detect already added spec', () => {
+    it('should detect already added spec', async () => {
       db.prepare(`
         INSERT INTO pmo_specs (id, title, status)
         VALUES ('already-added', 'Already Added', 'active')
       `).run();
 
-      exec('project spec test-project --add already-added');
-      const output = exec('project spec test-project --add already-added');
+      await execInProcess('project spec test-project --add already-added');
+      const output = await execInProcess('project spec test-project --add already-added');
 
       expect(output.toLowerCase()).to.contain('already');
     });
 
-    it('should error for non-existent spec with --add', () => {
-      const output = exec('project spec test-project --add NON-EXISTENT');
+    it('should error for non-existent spec with --add', async () => {
+      const output = await execInProcess('project spec test-project --add NON-EXISTENT');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -303,11 +303,11 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       fs.mkdirSync(targetPmoPath, { recursive: true });
     });
 
-    it('should move ticket to different project', () => {
-      exec('ticket create --title "Move me" --column "Backlog" -P test-project');
+    it('should move ticket to different project', async () => {
+      await execInProcess('ticket create --title "Move me" --column "Backlog" -P test-project');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Move me') as { id: string };
 
-      const output = exec(`ticket project ${ticket.id} target-project -P test-project`);
+      const output = await execInProcess(`ticket project ${ticket.id} target-project -P test-project`);
 
       expect(output).to.contain('Moved');
       expect(output).to.contain(ticket.id);
@@ -318,37 +318,37 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(movedTicket.project_id).to.equal('target-project');
     });
 
-    it('should update board position when moving ticket', () => {
-      exec('ticket create --title "Board move" --column "Backlog" -P test-project');
+    it('should update board position when moving ticket', async () => {
+      await execInProcess('ticket create --title "Board move" --column "Backlog" -P test-project');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Board move') as { id: string };
 
-      exec(`ticket project ${ticket.id} target-project -P test-project`);
+      await execInProcess(`ticket project ${ticket.id} target-project -P test-project`);
 
       // Verify ticket is now in target project
       const movedTicket = db.prepare('SELECT project_id FROM pmo_tickets WHERE id = ?').get(ticket.id) as { project_id: string };
       expect(movedTicket.project_id).to.equal('target-project');
     });
 
-    it('should error if ticket is already in target project', () => {
-      exec('ticket create --title "Same project" --column "Backlog" -P test-project');
+    it('should error if ticket is already in target project', async () => {
+      await execInProcess('ticket create --title "Same project" --column "Backlog" -P test-project');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Same project') as { id: string };
 
-      const output = exec(`ticket project ${ticket.id} test-project -P test-project`);
+      const output = await execInProcess(`ticket project ${ticket.id} test-project -P test-project`);
 
       expect(output.toLowerCase()).to.contain('already');
     });
 
-    it('should error for non-existent ticket', () => {
-      const output = exec('ticket project NON-EXISTENT target-project -P test-project');
+    it('should error for non-existent ticket', async () => {
+      const output = await execInProcess('ticket project NON-EXISTENT target-project -P test-project');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should error for non-existent target project', () => {
-      exec('ticket create --title "Bad project" --column "Backlog" -P test-project');
+    it('should error for non-existent target project', async () => {
+      await execInProcess('ticket create --title "Bad project" --column "Backlog" -P test-project');
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Bad project') as { id: string };
 
-      const output = exec(`ticket project ${ticket.id} NON-EXISTENT -P test-project`);
+      const output = await execInProcess(`ticket project ${ticket.id} NON-EXISTENT -P test-project`);
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -367,13 +367,13 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       fs.mkdirSync(targetPmoPath, { recursive: true });
     });
 
-    it('should move epic to different project', () => {
+    it('should move epic to different project', async () => {
       db.prepare(`
         INSERT INTO pmo_epics (id, project_id, title, status)
         VALUES ('EPIC-MOVE', 'test-project', 'Epic to move', 'active')
       `).run();
 
-      const output = exec('epic project EPIC-MOVE epic-target -P test-project');
+      const output = await execInProcess('epic project EPIC-MOVE epic-target -P test-project');
 
       expect(output).to.contain('Moved');
       expect(output).to.contain('EPIC-MOVE');
@@ -384,7 +384,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(movedEpic.project_id).to.equal('epic-target');
     });
 
-    it('should move epic with tickets using --with-tickets', () => {
+    it('should move epic with tickets using --with-tickets', async () => {
       // Create epic with tickets
       db.prepare(`
         INSERT INTO pmo_epics (id, project_id, title, status)
@@ -396,7 +396,7 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
         VALUES ('TKT-EPIC-1', 'test-project', 'Ticket in epic', 'EPIC-WITH-TKT')
       `).run();
 
-      const output = exec('epic project EPIC-WITH-TKT epic-target --with-tickets -P test-project');
+      const output = await execInProcess('epic project EPIC-WITH-TKT epic-target --with-tickets -P test-project');
 
       expect(output).to.contain('Moved');
       expect(output).to.contain('1 ticket');
@@ -409,30 +409,30 @@ describe('PMO Cross-Entity Commands E2E Tests', () => {
       expect(movedTicket.project_id).to.equal('epic-target');
     });
 
-    it('should error if epic is already in target project', () => {
+    it('should error if epic is already in target project', async () => {
       db.prepare(`
         INSERT INTO pmo_epics (id, project_id, title, status)
         VALUES ('EPIC-SAME-PROJ', 'test-project', 'Same project epic', 'active')
       `).run();
 
-      const output = exec('epic project EPIC-SAME-PROJ test-project -P test-project');
+      const output = await execInProcess('epic project EPIC-SAME-PROJ test-project -P test-project');
 
       expect(output.toLowerCase()).to.contain('already');
     });
 
-    it('should error for non-existent epic', () => {
-      const output = exec('epic project NON-EXISTENT epic-target -P test-project');
+    it('should error for non-existent epic', async () => {
+      const output = await execInProcess('epic project NON-EXISTENT epic-target -P test-project');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should error for non-existent target project', () => {
+    it('should error for non-existent target project', async () => {
       db.prepare(`
         INSERT INTO pmo_epics (id, project_id, title, status)
         VALUES ('EPIC-BAD-PROJ', 'test-project', 'Bad project epic', 'active')
       `).run();
 
-      const output = exec('epic project EPIC-BAD-PROJ NON-EXISTENT -P test-project');
+      const output = await execInProcess('epic project EPIC-BAD-PROJ NON-EXISTENT -P test-project');
 
       expect(output.toLowerCase()).to.contain('not found');
     });

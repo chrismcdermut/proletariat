@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 
 /**
  * End-to-end tests for PMO Phase Template Commands
@@ -37,36 +37,36 @@ describe('PMO Phase Template Commands E2E Tests', () => {
   });
 
   describe('prlt phase template list', () => {
-    it('should list all phase templates', () => {
-      const output = exec('phase template list');
+    it('should list all phase templates', async () => {
+      const output = await execInProcess('phase template list');
 
       expect(output).to.contain('Phase Templates');
       expect(output).to.contain('default');
       expect(output).to.contain('agile');
     });
 
-    it('should show built-in templates section', () => {
-      const output = exec('phase template list');
+    it('should show built-in templates section', async () => {
+      const output = await execInProcess('phase template list');
 
       expect(output).to.contain('Built-in Templates');
     });
 
-    it('should filter to builtin only with --builtin', () => {
-      const output = exec('phase template list --builtin');
+    it('should filter to builtin only with --builtin', async () => {
+      const output = await execInProcess('phase template list --builtin');
 
       expect(output).to.contain('Built-in Templates');
       expect(output).not.to.contain('Custom Templates');
     });
 
-    it('should show template descriptions', () => {
-      const output = exec('phase template list');
+    it('should show template descriptions', async () => {
+      const output = await execInProcess('phase template list');
 
       expect(output).to.contain('Standard project lifecycle');
       expect(output).to.contain('Agile/Scrum');
     });
 
-    it('should output JSON with --json flag', () => {
-      const output = exec('phase template list --json');
+    it('should output JSON with --json flag', async () => {
+      const output = await execInProcess('phase template list --json');
 
       const templates = JSON.parse(output);
       expect(templates).to.be.an('array');
@@ -74,8 +74,8 @@ describe('PMO Phase Template Commands E2E Tests', () => {
       expect(templates.some((t: { id: string }) => t.id === 'default')).to.be.true;
     });
 
-    it('should show phases grouped by category', () => {
-      const output = exec('phase template list');
+    it('should show phases grouped by category', async () => {
+      const output = await execInProcess('phase template list');
 
       // Should show category groupings with emojis
       expect(output).to.match(/📥|📋|🚀|✅|🚫/);
@@ -83,8 +83,8 @@ describe('PMO Phase Template Commands E2E Tests', () => {
   });
 
   describe('prlt phase template apply', () => {
-    it('should apply template to workspace', () => {
-      const output = exec('phase template apply agile --force');
+    it('should apply template to workspace', async () => {
+      const output = await execInProcess('phase template apply agile --force');
 
       expect(output).to.contain('Applied phase template');
       expect(output).to.contain('Agile');
@@ -94,8 +94,8 @@ describe('PMO Phase Template Commands E2E Tests', () => {
       expect(phases.length).to.be.greaterThan(0);
     });
 
-    it('should create phases from template', () => {
-      exec('phase template apply agile --force');
+    it('should create phases from template', async () => {
+      await execInProcess('phase template apply agile --force');
 
       const phases = db.prepare('SELECT name FROM pmo_phases').all() as { name: string }[];
       const names = phases.map(p => p.name);
@@ -105,25 +105,25 @@ describe('PMO Phase Template Commands E2E Tests', () => {
       expect(names).to.include('Done');
     });
 
-    it('should set a default phase', () => {
-      exec('phase template apply agile --force');
+    it('should set a default phase', async () => {
+      await execInProcess('phase template apply agile --force');
 
       const defaultPhase = db.prepare('SELECT * FROM pmo_phases WHERE is_default = 1').get();
       expect(defaultPhase).to.not.be.undefined;
     });
 
-    it('should error when template not found', () => {
-      const output = exec('phase template apply non-existent --force');
+    it('should error when template not found', async () => {
+      const output = await execInProcess('phase template apply non-existent --force');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should replace existing phases', () => {
+    it('should replace existing phases', async () => {
       // First apply default
-      exec('phase template apply default --force');
+      await execInProcess('phase template apply default --force');
 
       // Then apply agile
-      exec('phase template apply agile --force');
+      await execInProcess('phase template apply agile --force');
 
       const phases = db.prepare('SELECT * FROM pmo_phases').all() as { name: string }[];
       const names = phases.map(p => p.name);
@@ -133,8 +133,8 @@ describe('PMO Phase Template Commands E2E Tests', () => {
       expect(names).to.include('Groomed');
     });
 
-    it('should apply product template', () => {
-      exec('phase template apply product --force');
+    it('should apply product template', async () => {
+      await execInProcess('phase template apply product --force');
 
       const phases = db.prepare('SELECT name FROM pmo_phases').all() as { name: string }[];
       const names = phases.map(p => p.name);
@@ -146,8 +146,8 @@ describe('PMO Phase Template Commands E2E Tests', () => {
   });
 
   describe('prlt phase template create', () => {
-    it('should create template from workspace phases', () => {
-      const output = exec('phase template create "My Custom Phases" --description ""');
+    it('should create template from workspace phases', async () => {
+      const output = await execInProcess('phase template create "My Custom Phases" --description ""');
 
       // In non-TTY mode, output is JSON; in TTY mode, output is text
       // Check for either format
@@ -166,36 +166,36 @@ describe('PMO Phase Template Commands E2E Tests', () => {
       expect(template).to.not.be.undefined;
     });
 
-    it('should generate slugified ID', () => {
-      exec('phase template create "My Workflow Phases" --description ""');
+    it('should generate slugified ID', async () => {
+      await execInProcess('phase template create "My Workflow Phases" --description ""');
 
       const template = db.prepare('SELECT id FROM pmo_phase_templates WHERE name = ?').get('My Workflow Phases') as { id: string };
       expect(template.id).to.equal('my-workflow-phases');
     });
 
-    it('should include description when provided', () => {
-      exec('phase template create "Team Phases" --description "Our team phase workflow"');
+    it('should include description when provided', async () => {
+      await execInProcess('phase template create "Team Phases" --description "Our team phase workflow"');
 
       const template = db.prepare('SELECT description FROM pmo_phase_templates WHERE name = ?').get('Team Phases') as { description: string };
       expect(template.description).to.equal('Our team phase workflow');
     });
 
-    it('should not be marked as builtin', () => {
-      exec('phase template create "User Phases" --description ""');
+    it('should not be marked as builtin', async () => {
+      await execInProcess('phase template create "User Phases" --description ""');
 
       const template = db.prepare('SELECT is_builtin FROM pmo_phase_templates WHERE name = ?').get('User Phases') as { is_builtin: number };
       expect(template.is_builtin).to.equal(0);
     });
 
-    it('should error when name already exists', () => {
-      exec('phase template create "Duplicate" --description ""');
-      const output = exec('phase template create "Duplicate" --description ""');
+    it('should error when name already exists', async () => {
+      await execInProcess('phase template create "Duplicate" --description ""');
+      const output = await execInProcess('phase template create "Duplicate" --description ""');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
-    it('should preserve phases in template', () => {
-      exec('phase template create "Preserved Template" --description ""');
+    it('should preserve phases in template', async () => {
+      await execInProcess('phase template create "Preserved Template" --description ""');
 
       const template = db.prepare('SELECT phases FROM pmo_phase_templates WHERE name = ?').get('Preserved Template') as { phases: string };
       const phases = JSON.parse(template.phases);
@@ -207,81 +207,81 @@ describe('PMO Phase Template Commands E2E Tests', () => {
   });
 
   describe('prlt phase template update', () => {
-    beforeEach(() => {
-      exec('phase template create "Updatable Template" --description ""');
+    beforeEach(async () => {
+      await execInProcess('phase template create "Updatable Template" --description ""');
     });
 
-    it('should update template name', () => {
-      exec('phase template update updatable-template --name "New Name"');
+    it('should update template name', async () => {
+      await execInProcess('phase template update updatable-template --name "New Name"');
 
       const template = db.prepare('SELECT name FROM pmo_phase_templates WHERE id = ?').get('updatable-template') as { name: string };
       expect(template.name).to.equal('New Name');
     });
 
-    it('should update template description', () => {
-      exec('phase template update updatable-template --description "New description"');
+    it('should update template description', async () => {
+      await execInProcess('phase template update updatable-template --description "New description"');
 
       const template = db.prepare('SELECT description FROM pmo_phase_templates WHERE id = ?').get('updatable-template') as { description: string };
       expect(template.description).to.equal('New description');
     });
 
-    it('should error when template not found', () => {
-      const output = exec('phase template update non-existent --name "New Name"');
+    it('should error when template not found', async () => {
+      const output = await execInProcess('phase template update non-existent --name "New Name"');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should error when updating built-in template', () => {
-      const output = exec('phase template update default --name "New Default"');
+    it('should error when updating built-in template', async () => {
+      const output = await execInProcess('phase template update default --name "New Default"');
 
       expect(output.toLowerCase()).to.contain('cannot modify');
     });
   });
 
   describe('prlt phase template delete', () => {
-    beforeEach(() => {
-      exec('phase template create "Deletable Template" --description ""');
+    beforeEach(async () => {
+      await execInProcess('phase template create "Deletable Template" --description ""');
     });
 
-    it('should delete template', () => {
-      exec('phase template delete deletable-template --force');
+    it('should delete template', async () => {
+      await execInProcess('phase template delete deletable-template --force');
 
       const template = db.prepare('SELECT * FROM pmo_phase_templates WHERE id = ?').get('deletable-template');
       expect(template).to.be.undefined;
     });
 
-    it('should error when template not found', () => {
-      const output = exec('phase template delete non-existent --force');
+    it('should error when template not found', async () => {
+      const output = await execInProcess('phase template delete non-existent --force');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
-    it('should error when deleting built-in template', () => {
-      const output = exec('phase template delete default --force');
+    it('should error when deleting built-in template', async () => {
+      const output = await execInProcess('phase template delete default --force');
 
       expect(output.toLowerCase()).to.contain('cannot delete');
     });
 
-    it('should show success message', () => {
-      const output = exec('phase template delete deletable-template --force');
+    it('should show success message', async () => {
+      const output = await execInProcess('phase template delete deletable-template --force');
 
       expect(output).to.contain('Deleted phase template');
     });
   });
 
   describe('phase template workflow', () => {
-    it('should allow creating and reapplying custom template', () => {
+    it('should allow creating and reapplying custom template', async () => {
       // Apply a template
-      exec('phase template apply product --force');
+      await execInProcess('phase template apply product --force');
 
       // Create as custom template
-      exec('phase template create "Product Copy" --description ""');
+      await execInProcess('phase template create "Product Copy" --description ""');
 
       // Apply default to reset
-      exec('phase template apply default --force');
+      await execInProcess('phase template apply default --force');
 
       // Apply saved template
-      exec('phase template apply product-copy --force');
+      await execInProcess('phase template apply product-copy --force');
 
       // Verify it worked
       const phases = db.prepare('SELECT name FROM pmo_phases').all() as { name: string }[];
@@ -291,11 +291,11 @@ describe('PMO Phase Template Commands E2E Tests', () => {
       expect(names).to.include('Launch');
     });
 
-    it('should list custom templates after creation', () => {
-      exec('phase template create "Custom One" --description ""');
-      exec('phase template create "Custom Two" --description ""');
+    it('should list custom templates after creation', async () => {
+      await execInProcess('phase template create "Custom One" --description ""');
+      await execInProcess('phase template create "Custom Two" --description ""');
 
-      const output = exec('phase template list --custom');
+      const output = await execInProcess('phase template list --custom');
 
       expect(output).to.contain('Custom Templates');
       expect(output).to.contain('Custom One');

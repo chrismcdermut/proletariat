@@ -3,11 +3,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 
 /**
- * End-to-end tests for PMO Spec Commands
+ * End-to-end tests for PMO Spec Commands (in-process execution)
  * Tests: prlt spec create, list, view, link
+ *
+ * Uses execInProcess() for fast in-process command execution instead of
+ * spawning a child process.
  *
  * Note: The original generate-tickets command was replaced with spec plan.
  * Tests have been updated to match current implementation.
@@ -53,24 +56,24 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
   });
 
   describe('prlt spec create', () => {
-    it('should create spec in database', () => {
-      exec('spec create "Auth System"');
+    it('should create spec in database', async () => {
+      await execInProcess('spec create "Auth System"');
 
       const specs = db.prepare('SELECT * FROM pmo_specs WHERE title = ?').all('Auth System') as Array<{ id: string; status: string }>;
       expect(specs).to.have.lengthOf(1);
       expect(specs[0].id).to.equal('auth-system');
     });
 
-    it('should register spec with draft status by default', () => {
-      exec('spec create "Database Schema"');
+    it('should register spec with draft status by default', async () => {
+      await execInProcess('spec create "Database Schema"');
 
       const specs = db.prepare('SELECT * FROM pmo_specs WHERE title = ?').all('Database Schema') as Array<{ status: string }>;
       expect(specs).to.have.lengthOf(1);
       expect(specs[0].status).to.equal('draft');
     });
 
-    it('should allow setting status on create', () => {
-      exec('spec create "Active Spec" --status active');
+    it('should allow setting status on create', async () => {
+      await execInProcess('spec create "Active Spec" --status active');
 
       const specs = db.prepare('SELECT * FROM pmo_specs WHERE title = ?').all('Active Spec') as Array<{ status: string }>;
       expect(specs).to.have.lengthOf(1);
@@ -79,32 +82,32 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
   });
 
   describe('prlt spec list', () => {
-    it('should list all specs', () => {
-      exec('spec create "Spec 1"');
-      exec('spec create "Spec 2"');
+    it('should list all specs', async () => {
+      await execInProcess('spec create "Spec 1"');
+      await execInProcess('spec create "Spec 2"');
 
-      const output = exec('spec list');
+      const output = await execInProcess('spec list');
 
       expect(output).to.contain('Spec 1');
       expect(output).to.contain('Spec 2');
     });
 
-    it('should show spec status', () => {
-      exec('spec create "Active Spec" --status active');
+    it('should show spec status', async () => {
+      await execInProcess('spec create "Active Spec" --status active');
 
-      const output = exec('spec list');
+      const output = await execInProcess('spec list');
 
       expect(output).to.contain('active');
     });
   });
 
   describe('prlt spec view', () => {
-    it('should display spec details and linked tickets', () => {
+    it('should display spec details and linked tickets', async () => {
       // Create spec
-      exec('spec create "View Test"');
+      await execInProcess('spec create "View Test"');
       const spec = db.prepare('SELECT id FROM pmo_specs WHERE title = ?').get('View Test') as { id: string };
 
-      const output = exec(`spec view ${spec.id}`);
+      const output = await execInProcess(`spec view ${spec.id}`);
 
       expect(output).to.contain('View Test');
     });
@@ -120,9 +123,9 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
   });
 
   describe('prlt spec link', () => {
-    it('should link existing ticket to spec', () => {
+    it('should link existing ticket to spec', async () => {
       // Create spec
-      exec('spec create "Link Test"');
+      await execInProcess('spec create "Link Test"');
       const spec = db.prepare('SELECT id FROM pmo_specs WHERE title = ?').get('Link Test') as { id: string };
 
       // Create ticket
@@ -132,7 +135,7 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
       `).run();
 
       // Link them
-      exec(`spec link ${spec.id} LINK-001`);
+      await execInProcess(`spec link ${spec.id} LINK-001`);
 
       // Verify link via the ticket_specs join table
       const link = db.prepare('SELECT * FROM pmo_ticket_specs WHERE ticket_id = ? AND spec_id = ?').get('LINK-001', spec.id);

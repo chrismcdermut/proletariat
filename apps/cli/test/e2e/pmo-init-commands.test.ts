@@ -4,8 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
-  exec,
-  execProduction,
+  execInProcess,
   extractJson,
   agentExec,
   findChoice,
@@ -60,14 +59,14 @@ describe('PMO Init Commands E2E Tests', () => {
   // Menu flow: no prompts needed, all values from flags → PMO created
   // ===========================================================================
   describe('prlt pmo init (fresh init - create)', () => {
-    it('should initialize PMO with all flags and report success', () => {
-      const output = exec('pmo init --location separate --template kanban --name "test-board"');
+    it('should initialize PMO with all flags and report success', async () => {
+      const output = await execInProcess('pmo init --location separate --template kanban --name "test-board"');
 
       expect(output).to.contain('PMO initialized successfully');
     });
 
-    it('should create project in database with correct name', () => {
-      exec('pmo init --location separate --template kanban --name "test-board"');
+    it('should create project in database with correct name', async () => {
+      await execInProcess('pmo init --location separate --template kanban --name "test-board"');
 
       // Re-open database to see new tables
       db.close();
@@ -78,8 +77,8 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(project!.name).to.equal('test-board');
     });
 
-    it('should create PMO directory and project folder structure', () => {
-      exec('pmo init --location separate --template kanban --name "test-board"');
+    it('should create PMO directory and project folder structure', async () => {
+      await execInProcess('pmo init --location separate --template kanban --name "test-board"');
 
       const pmoDir = path.join(testDir, 'pmo');
       expect(fs.existsSync(pmoDir)).to.be.true;
@@ -89,8 +88,8 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(fs.existsSync(projectDir)).to.be.true;
     });
 
-    it('should store PMO path setting in database', () => {
-      exec('pmo init --location separate --template kanban --name "test-board"');
+    it('should store PMO path setting in database', async () => {
+      await execInProcess('pmo init --location separate --template kanban --name "test-board"');
 
       db.close();
       db = new Database(dbPath);
@@ -100,10 +99,10 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(pmoPath!.value).to.equal('pmo');
     });
 
-    it('should not prompt and use defaults when --json is passed without flags', () => {
+    it('should not prompt and use defaults when --json is passed without flags', async () => {
       // In non-TTY mode (exec runs non-TTY), shouldOutputJson returns true.
       // Without this fix, the command would hang waiting for interactive prompts.
-      const output = exec('pmo init --json');
+      const output = await execInProcess('pmo init --json');
 
       expect(output).to.contain('PMO initialized successfully');
 
@@ -117,8 +116,8 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(pmoPath!.value).to.equal('pmo');
     });
 
-    it('should initialize with linear template', () => {
-      exec('pmo init --location separate --template linear --name "linear-board"');
+    it('should initialize with linear template', async () => {
+      await execInProcess('pmo init --location separate --template linear --name "linear-board"');
 
       db.close();
       db = new Database(dbPath);
@@ -138,7 +137,7 @@ describe('PMO Init Commands E2E Tests', () => {
       setupExistingPMO(db, testDir);
     });
 
-    it('should navigate: step 1 → action prompt, step 2 → pick reinitialize → confirmation prompt, step 3 → complete reinitialize', () => {
+    it('should navigate: step 1 → action prompt, step 2 → pick reinitialize → confirmation prompt, step 3 → complete reinitialize', async () => {
       // STEP 1: Agent calls pmo init --json → gets action selection prompt
       const step1 = agentExec('pmo init --json');
       expect(step1).to.not.be.null;
@@ -160,7 +159,7 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(step2!.prompt.message).to.contain('delete pmo');
 
       // STEP 3: Agent provides confirmation + all required flags to complete
-      const output = execProduction(
+      const output = await execInProcess(
         'pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "agent-board"'
       );
       expect(output).to.contain('PMO initialized successfully');
@@ -176,7 +175,7 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(newProject!.name).to.equal('agent-board');
     });
 
-    it('should navigate: step 1 → action prompt, step 2 → pick cancel → PMO preserved', () => {
+    it('should navigate: step 1 → action prompt, step 2 → pick cancel → PMO preserved', async () => {
       // STEP 1: Agent calls pmo init --json → gets action selection prompt
       const step1 = agentExec('pmo init --json');
       expect(step1).to.not.be.null;
@@ -189,7 +188,7 @@ describe('PMO Init Commands E2E Tests', () => {
 
       // STEP 2: Agent follows the cancel command
       const cancelCmd = execChoice(cancelChoice!);
-      const output = execProduction(cancelCmd.replace(' --json', ''));
+      const output = await execInProcess(cancelCmd.replace(' --json', ''));
       expect(output).to.contain('Cancelled');
 
       // VERIFY END RESULT: Old PMO is still intact
@@ -207,8 +206,8 @@ describe('PMO Init Commands E2E Tests', () => {
       setupExistingPMO(db, testDir);
     });
 
-    it('step 1: action prompt has correct schema with choices and commands', () => {
-      const output = exec('pmo init --json');
+    it('step 1: action prompt has correct schema with choices and commands', async () => {
+      const output = await execInProcess('pmo init --json');
       const json = extractJson<AgentPromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -235,8 +234,8 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(reinitChoice!.command).to.contain('--action reinitialize');
     });
 
-    it('step 1: metadata includes command name and flags', () => {
-      const output = exec('pmo init --json');
+    it('step 1: metadata includes command name and flags', async () => {
+      const output = await execInProcess('pmo init --json');
       const json = extractJson<AgentPromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -245,8 +244,8 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(json!.metadata).to.have.property('timestamp').that.is.a('string');
     });
 
-    it('step 2: confirmation prompt has correct input schema with context hints', () => {
-      const output = exec('pmo init --action reinitialize --json');
+    it('step 2: confirmation prompt has correct input schema with context hints', async () => {
+      const output = await execInProcess('pmo init --action reinitialize --json');
       const json = extractJson<AgentPromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -261,8 +260,8 @@ describe('PMO Init Commands E2E Tests', () => {
       expect(context!.example).to.contain('prlt pmo init');
     });
 
-    it('step 1: action prompt message includes project and ticket counts', () => {
-      const output = exec('pmo init --json');
+    it('step 1: action prompt message includes project and ticket counts', async () => {
+      const output = await execInProcess('pmo init --json');
       const json = extractJson<AgentPromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -278,8 +277,8 @@ describe('PMO Init Commands E2E Tests', () => {
   // ===========================================================================
   describe('prlt pmo init (end result verification)', () => {
     describe('fresh init → verify created', () => {
-      it('should create kanban board file in project directory', () => {
-        exec('pmo init --location separate --template kanban --name "my-project"');
+      it('should create kanban board file in project directory', async () => {
+        await execInProcess('pmo init --location separate --template kanban --name "my-project"');
 
         const boardPath = path.join(testDir, 'pmo', 'projects', 'my-project', 'kanban.md');
         expect(fs.existsSync(boardPath)).to.be.true;
@@ -289,8 +288,8 @@ describe('PMO Init Commands E2E Tests', () => {
         expect(content).to.contain('In Progress');
       });
 
-      it('should create epic folder structure with lifecycle stages', () => {
-        exec('pmo init --location separate --template kanban --name "my-project"');
+      it('should create epic folder structure with lifecycle stages', async () => {
+        await execInProcess('pmo init --location separate --template kanban --name "my-project"');
 
         const epicsDir = path.join(testDir, 'pmo', 'projects', 'my-project', 'epics');
         expect(fs.existsSync(epicsDir)).to.be.true;
@@ -301,8 +300,8 @@ describe('PMO Init Commands E2E Tests', () => {
         expect(fs.existsSync(path.join(epicsDir, 'complete'))).to.be.true;
       });
 
-      it('should create README in PMO directory', () => {
-        exec('pmo init --location separate --template kanban --name "my-project"');
+      it('should create README in PMO directory', async () => {
+        await execInProcess('pmo init --location separate --template kanban --name "my-project"');
 
         const readmePath = path.join(testDir, 'pmo', 'README.md');
         expect(fs.existsSync(readmePath)).to.be.true;
@@ -317,14 +316,14 @@ describe('PMO Init Commands E2E Tests', () => {
         setupExistingPMO(db, testDir);
       });
 
-      it('should drop all old PMO tables and create new ones', () => {
+      it('should drop all old PMO tables and create new ones', async () => {
         // Verify old data exists
         const oldProject = db.prepare('SELECT * FROM pmo_projects WHERE id = ?').get('existing-project');
         expect(oldProject).to.not.be.undefined;
         const oldTicket = db.prepare('SELECT * FROM pmo_tickets WHERE id = ?').get('TKT-001');
         expect(oldTicket).to.not.be.undefined;
 
-        exec('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board"');
+        await execInProcess('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board"');
 
         // Verify old data is gone, new data exists
         db.close();
@@ -342,8 +341,8 @@ describe('PMO Init Commands E2E Tests', () => {
         expect(oldTicketAfter).to.be.undefined;
       });
 
-      it('should create new project directory after reinitialize', () => {
-        exec('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board"');
+      it('should create new project directory after reinitialize', async () => {
+        await execInProcess('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board"');
 
         const newProjectDir = path.join(testDir, 'pmo', 'projects', 'reinit-board');
         expect(fs.existsSync(newProjectDir)).to.be.true;
@@ -358,8 +357,8 @@ describe('PMO Init Commands E2E Tests', () => {
         setupExistingPMO(db, testDir);
       });
 
-      it('should preserve all existing data when cancelled via action flag', () => {
-        const output = exec('pmo init --action cancel');
+      it('should preserve all existing data when cancelled via action flag', async () => {
+        const output = await execInProcess('pmo init --action cancel');
         expect(output).to.contain('Cancelled');
 
         // All old data should still be intact
@@ -371,8 +370,8 @@ describe('PMO Init Commands E2E Tests', () => {
         expect(settings).to.not.be.undefined;
       });
 
-      it('should preserve all existing data when confirmation text is wrong', () => {
-        const output = exec('pmo init --action reinitialize --confirmation "no"');
+      it('should preserve all existing data when confirmation text is wrong', async () => {
+        const output = await execInProcess('pmo init --action reinitialize --confirmation "no"');
         expect(output).to.contain('Cancelled');
 
         // All old data should still be intact
@@ -382,8 +381,8 @@ describe('PMO Init Commands E2E Tests', () => {
         expect(ticket).to.not.be.undefined;
       });
 
-      it('should preserve PMO directory when cancelled', () => {
-        exec('pmo init --action cancel');
+      it('should preserve PMO directory when cancelled', async () => {
+        await execInProcess('pmo init --action cancel');
 
         const pmoDir = path.join(testDir, 'pmo');
         expect(fs.existsSync(pmoDir)).to.be.true;

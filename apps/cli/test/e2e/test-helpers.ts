@@ -18,6 +18,7 @@ import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { runCommand } from '@oclif/test';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
@@ -1086,5 +1087,205 @@ export function execAsAgent(cmd: string, env: NodeJS.ProcessEnv = {}): string {
       return filterOutput(stdout);
     }
     return filterOutput(stderr) || filterOutput(execError.message || 'Unknown error');
+  }
+}
+
+// =============================================================================
+// In-Process Command Execution Helpers
+// =============================================================================
+// These helpers use oclif's runCommand to execute commands directly in the same
+// Node.js process, eliminating the ~300ms overhead of spawning a child process
+// per test (Node.js startup + oclif framework init).
+//
+// Benefits:
+// - ~5x faster test execution for large test suites
+// - Same isolation guarantees via env var management
+// - Output captured via process.stdout.write interception
+//
+// Usage:
+//   // Instead of:     const output = exec('ticket list');
+//   // Use:            const output = await execInProcess('ticket list');
+//   // Test functions must be async: it('...', async () => { ... });
+//
+// The original execSync-based helpers (exec, execAsHuman, etc.) are kept for
+// tests that genuinely need process isolation (signal handling, exit codes).
+// =============================================================================
+
+/**
+ * Path to the CLI root directory (apps/cli).
+ * Used as loadOpts for oclif's runCommand to locate the oclif config.
+ */
+const CLI_ROOT = path.resolve(__dirname, '../..');
+
+/**
+ * Saves current process.env vars and sets up isolation for in-process execution.
+ * Returns a restore function that must be called in a finally block.
+ *
+ * This mirrors the isolation provided by getIsolatedEnv() for execSync, but
+ * operates directly on process.env since in-process commands share the env.
+ */
+function isolateEnvForInProcess(
+  cmd: string,
+  extraEnv: Record<string, string | undefined> = {}
+): () => void {
+  const saved: Record<string, string | undefined> = {};
+
+  // Save and clear isolation vars that could bypass test isolation
+  for (const varName of ISOLATION_ENV_VARS) {
+    saved[varName] = process.env[varName];
+    delete process.env[varName];
+  }
+
+  // Save and clear DEBUG to prevent oclif debug output polluting captured output
+  saved.DEBUG = process.env.DEBUG;
+  delete process.env.DEBUG;
+
+  // Suppress the interactive update prompt during tests
+  saved.PRLT_SKIP_NEW_VERSION_CHECK = process.env.PRLT_SKIP_NEW_VERSION_CHECK;
+  process.env.PRLT_SKIP_NEW_VERSION_CHECK = 'true';
+
+  // Skip the init hook's first-time-user redirect
+  saved.PRLT_SKIP_INIT_REDIRECT = process.env.PRLT_SKIP_INIT_REDIRECT;
+  process.env.PRLT_SKIP_INIT_REDIRECT = '1';
+
+  // Force text output unless the command explicitly requests JSON via flags
+  if (!wantsJsonOutput(cmd)) {
+    saved.PRLT_FORCE_TEXT = process.env.PRLT_FORCE_TEXT;
+    process.env.PRLT_FORCE_TEXT = '1';
+  }
+
+  // Apply any extra env vars
+  for (const [key, value] of Object.entries(extraEnv)) {
+    saved[key] = process.env[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+
+  // Return restore function
+  return () => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  };
+}
+
+/**
+ * Executes a CLI command in-process using oclif's runCommand.
+ * This is the async equivalent of exec() — no child process is spawned.
+ *
+ * The command runs in the same Node.js process with stdout/stderr captured
+ * via process.stdout.write interception. Environment isolation is handled
+ * by temporarily modifying process.env (restored after the command).
+ *
+ * @param cmd - The CLI command to run (without 'prlt' prefix)
+ * @returns The command output (stdout, or error message on failure)
+ *
+ * @example
+ * // Before (sync, spawns child process):
+ * const output = exec('ticket create --title "Test" --column "Backlog"');
+ *
+ * // After (async, in-process):
+ * const output = await execInProcess('ticket create --title "Test" --column "Backlog"');
+ */
+export async function execInProcess(cmd: string): Promise<string> {
+  const restore = isolateEnvForInProcess(cmd);
+
+  try {
+    const { stdout, stderr, error } = await runCommand(cmd, CLI_ROOT, {
+      stripAnsi: true,
+      // Use 'production' NODE_ENV so oclif loads compiled dist/commands
+      // instead of trying to load TypeScript source files from src/commands
+      testNodeEnv: 'production',
+    });
+
+    if (error) {
+      // Match exec() behavior: return stdout if available, then stderr, then error message
+      if (stdout.trim()) {
+        return filterOutput(stdout);
+      }
+      const filteredStderr = filterOutput(stderr);
+      return filteredStderr || filterOutput(error.message || 'Unknown error');
+    }
+
+    return filterOutput(stdout);
+  } finally {
+    restore();
+  }
+}
+
+/**
+ * Executes a CLI command in-process forcing human-readable text output.
+ * This is the async equivalent of execAsHuman().
+ *
+ * @param cmd - CLI command to run (without 'prlt' prefix)
+ * @param env - Additional environment variables to merge
+ * @returns Filtered command output (human-readable text)
+ */
+export async function execInProcessAsHuman(
+  cmd: string,
+  env: Record<string, string | undefined> = {}
+): Promise<string> {
+  const restore = isolateEnvForInProcess(cmd, {
+    PRLT_FORCE_TEXT: '1',
+    ...env,
+  });
+
+  try {
+    const { stdout, stderr, error } = await runCommand(cmd, CLI_ROOT, {
+      stripAnsi: true,
+      testNodeEnv: 'production',
+    });
+
+    if (error) {
+      if (stdout.trim()) {
+        return filterOutput(stdout);
+      }
+      return filterOutput(stderr) || filterOutput(error.message || 'Unknown error');
+    }
+
+    return filterOutput(stdout);
+  } finally {
+    restore();
+  }
+}
+
+/**
+ * Executes a CLI command in-process with explicit --json flag.
+ * This is the async equivalent of execAsAgent().
+ *
+ * @param cmd - CLI command to run (without 'prlt' prefix). --json is appended automatically.
+ * @param env - Additional environment variables to merge
+ * @returns Filtered command output (JSON string)
+ */
+export async function execInProcessAsAgent(
+  cmd: string,
+  env: Record<string, string | undefined> = {}
+): Promise<string> {
+  const jsonCmd = cmd.includes('--json') ? cmd : `${cmd} --json`;
+  const restore = isolateEnvForInProcess(jsonCmd, env);
+
+  try {
+    const { stdout, stderr, error } = await runCommand(jsonCmd, CLI_ROOT, {
+      stripAnsi: true,
+      testNodeEnv: 'production',
+    });
+
+    if (error) {
+      if (stdout.trim()) {
+        return filterOutput(stdout);
+      }
+      return filterOutput(stderr) || filterOutput(error.message || 'Unknown error');
+    }
+
+    return filterOutput(stdout);
+  } finally {
+    restore();
   }
 }
