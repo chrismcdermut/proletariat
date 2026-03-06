@@ -13,12 +13,24 @@ import {
   createPMODirectories,
   setupProductionSchema,
   createTestProject,
-  agentExec,
   findChoice,
-  execProduction,
+  execInProcess,
+  hasContextError,
+  extractJson,
   type TestEnvironment,
+  type AgentPromptResponse,
 } from './test-helpers.js';
 import Database from 'better-sqlite3';
+
+/**
+ * Execute a CLI command with --machine flag and parse the JSON response.
+ * This is the async in-process version of the shared agentExec helper.
+ */
+async function agentExec(cmd: string): Promise<AgentPromptResponse | null> {
+  const output = await execInProcess(cmd);
+  if (hasContextError(output)) return null;
+  return extractJson<AgentPromptResponse>(output);
+}
 
 describe('Template Commands - Agent Flow E2E Tests', () => {
   let env: TestEnvironment;
@@ -38,8 +50,8 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
   });
 
   describe('template index - menu navigation with --machine', () => {
-    it('should output JSON prompt with command field for each choice', () => {
-      const result = agentExec('template --machine');
+    it('should output JSON prompt with command field for each choice', async () => {
+      const result = await agentExec('template --machine');
 
       expect(result, 'Failed to parse JSON from template --machine').to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -56,8 +68,8 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
       }
     });
 
-    it('should have list option that navigates to template list', () => {
-      const result = agentExec('template --machine');
+    it('should have list option that navigates to template list', async () => {
+      const result = await agentExec('template --machine');
       expect(result).to.not.be.null;
 
       const listChoice = findChoice(result!.prompt.choices, 'List templates');
@@ -65,8 +77,8 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
       expect(listChoice!.command).to.include('template list');
     });
 
-    it('should have create option that navigates to template create', () => {
-      const result = agentExec('template --machine');
+    it('should have create option that navigates to template create', async () => {
+      const result = await agentExec('template --machine');
       expect(result).to.not.be.null;
 
       const createChoice = findChoice(result!.prompt.choices, 'Create template');
@@ -74,8 +86,8 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
       expect(createChoice!.command).to.include('template create');
     });
 
-    it('should have apply option that navigates to template apply', () => {
-      const result = agentExec('template --machine');
+    it('should have apply option that navigates to template apply', async () => {
+      const result = await agentExec('template --machine');
       expect(result).to.not.be.null;
 
       const applyChoice = findChoice(result!.prompt.choices, 'Apply template');
@@ -83,8 +95,8 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
       expect(applyChoice!.command).to.include('template apply');
     });
 
-    it('should have save option that navigates to template save', () => {
-      const result = agentExec('template --machine');
+    it('should have save option that navigates to template save', async () => {
+      const result = await agentExec('template --machine');
       expect(result).to.not.be.null;
 
       const saveChoice = findChoice(result!.prompt.choices, 'Save ticket as template');
@@ -92,8 +104,8 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
       expect(saveChoice!.command).to.include('template save');
     });
 
-    it('should have update option that navigates to template update', () => {
-      const result = agentExec('template --machine');
+    it('should have update option that navigates to template update', async () => {
+      const result = await agentExec('template --machine');
       expect(result).to.not.be.null;
 
       const updateChoice = findChoice(result!.prompt.choices, 'Update phase template');
@@ -101,8 +113,8 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
       expect(updateChoice!.command).to.include('template update');
     });
 
-    it('should have delete option that navigates to template delete', () => {
-      const result = agentExec('template --machine');
+    it('should have delete option that navigates to template delete', async () => {
+      const result = await agentExec('template --machine');
       expect(result).to.not.be.null;
 
       const deleteChoice = findChoice(result!.prompt.choices, 'Delete template');
@@ -112,9 +124,9 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
   });
 
   describe('--json flag (legacy) support', () => {
-    it('template --json should output same structure as --machine', () => {
-      const machineResult = agentExec('template --machine');
-      const jsonResult = agentExec('template --json');
+    it('template --json should output same structure as --machine', async () => {
+      const machineResult = await agentExec('template --machine');
+      const jsonResult = await agentExec('template --json');
 
       expect(machineResult).to.not.be.null;
       expect(jsonResult).to.not.be.null;
@@ -124,8 +136,8 @@ describe('Template Commands - Agent Flow E2E Tests', () => {
   });
 
   describe('help output includes --json flag', () => {
-    it('template --help should show --json flag', () => {
-      const output = execProduction('template --help');
+    it('template --help should show --json flag', async () => {
+      const output = await execInProcess('template --help');
       expect(output).to.include('--json');
       expect(output).to.include('-m');
     });

@@ -21,7 +21,7 @@ import {
   createPMODirectories,
   setupProductionSchema,
   createTestProject,
-  exec,
+  execInProcess,
   extractJson,
   type TestEnvironment,
   type AgentPromptResponse,
@@ -110,8 +110,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
   // In machine mode: name → category → completes (optional fields skipped)
   // ===========================================================================
   describe('status create - machine mode flow (required fields only)', () => {
-    it('Step 1/2: initial command returns name input prompt', () => {
-      const output = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
+    it('Step 1/2: initial command returns name input prompt', async () => {
+      const output = await execInProcess(`status create -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -122,8 +122,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(result!.prompt.message.toLowerCase()).to.include('name');
     });
 
-    it('Step 2/2: with --name, returns category list prompt', () => {
-      const output = exec(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --machine`);
+    it('Step 2/2: with --name, returns category list prompt', async () => {
+      const output = await execInProcess(`status create -P ${TEST_PROJECT_ID} --name "Test Status" --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -143,12 +143,12 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(startedChoice!.command).to.include('--machine');
     });
 
-    it('Machine mode: with --name --category, creates status (skips optional prompts)', () => {
+    it('Machine mode: with --name --category, creates status (skips optional prompts)', async () => {
       const statusName = 'Machine Mode Status';
       const statusCategory = 'started';
 
       // Execute with only required flags - should complete without prompting for optional fields
-      const output = exec(
+      const output = await execInProcess(
         `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --machine`
       );
 
@@ -166,14 +166,14 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       }
     });
 
-    it('Machine mode: optional flags still work when provided', () => {
+    it('Machine mode: optional flags still work when provided', async () => {
       const statusName = 'Machine Optional Flags';
       const statusCategory = 'started';
       const statusColor = '#00FF00';
       const statusDesc = 'Optional flags test';
 
       // Execute with optional flags - should use them without prompting
-      const output = exec(
+      const output = await execInProcess(
         `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --color "${statusColor}" --description "${statusDesc}" --default --machine`
       );
 
@@ -189,14 +189,14 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(created!.is_default).to.equal(1);
     });
 
-    it('Complete flow: all flags provided → creates status → verify in DB', () => {
+    it('Complete flow: all flags provided → creates status → verify in DB', async () => {
       const statusName = 'Complete Flow Status';
       const statusCategory = 'started';
       const statusColor = '#00FF00';
       const statusDesc = 'Created via complete flow';
 
       // Execute with ALL flags to complete the action
-      const output = exec(
+      const output = await execInProcess(
         `status create -P ${TEST_PROJECT_ID} --name "${statusName}" --category ${statusCategory} --color "${statusColor}" --description "${statusDesc}" --default --machine`
       );
 
@@ -212,23 +212,23 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(created!.is_default).to.equal(1);
     });
 
-    it('Full navigation: step through required prompts (name → category → done)', () => {
+    it('Full navigation: step through required prompts (name → category → done)', async () => {
       // Step 1: name prompt
-      const step1 = exec(`status create -P ${TEST_PROJECT_ID} --machine`);
+      const step1 = await execInProcess(`status create -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(step1)) return;
       const result1 = extractJson<AgentPromptResponse>(step1);
       if (!result1) return;
       expect(result1.prompt.name).to.equal('name');
 
       // Step 2: category prompt
-      const step2 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --machine`);
+      const step2 = await execInProcess(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --machine`);
       if (hasSchemaError(step2)) return;
       const result2 = extractJson<AgentPromptResponse>(step2);
       if (!result2) return;
       expect(result2.prompt.name).to.equal('category');
 
       // Step 3: with name and category, command completes (no more prompts)
-      const step3 = exec(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --category backlog --machine`);
+      const step3 = await execInProcess(`status create -P ${TEST_PROJECT_ID} --name "Nav Test" --category backlog --machine`);
       if (hasSchemaError(step3)) return;
       const result3 = extractJson<AgentPromptResponse>(step3);
       // Should not return a prompt - command should complete
@@ -251,8 +251,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       createTestStatus('update-other', 'Other Status', 'started', 1);
     });
 
-    it('Step 1/6: initial command returns status selection list', () => {
-      const output = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
+    it('Step 1/6: initial command returns status selection list', async () => {
+      const output = await execInProcess(`status update -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -274,8 +274,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       }
     });
 
-    it('Step 2/6: with status ID, returns name input prompt', () => {
-      const output = exec(`status update update-target -P ${TEST_PROJECT_ID} --machine`);
+    it('Step 2/6: with status ID, returns name input prompt', async () => {
+      const output = await execInProcess(`status update update-target -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -306,14 +306,14 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       // When change flags are provided, update.ts skips interactive mode
     });
 
-    it('Complete flow: all flags provided → updates status → verify in DB', () => {
+    it('Complete flow: all flags provided → updates status → verify in DB', async () => {
       const newName = 'Fully Updated Status';
       const newCategory = 'completed';
       const newColor = '#00FF00';
       const newDesc = 'Updated via complete flow';
 
       // Execute update with ALL flags
-      const output = exec(
+      const output = await execInProcess(
         `status update update-target -P ${TEST_PROJECT_ID} --name "${newName}" --category ${newCategory} --color "${newColor}" --description "${newDesc}" --default --machine`
       );
 
@@ -329,9 +329,9 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(updated!.is_default).to.equal(1);
     });
 
-    it('Full navigation: step through all 6 prompts sequentially', () => {
+    it('Full navigation: step through all 6 prompts sequentially', async () => {
       // Step 1: status selection
-      const step1 = exec(`status update -P ${TEST_PROJECT_ID} --machine`);
+      const step1 = await execInProcess(`status update -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(step1)) return;
       const result1 = extractJson<AgentPromptResponse>(step1);
       if (!result1) return;
@@ -342,35 +342,35 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(targetChoice).to.exist;
 
       // Step 2: name prompt (using command from choice)
-      const step2 = exec(targetChoice!.command!.replace('prlt ', ''));
+      const step2 = await execInProcess(targetChoice!.command!.replace('prlt ', ''));
       if (hasSchemaError(step2)) return;
       const result2 = extractJson<AgentPromptResponse>(step2);
       if (!result2) return;
       expect(result2.prompt.name).to.equal('name');
 
       // Step 3: category prompt
-      const step3 = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --machine`);
+      const step3 = await execInProcess(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --machine`);
       if (hasSchemaError(step3)) return;
       const result3 = extractJson<AgentPromptResponse>(step3);
       if (!result3) return;
       expect(result3.prompt.name).to.equal('category');
 
       // Step 4: color prompt
-      const step4 = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --machine`);
+      const step4 = await execInProcess(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --machine`);
       if (hasSchemaError(step4)) return;
       const result4 = extractJson<AgentPromptResponse>(step4);
       if (!result4) return;
       expect(result4.prompt.name).to.equal('color');
 
       // Step 5: description prompt
-      const step5 = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --color "" --machine`);
+      const step5 = await execInProcess(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --color "" --machine`);
       if (hasSchemaError(step5)) return;
       const result5 = extractJson<AgentPromptResponse>(step5);
       if (!result5) return;
       expect(result5.prompt.name).to.equal('description');
 
       // Step 6: default prompt
-      const step6 = exec(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --color "" --description "" --machine`);
+      const step6 = await execInProcess(`status update update-target -P ${TEST_PROJECT_ID} --name "Nav Update" --category started --color "" --description "" --machine`);
       if (hasSchemaError(step6)) return;
       const result6 = extractJson<AgentPromptResponse>(step6);
       if (!result6) return;
@@ -388,8 +388,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       createTestStatus('move-3', 'Third Status', 'backlog', 2);
     });
 
-    it('Step 1: initial command returns status selection list', () => {
-      const output = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
+    it('Step 1: initial command returns status selection list', async () => {
+      const output = await execInProcess(`status move -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -410,8 +410,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       }
     });
 
-    it('Step 2: with status ID, returns position selection list', () => {
-      const output = exec(`status move move-3 -P ${TEST_PROJECT_ID} --machine`);
+    it('Step 2: with status ID, returns position selection list', async () => {
+      const output = await execInProcess(`status move move-3 -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -429,9 +429,9 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       }
     });
 
-    it('Complete flow: move status and verify new position in database', () => {
+    it('Complete flow: move status and verify new position in database', async () => {
       // Move "Third Status" from position 2 to position 0
-      const output = exec(`status move move-3 -P ${TEST_PROJECT_ID} --position 0 --machine`);
+      const output = await execInProcess(`status move move-3 -P ${TEST_PROJECT_ID} --position 0 --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -441,9 +441,9 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(moved!.position).to.equal(0);
     });
 
-    it('Full navigation: select status → select position → verify move', () => {
+    it('Full navigation: select status → select position → verify move', async () => {
       // Step 1: Get status selection
-      const step1 = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
+      const step1 = await execInProcess(`status move -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(step1)) return;
 
       const result1 = extractJson<AgentPromptResponse>(step1);
@@ -457,7 +457,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
 
       // Step 3: Execute command from choice to get position prompt
       const cmd2 = thirdChoice!.command!.replace('prlt ', '');
-      const step2 = exec(cmd2);
+      const step2 = await execInProcess(cmd2);
       if (hasSchemaError(step2)) return;
 
       const result2 = extractJson<AgentPromptResponse>(step2);
@@ -473,7 +473,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
 
       // Step 5: Execute position command
       const cmd3 = pos0Choice!.command!.replace('prlt ', '');
-      const step3 = exec(cmd3);
+      const step3 = await execInProcess(cmd3);
       if (hasSchemaError(step3)) return;
 
       // Verify move completed
@@ -491,8 +491,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       createTestStatus('delete-target', 'Status To Delete', 'backlog', 0);
     });
 
-    it('Step 1: with ID, returns confirmation prompt', () => {
-      const output = exec(`status delete delete-target --machine`);
+    it('Step 1: with ID, returns confirmation prompt', async () => {
+      const output = await execInProcess(`status delete delete-target --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -513,13 +513,13 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(noChoice).to.exist;
     });
 
-    it('Complete flow with --force: delete and verify removal from database', () => {
+    it('Complete flow with --force: delete and verify removal from database', async () => {
       // Verify exists before
       const before = getStatus('delete-target');
       expect(before).to.exist;
 
       // Delete with --force
-      const output = exec(`status delete delete-target --force --machine`);
+      const output = await execInProcess(`status delete delete-target --force --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -528,9 +528,9 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(after).to.not.exist;
     });
 
-    it('Full navigation: confirmation prompt → confirm → verify deletion', () => {
+    it('Full navigation: confirmation prompt → confirm → verify deletion', async () => {
       // Step 1: Get confirmation prompt
-      const step1 = exec(`status delete delete-target --machine`);
+      const step1 = await execInProcess(`status delete delete-target --machine`);
       if (hasSchemaError(step1)) return;
 
       const result1 = extractJson<AgentPromptResponse>(step1);
@@ -546,7 +546,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
 
       // Step 3: Execute confirmation command
       const cmd2 = yesChoice!.command!.replace('prlt ', '');
-      const step2 = exec(cmd2);
+      const step2 = await execInProcess(cmd2);
       if (hasSchemaError(step2)) return;
 
       // Step 4: Verify deletion
@@ -565,8 +565,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       createTestStatus('list-3', 'Finished', 'completed', 0);
     });
 
-    it('returns JSON array of all statuses with correct structure', () => {
-      const output = exec(`status list -P ${TEST_PROJECT_ID} --machine`);
+    it('returns JSON array of all statuses with correct structure', async () => {
+      const output = await execInProcess(`status list -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -606,8 +606,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       createTestStatus('menu-status', 'Menu Test Status', 'backlog', 0);
     });
 
-    it('main menu has all subcommand choices with proper commands', () => {
-      const output = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+    it('main menu has all subcommand choices with proper commands', async () => {
+      const output = await execInProcess(`status -P ${TEST_PROJECT_ID} --machine`);
 
       if (hasSchemaError(output)) return;
 
@@ -644,9 +644,9 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(deleteChoice!.command).to.include('status delete');
     });
 
-    it('menu → list: navigates and returns status data', () => {
+    it('menu → list: navigates and returns status data', async () => {
       // Step 1: Get menu
-      const menu = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+      const menu = await execInProcess(`status -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(menu)) return;
 
       const menuResult = extractJson<AgentPromptResponse>(menu);
@@ -660,7 +660,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
 
       // Step 3: Execute list command
       const listCmd = listChoice!.command!.replace('prlt ', '');
-      const listOutput = exec(listCmd);
+      const listOutput = await execInProcess(listCmd);
       if (hasSchemaError(listOutput)) return;
 
       // Step 4: Verify we get status array
@@ -672,9 +672,9 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(statuses.length).to.be.greaterThan(0);
     });
 
-    it('menu → create: navigates and shows name prompt', () => {
+    it('menu → create: navigates and shows name prompt', async () => {
       // Step 1: Get menu
-      const menu = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+      const menu = await execInProcess(`status -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(menu)) return;
 
       const menuResult = extractJson<AgentPromptResponse>(menu);
@@ -688,7 +688,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
 
       // Step 3: Execute create command
       const createCmd = createChoice!.command!.replace('prlt ', '');
-      const createOutput = exec(createCmd);
+      const createOutput = await execInProcess(createCmd);
       if (hasSchemaError(createOutput)) return;
 
       // Step 4: Verify we get name input prompt
@@ -698,9 +698,9 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       expect(result!.prompt.name).to.equal('name');
     });
 
-    it('menu → update: navigates and shows status selection', () => {
+    it('menu → update: navigates and shows status selection', async () => {
       // Step 1: Get menu
-      const menu = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+      const menu = await execInProcess(`status -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(menu)) return;
 
       const menuResult = extractJson<AgentPromptResponse>(menu);
@@ -714,7 +714,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
 
       // Step 3: Execute update command
       const updateCmd = updateChoice!.command!.replace('prlt ', '');
-      const updateOutput = exec(updateCmd);
+      const updateOutput = await execInProcess(updateCmd);
       if (hasSchemaError(updateOutput)) return;
 
       // Step 4: Verify we get status selection list
@@ -740,8 +740,8 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       // Source code bug: choice commands in status/update.ts don't include -P
     });
 
-    it('--machine flag is always included in choice commands', () => {
-      const output = exec(`status -P ${TEST_PROJECT_ID} --machine`);
+    it('--machine flag is always included in choice commands', async () => {
+      const output = await execInProcess(`status -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(output)) return;
 
       const result = extractJson<AgentPromptResponse>(output);
@@ -755,9 +755,9 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
       }
     });
 
-    it('status move: ID is preserved when navigating to position prompt', () => {
+    it('status move: ID is preserved when navigating to position prompt', async () => {
       // Step 1: Get status selection
-      const step1 = exec(`status move -P ${TEST_PROJECT_ID} --machine`);
+      const step1 = await execInProcess(`status move -P ${TEST_PROJECT_ID} --machine`);
       if (hasSchemaError(step1)) return;
 
       const result1 = extractJson<AgentPromptResponse>(step1);
@@ -770,7 +770,7 @@ describe('Status Commands - Complete Interactive Flow Tests', function(this: Moc
 
       // Step 3: Execute and verify position choices also include ID
       const cmd2 = choice!.command!.replace('prlt ', '');
-      const step2 = exec(cmd2);
+      const step2 = await execInProcess(cmd2);
       if (hasSchemaError(step2)) return;
 
       const result2 = extractJson<AgentPromptResponse>(step2);

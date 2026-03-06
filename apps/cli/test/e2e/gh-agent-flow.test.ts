@@ -1,11 +1,32 @@
 import { expect } from 'chai';
 import {
-  agentExec,
   findChoice,
   execChoice,
-  execInProcess,
   extractJson,
+  execInProcess,
+  hasContextError,
+  type AgentPromptResponse,
 } from './test-helpers.js';
+
+/**
+ * Execute a CLI command with --machine flag and parse the JSON response.
+ * This is the async in-process version that uses execInProcess instead of execProduction.
+ *
+ * @param cmd - CLI command to execute (should include --machine or --json flag)
+ * @returns Parsed AgentPromptResponse or null if context error or no JSON
+ */
+async function agentExec(cmd: string): Promise<AgentPromptResponse | null> {
+  const output = await execInProcess(cmd);
+  if (hasContextError(output)) {
+    return null;
+  }
+  const json = extractJson<AgentPromptResponse>(output);
+  // Validate the response has the expected prompt structure
+  if (json && (!json.prompt || typeof json.prompt !== 'object')) {
+    return null;
+  }
+  return json;
+}
 
 /**
  * E2E Agent Flow Tests for GitHub CLI Commands
@@ -28,8 +49,8 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
    * Main menu - should present choices for status/login/token
    */
   describe('prlt gh --machine (main menu)', () => {
-    it('should output JSON with action choices', () => {
-      const result = agentExec('gh --machine');
+    it('should output JSON with action choices', async () => {
+      const result = await agentExec('gh --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt).to.exist;
@@ -40,8 +61,8 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
       expect(result!.prompt.choices.length).to.be.greaterThan(0);
     });
 
-    it('should have choice for Check status with command field', () => {
-      const result = agentExec('gh --machine');
+    it('should have choice for Check status with command field', async () => {
+      const result = await agentExec('gh --machine');
       expect(result).to.not.be.null;
 
       const statusChoice = findChoice(result!.prompt.choices, 'status');
@@ -51,8 +72,8 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
       expect(statusChoice!.command).to.include('--json');
     });
 
-    it('should have choice for Login with command field', () => {
-      const result = agentExec('gh --machine');
+    it('should have choice for Login with command field', async () => {
+      const result = await agentExec('gh --machine');
       expect(result).to.not.be.null;
 
       const loginChoice = findChoice(result!.prompt.choices, 'login');
@@ -62,8 +83,8 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
       expect(loginChoice!.command).to.include('--json');
     });
 
-    it('should have choice for GH_TOKEN setup with command field', () => {
-      const result = agentExec('gh --machine');
+    it('should have choice for GH_TOKEN setup with command field', async () => {
+      const result = await agentExec('gh --machine');
       expect(result).to.not.be.null;
 
       const tokenChoice = findChoice(result!.prompt.choices, 'token');
@@ -75,7 +96,7 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
 
     it('should complete flow: select status → get status info', async () => {
       // Step 1: Get menu choices
-      const step1 = agentExec('gh --machine');
+      const step1 = await agentExec('gh --machine');
       expect(step1).to.not.be.null;
 
       const statusChoice = findChoice(step1!.prompt.choices, 'status');
@@ -226,7 +247,7 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
   describe('Full agent navigation flows', () => {
     it('should navigate: gh menu → status → get status info', async () => {
       // Step 1: Start at gh menu
-      const menu = agentExec('gh --machine');
+      const menu = await agentExec('gh --machine');
       expect(menu).to.not.be.null;
 
       // Step 2: Find and select status
@@ -246,7 +267,7 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
 
     it('should navigate: gh menu → login → get login status', async () => {
       // Step 1: Start at gh menu
-      const menu = agentExec('gh --machine');
+      const menu = await agentExec('gh --machine');
       expect(menu).to.not.be.null;
 
       // Step 2: Find and select login
@@ -266,7 +287,7 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
 
     it('should navigate: gh menu → token → get token setup info', async () => {
       // Step 1: Start at gh menu
-      const menu = agentExec('gh --machine');
+      const menu = await agentExec('gh --machine');
       expect(menu).to.not.be.null;
 
       // Step 2: Find and select token
@@ -289,9 +310,9 @@ describe('GitHub CLI Commands - Agent Flow E2E Tests', () => {
    * Legacy --json flag support
    */
   describe('Legacy --json flag support', () => {
-    it('gh --json should work same as --machine', () => {
-      const machineOutput = agentExec('gh --machine');
-      const jsonOutput = agentExec('gh --json');
+    it('gh --json should work same as --machine', async () => {
+      const machineOutput = await agentExec('gh --machine');
+      const jsonOutput = await agentExec('gh --json');
 
       expect(machineOutput).to.not.be.null;
       expect(jsonOutput).to.not.be.null;

@@ -28,7 +28,7 @@ import {
   createPMODirectories,
   setupProductionSchema,
   createTestProject,
-  exec,
+  execInProcess,
   type TestEnvironment,
 } from './test-helpers.js';
 
@@ -88,8 +88,8 @@ describe('Project Commands JSON Mode', () => {
   // project list --machine
   // ===========================================================================
   describe('project list --machine', () => {
-    it('should output valid JSON with --machine flag', () => {
-      const output = exec('project list --machine');
+    it('should output valid JSON with --machine flag', async () => {
+      const output = await execInProcess('project list --machine');
       const json = extractJson<{
         success: boolean;
         result: { projects: Array<{ id: string; name: string }> };
@@ -104,8 +104,8 @@ describe('Project Commands JSON Mode', () => {
       expect(testProject!.name).to.equal('Test Project');
     });
 
-    it('should output valid JSON with --json flag (legacy)', () => {
-      const output = exec('project list --json');
+    it('should output valid JSON with --json flag (legacy)', async () => {
+      const output = await execInProcess('project list --json');
       const json = extractJson<{
         success: boolean;
         result: { projects: Array<{ id: string }> };
@@ -115,8 +115,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.projects).to.be.an('array');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('project list -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('project list -m');
       const json = extractJson<{
         success: boolean;
         result: { projects: Array<{ id: string }> };
@@ -126,9 +126,9 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.projects).to.be.an('array');
     });
 
-    it('should produce same structure with --machine and --json', () => {
-      const jsonOutput = exec('project list --json');
-      const machineOutput = exec('project list --machine');
+    it('should produce same structure with --machine and --json', async () => {
+      const jsonOutput = await execInProcess('project list --json');
+      const machineOutput = await execInProcess('project list --machine');
 
       const jsonResult = extractJson<{ result: { projects: Array<{ id: string }> } }>(jsonOutput);
       const machineResult = extractJson<{ result: { projects: Array<{ id: string }> } }>(machineOutput);
@@ -136,8 +136,8 @@ describe('Project Commands JSON Mode', () => {
       expect(machineResult.result.projects.length).to.equal(jsonResult.result.projects.length);
     });
 
-    it('should include project metadata fields', () => {
-      const output = exec('project list --machine');
+    it('should include project metadata fields', async () => {
+      const output = await execInProcess('project list --machine');
       const json = extractJson<{
         result: { projects: Array<{ id: string; name: string; ticketCount: number; isArchived: boolean }> };
       }>(output);
@@ -148,13 +148,13 @@ describe('Project Commands JSON Mode', () => {
       expect(project!).to.have.property('isArchived');
     });
 
-    it('should filter archived projects with --archived flag', () => {
+    it('should filter archived projects with --archived flag', async () => {
       db.prepare(`
         INSERT INTO pmo_projects (id, name, description, workflow_id, is_archived)
         VALUES ('archived-proj', 'Archived Project', 'Archived', 'default', 1)
       `).run();
 
-      const output = exec('project list --archived --machine');
+      const output = await execInProcess('project list --archived --machine');
       const json = extractJson<{
         result: { projects: Array<{ id: string; isArchived: boolean }> };
       }>(output);
@@ -170,8 +170,8 @@ describe('Project Commands JSON Mode', () => {
   // project view --machine
   // ===========================================================================
   describe('project view --machine', () => {
-    it('should return board data when project ID is provided', () => {
-      const output = exec('project view test-project --machine');
+    it('should return board data when project ID is provided', async () => {
+      const output = await execInProcess('project view test-project --machine');
       const json = extractJson<{
         success: boolean;
         result: { id: string; name: string; columns: unknown[] };
@@ -183,14 +183,14 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.columns).to.be.an('array');
     });
 
-    it('should return project selection prompt when no ID provided', () => {
+    it('should return project selection prompt when no ID provided', async () => {
       // Create another project for selection
       db.prepare(`
         INSERT INTO pmo_projects (id, name, description, workflow_id)
         VALUES ('second-project', 'Second Project', 'Another project', 'default')
       `).run();
 
-      const output = exec('project view --machine');
+      const output = await execInProcess('project view --machine');
       const json = extractJson<{
         prompt: { type: string; choices: Array<{ name: string; command: string }> };
       }>(output);
@@ -204,8 +204,8 @@ describe('Project Commands JSON Mode', () => {
       }
     });
 
-    it('should include metadata with command name', () => {
-      const output = exec('project view test-project --machine');
+    it('should include metadata with command name', async () => {
+      const output = await execInProcess('project view test-project --machine');
       const json = extractJson<{
         metadata: { command: string; flags: { machine: boolean } };
       }>(output);
@@ -214,8 +214,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('project view test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('project view test-project -m');
       const json = extractJson<{
         success: boolean;
         result: { id: string };
@@ -230,8 +230,8 @@ describe('Project Commands JSON Mode', () => {
   // project create --machine
   // ===========================================================================
   describe('project create --machine', () => {
-    it('should output form prompt when no name provided', () => {
-      const output = exec('project create --machine');
+    it('should output form prompt when no name provided', async () => {
+      const output = await execInProcess('project create --machine');
       const json = extractJson<{
         prompt: { type: string; fields: Array<{ name: string; type: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -244,8 +244,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include template choices in form fields', () => {
-      const output = exec('project create --machine');
+    it('should include template choices in form fields', async () => {
+      const output = await execInProcess('project create --machine');
       const json = extractJson<{
         prompt: { fields: Array<{ name: string; choices?: Array<{ name: string; value: string }> }> };
       }>(output);
@@ -256,8 +256,8 @@ describe('Project Commands JSON Mode', () => {
       expect(templateField!.choices!.length).to.be.greaterThan(0);
     });
 
-    it('should create project when name is provided directly', () => {
-      const output = exec('project create --name "Machine Created" --machine');
+    it('should create project when name is provided directly', async () => {
+      const output = await execInProcess('project create --name "Machine Created" --machine');
       const json = extractJson<{
         success: boolean;
         result: { id: string; name: string; template: string };
@@ -274,8 +274,8 @@ describe('Project Commands JSON Mode', () => {
       expect(project).to.exist;
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('project create -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('project create -m');
       const json = extractJson<{
         prompt: { type: string };
         metadata: { flags: { machine: boolean } };
@@ -285,8 +285,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with positional arg name', () => {
-      const output = exec('project create "Positional Name" --machine');
+    it('should work with positional arg name', async () => {
+      const output = await execInProcess('project create "Positional Name" --machine');
       const json = extractJson<{
         success: boolean;
         result: { name: string };
@@ -308,8 +308,8 @@ describe('Project Commands JSON Mode', () => {
       `).run();
     });
 
-    it('should output project selection prompt when no ID provided', () => {
-      const output = exec('project delete --machine');
+    it('should output project selection prompt when no ID provided', async () => {
+      const output = await execInProcess('project delete --machine');
       const json = extractJson<{
         prompt: {
           type: string;
@@ -330,8 +330,8 @@ describe('Project Commands JSON Mode', () => {
       expect(deleteChoice!.command).to.include('--json');
     });
 
-    it('should output confirmation prompt when ID is provided', () => {
-      const output = exec('project delete delete-me --machine');
+    it('should output confirmation prompt when ID is provided', async () => {
+      const output = await execInProcess('project delete delete-me --machine');
       const json = extractJson<{
         prompt: {
           type: string;
@@ -352,8 +352,8 @@ describe('Project Commands JSON Mode', () => {
       expect(yesChoice!.command).to.include('--json');
     });
 
-    it('should delete project when --force provided', () => {
-      const output = exec('project delete delete-me --force --machine');
+    it('should delete project when --force provided', async () => {
+      const output = await execInProcess('project delete delete-me --force --machine');
       const json = extractJson<{
         success: boolean;
         result: { deleted: boolean; projectId: string; ticketsRemoved: number };
@@ -368,8 +368,8 @@ describe('Project Commands JSON Mode', () => {
       expect(project).to.be.undefined;
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('project delete delete-me -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('project delete delete-me -m');
       const json = extractJson<{
         prompt: { type: string };
         metadata: { flags: { machine: boolean } };
@@ -379,14 +379,14 @@ describe('Project Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should not include default project in selection', () => {
+    it('should not include default project in selection', async () => {
       // Add a default project
       db.prepare(`
         INSERT OR IGNORE INTO pmo_projects (id, name, description, workflow_id)
         VALUES ('default', 'Default Project', 'Cannot delete', 'default')
       `).run();
 
-      const output = exec('project delete --machine');
+      const output = await execInProcess('project delete --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ value: string }> };
       }>(output);
@@ -407,8 +407,8 @@ describe('Project Commands JSON Mode', () => {
       `).run();
     });
 
-    it('should output confirmation prompt', () => {
-      const output = exec('project archive archive-me --machine');
+    it('should output confirmation prompt', async () => {
+      const output = await execInProcess('project archive archive-me --machine');
       const json = extractJson<{
         prompt: {
           type: string;
@@ -430,8 +430,8 @@ describe('Project Commands JSON Mode', () => {
       expect(yesChoice!.command).to.include('--json');
     });
 
-    it('should archive with --force flag', () => {
-      const output = exec('project archive archive-me --force --machine');
+    it('should archive with --force flag', async () => {
+      const output = await execInProcess('project archive archive-me --force --machine');
       const json = extractJson<{
         success: boolean;
         result: { archived: boolean; projectId: string };
@@ -446,10 +446,10 @@ describe('Project Commands JSON Mode', () => {
       expect(project.is_archived).to.equal(1);
     });
 
-    it('should handle already archived project', () => {
+    it('should handle already archived project', async () => {
       db.prepare('UPDATE pmo_projects SET is_archived = 1 WHERE id = ?').run('archive-me');
 
-      const output = exec('project archive archive-me --machine');
+      const output = await execInProcess('project archive archive-me --machine');
       const json = extractJson<{
         success: boolean;
         result: { alreadyArchived: boolean };
@@ -459,8 +459,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.alreadyArchived).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('project archive archive-me -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('project archive archive-me -m');
       const json = extractJson<{
         prompt: { type: string };
         metadata: { flags: { machine: boolean } };
@@ -482,8 +482,8 @@ describe('Project Commands JSON Mode', () => {
       `).run();
     });
 
-    it('should unarchive and return success', () => {
-      const output = exec('project unarchive unarchive-me --machine');
+    it('should unarchive and return success', async () => {
+      const output = await execInProcess('project unarchive unarchive-me --machine');
       const json = extractJson<{
         success: boolean;
         result: { unarchived: boolean; projectId: string };
@@ -498,8 +498,8 @@ describe('Project Commands JSON Mode', () => {
       expect(project.is_archived).to.equal(0);
     });
 
-    it('should return error for non-existent project', () => {
-      const output = exec('project unarchive nonexistent --machine');
+    it('should return error for non-existent project', async () => {
+      const output = await execInProcess('project unarchive nonexistent --machine');
       const json = extractJson<{
         error: { code: string; message: string };
       }>(output);
@@ -508,10 +508,10 @@ describe('Project Commands JSON Mode', () => {
       expect(json.error.code).to.equal('PROJECT_NOT_FOUND');
     });
 
-    it('should handle already unarchived project', () => {
+    it('should handle already unarchived project', async () => {
       db.prepare('UPDATE pmo_projects SET is_archived = 0 WHERE id = ?').run('unarchive-me');
 
-      const output = exec('project unarchive unarchive-me --machine');
+      const output = await execInProcess('project unarchive unarchive-me --machine');
       const json = extractJson<{
         success: boolean;
         result: { alreadyUnarchived: boolean };
@@ -521,8 +521,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.alreadyUnarchived).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('project unarchive unarchive-me -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('project unarchive unarchive-me -m');
       const json = extractJson<{
         success: boolean;
         result: { unarchived: boolean };
@@ -544,14 +544,14 @@ describe('Project Commands JSON Mode', () => {
       `).run();
     });
 
-    it('should return project selection prompt when no project ID provided', () => {
+    it('should return project selection prompt when no project ID provided', async () => {
       // Need multiple projects for selection
       db.prepare(`
         INSERT INTO pmo_projects (id, name, description, workflow_id)
         VALUES ('spec-proj', 'Spec Project', 'For spec test', 'default')
       `).run();
 
-      const output = exec('project spec --machine');
+      const output = await execInProcess('project spec --machine');
       const json = extractJson<{
         prompt: {
           type: string;
@@ -570,8 +570,8 @@ describe('Project Commands JSON Mode', () => {
       }
     });
 
-    it('should return spec info with commands when project ID provided', () => {
-      const output = exec('project spec test-project --machine');
+    it('should return spec info with commands when project ID provided', async () => {
+      const output = await execInProcess('project spec test-project --machine');
       const json = extractJson<{
         success: boolean;
         result: {
@@ -590,8 +590,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.commands.removeSpec).to.include('--remove');
     });
 
-    it('should list available specs not yet linked', () => {
-      const output = exec('project spec test-project --machine');
+    it('should list available specs not yet linked', async () => {
+      const output = await execInProcess('project spec test-project --machine');
       const json = extractJson<{
         result: {
           currentSpecs: Array<{ id: string }>;
@@ -605,8 +605,8 @@ describe('Project Commands JSON Mode', () => {
       expect(available!.title).to.equal('Test Spec');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('project spec test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('project spec test-project -m');
       const json = extractJson<{
         success: boolean;
         result: { projectId: string };
@@ -620,8 +620,8 @@ describe('Project Commands JSON Mode', () => {
   // project (index menu) --machine
   // ===========================================================================
   describe('project index (menu) --machine', () => {
-    it('should return menu choices with command fields', () => {
-      const output = exec('project --machine');
+    it('should return menu choices with command fields', async () => {
+      const output = await execInProcess('project --machine');
       const json = extractJson<{
         prompt: {
           type: string;
@@ -657,8 +657,8 @@ describe('Project Commands JSON Mode', () => {
       expect(specChoice!.command).to.include('project spec');
     });
 
-    it('should work with --json flag (legacy)', () => {
-      const output = exec('project --json');
+    it('should work with --json flag (legacy)', async () => {
+      const output = await execInProcess('project --json');
       const json = extractJson<{
         prompt: { type: string; choices: unknown[] };
       }>(output);
@@ -667,8 +667,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.prompt.choices).to.be.an('array');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('project -m');
       const json = extractJson<{
         prompt: { type: string };
         metadata: { flags: { machine: boolean } };
@@ -714,8 +714,8 @@ describe('Project Commands JSON Mode', () => {
       metadata: Record<string, unknown>;
     }
 
-    function agentExec(cmd: string): AgentPrompt {
-      const output = exec(cmd);
+    async function agentExec(cmd: string): Promise<AgentPrompt> {
+      const output = await execInProcess(cmd);
       return extractJson<AgentPrompt>(output);
     }
 
@@ -737,9 +737,9 @@ describe('Project Commands JSON Mode', () => {
     // Menu → List (full flow from menu)
     // =========================================================================
     describe('menu → list flow', () => {
-      it('should navigate: menu → select "List" → get project data', () => {
+      it('should navigate: menu → select "List" → get project data', async () => {
         // Agent Step 1: Get menu
-        const step1 = agentExec('project --machine');
+        const step1 = await agentExec('project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const listChoice = findChoice(step1.prompt.choices!, 'list');
@@ -748,7 +748,7 @@ describe('Project Commands JSON Mode', () => {
 
         // Agent Step 2: Execute the list command with --json
         // (menu command uses --format json but --json is the working flag)
-        const output = exec('project list --json');
+        const output = await execInProcess('project list --json');
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
         expect(result.result.projects).to.be.an('array');
@@ -764,7 +764,7 @@ describe('Project Commands JSON Mode', () => {
     // Menu → View (full flow from menu)
     // =========================================================================
     describe('menu → view flow', () => {
-      it('should navigate: menu → select "View" → select project → get board data', () => {
+      it('should navigate: menu → select "View" → select project → get board data', async () => {
         // Create a second project so view gets a selection prompt
         db.prepare(`
           INSERT INTO pmo_projects (id, name, description, workflow_id)
@@ -772,14 +772,14 @@ describe('Project Commands JSON Mode', () => {
         `).run();
 
         // Agent Step 1: Get menu
-        const step1 = agentExec('project --machine');
+        const step1 = await agentExec('project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const viewChoice = findChoice(step1.prompt.choices!, 'view');
         expect(viewChoice).to.exist;
 
         // Agent Step 2: Execute view command → get project selection
-        const step2 = agentExec(execChoice(viewChoice!));
+        const step2 = await agentExec(execChoice(viewChoice!));
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.choices).to.be.an('array');
 
@@ -787,14 +787,14 @@ describe('Project Commands JSON Mode', () => {
         expect(projectChoice).to.exist;
 
         // Agent Step 3: Select project → get board data
-        const output = exec(execChoice(projectChoice!));
+        const output = await execInProcess(execChoice(projectChoice!));
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
         expect(result.result.id).to.equal('test-project');
         expect(result.result.columns).to.be.an('array');
       });
 
-      it('should return board with tickets when viewing project directly', () => {
+      it('should return board with tickets when viewing project directly', async () => {
         db.prepare(`
           INSERT INTO pmo_tickets (id, project_id, title, priority, status, status_id)
           VALUES ('TKT-001', 'test-project', 'Test Ticket', 'high', 'Backlog', 'default-backlog')
@@ -804,7 +804,7 @@ describe('Project Commands JSON Mode', () => {
           VALUES ('TKT-002', 'test-project', 'In Progress Ticket', 'medium', 'In Progress', 'default-in-progress')
         `).run();
 
-        const output = exec('project view test-project --machine');
+        const output = await execInProcess('project view test-project --machine');
         const json = extractJson<{
           success: boolean;
           result: {
@@ -835,14 +835,14 @@ describe('Project Commands JSON Mode', () => {
     // Menu → Create (full flow from menu)
     // =========================================================================
     describe('menu → create flow', () => {
-      it('should navigate: menu → select "Create" → get form → provide flags → project created', () => {
+      it('should navigate: menu → select "Create" → get form → provide flags → project created', async () => {
         // Agent Step 1: Get menu
-        const step1 = agentExec('project --machine');
+        const step1 = await agentExec('project --machine');
         const createChoice = findChoice(step1.prompt.choices!, 'create');
         expect(createChoice).to.exist;
 
         // Agent Step 2: Execute create command → get form prompt
-        const step2 = agentExec(execChoice(createChoice!));
+        const step2 = await agentExec(execChoice(createChoice!));
         expect(step2.prompt).to.exist;
         expect(step2.prompt.fields).to.be.an('array');
 
@@ -853,7 +853,7 @@ describe('Project Commands JSON Mode', () => {
         expect(templateField).to.exist;
 
         // Agent Step 3: Agent fills in form by providing flags directly
-        const output = exec('project create --name "Menu Created Project" --machine');
+        const output = await execInProcess('project create --name "Menu Created Project" --machine');
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
         expect(result.result.name).to.equal('Menu Created Project');
@@ -865,8 +865,8 @@ describe('Project Commands JSON Mode', () => {
         expect(project).to.exist;
       });
 
-      it('should complete flow with all flags provided directly', () => {
-        const output = exec(
+      it('should complete flow with all flags provided directly', async () => {
+        const output = await execInProcess(
           'project create --name "Direct Project" --description "Made by agent" --template kanban --machine'
         );
         const result = extractJson<SuccessResult>(output);
@@ -887,16 +887,16 @@ describe('Project Commands JSON Mode', () => {
         `).run();
       });
 
-      it('should navigate: menu → select "Delete" → select project → confirm → deleted', () => {
+      it('should navigate: menu → select "Delete" → select project → confirm → deleted', async () => {
         // Agent Step 1: Get menu
-        const step1 = agentExec('project --machine');
+        const step1 = await agentExec('project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const deleteMenuChoice = findChoice(step1.prompt.choices!, 'delete');
         expect(deleteMenuChoice).to.exist;
 
         // Agent Step 2: Execute delete command → get project selection
-        const step2 = agentExec(execChoice(deleteMenuChoice!));
+        const step2 = await agentExec(execChoice(deleteMenuChoice!));
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.name).to.equal('selectedProjectId');
 
@@ -905,7 +905,7 @@ describe('Project Commands JSON Mode', () => {
         expect(projectChoice).to.exist;
 
         // Agent Step 3: Select project → get confirmation
-        const step3 = agentExec(execChoice(projectChoice!));
+        const step3 = await agentExec(execChoice(projectChoice!));
         expect(step3.prompt.type).to.equal('list');
         expect(step3.prompt.name).to.equal('confirm');
         expect(step3.prompt.message).to.include('Flow Delete');
@@ -916,7 +916,7 @@ describe('Project Commands JSON Mode', () => {
         expect(yesChoice!.command).to.include('--force');
 
         // Agent Step 4: Confirm deletion
-        const output = exec(execChoice(yesChoice!));
+        const output = await execInProcess(execChoice(yesChoice!));
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
         expect(result.result.deleted).to.equal(true);
@@ -926,8 +926,8 @@ describe('Project Commands JSON Mode', () => {
         expect(project).to.be.undefined;
       });
 
-      it('should complete flow with --force flag (skip confirmation)', () => {
-        const output = exec('project delete flow-delete --force --machine');
+      it('should complete flow with --force flag (skip confirmation)', async () => {
+        const output = await execInProcess('project delete flow-delete --force --machine');
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
         expect(result.result.deleted).to.equal(true);
@@ -953,16 +953,16 @@ describe('Project Commands JSON Mode', () => {
         `).run();
       });
 
-      it('should navigate: menu → select "Spec" → select project → get spec info with commands', () => {
+      it('should navigate: menu → select "Spec" → select project → get spec info with commands', async () => {
         // Agent Step 1: Get menu
-        const step1 = agentExec('project --machine');
+        const step1 = await agentExec('project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const specMenuChoice = findChoice(step1.prompt.choices!, 'spec');
         expect(specMenuChoice).to.exist;
 
         // Agent Step 2: Execute spec command → get project selection
-        const step2 = agentExec(execChoice(specMenuChoice!));
+        const step2 = await agentExec(execChoice(specMenuChoice!));
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.name).to.equal('selected');
 
@@ -970,7 +970,7 @@ describe('Project Commands JSON Mode', () => {
         expect(projectChoice).to.exist;
 
         // Agent Step 3: Select project → get spec info with add/remove commands
-        const output = exec(execChoice(projectChoice!));
+        const output = await execInProcess(execChoice(projectChoice!));
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
         expect(result.result.projectId).to.equal('test-project');
@@ -999,9 +999,9 @@ describe('Project Commands JSON Mode', () => {
         `).run();
       });
 
-      it('should complete flow: get confirmation → confirm → archived in DB', () => {
+      it('should complete flow: get confirmation → confirm → archived in DB', async () => {
         // Agent Step 1: Get confirmation prompt
-        const step1 = agentExec('project archive flow-archive --machine');
+        const step1 = await agentExec('project archive flow-archive --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('confirm');
         expect(step1.prompt.message).to.include('Archive');
@@ -1010,7 +1010,7 @@ describe('Project Commands JSON Mode', () => {
         expect(yesChoice).to.exist;
 
         // Agent Step 2: Confirm
-        const output = exec(execChoice(yesChoice!));
+        const output = await execInProcess(execChoice(yesChoice!));
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
         expect(result.result.archived).to.equal(true);
@@ -1034,8 +1034,8 @@ describe('Project Commands JSON Mode', () => {
         `).run();
       });
 
-      it('should complete flow: unarchive → verify restored in DB', () => {
-        const output = exec('project unarchive flow-unarchive --machine');
+      it('should complete flow: unarchive → verify restored in DB', async () => {
+        const output = await execInProcess('project unarchive flow-unarchive --machine');
         const result = extractJson<SuccessResult>(output);
         expect(result.success).to.equal(true);
         expect(result.result.unarchived).to.equal(true);
@@ -1053,8 +1053,8 @@ describe('Project Commands JSON Mode', () => {
   // Backward compatibility: --json flag flows
   // ===========================================================================
   describe('backward compatibility: --json flag flows', () => {
-    it('should complete list with --json flag (legacy)', () => {
-      const output = exec('project list --json');
+    it('should complete list with --json flag (legacy)', async () => {
+      const output = await execInProcess('project list --json');
       const json = extractJson<{
         success: boolean;
         result: { projects: unknown[] };
@@ -1064,8 +1064,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.projects).to.be.an('array');
     });
 
-    it('should complete create with --json flag (legacy)', () => {
-      const output = exec('project create --name "Legacy JSON Project" --json');
+    it('should complete create with --json flag (legacy)', async () => {
+      const output = await execInProcess('project create --name "Legacy JSON Project" --json');
       const json = extractJson<{
         success: boolean;
         result: { name: string };
@@ -1075,13 +1075,13 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.name).to.equal('Legacy JSON Project');
     });
 
-    it('should complete delete with --json flag (legacy)', () => {
+    it('should complete delete with --json flag (legacy)', async () => {
       db.prepare(`
         INSERT INTO pmo_projects (id, name, description, workflow_id)
         VALUES ('json-delete', 'JSON Delete Project', 'For compat test', 'default')
       `).run();
 
-      const output = exec('project delete json-delete --force --json');
+      const output = await execInProcess('project delete json-delete --force --json');
       const json = extractJson<{
         success: boolean;
         result: { deleted: boolean };
@@ -1091,13 +1091,13 @@ describe('Project Commands JSON Mode', () => {
       expect(json.result.deleted).to.equal(true);
     });
 
-    it('should complete archive with --json flag (legacy)', () => {
+    it('should complete archive with --json flag (legacy)', async () => {
       db.prepare(`
         INSERT INTO pmo_projects (id, name, description, workflow_id)
         VALUES ('json-archive', 'JSON Archive Project', 'For compat test', 'default')
       `).run();
 
-      const output = exec('project archive json-archive --force --json');
+      const output = await execInProcess('project archive json-archive --force --json');
       const json = extractJson<{
         success: boolean;
         result: { archived: boolean };
@@ -1112,8 +1112,8 @@ describe('Project Commands JSON Mode', () => {
   // Error handling
   // ===========================================================================
   describe('error handling', () => {
-    it('should return PROJECT_NOT_FOUND for view with invalid ID', () => {
-      const output = exec('project view nonexistent --machine');
+    it('should return PROJECT_NOT_FOUND for view with invalid ID', async () => {
+      const output = await execInProcess('project view nonexistent --machine');
       const json = extractJson<{
         error: { code: string; message: string };
       }>(output);
@@ -1122,8 +1122,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.error.code).to.equal('PROJECT_NOT_FOUND');
     });
 
-    it('should return PROJECT_NOT_FOUND for archive with invalid ID', () => {
-      const output = exec('project archive nonexistent --machine');
+    it('should return PROJECT_NOT_FOUND for archive with invalid ID', async () => {
+      const output = await execInProcess('project archive nonexistent --machine');
       const json = extractJson<{
         error: { code: string; message: string };
       }>(output);
@@ -1132,8 +1132,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.error.code).to.equal('PROJECT_NOT_FOUND');
     });
 
-    it('should return PROJECT_NOT_FOUND for unarchive with invalid ID', () => {
-      const output = exec('project unarchive nonexistent --machine');
+    it('should return PROJECT_NOT_FOUND for unarchive with invalid ID', async () => {
+      const output = await execInProcess('project unarchive nonexistent --machine');
       const json = extractJson<{
         error: { code: string; message: string };
       }>(output);
@@ -1142,8 +1142,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.error.code).to.equal('PROJECT_NOT_FOUND');
     });
 
-    it('should return PROJECT_NOT_FOUND for delete with invalid ID', () => {
-      const output = exec('project delete nonexistent --force --machine');
+    it('should return PROJECT_NOT_FOUND for delete with invalid ID', async () => {
+      const output = await execInProcess('project delete nonexistent --force --machine');
       const json = extractJson<{
         error: { code: string; message: string };
       }>(output);
@@ -1152,13 +1152,13 @@ describe('Project Commands JSON Mode', () => {
       expect(json.error.code).to.equal('PROJECT_NOT_FOUND');
     });
 
-    it('should return CANNOT_DELETE_DEFAULT when deleting default project', () => {
+    it('should return CANNOT_DELETE_DEFAULT when deleting default project', async () => {
       db.prepare(`
         INSERT OR IGNORE INTO pmo_projects (id, name, description, workflow_id)
         VALUES ('default', 'Default Project', 'Cannot delete', 'default')
       `).run();
 
-      const output = exec('project delete default --force --machine');
+      const output = await execInProcess('project delete default --force --machine');
       const json = extractJson<{
         error: { code: string };
       }>(output);
@@ -1167,8 +1167,8 @@ describe('Project Commands JSON Mode', () => {
       expect(json.error.code).to.equal('CANNOT_DELETE_DEFAULT');
     });
 
-    it('should return PROJECT_NOT_FOUND for spec with invalid project ID', () => {
-      const output = exec('project spec nonexistent --machine');
+    it('should return PROJECT_NOT_FOUND for spec with invalid project ID', async () => {
+      const output = await execInProcess('project spec nonexistent --machine');
       const json = extractJson<{
         error: { code: string };
       }>(output);

@@ -2,8 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync } from 'node:child_process';
-import { filterOutput, getIsolatedEnv, getBinPath, extractJson, execAsHuman, execAsAgent } from './test-helpers.js';
+import { extractJson, execInProcessAsHuman, execInProcessAsAgent } from './test-helpers.js';
 
 /**
  * Response type for JSON prompt output from workspace commands with --json flag.
@@ -63,7 +62,7 @@ describe('Workspace Commands E2E - Agent Flow', () => {
    * Sets HOME to testDir for machine config isolation and PRLT_HQ_PATH
    * to bypass the init hook.
    */
-  function getWorkspaceEnv(): NodeJS.ProcessEnv {
+  function getWorkspaceEnv(): Record<string, string | undefined> {
     return {
       HOME: testDir,
       PRLT_HQ_PATH: testWorkspace1,
@@ -77,8 +76,8 @@ describe('Workspace Commands E2E - Agent Flow', () => {
    *
    * Output mode: HUMAN-READABLE TEXT
    */
-  function execHuman(cmd: string): string {
-    return execAsHuman(cmd, getWorkspaceEnv());
+  async function execHuman(cmd: string): Promise<string> {
+    return await execInProcessAsHuman(cmd, getWorkspaceEnv());
   }
 
   /**
@@ -87,8 +86,8 @@ describe('Workspace Commands E2E - Agent Flow', () => {
    *
    * Output mode: JSON (explicit --json flag)
    */
-  function execJson(cmd: string): string {
-    return execAsAgent(cmd, getWorkspaceEnv());
+  async function execJson(cmd: string): Promise<string> {
+    return await execInProcessAsAgent(cmd, getWorkspaceEnv());
   }
 
   /**
@@ -97,8 +96,8 @@ describe('Workspace Commands E2E - Agent Flow', () => {
    *
    * Output mode: JSON (explicit --json flag)
    */
-  function execWorkspaceJson<T>(cmd: string): T | null {
-    const output = execJson(cmd);
+  async function execWorkspaceJson<T>(cmd: string): Promise<T | null> {
+    const output = await execJson(cmd);
     return extractJson<T>(output);
   }
 
@@ -156,8 +155,8 @@ describe('Workspace Commands E2E - Agent Flow', () => {
 
   // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
   describe('workspace add', () => {
-    it('should register a workspace and verify config updated', () => {
-      const output = execHuman(`workspace add ${testWorkspace1}`);
+    it('should register a workspace and verify config updated', async () => {
+      const output = await execHuman(`workspace add ${testWorkspace1}`);
 
       expect(output).to.include('Registered workspace');
       expect(output).to.include('workspace-alpha');
@@ -171,8 +170,8 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       expect(hqs[0].name).to.equal('workspace-alpha');
     });
 
-    it('should register with custom name via --name flag', () => {
-      const output = execHuman(`workspace add ${testWorkspace1} --name "Custom HQ Name"`);
+    it('should register with custom name via --name flag', async () => {
+      const output = await execHuman(`workspace add ${testWorkspace1} --name "Custom HQ Name"`);
 
       expect(output).to.include('Registered workspace');
       expect(output).to.include('Custom HQ Name');
@@ -182,41 +181,41 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       expect(hqs[0].name).to.equal('Custom HQ Name');
     });
 
-    it('should set first workspace as active automatically', () => {
-      execHuman(`workspace add ${testWorkspace1}`);
+    it('should set first workspace as active automatically', async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
 
       const config = readMachineConfig();
       const active = config.activeHeadquarters || config.activeWorkspace;
       expect(active).to.equal(testWorkspace1);
     });
 
-    it('should register multiple workspaces', () => {
-      execHuman(`workspace add ${testWorkspace1}`);
-      execHuman(`workspace add ${testWorkspace2}`);
+    it('should register multiple workspaces', async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
+      await execHuman(`workspace add ${testWorkspace2}`);
 
       const config = readMachineConfig();
       const hqs = (config.headquarters || config.workspaces) as Array<{ path: string }>;
       expect(hqs).to.have.length(2);
     });
 
-    it('should reject non-workspace directory', () => {
+    it('should reject non-workspace directory', async () => {
       const nonWorkspace = path.join(testDir, 'not-a-workspace');
       fs.mkdirSync(nonWorkspace, { recursive: true });
 
-      const output = execHuman(`workspace add ${nonWorkspace}`);
+      const output = await execHuman(`workspace add ${nonWorkspace}`);
 
       expect(output).to.include('Not a valid workspace');
     });
 
-    it('should reject non-existent path', () => {
-      const output = execHuman(`workspace add ${path.join(testDir, 'nonexistent')}`);
+    it('should reject non-existent path', async () => {
+      const output = await execHuman(`workspace add ${path.join(testDir, 'nonexistent')}`);
 
       expect(output).to.include('does not exist');
     });
 
-    it('should detect already registered workspace', () => {
-      execHuman(`workspace add ${testWorkspace1}`);
-      const output = execHuman(`workspace add ${testWorkspace1}`);
+    it('should detect already registered workspace', async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
+      const output = await execHuman(`workspace add ${testWorkspace1}`);
 
       expect(output).to.include('already registered');
     });
@@ -228,37 +227,37 @@ describe('Workspace Commands E2E - Agent Flow', () => {
 
   describe('workspace list', () => {
     // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
-    it('should show no workspaces when none registered', () => {
-      const output = execHuman('workspace list');
+    it('should show no workspaces when none registered', async () => {
+      const output = await execHuman('workspace list');
       expect(output).to.include('No workspaces found');
     });
 
     // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
-    it('should list registered workspaces', () => {
-      execHuman(`workspace add ${testWorkspace1}`);
-      execHuman(`workspace add ${testWorkspace2}`);
+    it('should list registered workspaces', async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
+      await execHuman(`workspace add ${testWorkspace2}`);
 
-      const output = execHuman('workspace list');
+      const output = await execHuman('workspace list');
 
       expect(output).to.include('workspace-alpha');
       expect(output).to.include('workspace-beta');
     });
 
     // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
-    it('should show active workspace marker', () => {
-      execHuman(`workspace add ${testWorkspace1}`);
+    it('should show active workspace marker', async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
 
-      const output = execHuman('workspace list');
+      const output = await execHuman('workspace list');
 
       expect(output).to.include('(active)');
     });
 
     // Output mode: JSON (explicit --json flag via execJson)
-    it('should output valid JSON with --json flag', () => {
-      execHuman(`workspace add ${testWorkspace1}`);
-      execHuman(`workspace add ${testWorkspace2}`);
+    it('should output valid JSON with --json flag', async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
+      await execHuman(`workspace add ${testWorkspace2}`);
 
-      const output = execJson('workspace list');
+      const output = await execJson('workspace list');
       const json = JSON.parse(output);
 
       expect(json.workspaces).to.be.an('array');
@@ -269,10 +268,10 @@ describe('Workspace Commands E2E - Agent Flow', () => {
     });
 
     // Output mode: JSON (explicit --json flag via execJson)
-    it('should indicate active workspace in JSON output', () => {
-      execHuman(`workspace add ${testWorkspace1}`);
+    it('should indicate active workspace in JSON output', async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
 
-      const output = execJson('workspace list');
+      const output = await execJson('workspace list');
       const json = JSON.parse(output);
 
       expect(json.activeWorkspace).to.equal(testWorkspace1);
@@ -282,11 +281,11 @@ describe('Workspace Commands E2E - Agent Flow', () => {
     });
 
     // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
-    it('should warn about stale registrations', () => {
-      execHuman(`workspace add ${testWorkspace1}`);
+    it('should warn about stale registrations', async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
       fs.rmSync(testWorkspace1, { recursive: true, force: true });
 
-      const output = execHuman('workspace list');
+      const output = await execHuman('workspace list');
       expect(output).to.include('Path no longer exists');
     });
   });
@@ -297,13 +296,13 @@ describe('Workspace Commands E2E - Agent Flow', () => {
 
   // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
   describe('workspace use', () => {
-    beforeEach(() => {
-      execHuman(`workspace add ${testWorkspace1}`);
-      execHuman(`workspace add ${testWorkspace2}`);
+    beforeEach(async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
+      await execHuman(`workspace add ${testWorkspace2}`);
     });
 
-    it('should switch active workspace by name', () => {
-      const output = execHuman('workspace use workspace-beta');
+    it('should switch active workspace by name', async () => {
+      const output = await execHuman('workspace use workspace-beta');
 
       expect(output).to.include('Active workspace set to');
       expect(output).to.include('workspace-beta');
@@ -313,34 +312,34 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       expect(active).to.equal(testWorkspace2);
     });
 
-    it('should switch active workspace by path', () => {
-      const output = execHuman(`workspace use ${testWorkspace2}`);
+    it('should switch active workspace by path', async () => {
+      const output = await execHuman(`workspace use ${testWorkspace2}`);
 
       expect(output).to.include('Active workspace set to');
       expect(output).to.include('workspace-beta');
     });
 
     // Output mode: JSON (explicit --json flag via execJson) — verifies end state
-    it('should verify end state: config reflects new active workspace', () => {
-      execHuman('workspace use workspace-beta');
+    it('should verify end state: config reflects new active workspace', async () => {
+      await execHuman('workspace use workspace-beta');
 
       // Verify via list --json
-      const listOutput = execJson('workspace list');
+      const listOutput = await execJson('workspace list');
       const json = JSON.parse(listOutput);
 
       expect(json.activeWorkspace).to.equal(testWorkspace2);
     });
 
-    it('should reject non-existent workspace name', () => {
-      const output = execHuman('workspace use nonexistent');
+    it('should reject non-existent workspace name', async () => {
+      const output = await execHuman('workspace use nonexistent');
 
       expect(output).to.include('Workspace not found');
     });
 
-    it('should reject workspace with deleted path', () => {
+    it('should reject workspace with deleted path', async () => {
       fs.rmSync(testWorkspace2, { recursive: true, force: true });
 
-      const output = execHuman('workspace use workspace-beta');
+      const output = await execHuman('workspace use workspace-beta');
 
       expect(output).to.include('no longer exists');
     });
@@ -352,13 +351,13 @@ describe('Workspace Commands E2E - Agent Flow', () => {
 
   // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
   describe('workspace remove', () => {
-    beforeEach(() => {
-      execHuman(`workspace add ${testWorkspace1}`);
-      execHuman(`workspace add ${testWorkspace2}`);
+    beforeEach(async () => {
+      await execHuman(`workspace add ${testWorkspace1}`);
+      await execHuman(`workspace add ${testWorkspace2}`);
     });
 
-    it('should unregister workspace by name and preserve files', () => {
-      const output = execHuman('workspace remove workspace-alpha');
+    it('should unregister workspace by name and preserve files', async () => {
+      const output = await execHuman('workspace remove workspace-alpha');
 
       expect(output).to.include('Unregistered workspace');
       expect(output).to.include('NOT deleted');
@@ -373,15 +372,15 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       expect(hqs[0].name).to.equal('workspace-beta');
     });
 
-    it('should unregister workspace by path', () => {
-      const output = execHuman(`workspace remove ${testWorkspace1}`);
+    it('should unregister workspace by path', async () => {
+      const output = await execHuman(`workspace remove ${testWorkspace1}`);
 
       expect(output).to.include('Unregistered workspace');
     });
 
-    it('should clear active workspace when removing active one', () => {
+    it('should clear active workspace when removing active one', async () => {
       // workspace-alpha is active (first registered)
-      execHuman('workspace remove workspace-alpha');
+      await execHuman('workspace remove workspace-alpha');
 
       const config = readMachineConfig();
       // activeHeadquarters should be null after removing the active workspace
@@ -389,10 +388,10 @@ describe('Workspace Commands E2E - Agent Flow', () => {
     });
 
     // Output mode: JSON (explicit --json flag via execJson) — verifies end state
-    it('should verify end state: removed workspace absent from list', () => {
-      execHuman('workspace remove workspace-alpha');
+    it('should verify end state: removed workspace absent from list', async () => {
+      await execHuman('workspace remove workspace-alpha');
 
-      const listOutput = execJson('workspace list');
+      const listOutput = await execJson('workspace list');
       const json = JSON.parse(listOutput);
 
       const names = json.workspaces.map((w: { name: string }) => w.name);
@@ -400,8 +399,8 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       expect(names).to.include('workspace-beta');
     });
 
-    it('should reject non-existent workspace', () => {
-      const output = execHuman('workspace remove nonexistent');
+    it('should reject non-existent workspace', async () => {
+      const output = await execHuman('workspace remove nonexistent');
 
       expect(output).to.include('Workspace not found');
     });
@@ -416,7 +415,7 @@ describe('Workspace Commands E2E - Agent Flow', () => {
     let sameNameWorkspace1: string;
     let sameNameWorkspace2: string;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       // Create two workspaces with the SAME name but different paths
       sameNameWorkspace1 = path.join(testDir, 'project-a');
       sameNameWorkspace2 = path.join(testDir, 'project-b');
@@ -425,12 +424,12 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       createTestWorkspace(sameNameWorkspace2);
 
       // Register both with the same name
-      execHuman(`workspace add ${sameNameWorkspace1} --name "shared-name"`);
-      execHuman(`workspace add ${sameNameWorkspace2} --name "shared-name"`);
+      await execHuman(`workspace add ${sameNameWorkspace1} --name "shared-name"`);
+      await execHuman(`workspace add ${sameNameWorkspace2} --name "shared-name"`);
     });
 
-    it('should output prompt schema with choices when name is ambiguous', () => {
-      const json = execWorkspaceJson<PromptJsonResponse>('workspace remove shared-name');
+    it('should output prompt schema with choices when name is ambiguous', async () => {
+      const json = await execWorkspaceJson<PromptJsonResponse>('workspace remove shared-name');
 
       expect(json).to.not.be.null;
       expect(json!.prompt).to.not.be.null;
@@ -440,8 +439,8 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       expect(json!.prompt.message).to.include('shared-name');
     });
 
-    it('should include choices with command field for agent navigation', () => {
-      const json = execWorkspaceJson<PromptJsonResponse>('workspace remove shared-name');
+    it('should include choices with command field for agent navigation', async () => {
+      const json = await execWorkspaceJson<PromptJsonResponse>('workspace remove shared-name');
 
       expect(json).to.not.be.null;
       const choices = json!.prompt.choices!;
@@ -458,16 +457,16 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       }
     });
 
-    it('should include metadata with command name', () => {
-      const json = execWorkspaceJson<PromptJsonResponse>('workspace remove shared-name');
+    it('should include metadata with command name', async () => {
+      const json = await execWorkspaceJson<PromptJsonResponse>('workspace remove shared-name');
 
       expect(json).to.not.be.null;
       expect(json!.metadata.command).to.equal('workspace remove');
     });
 
     // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
-    it('should resolve when using full path (no disambiguation needed)', () => {
-      const output = execHuman(`workspace remove ${sameNameWorkspace1}`);
+    it('should resolve when using full path (no disambiguation needed)', async () => {
+      const output = await execHuman(`workspace remove ${sameNameWorkspace1}`);
 
       expect(output).to.include('Unregistered workspace');
 
@@ -488,7 +487,7 @@ describe('Workspace Commands E2E - Agent Flow', () => {
     let sameNameWorkspace1: string;
     let sameNameWorkspace2: string;
 
-    beforeEach(() => {
+    beforeEach(async () => {
       // Create two workspaces with the SAME name but different paths
       sameNameWorkspace1 = path.join(testDir, 'hq-one');
       sameNameWorkspace2 = path.join(testDir, 'hq-two');
@@ -497,12 +496,12 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       createTestWorkspace(sameNameWorkspace2);
 
       // Register both with the same name
-      execHuman(`workspace add ${sameNameWorkspace1} --name "duplicate-name"`);
-      execHuman(`workspace add ${sameNameWorkspace2} --name "duplicate-name"`);
+      await execHuman(`workspace add ${sameNameWorkspace1} --name "duplicate-name"`);
+      await execHuman(`workspace add ${sameNameWorkspace2} --name "duplicate-name"`);
     });
 
-    it('should output prompt schema with choices when name is ambiguous', () => {
-      const json = execWorkspaceJson<PromptJsonResponse>('workspace use duplicate-name');
+    it('should output prompt schema with choices when name is ambiguous', async () => {
+      const json = await execWorkspaceJson<PromptJsonResponse>('workspace use duplicate-name');
 
       expect(json).to.not.be.null;
       expect(json!.prompt).to.not.be.null;
@@ -512,8 +511,8 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       expect(json!.prompt.message).to.include('duplicate-name');
     });
 
-    it('should include choices with command field for agent navigation', () => {
-      const json = execWorkspaceJson<PromptJsonResponse>('workspace use duplicate-name');
+    it('should include choices with command field for agent navigation', async () => {
+      const json = await execWorkspaceJson<PromptJsonResponse>('workspace use duplicate-name');
 
       expect(json).to.not.be.null;
       const choices = json!.prompt.choices!;
@@ -530,16 +529,16 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       }
     });
 
-    it('should include metadata with command name', () => {
-      const json = execWorkspaceJson<PromptJsonResponse>('workspace use duplicate-name');
+    it('should include metadata with command name', async () => {
+      const json = await execWorkspaceJson<PromptJsonResponse>('workspace use duplicate-name');
 
       expect(json).to.not.be.null;
       expect(json!.metadata.command).to.equal('workspace use');
     });
 
     // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
-    it('should resolve when using full path (no disambiguation needed)', () => {
-      const output = execHuman(`workspace use ${sameNameWorkspace2}`);
+    it('should resolve when using full path (no disambiguation needed)', async () => {
+      const output = await execHuman(`workspace use ${sameNameWorkspace2}`);
 
       expect(output).to.include('Active workspace set to');
 
@@ -551,9 +550,9 @@ describe('Workspace Commands E2E - Agent Flow', () => {
 
     // Output mode: JSON for initial prompt (via execWorkspaceJson),
     // then HUMAN-READABLE TEXT for follow-up action (via execHuman)
-    it('agent can follow command from choice to complete the action', () => {
+    it('agent can follow command from choice to complete the action', async () => {
       // Step 1: Agent gets disambiguation prompt (JSON mode)
-      const json = execWorkspaceJson<PromptJsonResponse>('workspace use duplicate-name');
+      const json = await execWorkspaceJson<PromptJsonResponse>('workspace use duplicate-name');
       expect(json).to.not.be.null;
 
       // Step 2: Agent picks the second choice and extracts the command
@@ -566,7 +565,7 @@ describe('Workspace Commands E2E - Agent Flow', () => {
       const followUpCmd = secondChoice.command!
         .replace('prlt ', '')
         .replace(' --json', '');
-      const result = execHuman(followUpCmd);
+      const result = await execHuman(followUpCmd);
 
       expect(result).to.include('Active workspace set to');
 
@@ -584,35 +583,35 @@ describe('Workspace Commands E2E - Agent Flow', () => {
   // Output mode: Mixed — HUMAN-READABLE TEXT for actions (via execHuman),
   // JSON for verification steps (via execJson with explicit --json flag)
   describe('full workflow: add → use → list → remove', () => {
-    it('should complete full lifecycle', () => {
+    it('should complete full lifecycle', async () => {
       // Step 1: Add two workspaces (text mode)
-      const addOutput1 = execHuman(`workspace add ${testWorkspace1}`);
+      const addOutput1 = await execHuman(`workspace add ${testWorkspace1}`);
       expect(addOutput1).to.include('Registered workspace');
 
-      const addOutput2 = execHuman(`workspace add ${testWorkspace2}`);
+      const addOutput2 = await execHuman(`workspace add ${testWorkspace2}`);
       expect(addOutput2).to.include('Registered workspace');
 
       // Step 2: List and verify both present (JSON mode, explicit --json)
-      const listJson = execJson('workspace list');
+      const listJson = await execJson('workspace list');
       const list = JSON.parse(listJson);
       expect(list.workspaces).to.have.length(2);
 
       // Step 3: Switch to second workspace (text mode)
-      const useOutput = execHuman('workspace use workspace-beta');
+      const useOutput = await execHuman('workspace use workspace-beta');
       expect(useOutput).to.include('Active workspace set to');
       expect(useOutput).to.include('workspace-beta');
 
       // Step 4: Verify active workspace changed (JSON mode, explicit --json)
-      const listJson2 = execJson('workspace list');
+      const listJson2 = await execJson('workspace list');
       const list2 = JSON.parse(listJson2);
       expect(list2.activeWorkspace).to.equal(testWorkspace2);
 
       // Step 5: Remove first workspace (text mode)
-      const removeOutput = execHuman('workspace remove workspace-alpha');
+      const removeOutput = await execHuman('workspace remove workspace-alpha');
       expect(removeOutput).to.include('Unregistered workspace');
 
       // Step 6: Verify only one workspace remains (JSON mode, explicit --json)
-      const listJson3 = execJson('workspace list');
+      const listJson3 = await execJson('workspace list');
       const list3 = JSON.parse(listJson3);
       expect(list3.workspaces).to.have.length(1);
       expect(list3.workspaces[0].name).to.equal('workspace-beta');

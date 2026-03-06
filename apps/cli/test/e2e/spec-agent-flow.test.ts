@@ -8,26 +8,16 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  filterOutput,
+  execInProcess,
   type TestEnvironment,
 } from './test-helpers.js';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-interface ExecError extends Error {
-  stdout?: string;
-  stderr?: string;
-}
 
 interface AgentPromptChoice {
   name: string;
@@ -51,64 +41,17 @@ interface AgentPromptResponse {
 
 /**
  * Execute CLI command in the test environment and parse JSON response.
- * This runs from the test directory, not the CLI directory.
  */
-function getCleanEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  // Clear isolation variables to prevent polluting production database
-  delete env.PRLT_HQ_PATH;
-  delete env.PRLT_PMO_PATH;
-  delete env.PRLT_DATABASE_PATH;
-  delete env.PRLT_CONFIG_PATH;
-  delete env.DEVCONTAINER;
-  delete env.PRLT_TEST_ENV;
-  // Clear debug variables that cause oclif noise
-  delete env.DEBUG;
-  delete env.OCLIF_DEBUG;
-  // Use production mode to run compiled JavaScript (test mode tries to load .ts files)
-  env.NODE_ENV = 'production';
-  return env;
-}
-
-function execMachine(cmd: string, testDir: string): AgentPromptResponse | null {
-  try {
-    const binPath = path.join(__dirname, '../../bin/run.js');
-
-    const result = execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      cwd: testDir,
-      env: getCleanEnv(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    return extractJson(result);
-  } catch (error) {
-    const execError = error as ExecError;
-    const output = execError.stdout || execError.stderr || '';
-    return extractJson(output);
-  }
+async function execMachine(cmd: string): Promise<AgentPromptResponse | null> {
+  const output = await execInProcess(cmd);
+  return extractJson(output);
 }
 
 /**
  * Execute CLI command in test environment without JSON parsing.
  */
-function execCmd(cmd: string, testDir: string): string {
-  try {
-    const binPath = path.join(__dirname, '../../bin/run.js');
-
-    const result = execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      cwd: testDir,
-      env: getCleanEnv(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-
-    return filterOutput(result);
-  } catch (error) {
-    const execError = error as ExecError;
-    const output = execError.stdout || execError.stderr || '';
-    return filterOutput(output);
-  }
+async function execCmd(cmd: string): Promise<string> {
+  return await execInProcess(cmd);
 }
 
 function extractJson(output: string): AgentPromptResponse | null {
@@ -150,12 +93,12 @@ function execChoice(choice: AgentPromptChoice): string {
   return choice.command.replace('prlt ', '');
 }
 
-function execFinal(cmd: string, testDir: string): string {
+async function execFinal(cmd: string): Promise<string> {
   const cleanCmd = cmd
     .replace(' --json', '')
     .replace(' --machine', '')
     .replace(' -m', '');
-  return execCmd(cleanCmd, testDir);
+  return await execInProcess(cleanCmd);
 }
 
 describe('Spec Commands Agent Flow', () => {
@@ -212,8 +155,8 @@ describe('Spec Commands Agent Flow', () => {
   });
 
   describe('spec --machine (menu)', () => {
-    it('should output menu choices with command field', () => {
-      const result = execMachine('spec --machine', env.testDir);
+    it('should output menu choices with command field', async () => {
+      const result = await execMachine('spec --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -237,8 +180,8 @@ describe('Spec Commands Agent Flow', () => {
       await createTestSpec('test-spec-2', 'Test Spec Two', 'draft');
     });
 
-    it('should output specs as structured data', () => {
-      const output = execCmd('spec list --machine', env.testDir);
+    it('should output specs as structured data', async () => {
+      const output = await execCmd('spec list --machine');
 
       // spec list outputs success data, not a prompt (JSON is pretty-printed)
       expect(output).to.include('"success": true');
@@ -252,9 +195,9 @@ describe('Spec Commands Agent Flow', () => {
       await createTestSpec('view-spec-1', 'Spec to View', 'active');
     });
 
-    it('should complete flow: select spec → view details', () => {
+    it('should complete flow: select spec → view details', async () => {
       // Agent Step 1: Get available specs
-      const step1 = execMachine('spec view -P test-project --machine', env.testDir);
+      const step1 = await execMachine('spec view -P test-project --machine');
 
       expect(step1).to.not.be.null;
       expect(step1!.prompt.type).to.equal('list');
@@ -265,7 +208,7 @@ describe('Spec Commands Agent Flow', () => {
       expect(specChoice!.command).to.include('--spec');
 
       // Agent Step 2: View the spec
-      const result = execFinal(execChoice(specChoice!), env.testDir);
+      const result = await execFinal(execChoice(specChoice!));
 
       // Verify spec details are shown
       expect(result).to.include('Spec to View');
@@ -277,9 +220,9 @@ describe('Spec Commands Agent Flow', () => {
       await createTestSpec('plan-spec-1', 'Spec to Plan', 'active');
     });
 
-    it('should complete flow: select spec → show plan info', () => {
+    it('should complete flow: select spec → show plan info', async () => {
       // Agent Step 1: Get available specs
-      const step1 = execMachine('spec plan --machine', env.testDir);
+      const step1 = await execMachine('spec plan --machine');
 
       expect(step1).to.not.be.null;
       expect(step1!.prompt.type).to.equal('list');
@@ -290,7 +233,7 @@ describe('Spec Commands Agent Flow', () => {
       expect(specChoice!.command).to.include('--spec');
 
       // Agent Step 2: Execute plan
-      const result = execFinal(execChoice(specChoice!), env.testDir);
+      const result = await execFinal(execChoice(specChoice!));
 
       // Verify plan output
       expect(result).to.include('Spec to Plan');
@@ -310,7 +253,7 @@ describe('Spec Commands Agent Flow', () => {
 
     it('should complete flow: select ticket → select spec → link', async () => {
       // Agent Step 1: Get available tickets
-      const step1 = execMachine('spec ticket -P test-project --machine', env.testDir);
+      const step1 = await execMachine('spec ticket -P test-project --machine');
 
       expect(step1).to.not.be.null;
       expect(step1!.prompt.type).to.equal('list');
@@ -320,7 +263,7 @@ describe('Spec Commands Agent Flow', () => {
       expect(ticketChoice!.command).to.include('--ticket');
 
       // Agent Step 2: Select ticket, get spec choices
-      const step2 = execMachine(execChoice(ticketChoice!), env.testDir);
+      const step2 = await execMachine(execChoice(ticketChoice!));
 
       expect(step2).to.not.be.null;
       expect(step2!.prompt.type).to.equal('list');
@@ -331,7 +274,7 @@ describe('Spec Commands Agent Flow', () => {
       expect(specChoice!.command).to.include('--spec');
 
       // Agent Step 3: Execute the link
-      const result = execFinal(execChoice(specChoice!), env.testDir);
+      const result = await execFinal(execChoice(specChoice!));
 
       // Verify link
       expect(result.toLowerCase()).to.match(/link|spec|assign/);
@@ -343,9 +286,9 @@ describe('Spec Commands Agent Flow', () => {
   });
 
   describe('spec create - full agent flow', () => {
-    it('should output input prompt for title with context hint', () => {
+    it('should output input prompt for title with context hint', async () => {
       // Agent Step 1: Start create, get title prompt
-      const step1 = execMachine('spec create --machine', env.testDir);
+      const step1 = await execMachine('spec create --machine');
 
       expect(step1).to.not.be.null;
       expect(step1!.prompt.type).to.equal('input');
@@ -357,9 +300,9 @@ describe('Spec Commands Agent Flow', () => {
       expect(step1!.prompt.context!.hint).to.include('--title');
     });
 
-    it('should output type choices in interactive mode', () => {
+    it('should output type choices in interactive mode', async () => {
       // Agent Step 2: Interactive mode with title, get type choices
-      const step2 = execMachine('spec create --title "My New Spec" -i --machine', env.testDir);
+      const step2 = await execMachine('spec create --title "My New Spec" -i --machine');
 
       expect(step2).to.not.be.null;
       expect(step2!.prompt.type).to.equal('list');
@@ -371,7 +314,7 @@ describe('Spec Commands Agent Flow', () => {
 
     it('should create spec when all flags provided', async () => {
       // Execute create with all flags
-      const result = execFinal('spec create --title "Agent Created Spec" --type product --status draft', env.testDir);
+      const result = await execFinal('spec create --title "Agent Created Spec" --type product --status draft');
 
       expect(result).to.include('Created spec');
       expect(result).to.include('Agent Created Spec');
@@ -391,7 +334,7 @@ describe('Spec Commands Agent Flow', () => {
 
     it('should complete flow: select target spec → create dependency', async () => {
       // Agent Step 1: Start with dependent spec, get target choices
-      const step1 = execMachine('spec link depends dependent-spec --machine', env.testDir);
+      const step1 = await execMachine('spec link depends dependent-spec --machine');
 
       expect(step1).to.not.be.null;
       expect(step1!.prompt.type).to.equal('list');
@@ -400,7 +343,7 @@ describe('Spec Commands Agent Flow', () => {
       expect(targetChoice).to.exist;
 
       // Agent Step 2: Execute the link
-      const result = execFinal(execChoice(targetChoice!), env.testDir);
+      const result = await execFinal(execChoice(targetChoice!));
 
       // Verify link
       expect(result.toLowerCase()).to.match(/depend|link|added/);
@@ -419,9 +362,9 @@ describe('Spec Commands Agent Flow', () => {
       await createTestSpec('spec-b', 'Spec B', 'active');
     });
 
-    it('should complete flow: select related spec → create relation', () => {
+    it('should complete flow: select related spec → create relation', async () => {
       // Agent Step 1: Start with spec-a, get related spec choices
-      const step1 = execMachine('spec link relates spec-a --machine', env.testDir);
+      const step1 = await execMachine('spec link relates spec-a --machine');
 
       expect(step1).to.not.be.null;
       expect(step1!.prompt.type).to.equal('list');
@@ -430,7 +373,7 @@ describe('Spec Commands Agent Flow', () => {
       expect(relatedChoice).to.exist;
 
       // Agent Step 2: Execute the link
-      const result = execFinal(execChoice(relatedChoice!), env.testDir);
+      const result = await execFinal(execChoice(relatedChoice!));
 
       // Verify link
       expect(result.toLowerCase()).to.match(/relate|link|added/);

@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 
 /** Database row type for agent_work queries */
 interface AgentWorkRow {
@@ -63,11 +63,11 @@ describe.skip('Work Commands E2E Tests', () => {
    * "Moves ticket to Review column"
    */
   describe('prlt work ready', () => {
-    it('should move ticket to Review column', () => {
+    it('should move ticket to Review column', async () => {
       // Create ticket in In Progress column
       const ticketId = createTicket(db, 'Ready test', 'in-progress');
 
-      const output = exec(`work ready ${ticketId}`);
+      const output = await execInProcess(`work ready ${ticketId}`);
 
       expect(output).to.contain('ready');
       expect(output).to.contain(ticketId);
@@ -83,12 +83,12 @@ describe.skip('Work Commands E2E Tests', () => {
       expect(ticket.column_name).to.equal('Review');
     });
 
-    it('should mark running execution as completed', () => {
+    it('should mark running execution as completed', async () => {
       // Create ticket and execution
       const ticketId = createTicket(db, 'Execution test', 'in-progress');
       createExecution(db, ticketId, 'agent-1', 'running');
 
-      exec(`work ready ${ticketId}`);
+      await execInProcess(`work ready ${ticketId}`);
 
       // Verify execution marked as completed
       const execution = db.prepare(`
@@ -122,11 +122,11 @@ describe.skip('Work Commands E2E Tests', () => {
    * "Moves ticket to Done column"
    */
   describe('prlt work complete', () => {
-    it('should move ticket to Done column', () => {
+    it('should move ticket to Done column', async () => {
       // Create ticket in In Progress column
       const ticketId = createTicket(db, 'Complete test', 'in-progress');
 
-      const output = exec(`work complete ${ticketId}`);
+      const output = await execInProcess(`work complete ${ticketId}`);
 
       expect(output).to.contain('complete');
       expect(output).to.contain(ticketId);
@@ -142,10 +142,10 @@ describe.skip('Work Commands E2E Tests', () => {
       expect(ticket.column_name).to.equal('Done');
     });
 
-    it('should update ticket status to done', () => {
+    it('should update ticket status to done', async () => {
       const ticketId = createTicket(db, 'Status test', 'in-review');
 
-      exec(`work complete ${ticketId}`);
+      await execInProcess(`work complete ${ticketId}`);
 
       const ticket = db.prepare(`
         SELECT status FROM pmo_tickets WHERE id = ?
@@ -154,11 +154,11 @@ describe.skip('Work Commands E2E Tests', () => {
       expect(ticket.status).to.equal('done');
     });
 
-    it('should mark running execution as completed', () => {
+    it('should mark running execution as completed', async () => {
       const ticketId = createTicket(db, 'Exec complete test', 'in-review');
       createExecution(db, ticketId, 'agent-1', 'running');
 
-      exec(`work complete ${ticketId}`);
+      await execInProcess(`work complete ${ticketId}`);
 
       const execution = db.prepare(`
         SELECT status FROM agent_work WHERE ticket_id = ?
@@ -228,13 +228,13 @@ describe.skip('Work Commands E2E Tests', () => {
       expect(busyAgents[0].ticket_id).to.equal(ticketId);
     });
 
-    it('should clear agent when execution completes', () => {
+    it('should clear agent when execution completes', async () => {
       createAgent(db, 'agent-1');
       const ticketId = createTicket(db, 'Clear test', 'in-progress');
       createExecution(db, ticketId, 'agent-1', 'running');
 
       // Complete the work
-      exec(`work ready ${ticketId}`);
+      await execInProcess(`work ready ${ticketId}`);
 
       // Agent should now be available
       const availableAgents = db.prepare(`
