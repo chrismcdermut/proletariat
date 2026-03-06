@@ -9,7 +9,7 @@ import {
   createPMODirectories,
   setupProductionSchema,
   createTestProject,
-  exec,
+  execInProcess,
   type TestEnvironment,
 } from './test-helpers.js';
 
@@ -40,11 +40,11 @@ describe('ticket create --description-file', () => {
     cleanupTestEnvironment(env);
   });
 
-  it('should create ticket with description read from a file', () => {
+  it('should create ticket with description read from a file', async () => {
     const descFile = path.join(env.testDir, 'desc.md');
     fs.writeFileSync(descFile, '## Overview\n\nThis is a file-based description.\n\n## Details\n\nMore info here.', 'utf-8');
 
-    const output = exec(`ticket create --title "File desc ticket" --column Backlog --description-file "${descFile}"`);
+    const output = await execInProcess(`ticket create --title "File desc ticket" --column Backlog --description-file "${descFile}"`);
 
     expect(output).to.contain('Created ticket');
     expect(output).to.contain('File desc ticket');
@@ -56,27 +56,27 @@ describe('ticket create --description-file', () => {
     expect(ticket!.description).to.contain('## Overview');
   });
 
-  it('should error when --description and --description-file are both provided', () => {
+  it('should error when --description and --description-file are both provided', async () => {
     const descFile = path.join(env.testDir, 'desc2.md');
     fs.writeFileSync(descFile, 'File content', 'utf-8');
 
-    const output = exec(`ticket create --title "Conflict test" --column Backlog --description "inline" --description-file "${descFile}"`);
+    const output = await execInProcess(`ticket create --title "Conflict test" --column Backlog --description "inline" --description-file "${descFile}"`);
 
     // oclif exclusive flag validation should produce an error
     expect(output.toLowerCase()).to.match(/cannot also be provided|exclusive|mutually exclusive/i);
   });
 
-  it('should error when description file does not exist', () => {
-    const output = exec('ticket create --title "Missing file" --column Backlog --description-file "/nonexistent/path.md"');
+  it('should error when description file does not exist', async () => {
+    const output = await execInProcess('ticket create --title "Missing file" --column Backlog --description-file "/nonexistent/path.md"');
 
     expect(output.toLowerCase()).to.contain('failed to read description file');
   });
 
-  it('should use short flag -D for description-file', () => {
+  it('should use short flag -D for description-file', async () => {
     const descFile = path.join(env.testDir, 'short-flag.md');
     fs.writeFileSync(descFile, 'Short flag description content', 'utf-8');
 
-    const output = exec(`ticket create --title "Short flag ticket" --column Backlog -D "${descFile}"`);
+    const output = await execInProcess(`ticket create --title "Short flag ticket" --column Backlog -D "${descFile}"`);
 
     expect(output).to.contain('Created ticket');
 
@@ -85,7 +85,7 @@ describe('ticket create --description-file', () => {
     expect(ticket!.description).to.contain('Short flag description content');
   });
 
-  it('should preserve multi-line markdown content from file', () => {
+  it('should preserve multi-line markdown content from file', async () => {
     const descFile = path.join(env.testDir, 'multiline.md');
     const content = [
       '## What',
@@ -103,7 +103,7 @@ describe('ticket create --description-file', () => {
     ].join('\n');
     fs.writeFileSync(descFile, content, 'utf-8');
 
-    const output = exec(`ticket create --title "Multiline test" --column Backlog --description-file "${descFile}"`);
+    const output = await execInProcess(`ticket create --title "Multiline test" --column Backlog --description-file "${descFile}"`);
 
     expect(output).to.contain('Created ticket');
 

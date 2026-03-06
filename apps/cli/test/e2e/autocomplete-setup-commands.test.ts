@@ -2,16 +2,10 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import {
   extractJson,
-  filterOutput,
-  getIsolatedEnv,
+  execInProcess,
 } from './test-helpers.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /**
  * Response type for JSON prompt output from --machine flag
@@ -50,46 +44,6 @@ interface MachineSuccessResponse {
 }
 
 /**
- * Execute a CLI command in an isolated test environment.
- * Similar to the shared exec() helper but uses a custom HOME
- * to prevent modifying real shell config files during install tests.
- */
-function execAutocomplete(cmd: string, options?: { home?: string }): string {
-  try {
-    const cliDir = path.join(__dirname, '../..');
-    const binPath = path.join(cliDir, 'bin/run.js');
-
-    const env = getIsolatedEnv('production');
-    // Set a custom HOME to prevent touching real shell config
-    if (options?.home) {
-      env.HOME = options.home;
-    }
-    // Set HQ path so oclif doesn't complain
-    env.PRLT_HQ_PATH = process.cwd();
-    env.PRLT_TEST_ENV = 'true';
-
-    const result = execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      cwd: cliDir,
-      env,
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    return result;
-  } catch (error: unknown) {
-    const execError = error as Error & { stdout?: string; stderr?: string };
-    const stdout = execError.stdout || '';
-    const stderr = execError.stderr || '';
-
-    if (stdout.trim()) {
-      return stdout;
-    }
-
-    const filteredStderr = filterOutput(stderr);
-    return filteredStderr || execError.message || 'Unknown error';
-  }
-}
-
-/**
  * E2E tests for autocomplete setup commands with JSON/machine mode support.
  *
  * Tests verify:
@@ -105,16 +59,21 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
 
   let testDir: string;
   let originalCwd: string;
+  let originalHome: string | undefined;
   let fakeHome: string;
 
   beforeEach(() => {
     originalCwd = process.cwd();
+    originalHome = process.env.HOME;
     testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'autocomplete-setup-')));
     process.chdir(testDir);
 
     // Create a fake home directory to prevent touching real shell config
     fakeHome = path.join(testDir, 'fakehome');
     fs.mkdirSync(fakeHome, { recursive: true });
+
+    // Set HOME to fakeHome so autocomplete install writes there
+    process.env.HOME = fakeHome;
 
     // Create .proletariat dir and minimal config for oclif
     const proletariatDir = path.join(testDir, '.proletariat');
@@ -128,18 +87,30 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
 
   afterEach(() => {
     process.chdir(originalCwd);
+    if (originalHome !== undefined) {
+      process.env.HOME = originalHome;
+    } else {
+      delete process.env.HOME;
+    }
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
   });
+
+  /**
+   * Execute an autocomplete command in-process with the fake HOME set.
+   */
+  async function execAutocomplete(cmd: string): Promise<string> {
+    return execInProcess(cmd);
+  }
 
   // ===========================================================================
   // autocomplete setup --machine (shell selection prompt)
   // ===========================================================================
 
   describe('autocomplete setup --machine (shell selection)', () => {
-    it('should output valid JSON prompt with --machine flag', () => {
-      const output = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+    it('should output valid JSON prompt with --machine flag', async () => {
+      const output = await execAutocomplete('autocomplete setup --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -152,8 +123,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should output valid JSON with --json flag (legacy)', () => {
-      const output = execAutocomplete('autocomplete setup --json', { home: fakeHome });
+    it('should output valid JSON with --json flag (legacy)', async () => {
+      const output = await execAutocomplete('autocomplete setup --json');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -162,8 +133,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.metadata.flags.json).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = execAutocomplete('autocomplete setup -m', { home: fakeHome });
+    it('should work with -m shorthand', async () => {
+      const output = await execAutocomplete('autocomplete setup -m');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -171,8 +142,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include all three shell choices', () => {
-      const output = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+    it('should include all three shell choices', async () => {
+      const output = await execAutocomplete('autocomplete setup --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -182,8 +153,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(values).to.include('powershell');
     });
 
-    it('should include --machine flag in choice commands', () => {
-      const output = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+    it('should include --machine flag in choice commands', async () => {
+      const output = await execAutocomplete('autocomplete setup --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -196,8 +167,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       }
     });
 
-    it('should have proper command format for each shell choice', () => {
-      const output = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+    it('should have proper command format for each shell choice', async () => {
+      const output = await execAutocomplete('autocomplete setup --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -214,8 +185,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
   // ===========================================================================
 
   describe('autocomplete setup --shell <shell> --machine (success output)', () => {
-    it('should output success JSON with config info for zsh', () => {
-      const output = execAutocomplete('autocomplete setup --shell zsh --machine', { home: fakeHome });
+    it('should output success JSON with config info for zsh', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell zsh --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -228,8 +199,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.result.installCommand).to.include('--shell zsh --install');
     });
 
-    it('should output success JSON with config info for bash', () => {
-      const output = execAutocomplete('autocomplete setup --shell bash --machine', { home: fakeHome });
+    it('should output success JSON with config info for bash', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell bash --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -238,8 +209,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.result.snippet).to.include('autocomplete:script bash');
     });
 
-    it('should output success JSON with config info for powershell', () => {
-      const output = execAutocomplete('autocomplete setup --shell powershell --machine', { home: fakeHome });
+    it('should output success JSON with config info for powershell', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell powershell --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -248,8 +219,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.result.snippet).to.include('powershell');
     });
 
-    it('should include metadata with command and flags', () => {
-      const output = execAutocomplete('autocomplete setup --shell zsh --machine', { home: fakeHome });
+    it('should include metadata with command and flags', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell zsh --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -264,8 +235,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
   // ===========================================================================
 
   describe('autocomplete setup --shell <shell> --install --machine (install flow)', () => {
-    it('should install zsh autocomplete and output success JSON', () => {
-      const output = execAutocomplete('autocomplete setup --shell zsh --install --machine', { home: fakeHome });
+    it('should install zsh autocomplete and output success JSON', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell zsh --install --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -282,8 +253,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(content).to.include('autocomplete:script zsh');
     });
 
-    it('should install bash autocomplete and output success JSON', () => {
-      const output = execAutocomplete('autocomplete setup --shell bash --install --machine', { home: fakeHome });
+    it('should install bash autocomplete and output success JSON', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell bash --install --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -301,12 +272,12 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(content).to.include('prlt autocomplete');
     });
 
-    it('should detect already-configured and not duplicate', () => {
+    it('should detect already-configured and not duplicate', async () => {
       // First install
-      execAutocomplete('autocomplete setup --shell zsh --install --machine', { home: fakeHome });
+      await execAutocomplete('autocomplete setup --shell zsh --install --machine');
 
       // Second install - should detect already configured
-      const output = execAutocomplete('autocomplete setup --shell zsh --install --machine', { home: fakeHome });
+      const output = await execAutocomplete('autocomplete setup --shell zsh --install --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -321,8 +292,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(matches).to.have.lengthOf(1);
     });
 
-    it('should create config directory if it does not exist', () => {
-      const output = execAutocomplete('autocomplete setup --shell powershell --install --machine', { home: fakeHome });
+    it('should create config directory if it does not exist', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell powershell --install --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -343,8 +314,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
     // automatically enters JSON mode even without --machine flag. This is correct
     // behavior - it ensures agents get structured output when piping.
 
-    it('should output JSON for zsh config info without --machine flag', () => {
-      const output = execAutocomplete('autocomplete setup --shell zsh', { home: fakeHome });
+    it('should output JSON for zsh config info without --machine flag', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell zsh');
       const json = extractJson<MachineSuccessResponse>(output);
 
       // In piped mode, isNonTTY() triggers JSON output
@@ -353,8 +324,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.result.snippet).to.include('autocomplete:script zsh');
     });
 
-    it('should install for zsh with --shell and --install flags', () => {
-      execAutocomplete('autocomplete setup --shell zsh --install', { home: fakeHome });
+    it('should install for zsh with --shell and --install flags', async () => {
+      await execAutocomplete('autocomplete setup --shell zsh --install');
 
       // Verify it installed (check config file)
       const zshrcPath = path.join(fakeHome, '.zshrc');
@@ -363,8 +334,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(content).to.include('prlt autocomplete');
     });
 
-    it('should output JSON for bash config info without --machine flag', () => {
-      const output = execAutocomplete('autocomplete setup --shell bash', { home: fakeHome });
+    it('should output JSON for bash config info without --machine flag', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell bash');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -372,12 +343,12 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(json!.result.snippet).to.include('autocomplete:script bash');
     });
 
-    it('should detect already-configured when installing twice', () => {
+    it('should detect already-configured when installing twice', async () => {
       // First install
-      execAutocomplete('autocomplete setup --shell zsh --install', { home: fakeHome });
+      await execAutocomplete('autocomplete setup --shell zsh --install');
 
       // Second install - should detect already configured
-      const output = execAutocomplete('autocomplete setup --shell zsh --install', { home: fakeHome });
+      const output = await execAutocomplete('autocomplete setup --shell zsh --install');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -391,9 +362,9 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
   // ===========================================================================
 
   describe('End-to-end agent flows', () => {
-    it('should complete full agent flow: get shell menu → select shell → install → verify', () => {
+    it('should complete full agent flow: get shell menu → select shell → install → verify', async () => {
       // Step 1: Agent calls autocomplete setup with --machine
-      const menuOutput = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+      const menuOutput = await execAutocomplete('autocomplete setup --machine');
       const menu = extractJson<MachinePromptResponse>(menuOutput);
 
       expect(menu).to.not.be.null;
@@ -409,7 +380,7 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
 
       // Step 3: Agent executes the command from the choice
       const installCmd = bashChoice!.command!.replace('prlt ', '');
-      const installOutput = execAutocomplete(installCmd, { home: fakeHome });
+      const installOutput = await execAutocomplete(installCmd);
       const installResult = extractJson<MachineSuccessResponse>(installOutput);
 
       // Step 4: Verify install succeeded
@@ -429,9 +400,9 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(content).to.include('autocomplete:script bash');
     });
 
-    it('should complete flow for zsh: menu → install → verify file', () => {
+    it('should complete flow for zsh: menu → install → verify file', async () => {
       // Step 1: Get menu
-      const menuOutput = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+      const menuOutput = await execAutocomplete('autocomplete setup --machine');
       const menu = extractJson<MachinePromptResponse>(menuOutput);
       expect(menu).to.not.be.null;
 
@@ -441,7 +412,7 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
 
       // Step 3: Execute install command
       const installCmd = zshChoice!.command!.replace('prlt ', '');
-      const installOutput = execAutocomplete(installCmd, { home: fakeHome });
+      const installOutput = await execAutocomplete(installCmd);
       const result = extractJson<MachineSuccessResponse>(installOutput);
 
       expect(result).to.not.be.null;
@@ -454,9 +425,9 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(fs.readFileSync(zshrcPath, 'utf-8')).to.include('autocomplete:script zsh');
     });
 
-    it('should complete flow for powershell: menu → install → verify file', () => {
+    it('should complete flow for powershell: menu → install → verify file', async () => {
       // Step 1: Get menu
-      const menuOutput = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+      const menuOutput = await execAutocomplete('autocomplete setup --machine');
       const menu = extractJson<MachinePromptResponse>(menuOutput);
       expect(menu).to.not.be.null;
 
@@ -467,7 +438,7 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
 
       // Step 3: Execute install command from the choice
       const installCmd = psChoice!.command!.replace('prlt ', '');
-      const installOutput = execAutocomplete(installCmd, { home: fakeHome });
+      const installOutput = await execAutocomplete(installCmd);
       const result = extractJson<MachineSuccessResponse>(installOutput);
 
       expect(result).to.not.be.null;
@@ -483,14 +454,14 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(content).to.include('powershell');
     });
 
-    it('should handle info flow: menu → shell info without install', () => {
+    it('should handle info flow: menu → shell info without install', async () => {
       // Step 1: Get the menu
-      const menuOutput = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+      const menuOutput = await execAutocomplete('autocomplete setup --machine');
       const menu = extractJson<MachinePromptResponse>(menuOutput);
       expect(menu).to.not.be.null;
 
       // Step 2: Agent queries shell info without --install
-      const infoOutput = execAutocomplete('autocomplete setup --shell zsh --machine', { home: fakeHome });
+      const infoOutput = await execAutocomplete('autocomplete setup --shell zsh --machine');
       const info = extractJson<MachineSuccessResponse>(infoOutput);
 
       expect(info).to.not.be.null;
@@ -511,16 +482,16 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
   // ===========================================================================
 
   describe('Flag combinations and edge cases', () => {
-    it('should handle --machine and --json together (--machine takes precedence)', () => {
-      const output = execAutocomplete('autocomplete setup --machine --json', { home: fakeHome });
+    it('should handle --machine and --json together (--machine takes precedence)', async () => {
+      const output = await execAutocomplete('autocomplete setup --machine --json');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should propagate --machine flag through choice commands', () => {
-      const output = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+    it('should propagate --machine flag through choice commands', async () => {
+      const output = await execAutocomplete('autocomplete setup --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -532,8 +503,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       }
     });
 
-    it('should include command field in every choice for agent navigation', () => {
-      const output = execAutocomplete('autocomplete setup --machine', { home: fakeHome });
+    it('should include command field in every choice for agent navigation', async () => {
+      const output = await execAutocomplete('autocomplete setup --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -544,13 +515,13 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       }
     });
 
-    it('should handle install to pre-existing config file', () => {
+    it('should handle install to pre-existing config file', async () => {
       // Create a pre-existing .zshrc with some content
       const zshrcPath = path.join(fakeHome, '.zshrc');
       fs.writeFileSync(zshrcPath, '# My existing zsh config\nexport PATH="/usr/local/bin:$PATH"\n');
 
       // Install autocomplete
-      const output = execAutocomplete('autocomplete setup --shell zsh --install --machine', { home: fakeHome });
+      const output = await execAutocomplete('autocomplete setup --shell zsh --install --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;

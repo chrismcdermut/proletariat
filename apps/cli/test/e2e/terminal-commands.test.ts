@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { exec, filterOutput } from './test-helpers.js';
+import { execInProcess, filterOutput } from './test-helpers.js';
 
 /**
  * End-to-end tests for Terminal Commands
@@ -30,33 +30,33 @@ describe('Terminal Commands E2E Tests', () => {
   });
 
   describe('prlt terminal title', () => {
-    it('should set terminal title with argument', () => {
-      const output = exec('terminal title "Test Title"');
+    it('should set terminal title with argument', async () => {
+      const output = await execInProcess('terminal title "Test Title"');
 
       expect(filterOutput(output)).to.contain('Terminal title set to');
       expect(filterOutput(output)).to.contain('Test Title');
     });
 
-    it('should reset terminal title with --reset flag', () => {
-      const output = exec('terminal title --reset');
+    it('should reset terminal title with --reset flag', async () => {
+      const output = await execInProcess('terminal title --reset');
 
       expect(filterOutput(output)).to.contain('Terminal title reset to default');
     });
 
-    it('should accept title with spaces', () => {
-      const output = exec('terminal title "My Custom Terminal Title"');
+    it('should accept title with spaces', async () => {
+      const output = await execInProcess('terminal title "My Custom Terminal Title"');
 
       expect(filterOutput(output)).to.contain('My Custom Terminal Title');
     });
 
-    it('should accept title with ticket ID format', () => {
-      const output = exec('terminal title "TKT-123 Implementation"');
+    it('should accept title with ticket ID format', async () => {
+      const output = await execInProcess('terminal title "TKT-123 Implementation"');
 
       expect(filterOutput(output)).to.contain('TKT-123 Implementation');
     });
 
-    it('should show help with --help flag', () => {
-      const output = exec('terminal title --help');
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('terminal title --help');
 
       expect(filterOutput(output)).to.contain('Set the terminal tab/window title');
       expect(filterOutput(output)).to.contain('--reset');

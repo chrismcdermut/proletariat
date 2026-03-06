@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { execProduction as exec } from './test-helpers.js'
+import { execInProcess } from './test-helpers.js'
 
 /**
  * End-to-end tests for Agent Management Commands
@@ -52,7 +52,7 @@ describe('Agent Commands E2E Tests', () => {
   /**
    * Helper to simulate agent flow: execute command, parse JSON
    */
-  function agentExec(cmd: string): {
+  async function agentExec(cmd: string): Promise<{
     prompt: {
       type: string
       name: string
@@ -60,8 +60,8 @@ describe('Agent Commands E2E Tests', () => {
       choices: Array<{ name: string; value: string; command?: string }>
     }
     metadata: { command: string; flags: Record<string, unknown> }
-  } | null {
-    const output = exec(cmd)
+  } | null> {
+    const output = await execInProcess(cmd)
     if (hasContextError(output)) {
       return null
     }
@@ -79,8 +79,8 @@ describe('Agent Commands E2E Tests', () => {
   }
 
   describe('prlt agent --help', () => {
-    it('should show help with subcommands', () => {
-      const output = exec('agent --help')
+    it('should show help with subcommands', async () => {
+      const output = await execInProcess('agent --help')
 
       expect(output).to.contain('Manage agents')
       expect(output).to.contain('COMMANDS')
@@ -89,86 +89,86 @@ describe('Agent Commands E2E Tests', () => {
       expect(output).to.contain('shell')
     })
 
-    it('should have --json flag in help', () => {
-      const output = exec('agent --help')
+    it('should have --json flag in help', async () => {
+      const output = await execInProcess('agent --help')
       expect(output).to.contain('--json')
     })
 
-    it('should have --machine flag in help', () => {
-      const output = exec('agent --help')
+    it('should have --machine flag in help', async () => {
+      const output = await execInProcess('agent --help')
       expect(output).to.contain('--machine')
       expect(output).to.contain('-m')
     })
   })
 
   describe('prlt agent list --help', () => {
-    it('should show help with flags', () => {
-      const output = exec('agent list --help')
+    it('should show help with flags', async () => {
+      const output = await execInProcess('agent list --help')
 
       expect(output).to.contain('List')
       expect(output).to.contain('agents')
       expect(output).to.contain('--type')
     })
 
-    it('should have machine output flags in help', () => {
-      const output = exec('agent list --help')
+    it('should have machine output flags in help', async () => {
+      const output = await execInProcess('agent list --help')
       // Uses pmoBaseFlags which has --machine
       expect(output).to.match(/--json|--machine/)
     })
   })
 
   describe('prlt agent status --help', () => {
-    it('should show help', () => {
-      const output = exec('agent status --help')
+    it('should show help', async () => {
+      const output = await execInProcess('agent status --help')
 
       expect(output).to.contain('status')
       expect(output).to.contain('ARGUMENTS')
     })
 
-    it('should have --json flag in help', () => {
-      const output = exec('agent status --help')
+    it('should have --json flag in help', async () => {
+      const output = await execInProcess('agent status --help')
       expect(output).to.contain('--json')
     })
   })
 
   describe('prlt agent shell --help', () => {
-    it('should show help', () => {
-      const output = exec('agent shell --help')
+    it('should show help', async () => {
+      const output = await execInProcess('agent shell --help')
 
       expect(output).to.contain('shell')
       expect(output).to.contain('ARGUMENTS')
     })
 
-    it('should have --json flag in help', () => {
-      const output = exec('agent shell --help')
+    it('should have --json flag in help', async () => {
+      const output = await execInProcess('agent shell --help')
       expect(output).to.contain('--json')
     })
   })
 
   describe('prlt agent visit --help', () => {
-    it('should show help', () => {
-      const output = exec('agent visit --help')
+    it('should show help', async () => {
+      const output = await execInProcess('agent visit --help')
 
       expect(output).to.contain('visit')
       expect(output).to.contain('ARGUMENTS')
     })
 
-    it('should have --json flag in help', () => {
-      const output = exec('agent visit --help')
+    it('should have --json flag in help', async () => {
+      const output = await execInProcess('agent visit --help')
       expect(output).to.contain('--json')
     })
   })
 
   describe('prlt agent login --help', () => {
-    it('should show help', () => {
-      const output = exec('agent login --help')
+    it('should show help', async () => {
+      const output = await execInProcess('agent login --help')
 
       expect(output).to.contain('login')
       expect(output).to.contain('ARGUMENTS')
     })
 
-    it('should have --json flag in help', () => {
-      const output = exec('agent login --help')
+    it('should have --json flag in help', async () => {
+      const output = await execInProcess('agent login --help')
       expect(output).to.contain('--json')
     })
   })
@@ -180,8 +180,8 @@ describe('Agent Commands E2E Tests', () => {
    */
   describe('End-to-end Agent Flows (--machine flag)', () => {
     describe('agent main menu - agent navigation', () => {
-      it('should output action menu with --machine flag', () => {
-        const result = agentExec('agent --machine')
+      it('should output action menu with --machine flag', async () => {
+        const result = await agentExec('agent --machine')
 
         // Skip if workspace not available
         if (!result) {
@@ -193,8 +193,8 @@ describe('Agent Commands E2E Tests', () => {
         expect(result.metadata.flags.machine).to.equal(true)
       })
 
-      it('should include command field in non-cancel choices', () => {
-        const result = agentExec('agent --machine')
+      it('should include command field in non-cancel choices', async () => {
+        const result = await agentExec('agent --machine')
 
         if (!result) {
           return
@@ -207,8 +207,8 @@ describe('Agent Commands E2E Tests', () => {
         }
       })
 
-      it('should have navigable choices to subcommands', () => {
-        const result = agentExec('agent --machine')
+      it('should have navigable choices to subcommands', async () => {
+        const result = await agentExec('agent --machine')
 
         if (!result) {
           return
@@ -228,8 +228,8 @@ describe('Agent Commands E2E Tests', () => {
     })
 
     describe('agent list - JSON output', () => {
-      it('should output all agents grouped by type with --machine (no --type)', () => {
-        const output = exec('agent list --machine')
+      it('should output all agents grouped by type with --machine (no --type)', async () => {
+        const output = await execInProcess('agent list --machine')
 
         if (hasContextError(output)) {
           return
@@ -249,10 +249,10 @@ describe('Agent Commands E2E Tests', () => {
         expect(Array.isArray(result.temp)).to.equal(true)
       })
 
-      it('should work with --type flag to filter agents', () => {
+      it('should work with --type flag to filter agents', async () => {
         // When --type is provided, it should filter to that type
         // This just verifies the command works with --type
-        const output = exec('agent list --machine --type all')
+        const output = await execInProcess('agent list --machine --type all')
 
         if (hasContextError(output)) {
           return
@@ -264,8 +264,8 @@ describe('Agent Commands E2E Tests', () => {
     })
 
     describe('agent status - agent selection flow', () => {
-      it('should output agent selection with --machine', () => {
-        const result = agentExec('agent status --machine')
+      it('should output agent selection with --machine', async () => {
+        const result = await agentExec('agent status --machine')
 
         if (!result) {
           return
@@ -275,8 +275,8 @@ describe('Agent Commands E2E Tests', () => {
         expect(result.metadata.command).to.equal('agent status')
       })
 
-      it('should include command in agent choices', () => {
-        const result = agentExec('agent status --machine')
+      it('should include command in agent choices', async () => {
+        const result = await agentExec('agent status --machine')
 
         if (!result) {
           return
@@ -291,8 +291,8 @@ describe('Agent Commands E2E Tests', () => {
     })
 
     describe('agent shell - agent selection flow', () => {
-      it('should output agent selection with --machine', () => {
-        const result = agentExec('agent shell --machine')
+      it('should output agent selection with --machine', async () => {
+        const result = await agentExec('agent shell --machine')
 
         if (!result) {
           return
@@ -302,8 +302,8 @@ describe('Agent Commands E2E Tests', () => {
         expect(result.metadata.command).to.equal('agent shell')
       })
 
-      it('should include command in agent choices', () => {
-        const result = agentExec('agent shell --machine')
+      it('should include command in agent choices', async () => {
+        const result = await agentExec('agent shell --machine')
 
         if (!result) {
           return
@@ -318,8 +318,8 @@ describe('Agent Commands E2E Tests', () => {
     })
 
     describe('agent visit - agent selection flow', () => {
-      it('should output agent selection with --machine', () => {
-        const result = agentExec('agent visit --machine')
+      it('should output agent selection with --machine', async () => {
+        const result = await agentExec('agent visit --machine')
 
         if (!result) {
           return
@@ -329,8 +329,8 @@ describe('Agent Commands E2E Tests', () => {
         expect(result.metadata.command).to.equal('agent visit')
       })
 
-      it('should include command in agent choices', () => {
-        const result = agentExec('agent visit --machine')
+      it('should include command in agent choices', async () => {
+        const result = await agentExec('agent visit --machine')
 
         if (!result) {
           return
@@ -345,8 +345,8 @@ describe('Agent Commands E2E Tests', () => {
     })
 
     describe('agent login - agent selection flow', () => {
-      it('should output agent selection with --machine', () => {
-        const result = agentExec('agent login --machine')
+      it('should output agent selection with --machine', async () => {
+        const result = await agentExec('agent login --machine')
 
         // Skip if no result or if it's an error response (e.g., Docker not running, no agents)
         if (!result || !result.prompt) {
@@ -357,8 +357,8 @@ describe('Agent Commands E2E Tests', () => {
         expect(result.metadata.command).to.equal('agent login')
       })
 
-      it('should include command in agent choices', () => {
-        const result = agentExec('agent login --machine')
+      it('should include command in agent choices', async () => {
+        const result = await agentExec('agent login --machine')
 
         // Skip if no result or if it's an error response
         if (!result || !result.prompt) {
@@ -374,9 +374,9 @@ describe('Agent Commands E2E Tests', () => {
     })
 
     describe('full agent navigation flow', () => {
-      it('should allow agent to navigate from main menu to list', () => {
+      it('should allow agent to navigate from main menu to list', async () => {
         // Step 1: Get main menu
-        const step1 = agentExec('agent --machine')
+        const step1 = await agentExec('agent --machine')
 
         if (!step1) {
           return
@@ -393,9 +393,9 @@ describe('Agent Commands E2E Tests', () => {
         expect(listChoice.command).to.match(/--json|--machine/)
       })
 
-      it('should allow agent to navigate from main menu to status', () => {
+      it('should allow agent to navigate from main menu to status', async () => {
         // Step 1: Get main menu
-        const step1 = agentExec('agent --machine')
+        const step1 = await agentExec('agent --machine')
 
         if (!step1) {
           return
@@ -410,9 +410,9 @@ describe('Agent Commands E2E Tests', () => {
     })
 
     describe('--machine vs --json equivalence', () => {
-      it('should produce equivalent output structure', () => {
-        const machineOutput = exec('agent --machine')
-        const jsonOutput = exec('agent --json')
+      it('should produce equivalent output structure', async () => {
+        const machineOutput = await execInProcess('agent --machine')
+        const jsonOutput = await execInProcess('agent --json')
 
         const machineResult = extractJson<{ prompt: { type: string } }>(machineOutput)
         const jsonResult = extractJson<{ prompt: { type: string } }>(jsonOutput)
@@ -423,8 +423,8 @@ describe('Agent Commands E2E Tests', () => {
         }
       })
 
-      it('should work with -m shorthand', () => {
-        const result = agentExec('agent -m')
+      it('should work with -m shorthand', async () => {
+        const result = await agentExec('agent -m')
 
         if (!result) {
           return
