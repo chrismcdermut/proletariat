@@ -276,6 +276,103 @@ export async function getJiraIssueByKey(
   return normalizeJiraIssueToEnvelope(payload)
 }
 
+/**
+ * Check if Jira is configured via environment variables.
+ * Returns true if at least a base URL and API token are present.
+ */
+export function isJiraConfigured(config?: JiraAdapterConfig): boolean {
+  const baseUrl = config?.baseUrl
+    || config?.host
+    || process.env.PRLT_JIRA_BASE_URL
+    || process.env.JIRA_BASE_URL
+    || process.env.PRLT_JIRA_HOST
+    || process.env.JIRA_HOST
+  const apiToken = config?.apiToken
+    || process.env.PRLT_JIRA_API_TOKEN
+    || process.env.JIRA_API_TOKEN
+
+  return Boolean(baseUrl && apiToken)
+}
+
+/**
+ * Get the configured Jira project key from config or environment variables.
+ */
+export function getJiraProjectKey(config?: JiraAdapterConfig): string | undefined {
+  return config?.projectKey
+    || process.env.PRLT_JIRA_PROJECT
+    || process.env.JIRA_PROJECT_KEY
+    || undefined
+}
+
+/**
+ * Import a Jira issue into PMO as a linked ticket.
+ *
+ * Creates a new PMO ticket or updates an existing one that is linked
+ * to the same Jira issue (matched by external_key or external_id).
+ *
+ * @returns Object with ticketId and whether it was newly created
+ */
+export async function importJiraIssueToPmo(
+  storage: {
+    listTickets(projectId: string): Promise<Array<{ id: string; metadata?: Record<string, string> }>>,
+    createTicket(projectId: string, input: {
+      title: string
+      description: string
+      priority?: string
+      category?: string
+      labels: string[]
+      metadata: Record<string, string>
+    }): Promise<{ id: string }>,
+    updateTicket(ticketId: string, input: {
+      title: string
+      description: string
+      priority?: string
+      category?: string
+      labels: string[]
+      metadata: Record<string, string>
+    }): Promise<{ id: string }>,
+  },
+  projectId: string,
+  envelope: NormalizedIssueEnvelope,
+): Promise<{ ticketId: string; created: boolean }> {
+  const tickets = await storage.listTickets(projectId)
+  const existing = tickets.find((ticket) => {
+    const source = ticket.metadata?.external_source
+    const key = ticket.metadata?.external_key
+    const id = ticket.metadata?.external_id
+    return source === 'jira'
+      && (key === envelope.source.externalKey || id === envelope.source.externalId)
+  })
+
+  const description = buildJiraTicketDescription(envelope)
+  const metadata = buildJiraMetadata(envelope)
+
+  if (existing) {
+    await storage.updateTicket(existing.id, {
+      title: envelope.title,
+      description,
+      priority: envelope.priority ?? undefined,
+      category: envelope.category ?? undefined,
+      labels: envelope.labels,
+      metadata: {
+        ...existing.metadata,
+        ...metadata,
+      },
+    })
+    return { ticketId: existing.id, created: false }
+  }
+
+  const ticket = await storage.createTicket(projectId, {
+    title: envelope.title,
+    description,
+    priority: envelope.priority ?? undefined,
+    category: envelope.category ?? undefined,
+    labels: envelope.labels,
+    metadata,
+  })
+  return { ticketId: ticket.id, created: true }
+}
+
 export async function listJiraIssues(
   configInput: JiraAdapterConfig,
   options?: {

@@ -55,6 +55,9 @@ export {
   buildJiraMetadata,
   buildJiraSpawnContextMessage,
   getJiraIssueByKey,
+  isJiraConfigured,
+  getJiraProjectKey,
+  importJiraIssueToPmo,
 } from './jira.js'
 
 // Linear helpers
