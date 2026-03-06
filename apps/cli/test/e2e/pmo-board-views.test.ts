@@ -46,7 +46,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('prlt board view --assignee', () => {
     it('should filter by assignee', async () => {
-      const output = await execInProcess('board view --assignee alice');
+      const output = await execInProcess('board view --assignee alice --machine');
 
       expect(output).to.contain('alice');
       expect(output).to.not.contain('bob');
@@ -54,7 +54,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should show only unassigned tickets', async () => {
-      const output = await execInProcess('board view --assignee unassigned');
+      const output = await execInProcess('board view --assignee unassigned --machine');
 
       expect(output).to.contain('unassigned');
       expect(output).to.not.contain('@alice');
@@ -62,7 +62,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should hide empty columns when filtering', async () => {
-      const output = await execInProcess('board view --assignee alice');
+      const output = await execInProcess('board view --assignee alice --machine');
 
       // If alice has no tickets in a column, it shouldn't appear
       const columnCount = (output.match(/##/g) || []).length;
@@ -72,7 +72,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('prlt board view --priority', () => {
     it('should filter by HIGH priority', async () => {
-      const output = await execInProcess('board view --priority HIGH');
+      const output = await execInProcess('board view --priority HIGH --machine');
 
       expect(output).to.contain('P:HIGH');
       expect(output).to.not.contain('P:MEDIUM');
@@ -80,15 +80,15 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should filter by MEDIUM priority', async () => {
-      const output = await execInProcess('board view --priority MEDIUM');
+      const output = await execInProcess('board view --priority MEDIUM --machine');
 
       expect(output).to.contain('P:MEDIUM');
       expect(output).to.not.contain('P:HIGH');
     });
 
     it('should be case-insensitive', async () => {
-      const output1 = await execInProcess('board view --priority high');
-      const output2 = await execInProcess('board view --priority HIGH');
+      const output1 = await execInProcess('board view --priority high --machine');
+      const output2 = await execInProcess('board view --priority HIGH --machine');
 
       expect(output1).to.equal(output2);
     });
@@ -96,7 +96,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('prlt board view --column', () => {
     it('should show only specific column', async () => {
-      const output = await execInProcess('board view --column "In Progress"');
+      const output = await execInProcess('board view --column "In Progress" --machine');
 
       expect(output).to.contain('In Progress');
       expect(output).to.not.contain('SHIP BL');
@@ -104,7 +104,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should support multiple columns', async () => {
-      const output = await execInProcess('board view --column "SHIP BL" --column "In Progress"');
+      const output = await execInProcess('board view --column "SHIP BL" --column "In Progress" --machine');
 
       expect(output).to.contain('SHIP BL');
       expect(output).to.contain('In Progress');
@@ -114,14 +114,14 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('prlt board view --status', () => {
     it('should filter by lifecycle status', async () => {
-      const output = await execInProcess('board view --status in_progress');
+      const output = await execInProcess('board view --status in_progress --machine');
 
       expect(output).to.contain('[IN_PROGRESS]');
       expect(output).to.not.contain('[BACKLOG]');
     });
 
     it('should filter blocked tickets', async () => {
-      const output = await execInProcess('board view --status blocked');
+      const output = await execInProcess('board view --status blocked --machine');
 
       expect(output).to.contain('[BLOCKED]');
       expect(output).to.match(/\d+ blocked tickets/);
@@ -130,7 +130,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('prlt board view with combined filters', () => {
     it('should apply multiple filters (AND)', async () => {
-      const output = await execInProcess('board view --assignee alice --priority HIGH');
+      const output = await execInProcess('board view --assignee alice --priority HIGH --machine');
 
       expect(output).to.contain('filtered: assignee=alice, priority=HIGH');
       expect(output).to.contain('@alice');
@@ -140,7 +140,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should combine assignee, priority, and column filters', async () => {
-      const output = await execInProcess('board view --assignee alice --priority HIGH --column "In Progress"');
+      const output = await execInProcess('board view --assignee alice --priority HIGH --column "In Progress" --machine');
 
       expect(output).to.contain('In Progress');
       expect(output).to.contain('@alice');
@@ -148,7 +148,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should show filtered count vs total', async () => {
-      const output = await execInProcess('board view --priority HIGH');
+      const output = await execInProcess('board view --priority HIGH --machine');
 
       expect(output).to.match(/Showing \d+ of \d+ total tickets/);
     });
@@ -156,7 +156,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('prlt board view --group-by assignee', () => {
     it('should group tickets by assignee', async () => {
-      const output = await execInProcess('board view --group-by assignee');
+      const output = await execInProcess('board view --group-by assignee --machine');
 
       expect(output).to.contain('grouped by: assignee');
       expect(output).to.contain('👤 alice');
@@ -165,7 +165,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should show column in ticket details when grouped', async () => {
-      const output = await execInProcess('board view --group-by assignee');
+      const output = await execInProcess('board view --group-by assignee --machine');
 
       // When grouped by assignee, should show which column each ticket is in
       expect(output).to.contain('[SHIP BL]');
@@ -173,7 +173,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should show ticket counts per assignee', async () => {
-      const output = await execInProcess('board view --group-by assignee');
+      const output = await execInProcess('board view --group-by assignee --machine');
 
       expect(output).to.match(/alice \(\d+ tickets\)/);
       expect(output).to.match(/bob \(\d+ tickets\)/);
@@ -182,7 +182,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('prlt board view --group-by priority', () => {
     it('should group tickets by priority level', async () => {
-      const output = await execInProcess('board view --group-by priority');
+      const output = await execInProcess('board view --group-by priority --machine');
 
       expect(output).to.contain('grouped by: priority');
       expect(output).to.contain('🔴 HIGH');
@@ -191,14 +191,14 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should show assignee and column in grouped view', async () => {
-      const output = await execInProcess('board view --group-by priority');
+      const output = await execInProcess('board view --group-by priority --machine');
 
       expect(output).to.contain('@alice');
       expect(output).to.contain('[SHIP BL]');
     });
 
     it('should show summary with priority breakdown', async () => {
-      const output = await execInProcess('board view --group-by priority');
+      const output = await execInProcess('board view --group-by priority --machine');
 
       expect(output).to.match(/HIGH: \d+, MEDIUM: \d+, LOW: \d+/);
     });
@@ -206,7 +206,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('prlt board view --sort-by', () => {
     it('should sort by priority (highest first)', async () => {
-      const output = await execInProcess('board view --sort-by priority');
+      const output = await execInProcess('board view --sort-by priority --machine');
 
       expect(output).to.contain('sorted by: priority');
 
@@ -219,25 +219,25 @@ describe.skip('PMO Board Views E2E Tests', () => {
     });
 
     it('should sort by created date', async () => {
-      const output = await execInProcess('board view --sort-by created');
+      const output = await execInProcess('board view --sort-by created --machine');
 
       expect(output).to.contain('sorted by: created');
     });
 
     it('should sort by updated date (most recent first)', async () => {
-      const output = await execInProcess('board view --sort-by updated');
+      const output = await execInProcess('board view --sort-by updated --machine');
 
       expect(output).to.contain('sorted by: updated');
     });
 
     it('should sort alphabetically by title', async () => {
-      const output = await execInProcess('board view --sort-by title');
+      const output = await execInProcess('board view --sort-by title --machine');
 
       expect(output).to.contain('sorted by: title');
     });
 
     it('should sort by assignee name', async () => {
-      const output = await execInProcess('board view --sort-by assignee');
+      const output = await execInProcess('board view --sort-by assignee --machine');
 
       expect(output).to.contain('sorted by: assignee');
     });
@@ -245,13 +245,13 @@ describe.skip('PMO Board Views E2E Tests', () => {
 
   describe('empty state handling', () => {
     it('should show message when no tickets match filters', async () => {
-      const output = await execInProcess('board view --assignee nonexistent');
+      const output = await execInProcess('board view --assignee nonexistent --machine');
 
       expect(output).to.contain('No tickets match filters');
     });
 
     it('should suggest removing filters if no results', async () => {
-      const output = await execInProcess('board view --assignee nobody --priority URGENT');
+      const output = await execInProcess('board view --assignee nobody --priority URGENT --machine');
 
       expect(output).to.match(/No tickets match|remove filters/i);
     });

@@ -67,7 +67,7 @@ describe.skip('Work Commands E2E Tests', () => {
       // Create ticket in In Progress column
       const ticketId = createTicket(db, 'Ready test', 'in-progress');
 
-      const output = await execInProcess(`work ready ${ticketId}`);
+      const output = await execInProcess(`work ready ${ticketId} --machine`);
 
       expect(output).to.contain('ready');
       expect(output).to.contain(ticketId);
@@ -88,7 +88,7 @@ describe.skip('Work Commands E2E Tests', () => {
       const ticketId = createTicket(db, 'Execution test', 'in-progress');
       createExecution(db, ticketId, 'agent-1', 'running');
 
-      await execInProcess(`work ready ${ticketId}`);
+      await execInProcess(`work ready ${ticketId} --machine`);
 
       // Verify execution marked as completed
       const execution = db.prepare(`
@@ -126,7 +126,7 @@ describe.skip('Work Commands E2E Tests', () => {
       // Create ticket in In Progress column
       const ticketId = createTicket(db, 'Complete test', 'in-progress');
 
-      const output = await execInProcess(`work complete ${ticketId}`);
+      const output = await execInProcess(`work complete ${ticketId} --machine`);
 
       expect(output).to.contain('complete');
       expect(output).to.contain(ticketId);
@@ -145,7 +145,7 @@ describe.skip('Work Commands E2E Tests', () => {
     it('should update ticket status to done', async () => {
       const ticketId = createTicket(db, 'Status test', 'in-review');
 
-      await execInProcess(`work complete ${ticketId}`);
+      await execInProcess(`work complete ${ticketId} --machine`);
 
       const ticket = db.prepare(`
         SELECT status FROM pmo_tickets WHERE id = ?
@@ -158,7 +158,7 @@ describe.skip('Work Commands E2E Tests', () => {
       const ticketId = createTicket(db, 'Exec complete test', 'in-review');
       createExecution(db, ticketId, 'agent-1', 'running');
 
-      await execInProcess(`work complete ${ticketId}`);
+      await execInProcess(`work complete ${ticketId} --machine`);
 
       const execution = db.prepare(`
         SELECT status FROM agent_work WHERE ticket_id = ?
@@ -234,7 +234,7 @@ describe.skip('Work Commands E2E Tests', () => {
       createExecution(db, ticketId, 'agent-1', 'running');
 
       // Complete the work
-      await execInProcess(`work ready ${ticketId}`);
+      await execInProcess(`work ready ${ticketId} --machine`);
 
       // Agent should now be available
       const availableAgents = db.prepare(`

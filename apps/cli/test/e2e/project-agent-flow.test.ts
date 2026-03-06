@@ -116,7 +116,7 @@ describe('Project Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('project list -m');
+      const output = await execInProcess('project list -m --machine');
       const json = extractJson<{
         success: boolean;
         result: { projects: Array<{ id: string }> };
@@ -215,7 +215,7 @@ describe('Project Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('project view test-project -m');
+      const output = await execInProcess('project view test-project -m --machine');
       const json = extractJson<{
         success: boolean;
         result: { id: string };
@@ -275,7 +275,7 @@ describe('Project Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('project create -m');
+      const output = await execInProcess('project create -m --machine');
       const json = extractJson<{
         prompt: { type: string };
         metadata: { flags: { machine: boolean } };
@@ -369,7 +369,7 @@ describe('Project Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('project delete delete-me -m');
+      const output = await execInProcess('project delete delete-me -m --machine');
       const json = extractJson<{
         prompt: { type: string };
         metadata: { flags: { machine: boolean } };
@@ -460,7 +460,7 @@ describe('Project Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('project archive archive-me -m');
+      const output = await execInProcess('project archive archive-me -m --machine');
       const json = extractJson<{
         prompt: { type: string };
         metadata: { flags: { machine: boolean } };
@@ -522,7 +522,7 @@ describe('Project Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('project unarchive unarchive-me -m');
+      const output = await execInProcess('project unarchive unarchive-me -m --machine');
       const json = extractJson<{
         success: boolean;
         result: { unarchived: boolean };
@@ -606,7 +606,7 @@ describe('Project Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('project spec test-project -m');
+      const output = await execInProcess('project spec test-project -m --machine');
       const json = extractJson<{
         success: boolean;
         result: { projectId: string };
@@ -668,7 +668,7 @@ describe('Project Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('project -m');
+      const output = await execInProcess('project -m --machine');
       const json = extractJson<{
         prompt: { type: string };
         metadata: { flags: { machine: boolean } };

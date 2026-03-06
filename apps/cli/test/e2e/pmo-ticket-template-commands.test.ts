@@ -38,7 +38,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
   describe('prlt ticket template list', () => {
     it('should list all ticket templates', async () => {
-      const output = await execInProcess('ticket template list');
+      const output = await execInProcess('ticket template list --machine');
 
       expect(output).to.contain('Ticket Templates');
       expect(output).to.contain('bug-report');
@@ -46,7 +46,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should show built-in templates', async () => {
-      const output = await execInProcess('ticket template list');
+      const output = await execInProcess('ticket template list --machine');
 
       expect(output).to.contain('Built-in Templates');
       expect(output).to.contain('Bug Report');
@@ -55,7 +55,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should filter to builtin only with --builtin', async () => {
-      const output = await execInProcess('ticket template list --builtin');
+      const output = await execInProcess('ticket template list --builtin --machine');
 
       expect(output).to.contain('Built-in Templates');
       expect(output).not.to.contain('Custom Templates');
@@ -64,9 +64,9 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     it('should filter to custom only with --custom', async () => {
       // First create a custom template
       createTestTicket(db, 'TKT-001', 'Test Ticket');
-      await execInProcess('ticket template save TKT-001 "My Custom Template" --description ""');
+      await execInProcess('ticket template save TKT-001 "My Custom Template" --description "" --machine');
 
-      const output = await execInProcess('ticket template list --custom');
+      const output = await execInProcess('ticket template list --custom --machine');
 
       expect(output).to.contain('Custom Templates');
       expect(output).to.contain('My Custom Template');
@@ -86,7 +86,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
 
   describe('prlt ticket template apply', () => {
     it('should create ticket from bug-report template', async () => {
-      const output = await execInProcess('ticket template apply bug-report --title "Login page crashes"');
+      const output = await execInProcess('ticket template apply bug-report --title "Login page crashes" --machine');
 
       expect(output).to.contain('Created ticket');
       expect(output).to.contain('Bug Report');
@@ -99,7 +99,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should create ticket from feature-request template', async () => {
-      const output = await execInProcess('ticket template apply feature-request --title "Add dark mode"');
+      const output = await execInProcess('ticket template apply feature-request --title "Add dark mode" --machine');
 
       expect(output).to.contain('Created ticket');
       expect(output).to.contain('Feature Request');
@@ -111,7 +111,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should create subtasks from template', async () => {
-      await execInProcess('ticket template apply bug-report --title "Fix crash"');
+      await execInProcess('ticket template apply bug-report --title "Fix crash" --machine');
 
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title LIKE ?').get('%Fix crash%') as { id: string } | undefined;
       expect(ticket).to.not.be.undefined;
@@ -121,7 +121,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should override template defaults with flags', async () => {
-      await execInProcess('ticket template apply bug-report --title "Minor issue" --priority LOW --category chore');
+      await execInProcess('ticket template apply bug-report --title "Minor issue" --priority LOW --category chore --machine');
 
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE title LIKE ?').get('%Minor issue%') as { priority: string; category: string } | undefined;
       expect(ticket).to.not.be.undefined;
@@ -130,7 +130,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should skip subtasks with --no-subtasks', async () => {
-      await execInProcess('ticket template apply bug-report --title "No subtasks" --no-subtasks');
+      await execInProcess('ticket template apply bug-report --title "No subtasks" --no-subtasks --machine');
 
       const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title LIKE ?').get('%No subtasks%') as { id: string } | undefined;
       expect(ticket).to.not.be.undefined;
@@ -140,7 +140,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should error when template not found', async () => {
-      const output = await execInProcess('ticket template apply non-existent --title "Test"');
+      const output = await execInProcess('ticket template apply non-existent --title "Test" --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -156,7 +156,7 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should create template from ticket', async () => {
-      const output = await execInProcess('ticket template save TKT-001 "My Template" --description ""');
+      const output = await execInProcess('ticket template save TKT-001 "My Template" --description "" --machine');
 
       expect(output).to.contain('Created template');
       expect(output).to.contain('My Template');
@@ -168,27 +168,27 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should include description in template', async () => {
-      await execInProcess('ticket template save TKT-001 "Template With Desc" --description "A reusable template"');
+      await execInProcess('ticket template save TKT-001 "Template With Desc" --description "A reusable template" --machine');
 
       const template = db.prepare('SELECT * FROM pmo_ticket_templates WHERE name = ?').get('Template With Desc') as { description: string } | undefined;
       expect(template?.description).to.equal('A reusable template');
     });
 
     it('should error when ticket not found', async () => {
-      const output = await execInProcess('ticket template save TKT-999 "Bad Template"');
+      const output = await execInProcess('ticket template save TKT-999 "Bad Template" --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
     it('should error when template name already exists', async () => {
-      await execInProcess('ticket template save TKT-001 "Duplicate Name" --description ""');
-      const output = await execInProcess('ticket template save TKT-001 "Duplicate Name" --description ""');
+      await execInProcess('ticket template save TKT-001 "Duplicate Name" --description "" --machine');
+      const output = await execInProcess('ticket template save TKT-001 "Duplicate Name" --description "" --machine');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
     it('should accept --template-name flag instead of positional argument', async () => {
-      const output = await execInProcess('ticket template save TKT-001 --template-name "Flag Template" --description ""');
+      const output = await execInProcess('ticket template save TKT-001 --template-name "Flag Template" --description "" --machine');
 
       expect(output).to.contain('Created template');
       expect(output).to.contain('Flag Template');
@@ -235,11 +235,11 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
   describe('prlt ticket template delete', () => {
     beforeEach(async () => {
       createTestTicket(db, 'TKT-001', 'Source Ticket');
-      await execInProcess('ticket template save TKT-001 "Deletable Template" --description ""');
+      await execInProcess('ticket template save TKT-001 "Deletable Template" --description "" --machine');
     });
 
     it('should delete custom template', async () => {
-      const output = await execInProcess('ticket template delete deletable-template --force');
+      const output = await execInProcess('ticket template delete deletable-template --force --machine');
 
       expect(output).to.contain('Deleted template');
 
@@ -248,13 +248,13 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
     });
 
     it('should error when template not found', async () => {
-      const output = await execInProcess('ticket template delete non-existent --force');
+      const output = await execInProcess('ticket template delete non-existent --force --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
     it('should error when deleting built-in template', async () => {
-      const output = await execInProcess('ticket template delete bug-report --force');
+      const output = await execInProcess('ticket template delete bug-report --force --machine');
 
       expect(output.toLowerCase()).to.contain('cannot delete');
     });
@@ -270,10 +270,10 @@ describe('PMO Ticket Template Commands E2E Tests', () => {
       });
 
       // Save as template
-      await execInProcess('ticket template save TKT-001 "Sprint Planning" --description ""');
+      await execInProcess('ticket template save TKT-001 "Sprint Planning" --description "" --machine');
 
       // Create new ticket from template
-      const output = await execInProcess('ticket template apply sprint-planning --title "Sprint 42 Planning"');
+      const output = await execInProcess('ticket template apply sprint-planning --title "Sprint 42 Planning" --machine');
 
       expect(output).to.contain('Created ticket');
       expect(output).to.contain('Sprint Planning');

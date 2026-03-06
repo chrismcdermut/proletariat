@@ -186,7 +186,7 @@ describe('PR Commands E2E Tests', () => {
     it('should check for gh CLI availability', async () => {
       // The command should check for gh CLI
       // If gh is not installed/authenticated, it should show appropriate message
-      const output = await execInProcess('pr create');
+      const output = await execInProcess('pr create --machine');
 
       // Either shows gh not installed, not authenticated, or proceeds with PR creation
       // All are valid responses depending on environment
@@ -505,7 +505,7 @@ describe('PR Commands E2E Tests', () => {
       const ticketId = createTicket(db, 'Status test ticket', 'in-progress');
 
       // With ticket ID provided, should show status directly
-      const output = await execInProcess(`pr status ${ticketId}`);
+      const output = await execInProcess(`pr status ${ticketId} --machine`);
 
       // Should show ticket info
       expect(output).to.include(ticketId);

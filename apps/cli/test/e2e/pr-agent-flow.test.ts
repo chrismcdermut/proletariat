@@ -167,7 +167,7 @@ describe('PR Commands - Agent Flow Tests', () => {
 
     it('should skip selection when ticket ID provided directly', async () => {
       // Direct ticket ID should not prompt for selection
-      const result = await execInProcess('pr status TKT-PR-1 -P test-project');
+      const result = await execInProcess('pr status TKT-PR-1 -P test-project --machine');
 
       // Skip if command not found
       if (result.includes('command pr:status not found') || result.includes('command pr not found')) {

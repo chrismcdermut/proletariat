@@ -143,7 +143,7 @@ describe('PR Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('pr -P test-project -m');
+      const output = await execInProcess('pr -P test-project -m --machine');
       const json = extractJson<{ prompt: { name: string } }>(output);
 
       expect(json.prompt.name).to.equal('action');
@@ -184,7 +184,7 @@ describe('PR Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('pr status -P test-project -m');
+      const output = await execInProcess('pr status -P test-project -m --machine');
       const json = extractJson<{ prompt: { type: string } }>(output);
 
       expect(json.prompt).to.exist;
@@ -192,7 +192,7 @@ describe('PR Commands JSON Mode', () => {
     });
 
     it('should skip ticket selection when ticket ID provided directly', async () => {
-      const output = await execInProcess('pr status TKT-STATUS-1 -P test-project');
+      const output = await execInProcess('pr status TKT-STATUS-1 -P test-project --machine');
 
       // Should show ticket info directly (no JSON prompt)
       expect(output).to.include('TKT-STATUS-1');
@@ -242,7 +242,7 @@ describe('PR Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('pr link -P test-project -m');
+      const output = await execInProcess('pr link -P test-project -m --machine');
       const json = extractJson<{ prompt?: unknown; error?: unknown; metadata: { command: string } }>(output);
 
       // Should produce valid JSON output
@@ -317,7 +317,7 @@ describe('PR Commands JSON Mode', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('pr create -P test-project -m');
+      const output = await execInProcess('pr create -P test-project -m --machine');
 
       // Must get some output
       expect(output).to.be.a('string');
@@ -541,7 +541,7 @@ describe('PR Commands JSON Mode', () => {
         expect(dbMetadata!.value).to.equal('https://github.com/test/repo/pull/123');
 
         // Agent provides ticket ID - no prompts needed
-        const result = await execInProcess('pr status TKT-STATUS-FLOW-1 -P test-project');
+        const result = await execInProcess('pr status TKT-STATUS-FLOW-1 -P test-project --machine');
 
         // Verify output shows ticket
         expect(result).to.include('TKT-STATUS-FLOW-1');
@@ -564,7 +564,7 @@ describe('PR Commands JSON Mode', () => {
         expect(dbMetadata).to.not.exist;
 
         // View status
-        const result = await execInProcess('pr status TKT-NO-PR-STATUS -P test-project');
+        const result = await execInProcess('pr status TKT-NO-PR-STATUS -P test-project --machine');
 
         // Should indicate no PR linked
         expect(result).to.include('TKT-NO-PR-STATUS');
@@ -673,7 +673,7 @@ describe('PR Commands JSON Mode', () => {
       it('should handle --pr flag to skip PR selection entirely', async () => {
         // Agent provides both ticket and PR number - no prompts needed
         // Use PR #221 which exists on this repo
-        const result = await execInProcess('pr link TKT-LINK-FLOW-1 --pr 221 -P test-project');
+        const result = await execInProcess('pr link TKT-LINK-FLOW-1 --pr 221 -P test-project --machine');
 
         // Should either succeed or show error if PR not found
         expect(result).to.be.a('string');
@@ -774,7 +774,7 @@ describe('PR Commands JSON Mode', () => {
 
         // Agent Step 2: Don't use --confirm flag - just run without it
         // (equivalent to selecting "No" - will show the existing PR info and return)
-        const result = await execInProcess('pr link TKT-LINK-CANCEL -P test-project');
+        const result = await execInProcess('pr link TKT-LINK-CANCEL -P test-project --machine');
 
         // Should complete (shows existing PR info)
         expect(result).to.be.a('string');

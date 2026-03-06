@@ -98,7 +98,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('action -m');
+      const output = await execInProcess('action -m --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -185,7 +185,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
     it('should filter custom actions with --custom flag', async () => {
       // First create a custom action
-      await execInProcess('action create "Test Custom" --prompt "Test prompt"');
+      await execInProcess('action create "Test Custom" --prompt "Test prompt" --machine');
 
       const output = await execInProcess('action list --json --custom');
       const actions = extractJson<Array<{ id: string; isBuiltin: boolean }>>(output);
@@ -249,7 +249,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   describe('action update --machine', () => {
     beforeEach(async () => {
       // Create a custom action for update tests
-      await execInProcess('action create "Update Target" --prompt "Original prompt"');
+      await execInProcess('action create "Update Target" --prompt "Original prompt" --machine');
     });
 
     it('should output JSON prompt in interactive mode', async () => {
@@ -298,7 +298,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   describe('action delete --machine', () => {
     beforeEach(async () => {
       // Create a custom action for delete tests
-      await execInProcess('action create "Delete Target" --prompt "To be deleted"');
+      await execInProcess('action create "Delete Target" --prompt "To be deleted" --machine');
     });
 
     it('should output JSON confirmation prompt', async () => {
@@ -349,7 +349,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
   describe('action CRUD operations', () => {
     it('should create custom action', async () => {
-      const output = await execInProcess('action create "Test Action" --prompt "Test prompt"');
+      const output = await execInProcess('action create "Test Action" --prompt "Test prompt" --machine');
       expect(output).to.include('Created action');
 
       const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('test-action') as { name: string };
@@ -359,10 +359,10 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
     it('should update custom action', async () => {
       // Create first
-      await execInProcess('action create "Update Me" --prompt "Original"');
+      await execInProcess('action create "Update Me" --prompt "Original" --machine');
 
       // Update
-      await execInProcess('action update update-me --prompt "Updated prompt"');
+      await execInProcess('action update update-me --prompt "Updated prompt" --machine');
 
       const action = db.prepare('SELECT prompt FROM pmo_actions WHERE id = ?').get('update-me') as { prompt: string };
       expect(action.prompt).to.equal('Updated prompt');
@@ -370,22 +370,22 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
     it('should delete custom action with --force', async () => {
       // Create first
-      await execInProcess('action create "Delete Me" --prompt "To delete"');
+      await execInProcess('action create "Delete Me" --prompt "To delete" --machine');
 
       // Delete
-      await execInProcess('action delete delete-me --force');
+      await execInProcess('action delete delete-me --force --machine');
 
       const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('delete-me');
       expect(action).to.be.undefined;
     });
 
     it('should prevent deleting built-in actions', async () => {
-      const output = await execInProcess('action delete groom --force');
+      const output = await execInProcess('action delete groom --force --machine');
       expect(output.toLowerCase()).to.include('built-in');
     });
 
     it('should prevent updating built-in actions', async () => {
-      const output = await execInProcess('action update groom --name "New Name"');
+      const output = await execInProcess('action update groom --name "New Name" --machine');
       expect(output.toLowerCase()).to.include('built-in');
     });
   });
@@ -456,7 +456,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(step2Prompt!.prompt.context!.requiredFields).to.include('--prompt');
 
       // Step 5: Provide prompt - action should be created
-      const finalOutput = await execInProcess('action create "E2E Test Action" --prompt "This is the agent prompt text"');
+      const finalOutput = await execInProcess('action create "E2E Test Action" --prompt "This is the agent prompt text" --machine');
       expect(finalOutput).to.include('Created action');
       expect(finalOutput).to.include('e2e-test-action');
 
@@ -475,7 +475,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
     it('should complete delete flow: confirmation prompt → execute Yes command → verify deletion', async () => {
       // Setup: Create a custom action to delete
-      await execInProcess('action create "Delete Target" --prompt "Will be deleted"');
+      await execInProcess('action create "Delete Target" --prompt "Will be deleted" --machine');
 
       // Verify it was created
       let action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('delete-target');
@@ -513,7 +513,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
     it('should complete update flow: prompt for name → apply update → verify changes', async () => {
       // Setup: Create a custom action to update
-      await execInProcess('action create "Update Target" --prompt "Original prompt" --description "Original desc"');
+      await execInProcess('action create "Update Target" --prompt "Original prompt" --description "Original desc" --machine');
 
       // Verify it was created
       const original = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('update-target') as {
@@ -536,7 +536,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(updatePrompt!.prompt.context!.hint).to.include('--name');
 
       // Step 2: Apply update with direct flags
-      const applyOutput = await execInProcess('action update update-target --name "Renamed Action" --prompt "Updated prompt" --description "New description"');
+      const applyOutput = await execInProcess('action update update-target --name "Renamed Action" --prompt "Updated prompt" --description "New description" --machine');
       expect(applyOutput).to.include('Updated');
 
       // Step 3: Verify all changes were applied
@@ -552,7 +552,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
     it('should complete create with all optional flags and verify all fields', async () => {
       // Create action with all optional fields
-      const output = await execInProcess('action create "Full Options Action" --prompt "Full prompt" --description "Full description" --suggested-for started,backlog --move-to completed');
+      const output = await execInProcess('action create "Full Options Action" --prompt "Full prompt" --description "Full description" --suggested-for started,backlog --move-to completed --machine');
       expect(output).to.include('Created action');
 
       // Verify all fields were saved correctly
@@ -700,7 +700,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(step4!.prompt.name).to.equal('suggestedFor');
 
         // Final: Create with all flags (skip interactive prompts)
-        const finalOutput = await execInProcess('action create "Full Flow Final" --prompt "Final prompt" --description "Final desc" --suggested-for started --move-to completed');
+        const finalOutput = await execInProcess('action create "Full Flow Final" --prompt "Final prompt" --description "Final desc" --suggested-for started --move-to completed --machine');
         expect(finalOutput).to.include('Created action');
 
         // Verify in database
@@ -721,7 +721,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
     describe('action update --interactive multi-step flow', () => {
       beforeEach(async () => {
         // Create a custom action for update tests
-        await execInProcess('action create "Update Multi Step" --prompt "Original prompt" --description "Original desc"');
+        await execInProcess('action create "Update Multi Step" --prompt "Original prompt" --description "Original desc" --machine');
       });
 
       it('Step 1: should prompt for name with current value', async () => {
@@ -793,7 +793,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(step3!.prompt.name).to.equal('prompt');
 
         // Apply final update with direct flags (without --interactive to skip remaining prompts)
-        await execInProcess('action update update-multi-step --name "Final Update" --description "Final desc" --prompt "Final prompt"');
+        await execInProcess('action update update-multi-step --name "Final Update" --description "Final desc" --prompt "Final prompt" --machine');
 
         // Verify all changes in database
         action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('update-multi-step') as {
@@ -809,7 +809,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
     describe('action delete confirmation flow', () => {
       it('should show confirmation with Yes/No choices', async () => {
-        await execInProcess('action create "Confirm Delete" --prompt "To confirm"');
+        await execInProcess('action create "Confirm Delete" --prompt "To confirm" --machine');
 
         const output = await execInProcess('action delete confirm-delete --machine');
         const json = extractJson<MachinePromptResponse>(output);
@@ -831,7 +831,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       });
 
       it('should execute Yes command and delete action', async () => {
-        await execInProcess('action create "Execute Yes" --prompt "Execute test"');
+        await execInProcess('action create "Execute Yes" --prompt "Execute test" --machine');
 
         // Get confirmation prompt
         const confirmOutput = await execInProcess('action delete execute-yes --machine');
@@ -863,7 +863,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
     });
 
     it('should handle -m shorthand with other flags', async () => {
-      const output = await execInProcess('action -m');
+      const output = await execInProcess('action -m --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -885,7 +885,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
     });
 
     it('should handle action create with all optional flags', async () => {
-      const output = await execInProcess('action create "Full Options" --prompt "Test" --description "Test desc" --suggested-for started,backlog --move-to completed');
+      const output = await execInProcess('action create "Full Options" --prompt "Test" --description "Test desc" --suggested-for started,backlog --move-to completed --machine');
       expect(output).to.include('Created action');
 
       const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('full-options') as {

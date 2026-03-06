@@ -57,7 +57,7 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
 
   describe('prlt spec create', () => {
     it('should create spec in database', async () => {
-      await execInProcess('spec create "Auth System"');
+      await execInProcess('spec create "Auth System" --machine');
 
       const specs = db.prepare('SELECT * FROM pmo_specs WHERE title = ?').all('Auth System') as Array<{ id: string; status: string }>;
       expect(specs).to.have.lengthOf(1);
@@ -65,7 +65,7 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
     });
 
     it('should register spec with draft status by default', async () => {
-      await execInProcess('spec create "Database Schema"');
+      await execInProcess('spec create "Database Schema" --machine');
 
       const specs = db.prepare('SELECT * FROM pmo_specs WHERE title = ?').all('Database Schema') as Array<{ status: string }>;
       expect(specs).to.have.lengthOf(1);
@@ -73,7 +73,7 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
     });
 
     it('should allow setting status on create', async () => {
-      await execInProcess('spec create "Active Spec" --status active');
+      await execInProcess('spec create "Active Spec" --status active --machine');
 
       const specs = db.prepare('SELECT * FROM pmo_specs WHERE title = ?').all('Active Spec') as Array<{ status: string }>;
       expect(specs).to.have.lengthOf(1);
@@ -83,19 +83,19 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
 
   describe('prlt spec list', () => {
     it('should list all specs', async () => {
-      await execInProcess('spec create "Spec 1"');
-      await execInProcess('spec create "Spec 2"');
+      await execInProcess('spec create "Spec 1" --machine');
+      await execInProcess('spec create "Spec 2" --machine');
 
-      const output = await execInProcess('spec list');
+      const output = await execInProcess('spec list --machine');
 
       expect(output).to.contain('Spec 1');
       expect(output).to.contain('Spec 2');
     });
 
     it('should show spec status', async () => {
-      await execInProcess('spec create "Active Spec" --status active');
+      await execInProcess('spec create "Active Spec" --status active --machine');
 
-      const output = await execInProcess('spec list');
+      const output = await execInProcess('spec list --machine');
 
       expect(output).to.contain('active');
     });
@@ -104,10 +104,10 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
   describe('prlt spec view', () => {
     it('should display spec details and linked tickets', async () => {
       // Create spec
-      await execInProcess('spec create "View Test"');
+      await execInProcess('spec create "View Test" --machine');
       const spec = db.prepare('SELECT id FROM pmo_specs WHERE title = ?').get('View Test') as { id: string };
 
-      const output = await execInProcess(`spec view ${spec.id}`);
+      const output = await execInProcess(`spec view ${spec.id} --machine`);
 
       expect(output).to.contain('View Test');
     });
@@ -125,7 +125,7 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
   describe('prlt spec link', () => {
     it('should link existing ticket to spec', async () => {
       // Create spec
-      await execInProcess('spec create "Link Test"');
+      await execInProcess('spec create "Link Test" --machine');
       const spec = db.prepare('SELECT id FROM pmo_specs WHERE title = ?').get('Link Test') as { id: string };
 
       // Create ticket
@@ -135,7 +135,7 @@ describe.skip('PMO Spec Commands E2E Tests', () => {
       `).run();
 
       // Link them
-      await execInProcess(`spec link ${spec.id} LINK-001`);
+      await execInProcess(`spec link ${spec.id} LINK-001 --machine`);
 
       // Verify link via the ticket_specs join table
       const link = db.prepare('SELECT * FROM pmo_ticket_specs WHERE ticket_id = ? AND spec_id = ?').get('LINK-001', spec.id);

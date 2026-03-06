@@ -63,7 +63,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       createTestTicket(db, 'TEST-002', 'Setup CI/CD', 'backlog', 'MEDIUM');
       createTestTicket(db, 'TEST-003', 'Implement navigation', 'in-progress', 'HIGH');
 
-      const output = await execInProcess('board view');
+      const output = await execInProcess('board view --machine');
 
       expect(output).to.contain('Board');
       expect(output).to.contain('TEST-001');
@@ -75,13 +75,13 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       createTestTicket(db, 'TEST-001', 'Ticket 1', 'backlog', 'HIGH');
       createTestTicket(db, 'TEST-002', 'Ticket 2', 'backlog', 'LOW');
 
-      const output = await execInProcess('board view');
+      const output = await execInProcess('board view --machine');
 
       expect(output).to.match(/Backlog.*\(2\)/);
     });
 
     it('should handle empty board gracefully', async () => {
-      const output = await execInProcess('board view');
+      const output = await execInProcess('board view --machine');
 
       expect(output).to.not.throw;
       expect(output).to.contain('Board');
@@ -92,7 +92,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
     it('should output valid Obsidian Kanban markdown', async () => {
       createTestTicket(db, 'TEST-001', 'Add login screen', 'backlog', 'HIGH');
 
-      const output = await execInProcess('board markdown');
+      const output = await execInProcess('board markdown --machine');
 
       expect(output).to.contain('## SHIP BL');
       expect(output).to.contain('**TEST-001**');
@@ -105,7 +105,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       createTestTicket(db, 'TEST-001', 'Test ticket', 'backlog', 'MEDIUM');
 
       const outputPath = path.join(testDir, 'board-export.md');
-      await execInProcess(`board markdown > ${outputPath}`);
+      await execInProcess(`board markdown > ${outputPath} --machine`);
 
       expect(fs.existsSync(outputPath)).to.be.true;
       const content = fs.readFileSync(outputPath, 'utf-8');
@@ -118,7 +118,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       createTestTicket(db, 'TEST-001', 'New ticket', 'backlog', 'HIGH');
 
       // Run sync (should export to board.md)
-      await execInProcess('board sync --direction export');
+      await execInProcess('board sync --direction export --machine');
 
       expect(fs.existsSync(boardPath)).to.be.true;
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -140,7 +140,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       fs.writeFileSync(boardPath, boardContent);
 
       // Run sync (should import from board.md)
-      await execInProcess('board sync --direction import');
+      await execInProcess('board sync --direction import --machine');
 
       // Check database
       const ticket = db.prepare('SELECT * FROM pmo_tickets WHERE id = ?').get('TEST-002') as { title: string } | undefined;
@@ -152,13 +152,13 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       createTestTicket(db, 'TEST-001', 'Original', 'backlog', 'LOW');
 
       // Export first
-      await execInProcess('board sync --direction export');
+      await execInProcess('board sync --direction export --machine');
 
       // Modify ticket in DB
       db.prepare('UPDATE pmo_tickets SET title = ? WHERE id = ?').run('Modified', 'TEST-001');
 
       // Sync should show changes
-      const output = await execInProcess('board sync --dry-run --direction export');
+      const output = await execInProcess('board sync --dry-run --direction export --machine');
 
       expect(output).to.contain('Changes detected');
       expect(output).to.contain('TEST-001');
@@ -205,7 +205,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
       // This test is limited - we can't actually launch an editor
       // But we can verify the board.md file exists
       createTestTicket(db, 'TEST-001', 'Test', 'backlog', 'HIGH');
-      await execInProcess('board sync --direction export');
+      await execInProcess('board sync --direction export --machine');
 
       expect(fs.existsSync(boardPath)).to.be.true;
     });

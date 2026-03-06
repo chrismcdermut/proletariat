@@ -465,7 +465,7 @@ describe('Work Commands JSON Mode', () => {
 
     it('should move ticket to Review when all flags provided', async () => {
       // Execute without prompts
-      const output = await execInProcess('work ready TKT-001 -P test-project');
+      const output = await execInProcess('work ready TKT-001 -P test-project --no-pr --machine');
 
       expect(output.toLowerCase()).to.include('work ready');
       expect(output).to.include('TKT-001');
@@ -727,7 +727,7 @@ describe('Work Commands JSON Mode', () => {
     });
 
     it('should move ticket to Done when ticket ID provided', async () => {
-      const output = await execInProcess('work complete TKT-010 -P test-project');
+      const output = await execInProcess('work complete TKT-010 -P test-project --machine');
 
       expect(output.toLowerCase()).to.include('work complete');
       expect(output).to.include('TKT-010');
@@ -885,10 +885,13 @@ describe('Work Commands JSON Mode', () => {
     }
 
     /**
-     * Helper to execute final command (strips --json flag).
+     * Helper to execute final command (strips --json flag, adds --no-pr to work ready to prevent interactive prompts).
      */
     async function execFinal(cmd: string): Promise<string> {
-      return await execInProcess(cmd.replace(' --json', ''));
+      const stripped = cmd.replace(' --json', '');
+      // work ready may prompt for PR creation if gh is installed; bypass with --no-pr
+      const safe = stripped.includes('work ready') ? stripped + ' --no-pr' : stripped;
+      return await execInProcess(safe);
     }
 
     describe('work menu - full agent flow', () => {
@@ -990,7 +993,7 @@ describe('Work Commands JSON Mode', () => {
       });
 
       it('should skip prompts when ticket ID provided directly', async () => {
-        const result = await execInProcess('work ready TKT-200 -P test-project');
+        const result = await execInProcess('work ready TKT-200 -P test-project --no-pr --machine');
 
         expect(result).to.include('TKT-200');
         // work ready moves to Review column
@@ -1026,7 +1029,7 @@ describe('Work Commands JSON Mode', () => {
       });
 
       it('should skip prompts when ticket ID provided directly', async () => {
-        const result = await execInProcess('work complete TKT-300 -P test-project');
+        const result = await execInProcess('work complete TKT-300 -P test-project --machine');
 
         expect(result).to.include('TKT-300');
         const { statusId } = getTicketStatus('TKT-300');

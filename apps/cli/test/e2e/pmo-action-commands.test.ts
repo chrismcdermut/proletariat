@@ -41,7 +41,7 @@ describe('PMO Action Commands E2E Tests', () => {
 
   describe('prlt action list', () => {
     it('should list built-in actions', async () => {
-      const output = await execInProcess('action list');
+      const output = await execInProcess('action list --machine');
 
       expect(output).to.contain('Groom');
       expect(output).to.contain('Implement');
@@ -53,7 +53,7 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should show action descriptions', async () => {
-      const output = await execInProcess('action list');
+      const output = await execInProcess('action list --machine');
 
       expect(output).to.contain('Flesh out ticket');
       expect(output).to.contain('Write code to implement');
@@ -61,9 +61,9 @@ describe('PMO Action Commands E2E Tests', () => {
 
     it('should filter by --builtin', async () => {
       // Create a custom action first
-      await execInProcess('action create "Custom Action" --prompt "Do something custom"');
+      await execInProcess('action create "Custom Action" --prompt "Do something custom" --machine');
 
-      const output = await execInProcess('action list --builtin');
+      const output = await execInProcess('action list --builtin --machine');
 
       expect(output).to.contain('Groom');
       expect(output).to.contain('Implement');
@@ -72,9 +72,9 @@ describe('PMO Action Commands E2E Tests', () => {
 
     it('should filter by --custom', async () => {
       // Create a custom action first
-      await execInProcess('action create "My Custom" --prompt "Do something"');
+      await execInProcess('action create "My Custom" --prompt "Do something" --machine');
 
-      const output = await execInProcess('action list --custom');
+      const output = await execInProcess('action list --custom --machine');
 
       expect(output).to.contain('My Custom');
       expect(output).not.to.contain('Groom');
@@ -82,7 +82,7 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should filter by --suggested-for', async () => {
-      const output = await execInProcess('action list --suggested-for backlog');
+      const output = await execInProcess('action list --suggested-for backlog --machine');
 
       expect(output).to.contain('Groom');
       // Implement is suggested for unstarted/started, not backlog
@@ -102,7 +102,7 @@ describe('PMO Action Commands E2E Tests', () => {
 
   describe('prlt action show', () => {
     it('should show action details', async () => {
-      const output = await execInProcess('action show groom');
+      const output = await execInProcess('action show groom --machine');
 
       expect(output).to.contain('Groom');
       expect(output).to.contain('Prompt:');
@@ -111,28 +111,28 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should show full prompt text', async () => {
-      const output = await execInProcess('action show implement');
+      const output = await execInProcess('action show implement --machine');
 
       expect(output).to.contain('Implement');
       expect(output).to.contain('acceptance criteria');
     });
 
     it('should show moves-to category', async () => {
-      const output = await execInProcess('action show groom');
+      const output = await execInProcess('action show groom --machine');
 
       expect(output).to.contain('Moves to:');
       expect(output).to.contain('unstarted');
     });
 
     it('should show built-in status', async () => {
-      const output = await execInProcess('action show groom');
+      const output = await execInProcess('action show groom --machine');
 
       expect(output).to.contain('Built-in:');
       expect(output).to.contain('Yes');
     });
 
     it('should error when action not found', async () => {
-      const output = await execInProcess('action show non-existent');
+      const output = await execInProcess('action show non-existent --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -140,7 +140,7 @@ describe('PMO Action Commands E2E Tests', () => {
 
   describe('prlt action create', () => {
     it('should create action with name and prompt', async () => {
-      const output = await execInProcess('action create "Security Audit" --prompt "Review for security vulnerabilities"');
+      const output = await execInProcess('action create "Security Audit" --prompt "Review for security vulnerabilities" --machine');
 
       expect(output).to.contain('Created action');
       expect(output).to.contain('Security Audit');
@@ -151,7 +151,7 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should create action with description', async () => {
-      await execInProcess('action create "Doc Review" --prompt "Review documentation" --description "Check docs for accuracy"');
+      await execInProcess('action create "Doc Review" --prompt "Review documentation" --description "Check docs for accuracy" --machine');
 
       const action = db.prepare('SELECT description FROM pmo_actions WHERE name = ?').get('Doc Review') as { description: string };
       expect(action).to.not.be.undefined;
@@ -159,7 +159,7 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should create action with suggested-for categories', async () => {
-      await execInProcess('action create "Polish" --prompt "Polish the code" --suggested-for "completed,started"');
+      await execInProcess('action create "Polish" --prompt "Polish the code" --suggested-for "completed,started" --machine');
 
       const action = db.prepare('SELECT suggested_for_categories FROM pmo_actions WHERE name = ?').get('Polish') as { suggested_for_categories: string };
       expect(action).to.not.be.undefined;
@@ -169,7 +169,7 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should create action with move-to category', async () => {
-      await execInProcess('action create "Finish Up" --prompt "Complete the work" --move-to completed');
+      await execInProcess('action create "Finish Up" --prompt "Complete the work" --move-to completed --machine');
 
       const action = db.prepare('SELECT default_move_to_category FROM pmo_actions WHERE name = ?').get('Finish Up') as { default_move_to_category: string };
       expect(action).to.not.be.undefined;
@@ -177,7 +177,7 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should slugify action ID from name', async () => {
-      await execInProcess('action create "Action With Spaces" --prompt "Test"');
+      await execInProcess('action create "Action With Spaces" --prompt "Test" --machine');
 
       const action = db.prepare('SELECT id FROM pmo_actions WHERE name = ?').get('Action With Spaces') as { id: string };
       expect(action).to.not.be.undefined;
@@ -185,14 +185,14 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should error when action name already exists', async () => {
-      await execInProcess('action create "Duplicate" --prompt "First"');
-      const output = await execInProcess('action create "Duplicate" --prompt "Second"');
+      await execInProcess('action create "Duplicate" --prompt "First" --machine');
+      const output = await execInProcess('action create "Duplicate" --prompt "Second" --machine');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
     it('should default modifiesCode to true', async () => {
-      await execInProcess('action create "Code Changer" --prompt "Change code"');
+      await execInProcess('action create "Code Changer" --prompt "Change code" --machine');
 
       const action = db.prepare('SELECT modifies_code FROM pmo_actions WHERE name = ?').get('Code Changer') as { modifies_code: number };
       expect(action).to.not.be.undefined;
@@ -203,32 +203,32 @@ describe('PMO Action Commands E2E Tests', () => {
   describe('prlt action update', () => {
     beforeEach(async () => {
       // Create a custom action to update
-      await execInProcess('action create "Updatable" --prompt "Original prompt" --description "Original desc"');
+      await execInProcess('action create "Updatable" --prompt "Original prompt" --description "Original desc" --machine');
     });
 
     it('should update action name', async () => {
-      await execInProcess('action update updatable --name "New Name"');
+      await execInProcess('action update updatable --name "New Name" --machine');
 
       const action = db.prepare('SELECT name FROM pmo_actions WHERE id = ?').get('updatable') as { name: string };
       expect(action.name).to.equal('New Name');
     });
 
     it('should update action prompt', async () => {
-      await execInProcess('action update updatable --prompt "Updated prompt text"');
+      await execInProcess('action update updatable --prompt "Updated prompt text" --machine');
 
       const action = db.prepare('SELECT prompt FROM pmo_actions WHERE id = ?').get('updatable') as { prompt: string };
       expect(action.prompt).to.equal('Updated prompt text');
     });
 
     it('should update action description', async () => {
-      await execInProcess('action update updatable --description "New description"');
+      await execInProcess('action update updatable --description "New description" --machine');
 
       const action = db.prepare('SELECT description FROM pmo_actions WHERE id = ?').get('updatable') as { description: string };
       expect(action.description).to.equal('New description');
     });
 
     it('should update suggested-for categories', async () => {
-      await execInProcess('action update updatable --suggested-for "started,completed"');
+      await execInProcess('action update updatable --suggested-for "started,completed" --machine');
 
       const action = db.prepare('SELECT suggested_for_categories FROM pmo_actions WHERE id = ?').get('updatable') as { suggested_for_categories: string };
       const categories = JSON.parse(action.suggested_for_categories);
@@ -237,14 +237,14 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should update move-to category', async () => {
-      await execInProcess('action update updatable --move-to completed');
+      await execInProcess('action update updatable --move-to completed --machine');
 
       const action = db.prepare('SELECT default_move_to_category FROM pmo_actions WHERE id = ?').get('updatable') as { default_move_to_category: string };
       expect(action.default_move_to_category).to.equal('completed');
     });
 
     it('should error when action not found', async () => {
-      const output = await execInProcess('action update non-existent --name "New Name"');
+      const output = await execInProcess('action update non-existent --name "New Name" --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -253,7 +253,7 @@ describe('PMO Action Commands E2E Tests', () => {
     // Interactive mode tests are handled separately
 
     it('should not allow updating built-in actions', async () => {
-      const output = await execInProcess('action update groom --name "New Groom"');
+      const output = await execInProcess('action update groom --name "New Groom" --machine');
 
       expect(output.toLowerCase()).to.contain('built-in');
     });
@@ -262,31 +262,31 @@ describe('PMO Action Commands E2E Tests', () => {
   describe('prlt action delete', () => {
     beforeEach(async () => {
       // Create a custom action to delete
-      await execInProcess('action create "Deletable" --prompt "Can be deleted"');
+      await execInProcess('action create "Deletable" --prompt "Can be deleted" --machine');
     });
 
     it('should delete custom action', async () => {
-      await execInProcess('action delete deletable --force');
+      await execInProcess('action delete deletable --force --machine');
 
       const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('deletable');
       expect(action).to.be.undefined;
     });
 
     it('should show success message', async () => {
-      const output = await execInProcess('action delete deletable --force');
+      const output = await execInProcess('action delete deletable --force --machine');
 
       expect(output).to.contain('Deleted action');
       expect(output).to.contain('Deletable');
     });
 
     it('should error when action not found', async () => {
-      const output = await execInProcess('action delete non-existent --force');
+      const output = await execInProcess('action delete non-existent --force --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
     it('should not allow deleting built-in actions', async () => {
-      const output = await execInProcess('action delete groom --force');
+      const output = await execInProcess('action delete groom --force --machine');
 
       expect(output.toLowerCase()).to.contain('built-in');
     });
