@@ -1,13 +1,16 @@
 import { expect } from 'chai';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
-import Database from 'better-sqlite3';
 import {
   execInProcess,
   extractJson,
   agentExec,
   findChoiceByValue,
+  createTestEnvironment,
+  cleanupTestEnvironment,
+  createHQConfig,
+  createPMODirectories,
+  setupProductionSchema,
+  addWorkspaceTables,
+  TestEnvironment,
 } from './test-helpers.js';
 
 /**
@@ -23,95 +26,26 @@ import {
  * - Error paths for non-existent targets
  */
 describe('Session Peek Commands E2E Tests', () => {
-  let testDir: string;
-  let originalCwd: string;
-  let dbPath: string;
+  let env: TestEnvironment;
 
-  beforeEach(async () => {
-    originalCwd = process.cwd();
-    testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'session-peek-e2e-')));
-    process.chdir(testDir);
+  beforeEach(() => {
+    env = createTestEnvironment('session-peek-e2e-');
 
-    const proletariatDir = path.join(testDir, '.proletariat');
-    fs.mkdirSync(proletariatDir, { recursive: true });
-    dbPath = path.join(proletariatDir, 'workspace.db');
+    // Create HQ config and PMO directories
+    createHQConfig(env.proletariatDir, { hasPmo: true });
+    createPMODirectories(env.pmoPath, 'default');
 
-    const db = new Database(dbPath);
+    // Initialize PMO tables using production schema
+    const db = setupProductionSchema(env.dbPath, env.pmoPath);
+
+    // Add workspace tables
+    addWorkspaceTables(db, { type: 'hq', workspaceName: 'test-hq', hasPmo: true });
+
     db.close();
-
-    const configPath = path.join(proletariatDir, 'config.json');
-    fs.writeFileSync(configPath, JSON.stringify({
-      type: 'hq',
-      name: 'test-hq',
-      hasPmo: true,
-    }), 'utf-8');
-
-    fs.mkdirSync(path.join(testDir, 'pmo', 'projects', 'default'), { recursive: true });
-
-    // Trigger PMO table initialization
-    await execInProcess('session --machine');
-
-    // Create workspace tables
-    const initDb = new Database(dbPath);
-    initDb.exec(`
-      CREATE TABLE IF NOT EXISTS agent_themes (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        display_name TEXT NOT NULL,
-        description TEXT,
-        builtin BOOLEAN DEFAULT FALSE,
-        created_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS workspace (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
-        workspace_name TEXT NOT NULL,
-        has_pmo BOOLEAN DEFAULT FALSE,
-        active_theme_id TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-      );
-      CREATE TABLE IF NOT EXISTS repositories (
-        name TEXT PRIMARY KEY,
-        path TEXT NOT NULL,
-        type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
-        source_url TEXT,
-        action TEXT CHECK (action IN ('clone', 'move', 'link')),
-        added_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS agents (
-        name TEXT PRIMARY KEY,
-        type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
-        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
-        base_name TEXT,
-        theme_id TEXT,
-        worktree_path TEXT,
-        mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
-        created_at TEXT NOT NULL,
-        cleaned_at TEXT,
-        FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-      );
-      CREATE TABLE IF NOT EXISTS agent_worktrees (
-        agent_name TEXT NOT NULL,
-        repo_name TEXT NOT NULL,
-        worktree_path TEXT NOT NULL,
-        branch TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        PRIMARY KEY (agent_name, repo_name),
-        FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
-        FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
-      );
-      INSERT OR IGNORE INTO workspace (id, type, workspace_name, has_pmo, created_at)
-      VALUES (1, 'hq', 'test-hq', 1, datetime('now'));
-    `);
-    initDb.close();
   });
 
   afterEach(() => {
-    process.chdir(originalCwd);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    cleanupTestEnvironment(env);
   });
 
   // =========================================================================
