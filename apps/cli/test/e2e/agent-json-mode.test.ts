@@ -1125,7 +1125,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --machine flag', async () => {
-        const output = await execInProcess('agent login --machine 2>&1');
+        const output = await execInProcess('agent login --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1136,7 +1136,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --json flag (legacy)', async () => {
-        const output = await execInProcess('agent login --json 2>&1');
+        const output = await execInProcess('agent login --json');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1146,7 +1146,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support -m shorthand', async () => {
-        const output = await execInProcess('agent login -m 2>&1');
+        const output = await execInProcess('agent login -m');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1156,7 +1156,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should accept agent name directly', async () => {
-        const output = await execInProcess('agent login login-flag-agent 2>&1');
+        const output = await execInProcess('agent login login-flag-agent');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('login-flag-agent') ||
@@ -1167,7 +1167,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should accept agent name with --machine flag', async () => {
-        const output = await execInProcess('agent login login-flag-agent --machine 2>&1');
+        const output = await execInProcess('agent login login-flag-agent --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('login-flag-agent') ||
@@ -1178,7 +1178,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent', async () => {
-        const output = await execInProcess('agent login nonexistent-login-xyz 2>&1');
+        const output = await execInProcess('agent login nonexistent-login-xyz');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') ||
@@ -1194,7 +1194,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --machine flag', async () => {
-        const output = await execInProcess('agent restart --machine 2>&1');
+        const output = await execInProcess('agent restart --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1205,7 +1205,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --json flag (legacy)', async () => {
-        const output = await execInProcess('agent restart --json 2>&1');
+        const output = await execInProcess('agent restart --json');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1215,7 +1215,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support -m shorthand', async () => {
-        const output = await execInProcess('agent restart -m 2>&1');
+        const output = await execInProcess('agent restart -m');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('"prompt"') ||
@@ -1225,7 +1225,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should accept agent name directly', async () => {
-        const output = await execInProcess('agent restart restart-flag-agent 2>&1');
+        const output = await execInProcess('agent restart restart-flag-agent');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('restart-flag-agent') ||
@@ -1236,7 +1236,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should accept agent name with --machine flag', async () => {
-        const output = await execInProcess('agent restart restart-flag-agent --machine 2>&1');
+        const output = await execInProcess('agent restart restart-flag-agent --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('restart-flag-agent') ||
@@ -1247,7 +1247,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent', async () => {
-        const output = await execInProcess('agent restart nonexistent-restart-xyz 2>&1');
+        const output = await execInProcess('agent restart nonexistent-restart-xyz');
 
         // Agent restart may attempt the restart (without pre-validation) or error
         expect(output.toLowerCase()).to.satisfy((o: string) =>
@@ -1457,7 +1457,7 @@ describe('Agent Commands JSON Mode', () => {
 
     describe('agent themes create flags', () => {
       it('should support --description flag', async () => {
-        const output = await execInProcess('agent themes create test-theme-1 --description "A test theme" 2>&1');
+        const output = await execInProcess('agent themes create test-theme-1 --description "A test theme"');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Created theme') ||
@@ -1467,7 +1467,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support -d shorthand for --description', async () => {
-        const output = await execInProcess('agent themes create test-theme-2 -d "Another test theme" 2>&1');
+        const output = await execInProcess('agent themes create test-theme-2 -d "Another test theme"');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Created theme') ||
@@ -1476,7 +1476,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --display-name flag', async () => {
-        const output = await execInProcess('agent themes create test-theme-3 --display-name "Custom Display Name" 2>&1');
+        const output = await execInProcess('agent themes create test-theme-3 --display-name "Custom Display Name"');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Created theme') ||
@@ -1485,7 +1485,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support combined --description and --display-name flags', async () => {
-        const output = await execInProcess('agent themes create test-theme-4 --display-name "Combined Test" --description "Testing both flags" 2>&1');
+        const output = await execInProcess('agent themes create test-theme-4 --display-name "Combined Test" --description "Testing both flags"');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Created theme') ||
@@ -1497,10 +1497,10 @@ describe('Agent Commands JSON Mode', () => {
     describe('agent themes add-names', () => {
       it('should add names to an existing theme', async () => {
         // First create a theme
-        await execInProcess('agent themes create test-add-theme --description "Test theme for add-names" 2>&1');
+        await execInProcess('agent themes create test-add-theme --description "Test theme for add-names"');
 
         // Then add names to it
-        const output = await execInProcess('agent themes add-names test-add-theme hero-1 hero-2 hero-3 2>&1');
+        const output = await execInProcess('agent themes add-names test-add-theme hero-1 hero-2 hero-3');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Added') ||
@@ -1511,10 +1511,10 @@ describe('Agent Commands JSON Mode', () => {
 
       it('should normalize agent names', async () => {
         // Create theme first
-        await execInProcess('agent themes create test-normalize-theme 2>&1');
+        await execInProcess('agent themes create test-normalize-theme');
 
         // Add names with mixed case (should be normalized)
-        const output = await execInProcess('agent themes add-names test-normalize-theme MyAgent UPPER-CASE 2>&1');
+        const output = await execInProcess('agent themes add-names test-normalize-theme MyAgent UPPER-CASE');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Added') ||
@@ -1525,7 +1525,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error on non-existent theme', async () => {
-        const output = await execInProcess('agent themes add-names nonexistent-theme name1 name2 2>&1');
+        const output = await execInProcess('agent themes add-names nonexistent-theme name1 name2');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('not found') ||
@@ -1535,9 +1535,9 @@ describe('Agent Commands JSON Mode', () => {
 
       it('should error when no names provided', async () => {
         // Create theme first
-        await execInProcess('agent themes create test-empty-theme 2>&1');
+        await execInProcess('agent themes create test-empty-theme');
 
-        const output = await execInProcess('agent themes add-names test-empty-theme 2>&1');
+        const output = await execInProcess('agent themes add-names test-empty-theme');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('provide') ||
@@ -1614,7 +1614,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent', async () => {
-        const output = await execInProcess('agent status nonexistent-agent-xyz 2>&1');
+        const output = await execInProcess('agent status nonexistent-agent-xyz');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('error') || o.includes('no agent')
@@ -1622,7 +1622,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent with --machine', async () => {
-        const output = await execInProcess('agent status nonexistent-agent-xyz --machine 2>&1');
+        const output = await execInProcess('agent status nonexistent-agent-xyz --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('AGENT_NOT_FOUND') ||
@@ -1651,7 +1651,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent', async () => {
-        const output = await execInProcess('agent visit nonexistent-visit-xyz 2>&1');
+        const output = await execInProcess('agent visit nonexistent-visit-xyz');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('error')
@@ -1659,7 +1659,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent with --machine', async () => {
-        const output = await execInProcess('agent visit nonexistent-visit-xyz --machine 2>&1');
+        const output = await execInProcess('agent visit nonexistent-visit-xyz --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('AGENT_NOT_FOUND') ||
@@ -1675,7 +1675,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should attempt shell when agent name is provided', async () => {
-        const output = await execInProcess('agent shell direct-shell-agent 2>&1');
+        const output = await execInProcess('agent shell direct-shell-agent');
 
         // May fail with Docker/tmux error but should attempt
         expect(output).to.satisfy((o: string) =>
@@ -1687,7 +1687,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should accept --machine flag with agent name', async () => {
-        const output = await execInProcess('agent shell direct-shell-agent --machine 2>&1');
+        const output = await execInProcess('agent shell direct-shell-agent --machine');
 
         // Could return prompt for config selection, error, or Docker message
         // When agent name is provided, shell command shows config selection in JSON mode
@@ -1702,7 +1702,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent', async () => {
-        const output = await execInProcess('agent shell nonexistent-shell-xyz 2>&1');
+        const output = await execInProcess('agent shell nonexistent-shell-xyz');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('error') || o.includes('docker')
@@ -1717,7 +1717,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should prompt for confirmation when agent name provided', async () => {
-        const output = await execInProcess('agent staff remove remove-agent-1 --machine 2>&1');
+        const output = await execInProcess('agent staff remove remove-agent-1 --machine');
 
         // Should get confirmation prompt, agent not found, or no agents error
         expect(output).to.satisfy((o: string) =>
@@ -1732,7 +1732,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --force flag to skip confirmation', async () => {
-        const output = await execInProcess('agent staff remove remove-agent-1 --force 2>&1');
+        const output = await execInProcess('agent staff remove remove-agent-1 --force');
 
         // Should proceed without confirmation (may fail due to Docker, no real agents, or return JSON error)
         expect(output).to.satisfy((o: string) =>
@@ -1747,7 +1747,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support -f shorthand for --force', async () => {
-        const output = await execInProcess('agent staff remove remove-agent-2 -f 2>&1');
+        const output = await execInProcess('agent staff remove remove-agent-2 -f');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Removing') ||
@@ -1761,7 +1761,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent', async () => {
-        const output = await execInProcess('agent staff remove nonexistent-remove-xyz --force 2>&1');
+        const output = await execInProcess('agent staff remove nonexistent-remove-xyz --force');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('not found') || o.includes('error') || o.includes('no staff agents')
@@ -1769,7 +1769,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should error for non-existent agent with --machine', async () => {
-        const output = await execInProcess('agent staff remove nonexistent-remove-xyz --machine 2>&1');
+        const output = await execInProcess('agent staff remove nonexistent-remove-xyz --machine');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('AGENT_NOT_FOUND') ||
@@ -1781,7 +1781,7 @@ describe('Agent Commands JSON Mode', () => {
 
     describe('agent staff add with direct agent names', () => {
       it('should accept direct agent name argument', async () => {
-        const output = await execInProcess('agent staff add test-direct-agent 2>&1');
+        const output = await execInProcess('agent staff add test-direct-agent');
 
         // Should attempt to add agent (may fail due to Docker/workspace setup)
         expect(output).to.satisfy((o: string) =>
@@ -1794,7 +1794,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should accept multiple agent names', async () => {
-        const output = await execInProcess('agent staff add agent-a agent-b 2>&1');
+        const output = await execInProcess('agent staff add agent-a agent-b');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Adding') ||
@@ -1806,7 +1806,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --no-container flag', async () => {
-        const output = await execInProcess('agent staff add no-container-agent --no-container 2>&1');
+        const output = await execInProcess('agent staff add no-container-agent --no-container');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Adding') ||
@@ -1817,7 +1817,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support --clone flag', async () => {
-        const output = await execInProcess('agent staff add clone-agent --clone 2>&1');
+        const output = await execInProcess('agent staff add clone-agent --clone');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Adding') ||
@@ -1828,7 +1828,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should support combined --theme and --no-container flags', async () => {
-        const output = await execInProcess('agent staff add --theme billionaires --no-container --machine 2>&1');
+        const output = await execInProcess('agent staff add --theme billionaires --no-container --machine');
 
         // Should get name selection from theme or error
         expect(output).to.satisfy((o: string) =>
@@ -1848,7 +1848,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should handle empty agent list gracefully', async () => {
-        const output = await execInProcess('agent list --type staff 2>&1');
+        const output = await execInProcess('agent list --type staff');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('no active') ||
@@ -1860,7 +1860,7 @@ describe('Agent Commands JSON Mode', () => {
       });
 
       it('should handle invalid command gracefully', async () => {
-        const output = await execInProcess('agent invalidsubcommand 2>&1');
+        const output = await execInProcess('agent invalidsubcommand');
 
         expect(output.toLowerCase()).to.satisfy((o: string) =>
           o.includes('error') || o.includes('not') || o.includes('unknown') || o.includes('help')
@@ -1869,7 +1869,7 @@ describe('Agent Commands JSON Mode', () => {
 
       it('should handle missing required arguments', async () => {
         // themes create requires NAME
-        const output = await execInProcess('agent themes create 2>&1');
+        const output = await execInProcess('agent themes create');
 
         expect(output).to.satisfy((o: string) =>
           o.includes('Missing') ||
