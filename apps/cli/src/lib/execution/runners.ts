@@ -456,10 +456,51 @@ export function runExecutorPreflight(
 }
 
 /**
- * Build a role-specific prompt for orchestrator sessions.
- * Unlike ticket workers, orchestrators are long-running managers that delegate work.
+ * Build the system prompt for orchestrator sessions.
+ * This is injected via Claude Code's --system-prompt flag so the orchestrator
+ * knows its role immediately without relying on CLAUDE.md.
  */
+export function buildOrchestratorSystemPrompt(context: ExecutionContext): string {
+  const hqName = context.hqName || 'workspace'
+  let prompt = `You are an orchestrator for the **${hqName}** project. `
+  prompt += `Use \`prlt\` to view what's running — board, sessions, tickets, PRs. `
+  prompt += `Do not implement any work yourself. `
+  prompt += `Your job is to review, plan, investigate, delegate (via \`prlt work start\`), and review completed work.\n\n`
+
+  prompt += `## Your Role\n`
+  prompt += `- View and manage work using \`prlt\` CLI commands or MCP tools\n`
+  prompt += `- Delegate tasks to agents — do NOT implement work yourself\n`
+  prompt += `- Monitor agent progress, review completed work, and manage the board\n`
+  prompt += `- Spawn agents for Ready tickets, review PRs, merge completed work\n\n`
+
+  prompt += `## Available Tools\n`
+  prompt += `- Board: \`prlt board\`, \`prlt ticket list\`, \`prlt ticket show <id>\`, \`prlt work status\`\n`
+  prompt += `- Agents: \`prlt work start <ticket-id>\`, \`prlt session list\`, \`prlt session peek <session>\`, \`prlt session poke <session> "message"\`\n`
+  prompt += `- PRs: \`gh pr list\`, \`gh pr view\`, \`gh pr merge\`\n`
+  prompt += `- MCP: All prlt MCP tools are available\n\n`
+
+  // Load .orchestrator-context.md from HQ root if it exists
+  if (context.hqPath) {
+    const contextFilePath = path.join(context.hqPath, '.orchestrator-context.md')
+    if (fs.existsSync(contextFilePath)) {
+      try {
+        const contextContent = fs.readFileSync(contextFilePath, 'utf-8').trim()
+        if (contextContent) {
+          prompt += `## Workspace Context\n\n${contextContent}\n\n`
+        }
+      } catch {
+        // Ignore read errors
+      }
+    }
+  }
+
+  return prompt
+}
+
 function buildOrchestratorPrompt(context: ExecutionContext): string {
+  // Full prompt including role context — used for non-Claude executors that
+  // don't support --system-prompt. For Claude Code, runHost() splits this into
+  // a system prompt (role/tools) + a shorter user message.
   const hqName = context.hqName || 'workspace'
   let prompt = `# Orchestrator: ${hqName}\n\n`
   prompt += `You are the orchestrator for the **${hqName}** workspace using the prlt ecosystem.\n\n`
@@ -682,8 +723,24 @@ export async function runHost(
   const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${timestamp}.sh`)
   const promptPath = path.join(baseDir, `prompt-${context.ticketId}-${timestamp}.txt`)
 
-  // Write prompt to separate file to avoid any shell escaping issues
-  fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
+  // For orchestrator sessions with Claude Code, split the prompt:
+  // - System prompt (role/tools/context) → injected via --system-prompt flag
+  // - User message (action instructions or default) → passed as the initial message
+  // Non-Claude executors get the full combined prompt as the user message.
+  let systemPromptPath: string | null = null
+  if (context.isOrchestrator && isClaudeExecutor(executor)) {
+    const systemPrompt = buildOrchestratorSystemPrompt(context)
+    systemPromptPath = path.join(baseDir, `system-prompt-${context.ticketId}-${timestamp}.txt`)
+    fs.writeFileSync(systemPromptPath, systemPrompt, { mode: 0o644 })
+
+    // Override user message: just action instructions or a default startup message
+    const userMessage = context.actionPrompt
+      || 'You are now running as the orchestrator. Check the board status and report what you see.'
+    fs.writeFileSync(promptPath, userMessage, { mode: 0o644 })
+  } else {
+    // Write full prompt (includes role context for non-Claude executors)
+    fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
+  }
 
   // Build the executor command using getExecutorCommand() output
   // For Claude Code, we also support outputMode and additional flags
@@ -696,7 +753,9 @@ export async function runHost(
     const printFlag = config.outputMode === 'print' ? '-p ' : ''
     // --effort high: skips the effort level prompt for automated agents (TKT-1134)
     const effortFlag = skipPermissions ? '--effort high ' : ''
-    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}"$(cat "$PROMPT_PATH")"`
+    // Orchestrator sessions inject their role via --system-prompt
+    const systemPromptFlag = systemPromptPath ? '--system-prompt "$(cat "$SYSTEM_PROMPT_PATH")" ' : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
   } else {
     // Non-Claude executors: build command from getExecutorCommand() args
     // Replace the prompt in args with a file read to avoid shell escaping
@@ -706,10 +765,11 @@ export async function runHost(
 
   // Build script that runs executor and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
+  const systemPromptVar = systemPromptPath ? `\nSYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
-PROMPT_PATH="${promptPath}"
+PROMPT_PATH="${promptPath}"${systemPromptVar}
 ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
@@ -718,7 +778,7 @@ cd "${context.worktreePath}"
 (unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${executorInvocation})
 
 # Clean up script and prompt files
-rm -f "$SCRIPT_PATH" "$PROMPT_PATH"
+rm -f "$SCRIPT_PATH" "$PROMPT_PATH"${systemPromptPath ? ' "$SYSTEM_PROMPT_PATH"' : ''}
 
 echo ""
 echo "✅ Agent work complete. Press Enter to close or run more commands."
@@ -763,8 +823,10 @@ exec $SHELL
     if (displayMode === 'foreground') {
       try {
         // Clear screen and attach - this blocks until user detaches or claude exits
-        // Use -CC for iTerm when control mode is enabled
-        const fgTmuxAttach = buildTmuxAttachCommand(useControlMode)
+        // Never use -CC in foreground mode: control mode sends raw tmux protocol
+        // sequences (%begin, %output, %end) that render as garbled text unless
+        // iTerm's native CC handler is active (only happens in new tabs opened via AppleScript)
+        const fgTmuxAttach = buildTmuxAttachCommand(false)
         execSync(`clear && ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
         return {
           success: true,
@@ -2219,8 +2281,10 @@ exec bash
     if (displayMode === 'foreground') {
       try {
         // Clear screen and attach - this blocks until user detaches or claude exits
-        // Use -CC for iTerm when control mode is enabled
-        const fgTmuxAttach = buildTmuxAttachCommand(useControlMode, true)
+        // Never use -CC in foreground mode: control mode sends raw tmux protocol
+        // sequences (%begin, %output, %end) that render as garbled text unless
+        // iTerm's native CC handler is active (only happens in new tabs opened via AppleScript)
+        const fgTmuxAttach = buildTmuxAttachCommand(false, true)
         execSync(`clear && docker exec -it ${actualContainerId} ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
         return {
           success: true,

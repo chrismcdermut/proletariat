@@ -325,19 +325,20 @@ export default class OrchestratorAttach extends PromptCommand {
     }
   }
 
-  private attachInCurrentTerminal(useControlMode: boolean, sessionName: string): void {
+  private attachInCurrentTerminal(_useControlMode: boolean, sessionName: string): void {
     try {
-      // Set mouse mode based on attach type:
-      // - Plain terminal: mouse on (enables scroll in tmux; hold Shift/Option to bypass)
-      // - iTerm -CC: mouse off (iTerm handles scrolling natively)
-      const mouseMode = useControlMode ? 'off' : 'on'
+      // Always use regular attach (no -CC) in current terminal.
+      // Control mode sends raw tmux protocol sequences (%begin, %output, %end)
+      // that render as garbled text unless iTerm's native CC handler is active
+      // (only happens in new tabs opened via AppleScript).
+      // Mouse mode is always on for current-terminal attach (enables scroll in tmux).
       try {
-        execSync(`tmux set-option -t "${sessionName}" mouse ${mouseMode}`, { stdio: 'pipe' })
+        execSync(`tmux set-option -t "${sessionName}" mouse on`, { stdio: 'pipe' })
       } catch {
         // Non-fatal: mouse mode is a convenience, don't block attach
       }
 
-      const tmuxAttach = buildTmuxAttachCommand(useControlMode)
+      const tmuxAttach = buildTmuxAttachCommand(false)
       execSync(`${tmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
     } catch {
       this.error(`Failed to attach to orchestrator session "${sessionName}"`)
