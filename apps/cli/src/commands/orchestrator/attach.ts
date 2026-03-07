@@ -22,9 +22,13 @@ import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 import { loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
 import {
   buildOrchestratorSessionName,
+  buildOrchestratorContainerName,
   findRunningOrchestratorSessions,
   findHQOrchestratorSessions,
+  findHQOrchestratorContainers,
+  findRunningOrchestratorContainers,
   extractOrchestratorNameFromSession,
+  getOrchestratorContainerId,
 } from './start.js'
 
 /**
@@ -101,6 +105,10 @@ export default class OrchestratorAttach extends PromptCommand {
     const jsonMode = shouldOutputJson(flags)
     const hostSessions = getHostTmuxSessionNames()
 
+    // Track whether the resolved session is in a Docker container
+    let isDockerSession = false
+    let dockerContainerId: string | undefined
+
     // Resolve session name: try HQ-scoped first, fall back to discovery
     let sessionName: string | undefined
     const hqPath = findHQRoot(process.cwd())
@@ -109,21 +117,41 @@ export default class OrchestratorAttach extends PromptCommand {
       const hqName = getHeadquartersNameFromPath(hqPath)
 
       if (flags.name) {
-        // Explicit --name: look for that specific orchestrator
+        // Explicit --name: look for that specific orchestrator (host tmux first, then Docker)
         sessionName = buildOrchestratorSessionName(hqName, flags.name)
         if (!hostSessions.includes(sessionName)) {
-          sessionName = undefined
+          // Not found as host tmux session, check Docker
+          const containerName = buildOrchestratorContainerName(hqName, flags.name)
+          const containerId = getOrchestratorContainerId(containerName)
+          if (containerId) {
+            sessionName = containerName
+            isDockerSession = true
+            dockerContainerId = containerId
+          } else {
+            sessionName = undefined
+          }
         }
       } else {
-        // No --name: discover ALL orchestrators in this HQ
+        // No --name: discover ALL orchestrators in this HQ (host tmux + Docker)
         const hqSessions = findHQOrchestratorSessions(hostSessions, hqName)
-        if (hqSessions.length === 1) {
-          sessionName = hqSessions[0]
-        } else if (hqSessions.length > 1) {
-          const sessionChoices = hqSessions.map(s => ({
-            name: extractOrchestratorNameFromSession(s, hqName) || s,
-            value: s,
-            command: `prlt orchestrator attach --name "${extractOrchestratorNameFromSession(s, hqName) || s}" --json`,
+        const hqContainers = findHQOrchestratorContainers(hqName)
+
+        const allSessions = [
+          ...hqSessions.map(s => ({ name: extractOrchestratorNameFromSession(s, hqName) || s, value: s, isDocker: false })),
+          ...hqContainers.map(c => ({ name: extractOrchestratorNameFromSession(c, hqName) || c, value: c, isDocker: true })),
+        ]
+
+        if (allSessions.length === 1) {
+          sessionName = allSessions[0].value
+          isDockerSession = allSessions[0].isDocker
+          if (isDockerSession) {
+            dockerContainerId = getOrchestratorContainerId(sessionName) || undefined
+          }
+        } else if (allSessions.length > 1) {
+          const sessionChoices = allSessions.map(s => ({
+            name: `${s.name}${s.isDocker ? ' (Docker)' : ''}`,
+            value: s.value,
+            command: `prlt orchestrator attach --name "${s.name}" --json`,
           }))
           const selectMessage = 'Multiple orchestrator sessions found. Select one to attach:'
 
@@ -142,6 +170,11 @@ export default class OrchestratorAttach extends PromptCommand {
             choices: sessionChoices,
           }])
           sessionName = session
+          const matched = allSessions.find(s => s.value === session)
+          if (matched?.isDocker) {
+            isDockerSession = true
+            dockerContainerId = getOrchestratorContainerId(session) || undefined
+          }
         }
         // If 0 found, fall through to global discovery below
       }
@@ -150,7 +183,14 @@ export default class OrchestratorAttach extends PromptCommand {
     // If not in HQ or session not found, discover running orchestrator sessions globally
     if (!sessionName) {
       const runningSessions = findRunningOrchestratorSessions(hostSessions)
-      if (runningSessions.length === 0) {
+      const runningContainers = findRunningOrchestratorContainers()
+
+      const allSessions = [
+        ...runningSessions.map(s => ({ name: s, value: s, isDocker: false })),
+        ...runningContainers.map(c => ({ name: `${c} (Docker)`, value: c, isDocker: true })),
+      ]
+
+      if (allSessions.length === 0) {
         if (jsonMode) {
           outputErrorAsJson(
             'NOT_RUNNING',
@@ -164,14 +204,18 @@ export default class OrchestratorAttach extends PromptCommand {
         this.log(styles.muted('Start it with: prlt orchestrator start'))
         this.log('')
         return
-      } else if (runningSessions.length === 1) {
-        sessionName = runningSessions[0]
+      } else if (allSessions.length === 1) {
+        sessionName = allSessions[0].value
+        isDockerSession = allSessions[0].isDocker
+        if (isDockerSession) {
+          dockerContainerId = getOrchestratorContainerId(sessionName) || undefined
+        }
       } else {
         // Multiple sessions — let user pick
-        const sessionChoices = runningSessions.map(s => ({
-          name: s,
-          value: s,
-          command: `prlt orchestrator attach --name "${s}" --json`,
+        const sessionChoices = allSessions.map(s => ({
+          name: s.name,
+          value: s.value,
+          command: `prlt orchestrator attach --name "${s.value}" --json`,
         }))
         const selectMessage = 'Multiple orchestrator sessions found. Select one to attach:'
 
@@ -190,6 +234,11 @@ export default class OrchestratorAttach extends PromptCommand {
           choices: sessionChoices,
         }])
         sessionName = session
+        const matched = allSessions.find(s => s.value === session)
+        if (matched?.isDocker) {
+          isDockerSession = true
+          dockerContainerId = getOrchestratorContainerId(session) || undefined
+        }
       }
     }
 
@@ -200,6 +249,8 @@ export default class OrchestratorAttach extends PromptCommand {
     if (jsonMode) {
       outputSuccessAsJson({
         sessionId: sessionName,
+        containerId: dockerContainerId,
+        environment: isDockerSession ? 'docker' : 'host',
         status: 'attaching',
       }, createMetadata('orchestrator attach', flags as Record<string, unknown>))
       return
@@ -214,8 +265,30 @@ export default class OrchestratorAttach extends PromptCommand {
     }
 
     this.log('')
-    this.log(styles.info(`Attaching to orchestrator session: ${sessionName}`))
+    this.log(styles.info(`Attaching to orchestrator session: ${sessionName}${isDockerSession ? ' (Docker)' : ''}`))
 
+    // Docker-based orchestrator: attach via docker exec
+    if (isDockerSession && dockerContainerId) {
+      if (flags['new-tab']) {
+        const terminalApp = flags.terminal ?? detectTerminalApp()
+        if (!terminalApp) {
+          this.log(styles.warning('Could not detect terminal emulator for new tab.'))
+          this.log(styles.muted('Falling back to direct attach in current terminal.'))
+        } else {
+          await this.openDockerInNewTab(terminalApp, dockerContainerId, sessionName)
+          return
+        }
+      }
+      // Attach directly in current terminal
+      try {
+        execSync(`docker exec -it ${dockerContainerId} tmux attach -t "${sessionName}"`, { stdio: 'inherit' })
+      } catch {
+        this.error(`Failed to attach to Docker orchestrator session "${sessionName}"`)
+      }
+      return
+    }
+
+    // Host-based orchestrator: attach via tmux
     // Determine if we should use tmux control mode (-u -CC) for iTerm
     let useControlMode = false
     try {
@@ -349,6 +422,77 @@ exec $SHELL
       }
 
       this.log(styles.success('Opened new tab and attaching to orchestrator'))
+    } catch (error) {
+      this.error(`Failed to open terminal tab: ${error instanceof Error ? error.message : error}`)
+    }
+  }
+
+  private async openDockerInNewTab(terminalApp: string, containerId: string, sessionName: string): Promise<void> {
+    const title = 'Orchestrator (Docker)'
+    const baseDir = path.join(os.homedir(), '.proletariat', 'scripts')
+    fs.mkdirSync(baseDir, { recursive: true })
+    const scriptPath = path.join(baseDir, `attach-orch-docker-${Date.now()}.sh`)
+
+    const script = `#!/bin/bash
+echo -ne "\\033]0;${title}\\007"
+echo -ne "\\033]1;${title}\\007"
+echo "Attaching to Docker orchestrator: ${sessionName}"
+docker exec -it ${containerId} tmux attach -t "${sessionName}"
+rm -f "${scriptPath}"
+exec $SHELL
+`
+    fs.writeFileSync(scriptPath, script, { mode: 0o755 })
+
+    try {
+      switch (terminalApp) {
+        case 'iTerm':
+          execSync(`osascript -e '
+            tell application "iTerm"
+              activate
+              tell current window
+                set newTab to (create tab with default profile)
+                tell current session of newTab
+                  set name to "${title}"
+                  write text "${scriptPath}"
+                end tell
+              end tell
+            end tell
+          '`)
+          break
+
+        case 'Ghostty':
+          execSync(`osascript -e '
+            tell application "Ghostty"
+              activate
+            end tell
+            tell application "System Events"
+              tell process "Ghostty"
+                keystroke "t" using command down
+                delay 0.3
+                keystroke "${scriptPath}"
+                keystroke return
+              end tell
+            end tell
+          '`)
+          break
+
+        default:
+          execSync(`osascript -e '
+            tell application "Terminal"
+              activate
+              tell application "System Events"
+                tell process "Terminal"
+                  keystroke "t" using command down
+                end tell
+              end tell
+              delay 0.3
+              do script "${scriptPath}" in front window
+            end tell
+          '`)
+          break
+      }
+
+      this.log(styles.success('Opened new tab and attaching to Docker orchestrator'))
     } catch (error) {
       this.error(`Failed to open terminal tab: ${error instanceof Error ? error.message : error}`)
     }
