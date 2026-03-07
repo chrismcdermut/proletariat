@@ -822,8 +822,10 @@ exec $SHELL
     if (displayMode === 'foreground') {
       try {
         // Clear screen and attach - this blocks until user detaches or claude exits
-        // Use -CC for iTerm when control mode is enabled
-        const fgTmuxAttach = buildTmuxAttachCommand(useControlMode)
+        // Never use -CC in foreground mode: control mode sends raw tmux protocol
+        // sequences (%begin, %output, %end) that render as garbled text unless
+        // iTerm's native CC handler is active (only happens in new tabs opened via AppleScript)
+        const fgTmuxAttach = buildTmuxAttachCommand(false)
         execSync(`clear && ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
         return {
           success: true,
@@ -2278,8 +2280,10 @@ exec bash
     if (displayMode === 'foreground') {
       try {
         // Clear screen and attach - this blocks until user detaches or claude exits
-        // Use -CC for iTerm when control mode is enabled
-        const fgTmuxAttach = buildTmuxAttachCommand(useControlMode, true)
+        // Never use -CC in foreground mode: control mode sends raw tmux protocol
+        // sequences (%begin, %output, %end) that render as garbled text unless
+        // iTerm's native CC handler is active (only happens in new tabs opened via AppleScript)
+        const fgTmuxAttach = buildTmuxAttachCommand(false, true)
         execSync(`clear && docker exec -it ${actualContainerId} ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
         return {
           success: true,
