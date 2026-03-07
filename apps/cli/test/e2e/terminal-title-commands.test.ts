@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import {
-  exec,
+  execInProcess,
   extractJson,
   createHQConfig,
 } from './test-helpers.js';
@@ -66,35 +66,35 @@ describe('Terminal Title Commands E2E Tests', function (this: Mocha.Suite) {
   // ===========================================================================
 
   describe('terminal title with args', () => {
-    it('should set terminal title when provided as argument', () => {
-      const output = exec('terminal title "My Custom Title"');
+    it('should set terminal title when provided as argument', async () => {
+      const output = await execInProcess('terminal title "My Custom Title"');
       expect(output).to.include('Terminal title set to');
       expect(output).to.include('My Custom Title');
     });
 
-    it('should set terminal title with special characters', () => {
-      const output = exec('terminal title "Project Alpha - v2.0"');
+    it('should set terminal title with special characters', async () => {
+      const output = await execInProcess('terminal title "Project Alpha - v2.0"');
       expect(output).to.include('Terminal title set to');
       expect(output).to.include('Project Alpha - v2.0');
     });
 
-    it('should reset terminal title with --reset flag', () => {
-      const output = exec('terminal title --reset');
+    it('should reset terminal title with --reset flag', async () => {
+      const output = await execInProcess('terminal title --reset');
       expect(output).to.include('Terminal title reset to default');
     });
 
-    it('should reset terminal title with -r shorthand', () => {
-      const output = exec('terminal title -r');
+    it('should reset terminal title with -r shorthand', async () => {
+      const output = await execInProcess('terminal title -r');
       expect(output).to.include('Terminal title reset to default');
     });
 
-    it('should set title then reset it', () => {
+    it('should set title then reset it', async () => {
       // Set title
-      const setOutput = exec('terminal title "Temporary Title"');
+      const setOutput = await execInProcess('terminal title "Temporary Title"');
       expect(setOutput).to.include('Terminal title set to');
 
       // Reset title
-      const resetOutput = exec('terminal title --reset');
+      const resetOutput = await execInProcess('terminal title --reset');
       expect(resetOutput).to.include('Terminal title reset to default');
     });
   });
@@ -104,8 +104,8 @@ describe('Terminal Title Commands E2E Tests', function (this: Mocha.Suite) {
   // ===========================================================================
 
   describe('terminal title --machine', () => {
-    it('should output valid JSON input prompt when no title provided', () => {
-      const output = exec('terminal title --machine');
+    it('should output valid JSON input prompt when no title provided', async () => {
+      const output = await execInProcess('terminal title --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -116,8 +116,8 @@ describe('Terminal Title Commands E2E Tests', function (this: Mocha.Suite) {
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with --json flag (legacy)', () => {
-      const output = exec('terminal title --json');
+    it('should work with --json flag (legacy)', async () => {
+      const output = await execInProcess('terminal title --json');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -126,8 +126,8 @@ describe('Terminal Title Commands E2E Tests', function (this: Mocha.Suite) {
       expect(json!.metadata.flags.json).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('terminal title -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('terminal title -m');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -135,8 +135,8 @@ describe('Terminal Title Commands E2E Tests', function (this: Mocha.Suite) {
       expect(json!.metadata.flags.machine).to.equal(true);
     });
 
-    it('should have proper metadata structure', () => {
-      const output = exec('terminal title --machine');
+    it('should have proper metadata structure', async () => {
+      const output = await execInProcess('terminal title --machine');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -146,19 +146,19 @@ describe('Terminal Title Commands E2E Tests', function (this: Mocha.Suite) {
       expect(json!.metadata.timestamp).to.be.a('string');
     });
 
-    it('should set title when provided as argument even in machine mode', () => {
-      const output = exec('terminal title "Agent Title" --machine');
+    it('should set title when provided as argument even in machine mode', async () => {
+      const output = await execInProcess('terminal title "Agent Title" --machine');
       expect(output).to.include('Terminal title set to');
       expect(output).to.include('Agent Title');
     });
 
-    it('should handle --reset in machine mode', () => {
-      const output = exec('terminal title --reset --machine');
+    it('should handle --reset in machine mode', async () => {
+      const output = await execInProcess('terminal title --reset --machine');
       expect(output).to.include('Terminal title reset to default');
     });
 
-    it('should handle --machine and --json together', () => {
-      const output = exec('terminal title --machine --json');
+    it('should handle --machine and --json together', async () => {
+      const output = await execInProcess('terminal title --machine --json');
       const json = extractJson<MachinePromptResponse>(output);
 
       expect(json).to.not.be.null;
@@ -172,9 +172,9 @@ describe('Terminal Title Commands E2E Tests', function (this: Mocha.Suite) {
   // ===========================================================================
 
   describe('End-to-end agent flows', () => {
-    it('should complete full agent flow: get prompt → provide title via arg → verify set', () => {
+    it('should complete full agent flow: get prompt → provide title via arg → verify set', async () => {
       // Step 1: Agent calls without title, gets JSON prompt describing what input is needed
-      const step1Output = exec('terminal title --machine');
+      const step1Output = await execInProcess('terminal title --machine');
       const step1Json = extractJson<MachinePromptResponse>(step1Output);
 
       expect(step1Json).to.not.be.null;
@@ -183,35 +183,35 @@ describe('Terminal Title Commands E2E Tests', function (this: Mocha.Suite) {
       // Agent now knows: need to provide a 'title' (input type) to 'terminal title' command
 
       // Step 2: Agent provides title as argument (bypasses prompt)
-      const step2Output = exec('terminal title "Agent Workflow Title"');
+      const step2Output = await execInProcess('terminal title "Agent Workflow Title"');
       expect(step2Output).to.include('Terminal title set to');
       expect(step2Output).to.include('Agent Workflow Title');
     });
 
-    it('should handle set → reset flow', () => {
+    it('should handle set → reset flow', async () => {
       // Agent sets a title
-      const setOutput = exec('terminal title "Active Task: TKT-123"');
+      const setOutput = await execInProcess('terminal title "Active Task: TKT-123"');
       expect(setOutput).to.include('Terminal title set to');
       expect(setOutput).to.include('Active Task: TKT-123');
 
       // Agent resets when done
-      const resetOutput = exec('terminal title --reset');
+      const resetOutput = await execInProcess('terminal title --reset');
       expect(resetOutput).to.include('Terminal title reset to default');
     });
 
-    it('should handle multiple title changes', () => {
+    it('should handle multiple title changes', async () => {
       // Set first title
-      const out1 = exec('terminal title "Phase 1: Planning"');
+      const out1 = await execInProcess('terminal title "Phase 1: Planning"');
       expect(out1).to.include('Terminal title set to');
       expect(out1).to.include('Phase 1: Planning');
 
       // Change to second title
-      const out2 = exec('terminal title "Phase 2: Implementation"');
+      const out2 = await execInProcess('terminal title "Phase 2: Implementation"');
       expect(out2).to.include('Terminal title set to');
       expect(out2).to.include('Phase 2: Implementation');
 
       // Reset when done
-      const out3 = exec('terminal title --reset');
+      const out3 = await execInProcess('terminal title --reset');
       expect(out3).to.include('Terminal title reset to default');
     });
   });

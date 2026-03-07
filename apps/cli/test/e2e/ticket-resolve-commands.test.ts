@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
-  exec,
+  execInProcess,
   createHQConfig,
   setupProductionSchema,
   createTestProject,
@@ -48,18 +48,18 @@ describe('Ticket Resolve Commands E2E Tests', () => {
   });
 
   describe('prlt ticket resolve', () => {
-    it('should show error when no needs-clarification tickets exist', () => {
+    it('should show error when no needs-clarification tickets exist', async () => {
       createTestTicket(db, projectId, {
         id: 'TKT-001',
         title: 'Normal ticket',
         description: 'No questions here',
       });
 
-      const output = exec('ticket resolve --json');
+      const output = await execInProcess('ticket resolve --json');
       expect(output).to.contain('No tickets need clarification');
     });
 
-    it('should output questions in JSON mode for ticket with questions', () => {
+    it('should output questions in JSON mode for ticket with questions', async () => {
       const description = `## Description
 Some context here.
 
@@ -78,7 +78,7 @@ Some context here.
         ticketId
       );
 
-      const output = exec(`ticket resolve ${ticketId} --json`);
+      const output = await execInProcess(`ticket resolve ${ticketId} --json`);
       const parsed = JSON.parse(output);
 
       expect(parsed.type).to.equal('success');
@@ -90,7 +90,7 @@ Some context here.
       expect(parsed.result.questions[1].text).to.equal('What is the expected timeout?');
     });
 
-    it('should show message when ticket has no questions', () => {
+    it('should show message when ticket has no questions', async () => {
       const ticketId = createTestTicket(db, projectId, {
         id: 'TKT-003',
         title: 'Ticket without questions',
@@ -103,11 +103,11 @@ Some context here.
         ticketId
       );
 
-      const output = exec(`ticket resolve ${ticketId}`);
+      const output = await execInProcess(`ticket resolve ${ticketId}`);
       expect(output).to.contain('No questions found');
     });
 
-    it('should show message when all questions are already answered', () => {
+    it('should show message when all questions are already answered', async () => {
       const description = `**Q1:** Should we use REST?
 **A1:** Use REST for simplicity.`;
 
@@ -117,16 +117,16 @@ Some context here.
         description,
       });
 
-      const output = exec(`ticket resolve ${ticketId}`);
+      const output = await execInProcess(`ticket resolve ${ticketId}`);
       expect(output).to.contain('already answered');
     });
 
-    it('should report ticket not found error', () => {
-      const output = exec('ticket resolve NON-EXISTENT --json');
+    it('should report ticket not found error', async () => {
+      const output = await execInProcess('ticket resolve NON-EXISTENT --json');
       expect(output).to.contain('not found');
     });
 
-    it('should list only needs-clarification tickets in JSON mode picker', () => {
+    it('should list only needs-clarification tickets in JSON mode picker', async () => {
       // Create a ticket with the label
       const ticketId = createTestTicket(db, projectId, {
         id: 'TKT-005',
@@ -145,7 +145,7 @@ Some context here.
         description: 'No questions',
       });
 
-      const output = exec('ticket resolve --json');
+      const output = await execInProcess('ticket resolve --json');
       const parsed = JSON.parse(output);
 
       // Should show the picker prompt

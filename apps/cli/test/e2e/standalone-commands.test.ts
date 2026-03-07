@@ -4,130 +4,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import {
   createHQConfig,
   createPMODirectories,
-  exec,
+  execInProcess,
   extractJson,
-  filterOutput,
   type AgentPromptResponse,
 } from './test-helpers.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-/**
- * Robust JSON extraction that searches backward through output.
- * Handles cases where Docker check errors or other noise contain
- * '{' characters that confuse the standard extractJson.
- */
-function extractJsonRobust<T>(output: string): T | null {
-  // First try the standard extraction
-  const result = extractJson<T>(output);
-  if (result && typeof result === 'object' && 'prompt' in (result as Record<string, unknown>)) {
-    return result;
-  }
-
-  // Fall back: search from end for last valid JSON object
-  const lines = output.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const trimmed = lines[i].trim();
-    if (trimmed === '}') {
-      // Found end of JSON, search backward for matching start
-      for (let j = i; j >= 0; j--) {
-        const startTrimmed = lines[j].trim();
-        if (startTrimmed.startsWith('{')) {
-          const jsonStr = lines.slice(j, i + 1).join('\n');
-          try {
-            const parsed = JSON.parse(jsonStr) as T;
-            if (typeof parsed === 'object' && parsed !== null && 'prompt' in (parsed as Record<string, unknown>)) {
-              return parsed;
-            }
-          } catch {
-            // Not valid JSON from this position, keep searching
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * Error type for execSync failures.
- */
-interface ExecError extends Error {
-  stdout?: string;
-  stderr?: string;
-}
-
-/**
- * Execute CLI from a specific directory without HQ context.
- * Useful for testing commands outside of an HQ workspace.
- */
-function execFromDir(cmd: string, cwd: string): string {
-  const cliDir = path.join(__dirname, '../..');
-  const binPath = path.join(cliDir, 'bin/run.js');
-  const env = { ...process.env, NODE_ENV: 'production' } as NodeJS.ProcessEnv;
-  // Clear env vars that could interfere with isolation
-  delete env.PRLT_HQ_PATH;
-  delete env.PRLT_PMO_PATH;
-  delete env.PRLT_DATABASE_PATH;
-  delete env.PRLT_CONFIG_PATH;
-  delete env.PRLT_FORCE_TEXT;
-  delete env.PRLT_TEST_ENV;
-  delete env.DEVCONTAINER;
-  delete env.DEBUG;
-
-  try {
-    const result = execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      cwd,
-      env,
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    return result;
-  } catch (error: unknown) {
-    const execError = error as ExecError;
-    const stdout = execError.stdout || '';
-    const stderr = execError.stderr || '';
-    if (stdout.trim()) return stdout;
-    return filterOutput(stderr) || execError.message || 'Unknown error';
-  }
-}
-
-/**
- * Execute CLI from a specific directory with git repo context.
- * Used for commit tests that need git operations in the test dir.
- */
-function execCommit(cmd: string, cwd: string): string {
-  const cliDir = path.join(__dirname, '../..');
-  const binPath = path.join(cliDir, 'bin/run.js');
-  const env = { ...process.env, NODE_ENV: 'production' } as NodeJS.ProcessEnv;
-  delete env.PRLT_HQ_PATH;
-  delete env.PRLT_PMO_PATH;
-  delete env.PRLT_DATABASE_PATH;
-  delete env.PRLT_CONFIG_PATH;
-  delete env.PRLT_TEST_ENV;
-  delete env.DEBUG;
-
-  try {
-    const result = execSync(`node ${binPath} ${cmd} 2>&1`, {
-      encoding: 'utf-8',
-      cwd,
-      env,
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    return filterOutput(result);
-  } catch (error: unknown) {
-    const execError = error as ExecError;
-    const stdout = execError.stdout || '';
-    const stderr = execError.stderr || '';
-    return filterOutput(stdout + stderr) || execError.message || 'Unknown error';
-  }
-}
 
 /**
  * End-to-end tests for standalone commands migrated to this.prompt().
@@ -162,8 +46,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         }
       });
 
-      it('should output slug input prompt in JSON mode', () => {
-        const output = execFromDir('claude --json', testDir);
+      it('should output slug input prompt in JSON mode', async () => {
+        const output = await execInProcess('claude --json');
         const result = extractJson<AgentPromptResponse>(output);
 
         // Skip if an HQ was detected from the environment (e.g., registered HQ)
@@ -174,9 +58,9 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(result.prompt.message).to.include('Session name');
       });
 
-      it('should output environment prompt when slug provided', () => {
-        const output = execFromDir('claude --json --slug test-session', testDir);
-        const result = extractJsonRobust<AgentPromptResponse>(output);
+      it('should output environment prompt when slug provided', async () => {
+        const output = await execInProcess('claude --json --slug test-session');
+        const result = extractJson<AgentPromptResponse>(output);
 
         // Skip if an HQ was detected from the environment
         if (!result || !result.prompt) return;
@@ -191,8 +75,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(hostChoice!.command).to.include('--environment host');
       });
 
-      it('should output display-mode prompt when environment provided', () => {
-        const output = execFromDir('claude --json --slug test-session --environment host', testDir);
+      it('should output display-mode prompt when environment provided', async () => {
+        const output = await execInProcess('claude --json --slug test-session --environment host');
         const result = extractJson<AgentPromptResponse>(output);
 
         // Skip if an HQ was detected from the environment
@@ -210,10 +94,9 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(bgChoice!.command).to.include('--display-mode background');
       });
 
-      it('should output permission-mode prompt when display-mode provided', () => {
-        const output = execFromDir(
-          'claude --json --slug test-session --environment host --display-mode terminal',
-          testDir
+      it('should output permission-mode prompt when display-mode provided', async () => {
+        const output = await execInProcess(
+          'claude --json --slug test-session --environment host --display-mode terminal'
         );
         const result = extractJson<AgentPromptResponse>(output);
 
@@ -232,8 +115,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(safeChoice!.command).to.include('--permission-mode safe');
       });
 
-      it('should include metadata with command name in JSON output', () => {
-        const output = execFromDir('claude --json', testDir);
+      it('should include metadata with command name in JSON output', async () => {
+        const output = await execInProcess('claude --json');
         const result = extractJson<AgentPromptResponse>(output);
 
         expect(result).to.not.be.null;
@@ -271,8 +154,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         }
       });
 
-      it('should output title prompt when project auto-selected (single project)', () => {
-        const output = exec('claude --json');
+      it('should output title prompt when project auto-selected (single project)', async () => {
+        const output = await execInProcess('claude --json');
         const result = extractJson<AgentPromptResponse>(output);
 
         // With only one project, it auto-selects and moves to title prompt
@@ -283,13 +166,13 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         }
       });
 
-      it('should output project selection when multiple projects exist', () => {
+      it('should output project selection when multiple projects exist', async () => {
         // Add a second project
         db.prepare(`INSERT INTO pmo_projects (id, name, is_archived) VALUES ('project-2', 'Second Project', 0)`).run();
         const pmoPath = path.join(testDir, 'pmo');
         createPMODirectories(pmoPath, 'project-2');
 
-        const output = exec('claude --json');
+        const output = await execInProcess('claude --json');
         const result = extractJson<AgentPromptResponse>(output);
 
         if (result && result.prompt) {
@@ -305,8 +188,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         }
       });
 
-      it('should output title prompt when project specified via flag', () => {
-        const output = exec('claude --json --project test-project');
+      it('should output title prompt when project specified via flag', async () => {
+        const output = await execInProcess('claude --json --project test-project');
         const result = extractJson<AgentPromptResponse>(output);
 
         if (result && result.prompt) {
@@ -316,8 +199,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         }
       });
 
-      it('should output environment prompt when title provided', () => {
-        const output = exec('claude --json --project test-project --title "Test Session"');
+      it('should output environment prompt when title provided', async () => {
+        const output = await execInProcess('claude --json --project test-project --title "Test Session"');
         const result = extractJson<AgentPromptResponse>(output);
 
         if (result && result.prompt) {
@@ -362,10 +245,10 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
     });
 
     describe('JSON mode prompt output', () => {
-      it('should output staging prompt when changes exist', () => {
+      it('should output staging prompt when changes exist', async () => {
         fs.writeFileSync(path.join(testDir, 'test.ts'), 'content');
 
-        const output = execCommit('commit --json', testDir);
+        const output = await execInProcess('commit --json');
         const result = extractJson<AgentPromptResponse>(output);
 
         expect(result).to.not.be.null;
@@ -378,10 +261,10 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(allChoice!.command).to.include('--all');
       });
 
-      it('should output format prompt when --all flag bypasses staging', () => {
+      it('should output format prompt when --all flag bypasses staging', async () => {
         fs.writeFileSync(path.join(testDir, 'test.ts'), 'content');
 
-        const output = execCommit('commit --json --all', testDir);
+        const output = await execInProcess('commit --json --all');
         const result = extractJson<AgentPromptResponse>(output);
 
         expect(result).to.not.be.null;
@@ -394,10 +277,10 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(conventionalChoice!.command).to.include('--format');
       });
 
-      it('should output message prompt when format specified', () => {
+      it('should output message prompt when format specified', async () => {
         fs.writeFileSync(path.join(testDir, 'test.ts'), 'content');
 
-        const output = execCommit('commit --json --all --format conventional', testDir);
+        const output = await execInProcess('commit --json --all --format conventional');
         const result = extractJson<AgentPromptResponse>(output);
 
         expect(result).to.not.be.null;
@@ -406,10 +289,10 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(result!.prompt.message).to.include('message');
       });
 
-      it('should include metadata with command name', () => {
+      it('should include metadata with command name', async () => {
         fs.writeFileSync(path.join(testDir, 'test.ts'), 'content');
 
-        const output = execCommit('commit --json', testDir);
+        const output = await execInProcess('commit --json');
         const result = extractJson<AgentPromptResponse>(output);
 
         expect(result).to.not.be.null;
@@ -417,8 +300,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(result!.metadata.command).to.equal('commit');
       });
 
-      it('should error in JSON mode with no changes', () => {
-        const output = execCommit('commit --json', testDir);
+      it('should error in JSON mode with no changes', async () => {
+        const output = await execInProcess('commit --json');
 
         // Should contain error about no changes
         expect(output.toLowerCase()).to.satisfy(
@@ -428,11 +311,11 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
     });
 
     describe('flag-based execution (bypass prompts)', () => {
-      it('should commit with message arg (no prompts)', () => {
+      it('should commit with message arg (no prompts)', async () => {
         fs.writeFileSync(path.join(testDir, 'feature.ts'), 'export const feature = true;');
         execSync('git add feature.ts', { cwd: testDir, stdio: 'pipe' });
 
-        const output = execCommit('commit "add new feature"', testDir);
+        const output = await execInProcess('commit "add new feature"');
 
         expect(output).to.contain('Committed');
         expect(output).to.contain('feat(TKT-123): add new feature');
@@ -442,11 +325,11 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(log).to.contain('feat(TKT-123): add new feature');
       });
 
-      it('should stage all with --all flag and commit', () => {
+      it('should stage all with --all flag and commit', async () => {
         fs.writeFileSync(path.join(testDir, 'file1.ts'), 'content1');
         fs.writeFileSync(path.join(testDir, 'file2.ts'), 'content2');
 
-        const output = execCommit('commit --all "add multiple files"', testDir);
+        const output = await execInProcess('commit --all "add multiple files"');
 
         expect(output).to.contain('Committed');
 
@@ -454,41 +337,41 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(status.trim()).to.equal('');
       });
 
-      it('should use specific format with --format flag', () => {
+      it('should use specific format with --format flag', async () => {
         fs.writeFileSync(path.join(testDir, 'test.ts'), 'content');
         execSync('git add test.ts', { cwd: testDir, stdio: 'pipe' });
 
-        const output = execCommit('commit -f full-context "test message"', testDir);
+        const output = await execInProcess('commit -f full-context "test message"');
 
         expect(output).to.contain('Committed');
         expect(output).to.contain('TKT-123/feat/bezos: test message');
       });
 
-      it('should override commit type with --type flag', () => {
+      it('should override commit type with --type flag', async () => {
         fs.writeFileSync(path.join(testDir, 'bugfix.ts'), 'fixed');
         execSync('git add bugfix.ts', { cwd: testDir, stdio: 'pipe' });
 
-        const output = execCommit('commit -t fix "resolve bug"', testDir);
+        const output = await execInProcess('commit -t fix "resolve bug"');
 
         expect(output).to.contain('Committed');
         expect(output).to.contain('fix(TKT-123): resolve bug');
       });
 
-      it('should override ticket ID with --ticket flag', () => {
+      it('should override ticket ID with --ticket flag', async () => {
         fs.writeFileSync(path.join(testDir, 'override.ts'), 'content');
         execSync('git add override.ts', { cwd: testDir, stdio: 'pipe' });
 
-        const output = execCommit('commit -T TKT-999 "custom ticket"', testDir);
+        const output = await execInProcess('commit -T TKT-999 "custom ticket"');
 
         expect(output).to.contain('Committed');
         expect(output).to.contain('feat(TKT-999): custom ticket');
       });
 
-      it('should dry-run without committing', () => {
+      it('should dry-run without committing', async () => {
         fs.writeFileSync(path.join(testDir, 'test.ts'), 'content');
         execSync('git add test.ts', { cwd: testDir, stdio: 'pipe' });
 
-        const output = execCommit('commit --dry-run "test message"', testDir);
+        const output = await execInProcess('commit --dry-run "test message"');
 
         expect(output).to.contain('Dry run');
         expect(output).to.contain('feat(TKT-123): test message');
@@ -498,8 +381,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(log).to.not.contain('test message');
       });
 
-      it('should list formats with --formats flag', () => {
-        const output = execCommit('commit --formats', testDir);
+      it('should list formats with --formats flag', async () => {
+        const output = await execInProcess('commit --formats');
 
         expect(output).to.contain('conventional');
         expect(output).to.contain('full-context');
@@ -507,11 +390,11 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         expect(output).to.contain('simple');
       });
 
-      it('should stage specific file with --stage flag', () => {
+      it('should stage specific file with --stage flag', async () => {
         fs.writeFileSync(path.join(testDir, 'stage-me.ts'), 'staged');
         fs.writeFileSync(path.join(testDir, 'leave-me.ts'), 'unstaged');
 
-        const output = execCommit('commit --stage stage-me.ts -- "add staged file"', testDir);
+        const output = await execInProcess('commit --stage stage-me.ts -- "add staged file"');
 
         expect(output).to.contain('Committed');
 
@@ -544,9 +427,9 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       }
     });
 
-    it('should create HQ in JSON mode with --name flag', () => {
+    it('should create HQ in JSON mode with --name flag', async () => {
       const hqName = `test-hq-${uniqueId}`;
-      const output = execFromDir(`init --json --name ${hqName}`, testDir);
+      const output = await execInProcess(`init --json --name ${hqName}`);
       const result = extractJson<{ success: boolean; hq: { name: string; path: string } }>(output);
 
       // Skip if name collision or other environment issue
@@ -559,8 +442,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       expect(fs.existsSync(hqPath)).to.equal(true);
     });
 
-    it('should prompt for name in JSON mode without --name flag', () => {
-      const output = execFromDir('init --json', testDir);
+    it('should prompt for name in JSON mode without --name flag', async () => {
+      const output = await execInProcess('init --json');
       const result = extractJson<{ prompt: { type: string; name: string; message: string } }>(output);
 
       expect(result).to.not.be.null;
@@ -568,9 +451,9 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       expect(result!.prompt.name).to.equal('name');
     });
 
-    it('should create HQ with agents in JSON mode', () => {
+    it('should create HQ with agents in JSON mode', async () => {
       const hqName = `agent-hq-${uniqueId}`;
-      const output = execFromDir(`init --json --name ${hqName} --agents alpha,beta`, testDir);
+      const output = await execInProcess(`init --json --name ${hqName} --agents alpha,beta`);
       const result = extractJson<{ success: boolean; hq: { agents: string[] } }>(output);
 
       // Skip if name collision or other environment issue
@@ -580,9 +463,9 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       expect(result.hq.agents).to.include('beta');
     });
 
-    it('should create HQ without PMO using --no-pmo', () => {
+    it('should create HQ without PMO using --no-pmo', async () => {
       const hqName = `no-pmo-hq-${uniqueId}`;
-      const output = execFromDir(`init --json --name ${hqName} --no-pmo`, testDir);
+      const output = await execInProcess(`init --json --name ${hqName} --no-pmo`);
       const result = extractJson<{ success: boolean; hq: { pmo: boolean } }>(output);
 
       // Skip if name collision or other environment issue
@@ -591,11 +474,11 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       expect(result.hq.pmo).to.equal(false);
     });
 
-    it('should error when directory already exists', () => {
+    it('should error when directory already exists', async () => {
       // Create the directory first
       fs.mkdirSync(path.join(testDir, 'existing-hq'), { recursive: true });
 
-      const output = execFromDir('init --json --name existing --path existing-hq', testDir);
+      const output = await execInProcess('init --json --name existing --path existing-hq');
       const result = extractJson<{ success: boolean; error: string }>(output);
 
       expect(result).to.not.be.null;
@@ -605,10 +488,10 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       );
     });
 
-    it('should create HQ with custom path', () => {
+    it('should create HQ with custom path', async () => {
       const hqName = `custom-hq-${uniqueId}`;
       const customPath = path.join(testDir, 'custom-location');
-      const output = execFromDir(`init --json --name ${hqName} --path "${customPath}"`, testDir);
+      const output = await execInProcess(`init --json --name ${hqName} --path "${customPath}"`);
       const result = extractJson<{ success: boolean; hq: { name: string; path: string } }>(output);
 
       // Skip if name collision or other environment issue
@@ -639,8 +522,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       }
     });
 
-    it('should display context information', () => {
-      const output = execFromDir('whoami', testDir);
+    it('should display context information', async () => {
+      const output = await execInProcess('whoami');
 
       // Output is JSON in non-TTY (piped) environments
       const json = JSON.parse(output);
@@ -649,8 +532,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       expect(json).to.have.property('workingDir');
     });
 
-    it('should show environment type', () => {
-      const output = execFromDir('whoami', testDir);
+    it('should show environment type', async () => {
+      const output = await execInProcess('whoami');
 
       const json = JSON.parse(output);
       // Environment can be 'host' or 'devcontainer' depending on runtime context
@@ -659,8 +542,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       );
     });
 
-    it('should display working directory path', () => {
-      const output = execFromDir('whoami', testDir);
+    it('should display working directory path', async () => {
+      const output = await execInProcess('whoami');
 
       const json = JSON.parse(output);
       expect(json.workingDir).to.be.a('string');

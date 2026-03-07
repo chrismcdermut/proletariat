@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { execProduction as exec } from './test-helpers.js'
+import { execInProcess } from './test-helpers.js'
 
 /**
  * Helper to check if output is JSON format
@@ -44,23 +44,23 @@ describe('Feedback CLI Commands E2E Tests', () => {
    * prlt feedback (index menu)
    */
   describe('prlt feedback', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('feedback --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('feedback --help')
 
       expect(output).to.contain('Interactive menu for feedback')
       expect(output).to.contain('USAGE')
     })
 
-    it('should list available subcommands in help', () => {
-      const output = exec('feedback --help')
+    it('should list available subcommands in help', async () => {
+      const output = await execInProcess('feedback --help')
 
       expect(output).to.contain('submit')
       expect(output).to.contain('list')
       expect(output).to.contain('view')
     })
 
-    it('should output prompt JSON in non-TTY mode', () => {
-      const output = exec('feedback --json')
+    it('should output prompt JSON in non-TTY mode', async () => {
+      const output = await execInProcess('feedback --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -73,8 +73,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should include action choices with command field', () => {
-      const output = exec('feedback --json')
+    it('should include action choices with command field', async () => {
+      const output = await execInProcess('feedback --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -92,8 +92,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
    * prlt feedback submit
    */
   describe('prlt feedback submit', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('feedback submit --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('feedback submit --help')
 
       expect(output).to.contain('Submit feedback')
       expect(output).to.contain('USAGE')
@@ -102,16 +102,16 @@ describe('Feedback CLI Commands E2E Tests', () => {
       expect(output).to.contain('--category')
     })
 
-    it('should show category options in help', () => {
-      const output = exec('feedback submit --help')
+    it('should show category options in help', async () => {
+      const output = await execInProcess('feedback submit --help')
 
       expect(output).to.contain('bug')
       expect(output).to.contain('feature')
       expect(output).to.contain('general')
     })
 
-    it('should prompt for category when not provided in JSON mode', () => {
-      const output = exec('feedback submit --json')
+    it('should prompt for category when not provided in JSON mode', async () => {
+      const output = await execInProcess('feedback submit --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -128,8 +128,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should prompt for title when category provided but title missing', () => {
-      const output = exec('feedback submit --category bug --json')
+    it('should prompt for title when category provided but title missing', async () => {
+      const output = await execInProcess('feedback submit --category bug --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -140,8 +140,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should prompt for body when category and title provided but body missing', () => {
-      const output = exec('feedback submit --category bug --title "Test" --json')
+    it('should prompt for body when category and title provided but body missing', async () => {
+      const output = await execInProcess('feedback submit --category bug --title "Test" --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -157,8 +157,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
    * prlt feedback list
    */
   describe('prlt feedback list', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('feedback list --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('feedback list --help')
 
       expect(output).to.contain('List recent feedback issues')
       expect(output).to.contain('USAGE')
@@ -167,8 +167,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
       expect(output).to.contain('--limit')
     })
 
-    it('should list issues in JSON mode', () => {
-      const output = exec('feedback list --json')
+    it('should list issues in JSON mode', async () => {
+      const output = await execInProcess('feedback list --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -181,8 +181,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should include filter information in result', () => {
-      const output = exec('feedback list --state all --limit 5 --json')
+    it('should include filter information in result', async () => {
+      const output = await execInProcess('feedback list --state all --limit 5 --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -195,8 +195,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should filter by category', () => {
-      const output = exec('feedback list --category bug --json')
+    it('should filter by category', async () => {
+      const output = await execInProcess('feedback list --category bug --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -213,24 +213,24 @@ describe('Feedback CLI Commands E2E Tests', () => {
    * prlt feedback view
    */
   describe('prlt feedback view', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('feedback view --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('feedback view --help')
 
       expect(output).to.contain('View details of a specific feedback issue')
       expect(output).to.contain('USAGE')
       expect(output).to.contain('NUMBER')
     })
 
-    it('should require issue number argument', () => {
-      const output = exec('feedback view --help')
+    it('should require issue number argument', async () => {
+      const output = await execInProcess('feedback view --help')
 
       expect(output).to.contain('NUMBER')
       expect(output).to.contain('Issue number to view')
     })
 
-    it('should view issue details in JSON mode', () => {
+    it('should view issue details in JSON mode', async () => {
       // View issue #1 which should exist (initial work PR)
-      const output = exec('feedback view 1 --json')
+      const output = await execInProcess('feedback view 1 --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -245,8 +245,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should handle non-existent issue gracefully', () => {
-      const output = exec('feedback view 999999 --json')
+    it('should handle non-existent issue gracefully', async () => {
+      const output = await execInProcess('feedback view 999999 --json')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -262,8 +262,8 @@ describe('Feedback CLI Commands E2E Tests', () => {
    * Error handling
    */
   describe('Error handling', () => {
-    it('should handle unknown subcommand gracefully', () => {
-      const output = exec('feedback unknown-subcommand')
+    it('should handle unknown subcommand gracefully', async () => {
+      const output = await execInProcess('feedback unknown-subcommand')
 
       const validOutput =
         output.includes('not found') ||
@@ -274,20 +274,20 @@ describe('Feedback CLI Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept --help flag on all subcommands', () => {
-      const submitHelp = exec('feedback submit --help')
-      const listHelp = exec('feedback list --help')
-      const viewHelp = exec('feedback view --help')
+    it('should accept --help flag on all subcommands', async () => {
+      const submitHelp = await execInProcess('feedback submit --help')
+      const listHelp = await execInProcess('feedback list --help')
+      const viewHelp = await execInProcess('feedback view --help')
 
       expect(submitHelp).to.contain('USAGE')
       expect(listHelp).to.contain('USAGE')
       expect(viewHelp).to.contain('USAGE')
     })
 
-    it('should include JSON mode flag in all subcommands', () => {
-      const submitHelp = exec('feedback submit --help')
-      const listHelp = exec('feedback list --help')
-      const viewHelp = exec('feedback view --help')
+    it('should include JSON mode flag in all subcommands', async () => {
+      const submitHelp = await execInProcess('feedback submit --help')
+      const listHelp = await execInProcess('feedback list --help')
+      const viewHelp = await execInProcess('feedback view --help')
 
       expect(submitHelp).to.contain('--json')
       expect(listHelp).to.contain('--json')

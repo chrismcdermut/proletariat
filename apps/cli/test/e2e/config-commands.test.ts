@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec, execWithFilter } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 
 /**
  * End-to-end tests for Config Commands (TKT-762)
@@ -43,9 +43,9 @@ describe('Config Commands E2E Tests', () => {
   // config --list (non-TTY exec produces JSON output since shouldOutputJson detects non-TTY)
   // =========================================================================
   describe('prlt config --list', () => {
-    it('should list all configuration values as JSON in non-TTY mode', () => {
+    it('should list all configuration values as JSON in non-TTY mode', async () => {
       // exec() runs in non-TTY, so --list triggers JSON output
-      const output = exec('config --list');
+      const output = await execInProcess('config --list');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('success', true);
@@ -54,15 +54,15 @@ describe('Config Commands E2E Tests', () => {
       expect(parsed.result).to.have.property('tmux');
     });
 
-    it('should show default terminal app in list output', () => {
-      const output = exec('config --list');
+    it('should show default terminal app in list output', async () => {
+      const output = await execInProcess('config --list');
       const parsed = JSON.parse(output);
 
       expect(parsed.result.terminal).to.have.property('app');
     });
 
-    it('should show default shell in list output', () => {
-      const output = exec('config --list');
+    it('should show default shell in list output', async () => {
+      const output = await execInProcess('config --list');
       const parsed = JSON.parse(output);
 
       expect(parsed.result).to.have.property('shell');
@@ -73,8 +73,8 @@ describe('Config Commands E2E Tests', () => {
   // config --json (list mode)
   // =========================================================================
   describe('prlt config --json', () => {
-    it('should output current config as JSON', () => {
-      const output = exec('config --json');
+    it('should output current config as JSON', async () => {
+      const output = await execInProcess('config --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('success', true);
@@ -87,19 +87,19 @@ describe('Config Commands E2E Tests', () => {
       expect(parsed.result.tmux).to.have.property('controlMode');
     });
 
-    it('should include metadata in JSON output', () => {
-      const output = exec('config --json');
+    it('should include metadata in JSON output', async () => {
+      const output = await execInProcess('config --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('metadata');
       expect(parsed.metadata).to.have.property('command', 'config');
     });
 
-    it('should reflect updated values in JSON output', () => {
+    it('should reflect updated values in JSON output', async () => {
       // Set a value first
-      exec('config --set "terminal.app iTerm"');
+      await execInProcess('config --set "terminal.app iTerm"');
 
-      const output = exec('config --json');
+      const output = await execInProcess('config --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.result.terminal.app).to.equal('iTerm');
@@ -110,8 +110,8 @@ describe('Config Commands E2E Tests', () => {
   // config --set
   // =========================================================================
   describe('prlt config --set', () => {
-    it('should set terminal app', () => {
-      const output = exec('config --set "terminal.app Ghostty"');
+    it('should set terminal app', async () => {
+      const output = await execInProcess('config --set "terminal.app Ghostty"');
       expect(output).to.contain('Ghostty');
 
       // Verify in DB
@@ -120,32 +120,32 @@ describe('Config Commands E2E Tests', () => {
       expect(row!.value).to.equal('Ghostty');
     });
 
-    it('should set terminal openInBackground', () => {
-      exec('config --set "terminal.openInBackground false"');
+    it('should set terminal openInBackground', async () => {
+      await execInProcess('config --set "terminal.openInBackground false"');
 
       const row = db.prepare("SELECT value FROM workspace_settings WHERE key = 'execution.terminal.open_in_background'").get() as { value: string } | undefined;
       expect(row).to.not.be.undefined;
       expect(row!.value).to.equal('false');
     });
 
-    it('should set shell', () => {
-      exec('config --set "shell fish"');
+    it('should set shell', async () => {
+      await execInProcess('config --set "shell fish"');
 
       const row = db.prepare("SELECT value FROM workspace_settings WHERE key = 'execution.shell'").get() as { value: string } | undefined;
       expect(row).to.not.be.undefined;
       expect(row!.value).to.equal('fish');
     });
 
-    it('should set tmux control mode', () => {
-      exec('config --set "tmux.controlMode true"');
+    it('should set tmux control mode', async () => {
+      await execInProcess('config --set "tmux.controlMode true"');
 
       const row = db.prepare("SELECT value FROM workspace_settings WHERE key = 'execution.tmux.control_mode'").get() as { value: string } | undefined;
       expect(row).to.not.be.undefined;
       expect(row!.value).to.equal('true');
     });
 
-    it('should output success JSON when --json is used with --set', () => {
-      const output = exec('config --set "terminal.app Kitty" --json');
+    it('should output success JSON when --json is used with --set', async () => {
+      const output = await execInProcess('config --set "terminal.app Kitty" --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('success', true);
@@ -153,10 +153,10 @@ describe('Config Commands E2E Tests', () => {
       expect(parsed.result).to.have.property('value', 'Kitty');
     });
 
-    it('should warn on unknown config key', () => {
+    it('should warn on unknown config key', async () => {
       // In JSON mode, unknown keys produce a JSON error; text mode warning is
       // filtered by filterOutput (strips "Warning:" lines from oclif stderr)
-      const output = exec('config --set "unknown.key value" --json');
+      const output = await execInProcess('config --set "unknown.key value" --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.type).to.equal('error');
@@ -164,37 +164,37 @@ describe('Config Commands E2E Tests', () => {
       expect(parsed.error.message.toLowerCase()).to.contain('unknown');
     });
 
-    it('should round-trip terminal app through set and json', () => {
-      exec('config --set "terminal.app WezTerm"');
+    it('should round-trip terminal app through set and json', async () => {
+      await execInProcess('config --set "terminal.app WezTerm"');
 
-      const output = exec('config --json');
+      const output = await execInProcess('config --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.result.terminal.app).to.equal('WezTerm');
     });
 
-    it('should round-trip shell through set and json', () => {
-      exec('config --set "shell bash"');
+    it('should round-trip shell through set and json', async () => {
+      await execInProcess('config --set "shell bash"');
 
-      const output = exec('config --json');
+      const output = await execInProcess('config --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.result.shell).to.equal('bash');
     });
 
-    it('should round-trip openInBackground through set and json', () => {
-      exec('config --set "terminal.openInBackground false"');
+    it('should round-trip openInBackground through set and json', async () => {
+      await execInProcess('config --set "terminal.openInBackground false"');
 
-      const output = exec('config --json');
+      const output = await execInProcess('config --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.result.terminal.openInBackground).to.equal(false);
     });
 
-    it('should round-trip tmux controlMode through set and json', () => {
-      exec('config --set "tmux.controlMode true"');
+    it('should round-trip tmux controlMode through set and json', async () => {
+      await execInProcess('config --set "tmux.controlMode true"');
 
-      const output = exec('config --json');
+      const output = await execInProcess('config --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.result.tmux.controlMode).to.equal(true);
@@ -205,8 +205,8 @@ describe('Config Commands E2E Tests', () => {
   // config --setting (JSON mode agent navigation)
   // =========================================================================
   describe('prlt config --setting (agent navigation)', () => {
-    it('should output terminal app choices as JSON prompt', () => {
-      const output = exec('config --setting terminal.app --json');
+    it('should output terminal app choices as JSON prompt', async () => {
+      const output = await execInProcess('config --setting terminal.app --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('prompt');
@@ -223,8 +223,8 @@ describe('Config Commands E2E Tests', () => {
       expect(iTermChoice.command).to.contain('terminal.app');
     });
 
-    it('should output shell choices as JSON prompt', () => {
-      const output = exec('config --setting shell --json');
+    it('should output shell choices as JSON prompt', async () => {
+      const output = await execInProcess('config --setting shell --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('prompt');
@@ -236,8 +236,8 @@ describe('Config Commands E2E Tests', () => {
       expect(zshChoice.command).to.contain('shell zsh');
     });
 
-    it('should output openInBackground choices as JSON prompt', () => {
-      const output = exec('config --setting terminal.openInBackground --json');
+    it('should output openInBackground choices as JSON prompt', async () => {
+      const output = await execInProcess('config --setting terminal.openInBackground --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('prompt');
@@ -254,8 +254,8 @@ describe('Config Commands E2E Tests', () => {
       expect(noChoice.command).to.contain('terminal.openInBackground false');
     });
 
-    it('should output tmux controlMode choices as JSON prompt', () => {
-      const output = exec('config --setting tmux.controlMode --json');
+    it('should output tmux controlMode choices as JSON prompt', async () => {
+      const output = await execInProcess('config --setting tmux.controlMode --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('prompt');
@@ -264,8 +264,8 @@ describe('Config Commands E2E Tests', () => {
       expect(parsed.prompt.choices).to.have.length(2);
     });
 
-    it('should include all terminal app options', () => {
-      const output = exec('config --setting terminal.app --json');
+    it('should include all terminal app options', async () => {
+      const output = await execInProcess('config --setting terminal.app --json');
       const parsed = JSON.parse(output);
       const values = parsed.prompt.choices.map((c: { value: string }) => c.value);
 
@@ -279,8 +279,8 @@ describe('Config Commands E2E Tests', () => {
       expect(values).to.include('tmux');
     });
 
-    it('should include all shell options', () => {
-      const output = exec('config --setting shell --json');
+    it('should include all shell options', async () => {
+      const output = await execInProcess('config --setting shell --json');
       const parsed = JSON.parse(output);
       const values = parsed.prompt.choices.map((c: { value: string }) => c.value);
 
@@ -294,9 +294,9 @@ describe('Config Commands E2E Tests', () => {
   // Full agent workflow: navigate menu → set value → verify
   // =========================================================================
   describe('full agent workflow', () => {
-    it('should complete terminal app configuration via agent flow', () => {
+    it('should complete terminal app configuration via agent flow', async () => {
       // Step 1: Agent gets setting sub-prompt
-      const step1Output = exec('config --setting terminal.app --json');
+      const step1Output = await execInProcess('config --setting terminal.app --json');
       const step1 = JSON.parse(step1Output);
       expect(step1.prompt.choices).to.be.an('array');
 
@@ -307,19 +307,19 @@ describe('Config Commands E2E Tests', () => {
 
       // Step 3: Execute the set command (strip 'prlt ' prefix)
       const setCmd = ghosttyChoice.command.replace('prlt ', '');
-      const step3Output = exec(setCmd);
+      const step3Output = await execInProcess(setCmd);
       const step3 = JSON.parse(step3Output);
       expect(step3).to.have.property('success', true);
 
       // Step 4: Verify the value was set
-      const verifyOutput = exec('config --json');
+      const verifyOutput = await execInProcess('config --json');
       const verify = JSON.parse(verifyOutput);
       expect(verify.result.terminal.app).to.equal('Ghostty');
     });
 
-    it('should complete shell configuration via agent flow', () => {
+    it('should complete shell configuration via agent flow', async () => {
       // Step 1: Get shell choices
-      const step1Output = exec('config --setting shell --json');
+      const step1Output = await execInProcess('config --setting shell --json');
       const step1 = JSON.parse(step1Output);
 
       // Step 2: Pick fish
@@ -328,17 +328,17 @@ describe('Config Commands E2E Tests', () => {
 
       // Step 3: Execute
       const setCmd = fishChoice.command.replace('prlt ', '');
-      exec(setCmd);
+      await execInProcess(setCmd);
 
       // Step 4: Verify
-      const verifyOutput = exec('config --json');
+      const verifyOutput = await execInProcess('config --json');
       const verify = JSON.parse(verifyOutput);
       expect(verify.result.shell).to.equal('fish');
     });
 
-    it('should complete openInBackground configuration via agent flow', () => {
+    it('should complete openInBackground configuration via agent flow', async () => {
       // Step 1: Get background choices
-      const step1Output = exec('config --setting terminal.openInBackground --json');
+      const step1Output = await execInProcess('config --setting terminal.openInBackground --json');
       const step1 = JSON.parse(step1Output);
 
       // Step 2: Pick false (no background)
@@ -347,17 +347,17 @@ describe('Config Commands E2E Tests', () => {
 
       // Step 3: Execute
       const setCmd = noChoice.command.replace('prlt ', '');
-      exec(setCmd);
+      await execInProcess(setCmd);
 
       // Step 4: Verify
-      const verifyOutput = exec('config --json');
+      const verifyOutput = await execInProcess('config --json');
       const verify = JSON.parse(verifyOutput);
       expect(verify.result.terminal.openInBackground).to.equal(false);
     });
 
-    it('should complete tmux controlMode configuration via agent flow', () => {
+    it('should complete tmux controlMode configuration via agent flow', async () => {
       // Step 1: Get controlMode choices
-      const step1Output = exec('config --setting tmux.controlMode --json');
+      const step1Output = await execInProcess('config --setting tmux.controlMode --json');
       const step1 = JSON.parse(step1Output);
 
       // Step 2: Pick true (enable)
@@ -366,10 +366,10 @@ describe('Config Commands E2E Tests', () => {
 
       // Step 3: Execute
       const setCmd = yesChoice.command.replace('prlt ', '');
-      exec(setCmd);
+      await execInProcess(setCmd);
 
       // Step 4: Verify
-      const verifyOutput = exec('config --json');
+      const verifyOutput = await execInProcess('config --json');
       const verify = JSON.parse(verifyOutput);
       expect(verify.result.tmux.controlMode).to.equal(true);
     });
@@ -379,15 +379,8 @@ describe('Config Commands E2E Tests', () => {
   // Main menu JSON output
   // =========================================================================
   describe('main menu JSON prompt', () => {
-    it('should output main menu as JSON prompt when --setting is not provided but stdin is not a TTY', () => {
-      // When running via exec(), stdout is not a TTY, so JSON mode activates
-      // without --json flag. But we use --json explicitly for clarity.
-      // The main menu is only reached when --json and --list are NOT set,
-      // but since exec() runs in non-TTY, shouldOutputJson returns true.
-      // With --setting flag, we navigate to a sub-prompt.
-      // Without --setting, --list, or --json, the main menu prompt is shown.
-      // In non-TTY mode (how exec() runs), this outputs the prompt as JSON.
-      const output = exec('config --setting terminal.app --json');
+    it('should output main menu as JSON prompt when --setting is not provided but stdin is not a TTY', async () => {
+      const output = await execInProcess('config --setting terminal.app --json');
       const parsed = JSON.parse(output);
 
       // Verify this is a prompt output (not success output)
@@ -400,16 +393,16 @@ describe('Config Commands E2E Tests', () => {
   // Error handling
   // =========================================================================
   describe('error handling', () => {
-    it('should error on unknown setting', () => {
-      const output = exec('config --setting unknown.setting --json');
+    it('should error on unknown setting', async () => {
+      const output = await execInProcess('config --setting unknown.setting --json');
       // Should contain an error about unknown setting
       expect(output.toLowerCase()).to.satisfy(
         (o: string) => o.includes('unknown') || o.includes('error')
       );
     });
 
-    it('should error on unknown --set key', () => {
-      const output = exec('config --set "nonexistent.key value" --json');
+    it('should error on unknown --set key', async () => {
+      const output = await execInProcess('config --set "nonexistent.key value" --json');
       const parsed = JSON.parse(output);
 
       expect(parsed).to.have.property('error');

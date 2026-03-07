@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
-import { exec } from './test-helpers.js';
+import { execInProcess } from './test-helpers.js';
 
 /** Database row types for theme queries */
 interface ThemeRow {
@@ -63,33 +63,33 @@ describe('Agent Theme Commands E2E Tests', () => {
   });
 
   describe('prlt agents themes list', () => {
-    it('should list built-in themes after seeding', () => {
-      const output = exec('agents themes list');
+    it('should list built-in themes after seeding', async () => {
+      const output = await execInProcess('agents themes list');
 
       expect(output).to.contain('Billionaires');
       expect(output).to.contain('Toyota');
       expect(output).to.contain('Company');
     });
 
-    it('should show available name counts', () => {
-      const output = exec('agents themes list');
+    it('should show available name counts', async () => {
+      const output = await execInProcess('agents themes list');
 
       expect(output).to.contain('available');
     });
 
-    it('should show custom themes after creation', () => {
+    it('should show custom themes after creation', async () => {
       // Create a custom theme
-      exec('agents themes create greek-gods');
+      await execInProcess('agents themes create greek-gods');
 
-      const output = exec('agents themes list');
+      const output = await execInProcess('agents themes list');
 
       expect(output).to.contain('greek-gods');
     });
   });
 
   describe('prlt agents themes create', () => {
-    it('should create a custom theme', () => {
-      const output = exec('agents themes create my-team');
+    it('should create a custom theme', async () => {
+      const output = await execInProcess('agents themes create my-team');
 
       expect(output).to.contain('Created theme');
       expect(output).to.contain('my-team');
@@ -100,32 +100,32 @@ describe('Agent Theme Commands E2E Tests', () => {
       expect(theme!.name).to.equal('my-team');
     });
 
-    it('should auto-format display name from ID', () => {
-      exec('agents themes create cool-names');
+    it('should auto-format display name from ID', async () => {
+      await execInProcess('agents themes create cool-names');
 
       const theme = db.prepare('SELECT display_name FROM agent_themes WHERE id = ?').get('cool-names') as Pick<ThemeRow, 'display_name'> | undefined;
       expect(theme?.display_name).to.equal('Cool Names');
     });
 
-    it('should use custom display name when provided', () => {
-      exec('agents themes create test-theme --display-name "My Custom Theme"');
+    it('should use custom display name when provided', async () => {
+      await execInProcess('agents themes create test-theme --display-name "My Custom Theme"');
 
       const theme = db.prepare('SELECT display_name FROM agent_themes WHERE id = ?').get('test-theme') as Pick<ThemeRow, 'display_name'> | undefined;
       expect(theme?.display_name).to.equal('My Custom Theme');
     });
 
-    it('should not allow duplicate theme IDs', () => {
-      exec('agents themes create unique-theme');
-      const output = exec('agents themes create unique-theme');
+    it('should not allow duplicate theme IDs', async () => {
+      await execInProcess('agents themes create unique-theme');
+      const output = await execInProcess('agents themes create unique-theme');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
   });
 
   describe('prlt agents themes add-names', () => {
-    it('should add names to a theme', () => {
-      exec('agents themes create test-theme');
-      const output = exec('agents themes add-names test-theme alice bob charlie');
+    it('should add names to a theme', async () => {
+      await execInProcess('agents themes create test-theme');
+      const output = await execInProcess('agents themes add-names test-theme alice bob charlie');
 
       expect(output).to.contain('Added');
       expect(output).to.contain('3');
@@ -136,9 +136,9 @@ describe('Agent Theme Commands E2E Tests', () => {
       expect(names.map(n => n.name)).to.include.members(['alice', 'bob', 'charlie']);
     });
 
-    it('should preserve case but convert spaces to dashes', () => {
-      exec('agents themes create test-theme');
-      exec('agents themes add-names test-theme Alice BOB "Mary Jane"');
+    it('should preserve case but convert spaces to dashes', async () => {
+      await execInProcess('agents themes create test-theme');
+      await execInProcess('agents themes add-names test-theme Alice BOB "Mary Jane"');
 
       const names = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ?').all('test-theme') as ThemeNameRow[];
       const nameList = names.map(n => n.name);
@@ -149,18 +149,18 @@ describe('Agent Theme Commands E2E Tests', () => {
       expect(nameList).to.include('Mary-Jane');
     });
 
-    it('should prevent duplicate names (case-insensitive)', () => {
-      exec('agents themes create test-theme');
-      exec('agents themes add-names test-theme alice');
-      exec('agents themes add-names test-theme ALICE Alice');
+    it('should prevent duplicate names (case-insensitive)', async () => {
+      await execInProcess('agents themes create test-theme');
+      await execInProcess('agents themes add-names test-theme alice');
+      await execInProcess('agents themes add-names test-theme ALICE Alice');
 
       // Should only have one 'alice'
       const names = db.prepare('SELECT name FROM agent_theme_names WHERE theme_id = ?').all('test-theme') as ThemeNameRow[];
       expect(names).to.have.lengthOf(1);
     });
 
-    it('should error for non-existent theme', () => {
-      const output = exec('agents themes add-names nonexistent-theme name1');
+    it('should error for non-existent theme', async () => {
+      const output = await execInProcess('agents themes add-names nonexistent-theme name1');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -185,9 +185,9 @@ describe('Agent Theme Commands E2E Tests', () => {
   });
 
   describe('Built-in theme protection', () => {
-    it('should seed built-in themes on first access', () => {
+    it('should seed built-in themes on first access', async () => {
       // List triggers seeding
-      exec('agents themes list');
+      await execInProcess('agents themes list');
 
       const themes = db.prepare('SELECT * FROM agent_themes WHERE builtin = 1').all() as ThemeRow[];
       expect(themes.length).to.be.greaterThan(0);
@@ -198,8 +198,8 @@ describe('Agent Theme Commands E2E Tests', () => {
       expect(themeIds).to.include('companies');
     });
 
-    it('should have names for built-in themes', () => {
-      exec('agents themes list');
+    it('should have names for built-in themes', async () => {
+      await execInProcess('agents themes list');
 
       const billionaireNames = db.prepare('SELECT COUNT(*) as count FROM agent_theme_names WHERE theme_id = ?').get('billionaires') as CountRow | undefined;
       expect(billionaireNames?.count).to.be.greaterThan(0);

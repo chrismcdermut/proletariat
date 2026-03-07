@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { runCommand } from '@oclif/test';
 import { fileURLToPath } from 'node:url';
-import { execWithFilter, filterOutput } from './test-helpers.js';
+import { execInProcess, filterOutput } from './test-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,11 +47,11 @@ describe('prlt claude', () => {
   });
 
   describe('outside HQ (yolo mode)', () => {
-    it('detects non-HQ directory and runs in yolo mode', () => {
+    it('detects non-HQ directory and runs in yolo mode', async () => {
       // In a plain directory without .proletariat, claude should run in yolo mode
       // Testing JSON output to verify behavior - command exits with special code when prompting
       try {
-        execWithFilter('claude --json');
+        await execInProcess('claude --json');
         // If we get here without error, that's also acceptable
         expect(true).to.be.true;
       } catch {
@@ -61,9 +61,9 @@ describe('prlt claude', () => {
       }
     });
 
-    it('accepts slug via --slug flag', () => {
+    it('accepts slug via --slug flag', async () => {
       try {
-        const output = execWithFilter('claude --json --slug test-session');
+        const output = await execInProcess('claude --json --slug test-session');
         const parsed = JSON.parse(filterOutput(output));
 
         // With slug provided, should ask for next prompt (not slug)
@@ -87,9 +87,9 @@ describe('prlt claude', () => {
       );
     });
 
-    it('detects HQ context', () => {
+    it('detects HQ context', async () => {
       try {
-        const output = execWithFilter('claude --json');
+        const output = await execInProcess('claude --json');
         const parsed = JSON.parse(filterOutput(output));
 
         // In HQ without PMO, should fail or prompt for PMO init
@@ -105,11 +105,11 @@ describe('prlt claude', () => {
   });
 
   describe('environment selection - Docker option always selectable (TKT-956)', () => {
-    it('devcontainer choice should never be disabled in JSON mode', () => {
+    it('devcontainer choice should never be disabled in JSON mode', async () => {
       // With --slug provided, the next prompt should be environment selection
       // The devcontainer option should always be selectable (no disabled property)
       try {
-        const output = execWithFilter('claude --json --slug test-session');
+        const output = await execInProcess('claude --json --slug test-session');
         const parsed = JSON.parse(filterOutput(output));
 
         // Check if this is the environment prompt
@@ -128,9 +128,9 @@ describe('prlt claude', () => {
       }
     });
 
-    it('devcontainer choice label should not show "requires:" text', () => {
+    it('devcontainer choice label should not show "requires:" text', async () => {
       try {
-        const output = execWithFilter('claude --json --slug test-session');
+        const output = await execInProcess('claude --json --slug test-session');
         const parsed = JSON.parse(filterOutput(output));
 
         if (parsed?.prompt?.name === 'selectedEnv' && parsed?.prompt?.choices) {
@@ -146,9 +146,9 @@ describe('prlt claude', () => {
       }
     });
 
-    it('devcontainer should be the default environment choice', () => {
+    it('devcontainer should be the default environment choice', async () => {
       try {
-        const output = execWithFilter('claude --json --slug test-session');
+        const output = await execInProcess('claude --json --slug test-session');
         const parsed = JSON.parse(filterOutput(output));
 
         if (parsed?.prompt?.name === 'selectedEnv') {
@@ -203,12 +203,12 @@ describe('prlt claude', () => {
   });
 
   describe('directory flag', () => {
-    it('accepts --directory flag for custom working directory', () => {
+    it('accepts --directory flag for custom working directory', async () => {
       const subDir = path.join(testDir, 'subdir');
       fs.mkdirSync(subDir);
 
       try {
-        const output = execWithFilter(`claude --json --directory "${subDir}"`);
+        const output = await execInProcess(`claude --json --directory "${subDir}"`);
         // Should work without error (will prompt for slug)
         expect(output).to.be.a('string');
       } catch {
@@ -217,10 +217,10 @@ describe('prlt claude', () => {
       }
     });
 
-    it('fails gracefully for non-existent directory', () => {
+    it('fails gracefully for non-existent directory', async () => {
       // Command should error when given non-existent directory
       try {
-        execWithFilter('claude --directory /nonexistent/path/that/does/not/exist');
+        await execInProcess('claude --directory /nonexistent/path/that/does/not/exist');
         // If we get here without error, test should fail
         expect.fail('Expected command to fail for non-existent directory');
       } catch {

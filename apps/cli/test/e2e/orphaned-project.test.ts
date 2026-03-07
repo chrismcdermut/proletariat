@@ -7,7 +7,7 @@ import {
   createTestProject,
   createHQConfig,
   createPMODirectories,
-  exec,
+  execInProcess,
   TestEnvironment,
 } from './test-helpers.js';
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
@@ -112,11 +112,11 @@ describe('Orphaned Project Handling (TKT-940)', () => {
   });
 
   describe('ticket view with orphaned project', () => {
-    it('should display ticket without crashing when project is missing', () => {
+    it('should display ticket without crashing when project is missing', async () => {
       // Create a ticket in the valid project first, then orphan it
       insertOrphanedTicket('TKT-ORPHAN-VIEW', 'ghost-project', 'Orphaned View Test');
 
-      const output = exec('ticket view TKT-ORPHAN-VIEW');
+      const output = await execInProcess('ticket view TKT-ORPHAN-VIEW');
 
       // Should not crash - should show the ticket details
       expect(output).to.contain('TKT-ORPHAN-VIEW');
@@ -125,7 +125,7 @@ describe('Orphaned Project Handling (TKT-940)', () => {
   });
 
   describe('ticket list with orphaned project', () => {
-    it('should list tickets across all projects including orphaned ones', () => {
+    it('should list tickets across all projects including orphaned ones', async () => {
       // Create a valid ticket
       const defaultStatusId = db.prepare(`
         SELECT id FROM ${T.workflow_statuses}
@@ -140,7 +140,7 @@ describe('Orphaned Project Handling (TKT-940)', () => {
       // Insert an orphaned ticket
       insertOrphanedTicket('TKT-ORPHAN-LIST', 'ghost-project', 'Orphaned List Test');
 
-      const output = exec('ticket list --all');
+      const output = await execInProcess('ticket list --all');
 
       // Should show both tickets without crashing
       expect(output).to.contain('TKT-VALID');
@@ -149,10 +149,10 @@ describe('Orphaned Project Handling (TKT-940)', () => {
       expect(output).to.contain('TKT-ORPHAN-LIST');
     });
 
-    it('should handle --format json with orphaned tickets without crashing', () => {
+    it('should handle --format json with orphaned tickets without crashing', async () => {
       insertOrphanedTicket('TKT-ORPHAN-JSON', 'ghost-project', 'Orphaned JSON Test');
 
-      const output = exec('ticket list --all --format json');
+      const output = await execInProcess('ticket list --all --format json');
 
       // Should produce valid JSON output, not crash
       expect(output).to.not.contain('PMOError');
@@ -161,10 +161,10 @@ describe('Orphaned Project Handling (TKT-940)', () => {
   });
 
   describe('ticket delete with orphaned project', () => {
-    it('should allow deleting a ticket with orphaned project', () => {
+    it('should allow deleting a ticket with orphaned project', async () => {
       insertOrphanedTicket('TKT-ORPHAN-DEL', 'ghost-project', 'Orphaned Delete Test');
 
-      exec('ticket delete TKT-ORPHAN-DEL --force');
+      await execInProcess('ticket delete TKT-ORPHAN-DEL --force');
 
       // Should delete without crashing
       const ticket = db.prepare(`
