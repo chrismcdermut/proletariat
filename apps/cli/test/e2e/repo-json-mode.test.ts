@@ -8,7 +8,7 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  execProduction,
+  execInProcess,
   filterOutput,
   findChoice as sharedFindChoice,
   execChoice as sharedExecChoice,
@@ -19,8 +19,8 @@ import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 
 // Local exec wrapper that uses execProduction with filtering
-const exec = (cmd: string): string => {
-  const output = execProduction(cmd);
+const exec = async (cmd: string): Promise<string> => {
+  const output = await execInProcess(cmd);
   return filterOutput(output);
 };
 
@@ -103,8 +103,8 @@ describe('Repo Commands JSON Mode', () => {
   }
 
   describe('repo (main menu) --machine', () => {
-    it('should output valid JSON with prompt schema', () => {
-      const output = exec('repo --machine');
+    it('should output valid JSON with prompt schema', async () => {
+      const output = await exec('repo --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -118,16 +118,16 @@ describe('Repo Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('repo -m');
+    it('should work with -m shorthand', async () => {
+      const output = await exec('repo -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include command field in all choices', () => {
-      const output = exec('repo --machine');
+    it('should include command field in all choices', async () => {
+      const output = await exec('repo --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command?: string }> };
       }>(output);
@@ -138,8 +138,8 @@ describe('Repo Commands JSON Mode', () => {
       }
     });
 
-    it('should include --json flag in choice commands for flag accumulation', () => {
-      const output = exec('repo --machine');
+    it('should include --json flag in choice commands for flag accumulation', async () => {
+      const output = await exec('repo --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string }> };
       }>(output);
@@ -151,14 +151,14 @@ describe('Repo Commands JSON Mode', () => {
   });
 
   describe('repo list --format json', () => {
-    it('should output valid JSON array with --format json flag', () => {
+    it('should output valid JSON array with --format json flag', async () => {
       // Add a test repo first
       const testRepoPath = path.join(env.testDir, 'repos', 'list-test-repo');
       fs.mkdirSync(testRepoPath, { recursive: true });
       initGitRepo(testRepoPath);
       createTestRepo('list-test-repo', 'repos/list-test-repo');
 
-      const output = exec('repo list --format json');
+      const output = await exec('repo list --format json');
       const json = extractJson<Array<{ name: string; path: string }>>(output);
 
       expect(json).to.be.an('array');
@@ -167,14 +167,14 @@ describe('Repo Commands JSON Mode', () => {
       expect(json[0]).to.have.property('path');
     });
 
-    it('should output valid JSON with -f json shorthand', () => {
+    it('should output valid JSON with -f json shorthand', async () => {
       // Add a test repo first
       const testRepoPath = path.join(env.testDir, 'repos', 'shorthand-test-repo');
       fs.mkdirSync(testRepoPath, { recursive: true });
       initGitRepo(testRepoPath);
       createTestRepo('shorthand-test-repo', 'repos/shorthand-test-repo');
 
-      const output = exec('repo list -f json');
+      const output = await exec('repo list -f json');
       const json = extractJson<Array<{ name: string }>>(output);
 
       expect(json).to.be.an('array');
@@ -183,8 +183,8 @@ describe('Repo Commands JSON Mode', () => {
   });
 
   describe('repo add --machine', () => {
-    it('should output prompt JSON when path not provided', () => {
-      const output = exec('repo add --machine');
+    it('should output prompt JSON when path not provided', async () => {
+      const output = await exec('repo add --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -196,8 +196,8 @@ describe('Repo Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('repo add -m');
+    it('should work with -m shorthand', async () => {
+      const output = await exec('repo add -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
@@ -210,14 +210,14 @@ describe('Repo Commands JSON Mode', () => {
 
   describe('repo view --machine', () => {
 
-    it('should output prompt JSON when name not provided', () => {
+    it('should output prompt JSON when name not provided', async () => {
       // Add a test repo first so view has something to show
       const testRepoPath = path.join(env.testDir, 'repos', 'view-test-repo');
       fs.mkdirSync(testRepoPath, { recursive: true });
       initGitRepo(testRepoPath);
       createTestRepo('view-test-repo', 'repos/view-test-repo');
 
-      const output = exec('repo view --machine');
+      const output = await exec('repo view --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -228,14 +228,14 @@ describe('Repo Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include command field in choices for flag accumulation', () => {
+    it('should include command field in choices for flag accumulation', async () => {
       // Add a test repo first so view has something to show
       const testRepoPath = path.join(env.testDir, 'repos', 'view-flag-test-repo');
       fs.mkdirSync(testRepoPath, { recursive: true });
       initGitRepo(testRepoPath);
       createTestRepo('view-flag-test-repo', 'repos/view-flag-test-repo');
 
-      const output = exec('repo view --machine');
+      const output = await exec('repo view --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string; value: string }> };
       }>(output);
@@ -249,14 +249,14 @@ describe('Repo Commands JSON Mode', () => {
   });
 
   describe('repo remove --machine', () => {
-    it('should output prompt JSON when name not provided', () => {
+    it('should output prompt JSON when name not provided', async () => {
       // Add a test repo first so remove has something to show
       const testRepoPath = path.join(env.testDir, 'repos', 'remove-test-repo');
       fs.mkdirSync(testRepoPath, { recursive: true });
       initGitRepo(testRepoPath);
       createTestRepo('remove-test-repo', 'repos/remove-test-repo');
 
-      const output = exec('repo remove --machine');
+      const output = await exec('repo remove --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -290,8 +290,8 @@ describe('Repo Commands JSON Mode', () => {
     }
 
     // Local agentExec that uses the local exec function with extractJson
-    function agentExec(cmd: string): AgentPrompt {
-      const output = exec(cmd);
+    async function agentExec(cmd: string): Promise<AgentPrompt> {
+      const output = await exec(cmd);
       return extractJson<AgentPrompt>(output);
     }
 
@@ -299,9 +299,9 @@ describe('Repo Commands JSON Mode', () => {
     const execChoice = sharedExecChoice;
 
     describe('repo menu navigation', () => {
-      it('should navigate from repo menu to repo add', () => {
+      it('should navigate from repo menu to repo add', async () => {
         // Agent Step 1: Get main menu
-        const step1 = agentExec('repo --machine');
+        const step1 = await agentExec('repo --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Find add choice
@@ -310,14 +310,14 @@ describe('Repo Commands JSON Mode', () => {
         expect(addChoice!.command).to.include('repo add');
 
         // Agent Step 2: Navigate to repo add
-        const step2 = agentExec(execChoice(addChoice!));
+        const step2 = await agentExec(execChoice(addChoice!));
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.choices).to.be.an('array');
       });
 
-      it('should navigate from repo menu to repo list', () => {
+      it('should navigate from repo menu to repo list', async () => {
         // Agent Step 1: Get main menu
-        const step1 = agentExec('repo --machine');
+        const step1 = await agentExec('repo --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Find list choice
@@ -327,9 +327,9 @@ describe('Repo Commands JSON Mode', () => {
         expect(listChoice!.command).to.include('--json');
       });
 
-      it('should navigate from repo menu to repo view', () => {
+      it('should navigate from repo menu to repo view', async () => {
         // Agent Step 1: Get main menu
-        const step1 = agentExec('repo --machine');
+        const step1 = await agentExec('repo --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Find view choice
@@ -338,9 +338,9 @@ describe('Repo Commands JSON Mode', () => {
         expect(viewChoice!.command).to.include('repo view');
       });
 
-      it('should navigate from repo menu to repo remove', () => {
+      it('should navigate from repo menu to repo remove', async () => {
         // Agent Step 1: Get main menu
-        const step1 = agentExec('repo --machine');
+        const step1 = await agentExec('repo --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Find remove choice
@@ -351,8 +351,8 @@ describe('Repo Commands JSON Mode', () => {
     });
 
     describe('repo add - agent navigation', () => {
-      it('should show method selection options', () => {
-        const step1 = agentExec('repo add --machine');
+      it('should show method selection options', async () => {
+        const step1 = await agentExec('repo add --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.choices).to.be.an('array');
 
@@ -363,14 +363,14 @@ describe('Repo Commands JSON Mode', () => {
     });
 
     describe('repo view - agent navigation', () => {
-      it('should output repo selection prompt', () => {
+      it('should output repo selection prompt', async () => {
         // Add a test repo first
         const testRepoPath = path.join(env.testDir, 'repos', 'agent-view-repo');
         fs.mkdirSync(testRepoPath, { recursive: true });
         initGitRepo(testRepoPath);
         createTestRepo('agent-view-repo', 'repos/agent-view-repo');
 
-        const step1 = agentExec('repo view --machine');
+        const step1 = await agentExec('repo view --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.message).to.include('Select repository');
         expect(step1.prompt.choices).to.be.an('array');
@@ -385,14 +385,14 @@ describe('Repo Commands JSON Mode', () => {
     });
 
     describe('repo remove - agent navigation', () => {
-      it('should output repo selection prompt', () => {
+      it('should output repo selection prompt', async () => {
         // Add a test repo first
         const testRepoPath = path.join(env.testDir, 'repos', 'agent-remove-repo');
         fs.mkdirSync(testRepoPath, { recursive: true });
         initGitRepo(testRepoPath);
         createTestRepo('agent-remove-repo', 'repos/agent-remove-repo');
 
-        const step1 = agentExec('repo remove --machine');
+        const step1 = await agentExec('repo remove --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.message).to.include('Select repository');
         expect(step1.prompt.choices).to.be.an('array');
@@ -407,7 +407,7 @@ describe('Repo Commands JSON Mode', () => {
     });
 
     describe('repo list - JSON output', () => {
-      it('should return repos as JSON array with --format json', () => {
+      it('should return repos as JSON array with --format json', async () => {
         // Add a test repo first
         const testRepoPath = path.join(env.testDir, 'repos', 'agent-list-repo');
         fs.mkdirSync(testRepoPath, { recursive: true });
@@ -415,7 +415,7 @@ describe('Repo Commands JSON Mode', () => {
         createTestRepo('agent-list-repo', 'repos/agent-list-repo');
 
         // Use --format json since repo list uses that flag
-        const output = exec('repo list --format json');
+        const output = await exec('repo list --format json');
         const repos = extractJson<Array<{ name: string; path: string }>>(output);
 
         expect(repos).to.be.an('array');
@@ -426,9 +426,9 @@ describe('Repo Commands JSON Mode', () => {
     });
 
     describe('backward compatibility: --json flag', () => {
-      it('should work with --json flag same as --machine for prompts', () => {
-        const machineResult = agentExec('repo --machine');
-        const jsonResult = agentExec('repo --json');
+      it('should work with --json flag same as --machine for prompts', async () => {
+        const machineResult = await agentExec('repo --machine');
+        const jsonResult = await agentExec('repo --json');
 
         // Both should have same structure
         expect(machineResult.prompt.type).to.equal(jsonResult.prompt.type);

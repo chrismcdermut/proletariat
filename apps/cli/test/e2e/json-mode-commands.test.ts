@@ -11,7 +11,7 @@ import {
   createTestWorkflow,
   addTestWorkflowStatus,
   extractJson as extractJsonOrNull,
-  exec,
+  execInProcess,
   type TestEnvironment,
 } from './test-helpers.js';
 
@@ -55,7 +55,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
   /**
    * Helper to insert a test ticket directly into the database.
-   * More reliable than exec('ticket create ...') for test setup.
+   * More reliable than await execInProcess('ticket create ...') for test setup.
    */
   function createLocalTestTicket(id: string, title: string, statusId: string = 'default-backlog'): void {
     // Map status_id to status name
@@ -75,8 +75,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-002', 'Test ticket 2');
     });
 
-    it('should output valid JSON with prompt schema', () => {
-      const output = exec('ticket move -P test-project --json');
+    it('should output valid JSON with prompt schema', async () => {
+      const output = await execInProcess('ticket move -P test-project --json');
       const json = extractJson<{ prompt: { type: string; name: string; message: string; choices: unknown[] } }>(output);
 
       expect(json.prompt).to.exist;
@@ -84,8 +84,8 @@ describe('JSON Mode Flag Accumulation', () => {
       expect(json.prompt.choices).to.be.an('array');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket move -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket move -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       // Each choice's command should include the project flag
@@ -95,8 +95,8 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should include ticket ID and project flag in column selection commands', () => {
-      const output = exec('ticket move TKT-001 -P test-project --json');
+    it('should include ticket ID and project flag in column selection commands', async () => {
+      const output = await execInProcess('ticket move TKT-001 -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       // Each choice's command should include ticket ID and project flag
@@ -107,9 +107,9 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should allow stateless navigation: project → ticket → column', () => {
+    it('should allow stateless navigation: project → ticket → column', async () => {
       // Step 1: Get ticket choices with project flag
-      const step1Output = exec('ticket move -P test-project --json');
+      const step1Output = await execInProcess('ticket move -P test-project --json');
       const step1Json = extractJson<{ prompt: { choices: Array<{ command: string; value: string }> } }>(step1Output);
 
       expect(step1Json.prompt.choices.length).to.be.greaterThan(0);
@@ -120,7 +120,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
       // Step 2: Execute the command from step 1 (strip 'prlt ' prefix)
       const step2Command = ticketCommand.replace('prlt ', '');
-      const step2Output = exec(step2Command);
+      const step2Output = await execInProcess(step2Command);
       const step2Json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(step2Output);
 
       // Verify column choices still include project flag
@@ -135,8 +135,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-003', 'Complete me');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket complete -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket complete -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -150,8 +150,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-004', 'Delete me');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket delete -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket delete -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -165,8 +165,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-005', 'View me');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket view -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket view -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -180,8 +180,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-006', 'Edit me');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket edit -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket edit -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -195,8 +195,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-007', 'Status me');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket status -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket status -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -210,8 +210,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-008', 'Update me');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket update -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket update -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -225,8 +225,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-009', 'Reassign me');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket reassign -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket reassign -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -241,8 +241,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-011', 'Link target');
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket link -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket link -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -250,8 +250,8 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should include project flag in link subcommands', () => {
-      const output = exec('ticket link TKT-010 -P test-project --json');
+    it('should include project flag in link subcommands', async () => {
+      const output = await execInProcess('ticket link TKT-010 -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       // Menu commands should include project flag
@@ -269,8 +269,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-013', 'Blocker ticket');
     });
 
-    it('should include project flag in blocker selection commands', () => {
-      const output = exec('ticket link block TKT-012 -P test-project --json');
+    it('should include project flag in blocker selection commands', async () => {
+      const output = await execInProcess('ticket link block TKT-012 -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -289,8 +289,8 @@ describe('JSON Mode Flag Accumulation', () => {
       `).run();
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket spec -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket spec -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -298,8 +298,8 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should include project flag in spec selection commands', () => {
-      const output = exec('ticket spec TKT-014 -P test-project --json');
+    it('should include project flag in spec selection commands', async () => {
+      const output = await execInProcess('ticket spec TKT-014 -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -318,8 +318,8 @@ describe('JSON Mode Flag Accumulation', () => {
       `).run();
     });
 
-    it('should include project flag in ticket selection commands', () => {
-      const output = exec('ticket epic -P test-project --json');
+    it('should include project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket epic -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -327,8 +327,8 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should include project flag in epic selection commands', () => {
-      const output = exec('ticket epic TKT-015 -P test-project --json');
+    it('should include project flag in epic selection commands', async () => {
+      const output = await execInProcess('ticket epic TKT-015 -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -344,8 +344,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createTestProject(db, { id: 'other-project', name: 'Other Project', description: 'Another project' });
     });
 
-    it('should include source project flag in ticket selection commands', () => {
-      const output = exec('ticket project -P test-project --json');
+    it('should include source project flag in ticket selection commands', async () => {
+      const output = await execInProcess('ticket project -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -353,8 +353,8 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should include source project flag in target project selection commands', () => {
-      const output = exec('ticket project TKT-016 -P test-project --json');
+    it('should include source project flag in target project selection commands', async () => {
+      const output = await execInProcess('ticket project TKT-016 -P test-project --json');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -369,8 +369,8 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-M02', 'Machine mode ticket 2');
     });
 
-    it('should output valid JSON with --machine flag', () => {
-      const output = exec('ticket move -P test-project --machine');
+    it('should output valid JSON with --machine flag', async () => {
+      const output = await execInProcess('ticket move -P test-project --machine');
       const json = extractJson<{ prompt: { type: string; name: string; choices: unknown[] }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
@@ -379,9 +379,9 @@ describe('JSON Mode Flag Accumulation', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should produce same structure as --json flag', () => {
-      const jsonOutput = exec('ticket move -P test-project --json');
-      const machineOutput = exec('ticket move -P test-project --machine');
+    it('should produce same structure as --json flag', async () => {
+      const jsonOutput = await execInProcess('ticket move -P test-project --json');
+      const machineOutput = await execInProcess('ticket move -P test-project --machine');
 
       const jsonResult = extractJson<{ prompt: { type: string; name: string; choices: Array<{ value: string }> } }>(jsonOutput);
       const machineResult = extractJson<{ prompt: { type: string; name: string; choices: Array<{ value: string }> } }>(machineOutput);
@@ -397,8 +397,8 @@ describe('JSON Mode Flag Accumulation', () => {
       expect(machineValues).to.deep.equal(jsonValues);
     });
 
-    it('should include project flag in commands with --machine', () => {
-      const output = exec('ticket move -P test-project --machine');
+    it('should include project flag in commands with --machine', async () => {
+      const output = await execInProcess('ticket move -P test-project --machine');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -408,8 +408,8 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('ticket move -P test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('ticket move -P test-project -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
@@ -417,8 +417,8 @@ describe('JSON Mode Flag Accumulation', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work for ticket complete with --machine', () => {
-      const output = exec('ticket complete -P test-project --machine');
+    it('should work for ticket complete with --machine', async () => {
+      const output = await execInProcess('ticket complete -P test-project --machine');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -426,8 +426,8 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should work for ticket view with --machine', () => {
-      const output = exec('ticket view -P test-project --machine');
+    it('should work for ticket view with --machine', async () => {
+      const output = await execInProcess('ticket view -P test-project --machine');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -435,8 +435,8 @@ describe('JSON Mode Flag Accumulation', () => {
       }
     });
 
-    it('should work for ticket delete with --machine', () => {
-      const output = exec('ticket delete -P test-project --machine');
+    it('should work for ticket delete with --machine', async () => {
+      const output = await execInProcess('ticket delete -P test-project --machine');
       const json = extractJson<{ prompt: { choices: Array<{ command: string }> } }>(output);
 
       for (const choice of json.prompt.choices) {
@@ -450,9 +450,9 @@ describe('JSON Mode Flag Accumulation', () => {
       createLocalTestTicket('TKT-E2E', 'E2E Test Ticket');
     });
 
-    it('should complete full ticket move flow via JSON commands', () => {
+    it('should complete full ticket move flow via JSON commands', async () => {
       // Step 1: Start with project selection implicit (single project auto-selects)
-      const step1 = exec('ticket move -P test-project --json');
+      const step1 = await execInProcess('ticket move -P test-project --json');
       const json1 = extractJson<{ prompt: { choices: Array<{ command: string; value: string }> } }>(step1);
 
       // Get first ticket command
@@ -460,7 +460,7 @@ describe('JSON Mode Flag Accumulation', () => {
       expect(ticketCmd).to.include('-P test-project');
 
       // Step 2: Select ticket, get column choices
-      const step2 = exec(ticketCmd);
+      const step2 = await execInProcess(ticketCmd);
       const json2 = extractJson<{ prompt: { choices: Array<{ command: string; value: string; name: string }> } }>(step2);
 
       // Find "In Progress" column
@@ -470,7 +470,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
       // Step 3: Execute the move (remove --json to actually execute)
       const moveCmd = inProgressChoice!.command.replace('prlt ', '').replace(' --json', '');
-      const result = exec(moveCmd);
+      const result = await execInProcess(moveCmd);
 
       // Verify ticket was moved
       expect(result).to.include('Moved');
@@ -482,8 +482,8 @@ describe('JSON Mode Flag Accumulation', () => {
     /**
      * Helper to simulate agent flow: execute command, parse JSON, return parsed result
      */
-    function agentExec(cmd: string): { prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> }; metadata: { command: string; flags: Record<string, unknown> } } {
-      const output = exec(cmd);
+    async function agentExec(cmd: string): Promise<{ prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> }; metadata: { command: string; flags: Record<string, unknown> } }> {
+      const output = await execInProcess(cmd);
       return extractJson(output);
     }
 
@@ -508,8 +508,8 @@ describe('JSON Mode Flag Accumulation', () => {
     /**
      * Helper to execute final command (removes --json flag to actually execute)
      */
-    function execFinal(cmd: string): string {
-      return exec(cmd.replace(' --json', '').replace(' --machine', ''));
+    async function execFinal(cmd: string): Promise<string> {
+      return await execInProcess(cmd.replace(' --json', '').replace(' --machine', ''));
     }
 
     describe('ticket move - full agent flow', () => {
@@ -517,9 +517,9 @@ describe('JSON Mode Flag Accumulation', () => {
         createLocalTestTicket('TKT-MOVE-1', 'Move me to In Progress');
       });
 
-      it('should complete move flow: select ticket → select column → move', () => {
+      it('should complete move flow: select ticket → select column → move', async () => {
         // Agent Step 1: Get available tickets
-        const step1 = agentExec('ticket move -P test-project --machine');
+        const step1 = await agentExec('ticket move -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.message).to.include('ticket');
 
@@ -527,7 +527,7 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(ticketChoice).to.exist;
 
         // Agent Step 2: Select ticket, get column choices
-        const step2 = agentExec(execChoice(ticketChoice!));
+        const step2 = await agentExec(execChoice(ticketChoice!));
         expect(step2.prompt.type).to.equal('list');
 
         const columnChoice = findChoice(step2.prompt.choices, 'In Progress');
@@ -535,7 +535,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
         // Agent Step 3: Execute the move
         const moveCmd = execChoice(columnChoice!);
-        const result = execFinal(moveCmd);
+        const result = await execFinal(moveCmd);
 
         // Verify the output indicates success
         expect(result).to.include('Moved');
@@ -552,9 +552,9 @@ describe('JSON Mode Flag Accumulation', () => {
         createLocalTestTicket('TKT-COMP-1', 'Complete this ticket', 'default-in-progress');
       });
 
-      it('should complete flow: select ticket → mark as done', () => {
+      it('should complete flow: select ticket → mark as done', async () => {
         // Agent Step 1: Get available tickets
-        const step1 = agentExec('ticket complete -P test-project --machine');
+        const step1 = await agentExec('ticket complete -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const ticketChoice = findChoice(step1.prompt.choices, 'TKT-COMP-1');
@@ -563,7 +563,7 @@ describe('JSON Mode Flag Accumulation', () => {
         // Agent Step 2: Execute complete (may prompt for confirmation or just complete)
         const cmd = execChoice(ticketChoice!);
         // Execute without --json to actually complete
-        const result = execFinal(cmd);
+        const result = await execFinal(cmd);
 
         // Verify the output indicates success
         expect(result.toLowerCase()).to.match(/complete|done|moved/);
@@ -578,9 +578,9 @@ describe('JSON Mode Flag Accumulation', () => {
         createLocalTestTicket('TKT-DEL-1', 'Delete this ticket');
       });
 
-      it('should complete flow: select ticket → confirm delete', () => {
+      it('should complete flow: select ticket → confirm delete', async () => {
         // Agent Step 1: Get available tickets
-        const step1 = agentExec('ticket delete -P test-project --machine');
+        const step1 = await agentExec('ticket delete -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const ticketChoice = findChoice(step1.prompt.choices, 'TKT-DEL-1');
@@ -590,7 +590,7 @@ describe('JSON Mode Flag Accumulation', () => {
         const step2Cmd = execChoice(ticketChoice!);
 
         // Execute with --force to skip confirmation, or handle confirmation
-        const result = exec(step2Cmd.replace(' --json', '') + ' --force');
+        const result = await execInProcess(step2Cmd.replace(' --json', '') + ' --force');
 
         // Verify deletion
         expect(result.toLowerCase()).to.include('delete');
@@ -606,16 +606,16 @@ describe('JSON Mode Flag Accumulation', () => {
         createLocalTestTicket('TKT-VIEW-1', 'View this ticket details');
       });
 
-      it('should complete flow: select ticket → view details', () => {
+      it('should complete flow: select ticket → view details', async () => {
         // Agent Step 1: Get available tickets
-        const step1 = agentExec('ticket view -P test-project --machine');
+        const step1 = await agentExec('ticket view -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const ticketChoice = findChoice(step1.prompt.choices, 'TKT-VIEW-1');
         expect(ticketChoice).to.exist;
 
         // Agent Step 2: View the ticket
-        const result = execFinal(execChoice(ticketChoice!));
+        const result = await execFinal(execChoice(ticketChoice!));
 
         // Verify ticket details are shown
         expect(result).to.include('TKT-VIEW-1');
@@ -633,23 +633,23 @@ describe('JSON Mode Flag Accumulation', () => {
         `).run();
       });
 
-      it('should complete flow: select ticket → select epic → assign', () => {
+      it('should complete flow: select ticket → select epic → assign', async () => {
         // Agent Step 1: Get available tickets
-        const step1 = agentExec('ticket epic -P test-project --machine');
+        const step1 = await agentExec('ticket epic -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const ticketChoice = findChoice(step1.prompt.choices, 'TKT-EPIC-1');
         expect(ticketChoice).to.exist;
 
         // Agent Step 2: Select ticket, get epic choices
-        const step2 = agentExec(execChoice(ticketChoice!));
+        const step2 = await agentExec(execChoice(ticketChoice!));
         expect(step2.prompt.type).to.equal('list');
 
         const epicChoice = findChoice(step2.prompt.choices, 'Test Epic for Flow');
         expect(epicChoice).to.exist;
 
         // Agent Step 3: Execute the assignment
-        const result = execFinal(execChoice(epicChoice!));
+        const result = await execFinal(execChoice(epicChoice!));
 
         // Verify assignment
         expect(result.toLowerCase()).to.match(/assign|linked|added/);
@@ -670,23 +670,23 @@ describe('JSON Mode Flag Accumulation', () => {
         `).run();
       });
 
-      it('should complete flow: select ticket → select spec → assign', () => {
+      it('should complete flow: select ticket → select spec → assign', async () => {
         // Agent Step 1: Get available tickets
-        const step1 = agentExec('ticket spec -P test-project --machine');
+        const step1 = await agentExec('ticket spec -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const ticketChoice = findChoice(step1.prompt.choices, 'TKT-SPEC-1');
         expect(ticketChoice).to.exist;
 
         // Agent Step 2: Select ticket, get spec choices
-        const step2 = agentExec(execChoice(ticketChoice!));
+        const step2 = await agentExec(execChoice(ticketChoice!));
         expect(step2.prompt.type).to.equal('list');
 
         const specChoice = findChoice(step2.prompt.choices, 'Test Spec for Flow');
         expect(specChoice).to.exist;
 
         // Agent Step 3: Execute the assignment
-        const result = execFinal(execChoice(specChoice!));
+        const result = await execFinal(execChoice(specChoice!));
 
         // Verify assignment
         expect(result.toLowerCase()).to.match(/assign|linked|spec/);
@@ -703,16 +703,16 @@ describe('JSON Mode Flag Accumulation', () => {
         createLocalTestTicket('TKT-BLOCKER', 'This ticket blocks another');
       });
 
-      it('should complete flow: select blocked ticket → select blocker → create dependency', () => {
+      it('should complete flow: select blocked ticket → select blocker → create dependency', async () => {
         // Agent Step 1: Start with blocked ticket, get blocker choices
-        const step1 = agentExec('ticket link block TKT-BLOCKED -P test-project --machine');
+        const step1 = await agentExec('ticket link block TKT-BLOCKED -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const blockerChoice = findChoice(step1.prompt.choices, 'TKT-BLOCKER');
         expect(blockerChoice).to.exist;
 
         // Agent Step 2: Execute the link
-        const result = execFinal(execChoice(blockerChoice!));
+        const result = await execFinal(execChoice(blockerChoice!));
 
         // Verify link created
         expect(result.toLowerCase()).to.match(/block|link|depend/);
@@ -733,23 +733,23 @@ describe('JSON Mode Flag Accumulation', () => {
         createTestProject(db, { id: 'target-project', name: 'Target Project', description: 'Project to move to' });
       });
 
-      it('should complete flow: select ticket → select target project → move', () => {
+      it('should complete flow: select ticket → select target project → move', async () => {
         // Agent Step 1: Get available tickets
-        const step1 = agentExec('ticket project -P test-project --machine');
+        const step1 = await agentExec('ticket project -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const ticketChoice = findChoice(step1.prompt.choices, 'TKT-PROJ-1');
         expect(ticketChoice).to.exist;
 
         // Agent Step 2: Select ticket, get project choices
-        const step2 = agentExec(execChoice(ticketChoice!));
+        const step2 = await agentExec(execChoice(ticketChoice!));
         expect(step2.prompt.type).to.equal('list');
 
         const projectChoice = findChoice(step2.prompt.choices, 'Target Project');
         expect(projectChoice).to.exist;
 
         // Agent Step 3: Execute the move
-        const result = execFinal(execChoice(projectChoice!));
+        const result = await execFinal(execChoice(projectChoice!));
 
         // Verify move
         expect(result.toLowerCase()).to.match(/move|project/);
@@ -765,26 +765,26 @@ describe('JSON Mode Flag Accumulation', () => {
         createLocalTestTicket('TKT-JSON-1', 'JSON flag flow test');
       });
 
-      it('should complete move flow with --json flag (legacy)', () => {
+      it('should complete move flow with --json flag (legacy)', async () => {
         // Use --json instead of --machine
-        const step1 = agentExec('ticket move -P test-project --json');
+        const step1 = await agentExec('ticket move -P test-project --json');
         expect(step1.prompt.type).to.equal('list');
 
         const ticketChoice = findChoice(step1.prompt.choices, 'TKT-JSON-1');
         expect(ticketChoice).to.exist;
 
-        const step2 = agentExec(execChoice(ticketChoice!));
+        const step2 = await agentExec(execChoice(ticketChoice!));
         const columnChoice = findChoice(step2.prompt.choices, 'In Progress');
         expect(columnChoice).to.exist;
 
-        const result = execFinal(execChoice(columnChoice!));
+        const result = await execFinal(execChoice(columnChoice!));
         expect(result).to.include('Moved');
       });
     });
 
     describe('workflow view - full agent flow', () => {
-      it('should output JSON data when workflow ID is provided with --json', () => {
-        const output = exec('workflow view default --json');
+      it('should output JSON data when workflow ID is provided with --json', async () => {
+        const output = await execInProcess('workflow view default --json');
         const json = extractJson<{ workflow: { id: string; name: string; description: string; isBuiltin: boolean }; statuses: unknown[] }>(output);
 
         expect(json.workflow.id).to.equal('default');
@@ -793,8 +793,8 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(json.statuses).to.be.an('array');
       });
 
-      it('should prompt for workflow selection when no ID provided', () => {
-        const step1 = agentExec('workflow view --machine');
+      it('should prompt for workflow selection when no ID provided', async () => {
+        const step1 = await agentExec('workflow view --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.message).to.include('workflow');
 
@@ -803,9 +803,9 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(workflowChoice!.command).to.include('--json');
       });
 
-      it('should complete flow: select workflow → view details', () => {
+      it('should complete flow: select workflow → view details', async () => {
         // Agent Step 1: Get available workflows
-        const step1 = agentExec('workflow view --machine');
+        const step1 = await agentExec('workflow view --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const workflowChoice = findChoice(step1.prompt.choices, 'Default');
@@ -813,7 +813,7 @@ describe('JSON Mode Flag Accumulation', () => {
 
         // Agent Step 2: View the workflow (executes directly, no more prompts)
         const viewCmd = execChoice(workflowChoice!);
-        const result = execFinal(viewCmd);
+        const result = await execFinal(viewCmd);
 
         // Verify workflow details are shown
         expect(result).to.include('Default');
@@ -827,8 +827,8 @@ describe('JSON Mode Flag Accumulation', () => {
         createLocalTestTicket('TKT-SWITCH-1', 'Ticket for switch confirmation');
       });
 
-      it('should prompt for workflow selection when no workflow specified', () => {
-        const step1 = agentExec('workflow switch -P test-project --machine');
+      it('should prompt for workflow selection when no workflow specified', async () => {
+        const step1 = await agentExec('workflow switch -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.message).to.include('workflow');
 
@@ -839,8 +839,8 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(kanbanChoice!.command).to.include('--json');
       });
 
-      it('should prompt for confirmation when switching workflow', () => {
-        const step1 = agentExec('workflow switch kanban -P test-project --machine');
+      it('should prompt for confirmation when switching workflow', async () => {
+        const step1 = await agentExec('workflow switch kanban -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Should show confirmation choices
@@ -849,23 +849,23 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(yesChoice!.command).to.include('--force');
       });
 
-      it('should complete flow: select workflow → confirm → switch', () => {
+      it('should complete flow: select workflow → confirm → switch', async () => {
         // Agent Step 1: Get available workflows
-        const step1 = agentExec('workflow switch -P test-project --machine');
+        const step1 = await agentExec('workflow switch -P test-project --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const workflowChoice = findChoice(step1.prompt.choices, 'Kanban');
         expect(workflowChoice).to.exist;
 
         // Agent Step 2: Select workflow, get confirmation
-        const step2 = agentExec(execChoice(workflowChoice!));
+        const step2 = await agentExec(execChoice(workflowChoice!));
         expect(step2.prompt.type).to.equal('list');
 
         const yesChoice = findChoice(step2.prompt.choices, 'Yes');
         expect(yesChoice).to.exist;
 
         // Agent Step 3: Confirm the switch
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         // Verify switch
         expect(result.toLowerCase()).to.match(/switch|kanban/);
@@ -875,8 +875,8 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(project.workflow_id).to.equal('kanban');
       });
 
-      it('should skip confirmation with --force flag', () => {
-        const result = exec('workflow switch kanban -P test-project --force');
+      it('should skip confirmation with --force flag', async () => {
+        const result = await execInProcess('workflow switch kanban -P test-project --force');
         expect(result.toLowerCase()).to.match(/switch|kanban/);
 
         // Verify in database
@@ -893,8 +893,8 @@ describe('JSON Mode Flag Accumulation', () => {
         addTestWorkflowStatus(db, 'custom-wf', { id: 'custom-done', name: 'Done', category: 'completed', position: 1 });
       });
 
-      it('should prompt for workflow selection when no ID provided', () => {
-        const step1 = agentExec('workflow delete --machine');
+      it('should prompt for workflow selection when no ID provided', async () => {
+        const step1 = await agentExec('workflow delete --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.message).to.include('workflow');
 
@@ -906,8 +906,8 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(defaultChoice).to.be.undefined; // Built-in should not appear
       });
 
-      it('should prompt for confirmation when deleting workflow', () => {
-        const step1 = agentExec('workflow delete custom-wf --machine');
+      it('should prompt for confirmation when deleting workflow', async () => {
+        const step1 = await agentExec('workflow delete custom-wf --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Should show confirmation choices
@@ -916,23 +916,23 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(yesChoice!.command).to.include('--force');
       });
 
-      it('should complete flow: select workflow → confirm → delete', () => {
+      it('should complete flow: select workflow → confirm → delete', async () => {
         // Agent Step 1: Get available workflows to delete
-        const step1 = agentExec('workflow delete --machine');
+        const step1 = await agentExec('workflow delete --machine');
         expect(step1.prompt.type).to.equal('list');
 
         const workflowChoice = findChoice(step1.prompt.choices, 'Custom Workflow');
         expect(workflowChoice).to.exist;
 
         // Agent Step 2: Select workflow, get confirmation
-        const step2 = agentExec(execChoice(workflowChoice!));
+        const step2 = await agentExec(execChoice(workflowChoice!));
         expect(step2.prompt.type).to.equal('list');
 
         const yesChoice = findChoice(step2.prompt.choices, 'Yes');
         expect(yesChoice).to.exist;
 
         // Agent Step 3: Confirm the delete
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         // Verify delete
         expect(result.toLowerCase()).to.match(/delete|custom workflow/i);
@@ -942,8 +942,8 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(workflow).to.be.undefined;
       });
 
-      it('should skip confirmation with --force flag', () => {
-        const result = exec('workflow delete custom-wf --force');
+      it('should skip confirmation with --force flag', async () => {
+        const result = await execInProcess('workflow delete custom-wf --force');
         expect(result.toLowerCase()).to.match(/delete|custom workflow/i);
 
         // Verify in database
@@ -951,16 +951,16 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(workflow).to.be.undefined;
       });
 
-      it('should reject deletion of built-in workflows', () => {
-        const output = exec('workflow delete default --force');
+      it('should reject deletion of built-in workflows', async () => {
+        const output = await execInProcess('workflow delete default --force');
         expect(output.toLowerCase()).to.include('cannot delete');
       });
 
-      it('should reject deletion of workflow in use by project', () => {
+      it('should reject deletion of workflow in use by project', async () => {
         // First, switch the test project to use custom-wf
         db.prepare(`UPDATE pmo_projects SET workflow_id = 'custom-wf' WHERE id = 'test-project'`).run();
 
-        const output = exec('workflow delete custom-wf --force');
+        const output = await execInProcess('workflow delete custom-wf --force');
         // Error message or code should indicate the workflow is in use
         expect(output.toLowerCase()).to.satisfy((s: string) =>
           s.includes('in_use') || s.includes('used by') || s.includes('in use') || s.includes('cannot delete')
@@ -969,8 +969,8 @@ describe('JSON Mode Flag Accumulation', () => {
     });
 
     describe('workflow list --json', () => {
-      it('should output JSON array of workflows', () => {
-        const output = exec('workflow list --json');
+      it('should output JSON array of workflows', async () => {
+        const output = await execInProcess('workflow list --json');
         const json = extractJson<Array<{ id: string; name: string; isBuiltin: boolean }>>(output);
 
         expect(json).to.be.an('array');
@@ -984,8 +984,8 @@ describe('JSON Mode Flag Accumulation', () => {
     });
 
     describe('workflow create --json (form prompt)', () => {
-      it('should output form prompt configuration when --json flag is used', () => {
-        const output = exec('workflow create --json');
+      it('should output form prompt configuration when --json flag is used', async () => {
+        const output = await execInProcess('workflow create --json');
         const json = extractJson<{ prompt: { type: string; fields: unknown[] } }>(output);
 
         expect(json.prompt).to.exist;
@@ -993,8 +993,8 @@ describe('JSON Mode Flag Accumulation', () => {
         expect(json.prompt.fields).to.be.an('array');
       });
 
-      it('should create workflow with direct args (no prompts)', () => {
-        const result = exec('workflow create "Test Workflow" --description "A test workflow"');
+      it('should create workflow with direct args (no prompts)', async () => {
+        const result = await execInProcess('workflow create "Test Workflow" --description "A test workflow"');
         expect(result.toLowerCase()).to.match(/create|test workflow/i);
 
         // Verify in database
