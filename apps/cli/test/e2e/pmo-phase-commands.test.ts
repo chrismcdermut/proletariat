@@ -42,7 +42,7 @@ describe('PMO Phase Commands E2E Tests', () => {
 
   describe('prlt phase list', () => {
     it('should list all phases', async () => {
-      const output = await execInProcess('phase list');
+      const output = await execInProcess('phase list --machine');
 
       expect(output).to.contain('Idea');
       expect(output).to.contain('Planned');
@@ -52,7 +52,7 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should show phase categories', async () => {
-      const output = await execInProcess('phase list');
+      const output = await execInProcess('phase list --machine');
 
       // In non-TTY (test) env, output is JSON with lowercase categories
       // In TTY (terminal), output is table with uppercase categories
@@ -64,14 +64,14 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should indicate default phase', async () => {
-      const output = await execInProcess('phase list');
+      const output = await execInProcess('phase list --machine');
 
       // In JSON: "isDefault": true, in table: "(default)"
       expect(output.toLowerCase()).to.match(/isdefault.*true|default/);
     });
 
     it('should filter by category', async () => {
-      const output = await execInProcess('phase list --category started');
+      const output = await execInProcess('phase list --category started --machine');
 
       expect(output).to.contain('Active');
       expect(output).not.to.contain('Idea');
@@ -82,7 +82,7 @@ describe('PMO Phase Commands E2E Tests', () => {
   describe('prlt phase create', () => {
     it('should create phase with name and category', async () => {
       // Name is a positional argument, not a flag
-      const output = await execInProcess('phase create "On Hold" --category unstarted');
+      const output = await execInProcess('phase create "On Hold" --category unstarted --machine');
 
       expect(output).to.contain('Created phase');
       expect(output).to.contain('On Hold');
@@ -93,7 +93,7 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should create phase with description', async () => {
-      await execInProcess('phase create "Review Phase" --category started --description "Projects under review"');
+      await execInProcess('phase create "Review Phase" --category started --description "Projects under review" --machine');
 
       const phase = db.prepare('SELECT description FROM pmo_phases WHERE name = ?').get('Review Phase') as { description: string };
       expect(phase).to.not.be.undefined;
@@ -101,7 +101,7 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should create phase with color', async () => {
-      await execInProcess('phase create "Colored Phase" --category started --color "#FF5733"');
+      await execInProcess('phase create "Colored Phase" --category started --color "#FF5733" --machine');
 
       const phase = db.prepare('SELECT color FROM pmo_phases WHERE name = ?').get('Colored Phase') as { color: string };
       expect(phase).to.not.be.undefined;
@@ -109,7 +109,7 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should set as default when --default flag used', async () => {
-      await execInProcess('phase create "New Default" --category backlog --default');
+      await execInProcess('phase create "New Default" --category backlog --default --machine');
 
       const phase = db.prepare('SELECT is_default FROM pmo_phases WHERE name = ?').get('New Default') as { is_default: number };
       expect(phase).to.not.be.undefined;
@@ -122,13 +122,13 @@ describe('PMO Phase Commands E2E Tests', () => {
 
     it('should error when phase name already exists', async () => {
       // "Active" already exists in seed data
-      const output = await execInProcess('phase create "Active" --category started');
+      const output = await execInProcess('phase create "Active" --category started --machine');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
     it('should slugify phase ID from name', async () => {
-      await execInProcess('phase create "Phase With Spaces" --category started');
+      await execInProcess('phase create "Phase With Spaces" --category started --machine');
 
       const phase = db.prepare('SELECT id FROM pmo_phases WHERE name = ?').get('Phase With Spaces') as { id: string };
       expect(phase).to.not.be.undefined;
@@ -138,35 +138,35 @@ describe('PMO Phase Commands E2E Tests', () => {
 
   describe('prlt phase update', () => {
     it('should update phase name', async () => {
-      await execInProcess('phase update idea --name "New Idea"');
+      await execInProcess('phase update idea --name "New Idea" --machine');
 
       const phase = db.prepare('SELECT name FROM pmo_phases WHERE id = ?').get('idea') as { name: string };
       expect(phase.name).to.equal('New Idea');
     });
 
     it('should update phase category', async () => {
-      await execInProcess('phase update idea --category unstarted');
+      await execInProcess('phase update idea --category unstarted --machine');
 
       const phase = db.prepare('SELECT category FROM pmo_phases WHERE id = ?').get('idea') as { category: string };
       expect(phase.category).to.equal('unstarted');
     });
 
     it('should update phase color', async () => {
-      await execInProcess('phase update active --color "#00FF00"');
+      await execInProcess('phase update active --color "#00FF00" --machine');
 
       const phase = db.prepare('SELECT color FROM pmo_phases WHERE id = ?').get('active') as { color: string };
       expect(phase.color).to.equal('#00FF00');
     });
 
     it('should update phase description', async () => {
-      await execInProcess('phase update active --description "Updated description"');
+      await execInProcess('phase update active --description "Updated description" --machine');
 
       const phase = db.prepare('SELECT description FROM pmo_phases WHERE id = ?').get('active') as { description: string };
       expect(phase.description).to.equal('Updated description');
     });
 
     it('should set phase as default', async () => {
-      await execInProcess('phase update planned --default');
+      await execInProcess('phase update planned --default --machine');
 
       const planned = db.prepare('SELECT is_default FROM pmo_phases WHERE id = ?').get('planned') as { is_default: number };
       expect(planned.is_default).to.equal(1);
@@ -177,7 +177,7 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should error when phase not found', async () => {
-      const output = await execInProcess('phase update non-existent --name "New Name"');
+      const output = await execInProcess('phase update non-existent --name "New Name" --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -190,16 +190,16 @@ describe('PMO Phase Commands E2E Tests', () => {
   describe('prlt phase delete', () => {
     it('should delete phase', async () => {
       // Create a phase we can delete
-      await execInProcess('phase create "Deletable" --category started');
+      await execInProcess('phase create "Deletable" --category started --machine');
 
-      await execInProcess('phase delete deletable --force');
+      await execInProcess('phase delete deletable --force --machine');
 
       const phase = db.prepare('SELECT * FROM pmo_phases WHERE id = ?').get('deletable');
       expect(phase).to.be.undefined;
     });
 
     it('should error when phase not found', async () => {
-      const output = await execInProcess('phase delete non-existent --force');
+      const output = await execInProcess('phase delete non-existent --force --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -211,14 +211,14 @@ describe('PMO Phase Commands E2E Tests', () => {
         VALUES ('test-proj', 'Test Project', 'active', 0)
       `).run();
 
-      const output = await execInProcess('phase delete active --force');
+      const output = await execInProcess('phase delete active --force --machine');
 
       expect(output.toLowerCase()).to.contain('using it');
     });
 
     it('should show success message', async () => {
-      await execInProcess('phase create "To Delete" --category canceled');
-      const output = await execInProcess('phase delete to-delete --force');
+      await execInProcess('phase create "To Delete" --category canceled --machine');
+      const output = await execInProcess('phase delete to-delete --force --machine');
 
       expect(output).to.contain('Deleted phase');
       expect(output).to.contain('To Delete');
@@ -228,14 +228,14 @@ describe('PMO Phase Commands E2E Tests', () => {
   describe('prlt phase move', () => {
     beforeEach(async () => {
       // Create multiple phases in the same category
-      await execInProcess('phase create "Started A" --category started');
-      await execInProcess('phase create "Started B" --category started');
-      await execInProcess('phase create "Started C" --category started');
+      await execInProcess('phase create "Started A" --category started --machine');
+      await execInProcess('phase create "Started B" --category started --machine');
+      await execInProcess('phase create "Started C" --category started --machine');
     });
 
     it('should change phase position', async () => {
       // Move Started C to position 0
-      const output = await execInProcess('phase move started-c --position 0');
+      const output = await execInProcess('phase move started-c --position 0 --machine');
 
       expect(output).to.contain('Moved phase');
       expect(output).to.contain('Started C');
@@ -247,7 +247,7 @@ describe('PMO Phase Commands E2E Tests', () => {
     });
 
     it('should error when phase not found', async () => {
-      const output = await execInProcess('phase move non-existent --position 0');
+      const output = await execInProcess('phase move non-existent --position 0 --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -308,7 +308,7 @@ describe('PMO Phase Commands E2E Tests', () => {
 
     describe('prlt phase delete --json', () => {
       beforeEach(async () => {
-        await execInProcess('phase create "To Delete JSON" --category canceled');
+        await execInProcess('phase create "To Delete JSON" --category canceled --machine');
       });
 
       it('should output confirmation prompt as JSON when --force is not used', async () => {
@@ -360,8 +360,8 @@ describe('PMO Phase Commands E2E Tests', () => {
 
     describe('prlt phase move --json', () => {
       beforeEach(async () => {
-        await execInProcess('phase create "Move JSON A" --category started');
-        await execInProcess('phase create "Move JSON B" --category started');
+        await execInProcess('phase create "Move JSON A" --category started --machine');
+        await execInProcess('phase create "Move JSON B" --category started --machine');
       });
 
       it('should output phase selection prompt as JSON when no id is provided', async () => {

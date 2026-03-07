@@ -215,7 +215,7 @@ describe('Branch Commands JSON Mode', () => {
     });
 
     it('should create branch when type and description flags provided', async () => {
-      const output = await exec('branch create -t feat -d test-feature --force');
+      const output = await exec('branch create -t feat -d test-feature --force --machine');
 
       // Should either succeed or fail with meaningful error
       expect(output).to.be.a('string');
@@ -229,7 +229,7 @@ describe('Branch Commands JSON Mode', () => {
 
   describe('branch validate --machine', () => {
     it('should validate current branch', async () => {
-      const output = await exec('branch validate');
+      const output = await exec('branch validate --machine');
 
       // Should output validation result
       expect(output).to.be.a('string');
@@ -237,7 +237,7 @@ describe('Branch Commands JSON Mode', () => {
     });
 
     it('should validate provided branch name', async () => {
-      const output = await exec('branch validate feat/chris/add-auth');
+      const output = await exec('branch validate feat/chris/add-auth --machine');
 
       // In non-TTY mode, output is JSON: { "branch": "...", "valid": true, "parts": { "type": "feat", ... } }
       expect(output).to.include('"valid"');
@@ -245,7 +245,7 @@ describe('Branch Commands JSON Mode', () => {
     });
 
     it('should report invalid branch format', async () => {
-      const output = await exec('branch validate invalid-branch-name');
+      const output = await exec('branch validate invalid-branch-name --machine');
 
       expect(output.toLowerCase()).to.include('invalid');
     });
@@ -346,7 +346,7 @@ describe('Branch Commands JSON Mode', () => {
       });
 
       it('should complete flow with all flags provided directly (custom)', async () => {
-        const result = await exec('branch create -t feat -d agent-test-branch --force');
+        const result = await exec('branch create -t feat -d agent-test-branch --force --machine');
 
         // Should create branch or indicate it exists
         expect(result).to.be.a('string');
@@ -354,7 +354,7 @@ describe('Branch Commands JSON Mode', () => {
 
       it('should complete flow with ticket flag provided directly', async () => {
         // Use the test ticket
-        const result = await exec('branch create -T TKT-001 --force');
+        const result = await exec('branch create -T TKT-001 --force --machine');
 
         // Should attempt to create branch from ticket
         expect(result).to.be.a('string');

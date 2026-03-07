@@ -46,7 +46,7 @@ describe('PMO Project Commands E2E Tests', () => {
 
   describe('prlt project create', () => {
     it('should create project with positional name argument', async () => {
-      const output = await execInProcess('project create "My New Project"');
+      const output = await execInProcess('project create "My New Project" --machine');
 
       const projects = db.prepare('SELECT * FROM pmo_projects WHERE name = ?').all('My New Project') as Array<{ id: string; name: string }>;
       expect(projects).to.have.lengthOf(1);
@@ -59,7 +59,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should create project with --name flag', async () => {
-      await execInProcess('project create --name "Flag Project"');
+      await execInProcess('project create --name "Flag Project" --machine');
 
       const projects = db.prepare('SELECT * FROM pmo_projects WHERE name = ?').all('Flag Project') as Array<{ id: string }>;
       expect(projects).to.have.lengthOf(1);
@@ -67,7 +67,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should create project with custom ID', async () => {
-      await execInProcess('project create --name "Custom ID" --id custom-proj');
+      await execInProcess('project create --name "Custom ID" --id custom-proj --machine');
 
       const projects = db.prepare('SELECT * FROM pmo_projects WHERE id = ?').all('custom-proj') as Array<{ name: string }>;
       expect(projects).to.have.lengthOf(1);
@@ -75,21 +75,21 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should create project with description', async () => {
-      await execInProcess('project create --name "Described Project" --description "A project with a description"');
+      await execInProcess('project create --name "Described Project" --description "A project with a description" --machine');
 
       const project = db.prepare('SELECT description FROM pmo_projects WHERE name = ?').get('Described Project') as { description: string };
       expect(project.description).to.equal('A project with a description');
     });
 
     it('should create project folder structure', async () => {
-      await execInProcess('project create --name "Folder Test"');
+      await execInProcess('project create --name "Folder Test" --machine');
 
       const projectPath = path.join(env.testDir, 'pmo/projects/folder-test');
       expect(fs.existsSync(projectPath)).to.be.true;
     });
 
     it('should create kanban.md board file', async () => {
-      await execInProcess('project create --name "Board Test"');
+      await execInProcess('project create --name "Board Test" --machine');
 
       const boardPath = path.join(env.testDir, 'pmo/projects/board-test/kanban.md');
       expect(fs.existsSync(boardPath)).to.be.true;
@@ -99,7 +99,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should create epics folders', async () => {
-      await execInProcess('project create --name "Epic Folders"');
+      await execInProcess('project create --name "Epic Folders" --machine');
 
       const epicsPath = path.join(env.testDir, 'pmo/projects/epic-folders/epics');
       expect(fs.existsSync(path.join(epicsPath, 'draft'))).to.be.true;
@@ -108,7 +108,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should use kanban template by default', async () => {
-      await execInProcess('project create --name "Default Template"');
+      await execInProcess('project create --name "Default Template" --machine');
 
       const boardPath = path.join(env.testDir, 'pmo/projects/default-template/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -120,7 +120,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should use linear template when specified', async () => {
-      await execInProcess('project create --name "Linear Project" --template linear');
+      await execInProcess('project create --name "Linear Project" --template linear --machine');
 
       const boardPath = path.join(env.testDir, 'pmo/projects/linear-project/kanban.md');
       const content = fs.readFileSync(boardPath, 'utf-8');
@@ -131,14 +131,14 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should error when project already exists', async () => {
-      await execInProcess('project create --name "Duplicate"');
-      const output = await execInProcess('project create --name "Duplicate"');
+      await execInProcess('project create --name "Duplicate" --machine');
+      const output = await execInProcess('project create --name "Duplicate" --machine');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
     it('should slugify project ID from name', async () => {
-      await execInProcess('project create --name "Project With Spaces"');
+      await execInProcess('project create --name "Project With Spaces" --machine');
 
       const projects = db.prepare('SELECT id FROM pmo_projects WHERE name = ?').all('Project With Spaces') as Array<{ id: string }>;
       expect(projects[0].id).to.equal('project-with-spaces');
@@ -150,7 +150,7 @@ describe('PMO Project Commands E2E Tests', () => {
       createLocalTestProject(db, 'proj-1', 'Project One');
       createLocalTestProject(db, 'proj-2', 'Project Two');
 
-      const output = await execInProcess('project list');
+      const output = await execInProcess('project list --machine');
 
       expect(output).to.contain('Project One');
       expect(output).to.contain('proj-1');
@@ -164,7 +164,7 @@ describe('PMO Project Commands E2E Tests', () => {
       createLocalTestTicket(db, 'TKT-001', 'Ticket 1', 'proj-with-tickets');
       createLocalTestTicket(db, 'TKT-002', 'Ticket 2', 'proj-with-tickets');
 
-      const output = await execInProcess('project list');
+      const output = await execInProcess('project list --machine');
 
       // Non-TTY outputs JSON; check for ticket count in either format
       expect(output).to.satisfy((o: string) =>
@@ -178,14 +178,14 @@ describe('PMO Project Commands E2E Tests', () => {
         VALUES ('desc-proj', 'Described', 'This is a description')
       `).run();
 
-      const output = await execInProcess('project list');
+      const output = await execInProcess('project list --machine');
 
       expect(output).to.contain('This is a description');
     });
 
     it('should mark default project', async () => {
       // The default project is already created by setupTestDatabase
-      const output = await execInProcess('project list');
+      const output = await execInProcess('project list --machine');
 
       expect(output).to.contain('default');
     });
@@ -194,7 +194,7 @@ describe('PMO Project Commands E2E Tests', () => {
       // Clear all projects
       db.prepare('DELETE FROM pmo_projects').run();
 
-      const output = await execInProcess('project list');
+      const output = await execInProcess('project list --machine');
 
       // Non-TTY outputs JSON; check for empty indicator in either format
       expect(output.toLowerCase()).to.satisfy((o: string) =>
@@ -210,14 +210,14 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should display project name and id', async () => {
-      const output = await execInProcess('project view view-project');
+      const output = await execInProcess('project view view-project --machine');
 
       expect(output).to.contain('View Test Project');
       expect(output).to.contain('view-project');
     });
 
     it('should display column names', async () => {
-      const output = await execInProcess('project view view-project');
+      const output = await execInProcess('project view view-project --machine');
 
       expect(output).to.contain('Backlog');
       expect(output).to.contain('In Progress');
@@ -228,7 +228,7 @@ describe('PMO Project Commands E2E Tests', () => {
       createLocalTestTicket(db, 'TKT-001', 'First Ticket', 'view-project', 'backlog');
       createLocalTestTicket(db, 'TKT-002', 'Second Ticket', 'view-project', 'in_progress');
 
-      const output = await execInProcess('project view view-project');
+      const output = await execInProcess('project view view-project --machine');
 
       expect(output).to.contain('TKT-001');
       expect(output).to.contain('First Ticket');
@@ -237,7 +237,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should show empty columns', async () => {
-      const output = await execInProcess('project view view-project');
+      const output = await execInProcess('project view view-project --machine');
 
       // Non-TTY outputs JSON with column data; check for empty indicator in either format
       expect(output).to.satisfy((o: string) =>
@@ -255,7 +255,7 @@ describe('PMO Project Commands E2E Tests', () => {
         VALUES ('view-project', 'TKT-001', 'backlog', 0)
       `).run();
 
-      const output = await execInProcess('project view view-project');
+      const output = await execInProcess('project view view-project --machine');
 
       expect(output).to.contain('TKT-001');
       expect(output).to.contain('Prioritized');
@@ -272,7 +272,7 @@ describe('PMO Project Commands E2E Tests', () => {
         VALUES ('sub-2', 'TKT-001', 'Subtask 2', 1, 1)
       `).run();
 
-      const output = await execInProcess('project view view-project');
+      const output = await execInProcess('project view view-project --machine');
 
       // Non-TTY outputs JSON; check subtask info in either format
       expect(output).to.satisfy((o: string) =>
@@ -281,7 +281,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should error for non-existent project', async () => {
-      const output = await execInProcess('project view non-existent');
+      const output = await execInProcess('project view non-existent --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -300,14 +300,14 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should delete project from database', async () => {
-      await execInProcess('project delete delete-project --force');
+      await execInProcess('project delete delete-project --force --machine');
 
       const project = db.prepare('SELECT * FROM pmo_projects WHERE id = ?').get('delete-project');
       expect(project).to.be.undefined;
     });
 
     it('should delete project folder', async () => {
-      await execInProcess('project delete delete-project --force');
+      await execInProcess('project delete delete-project --force --machine');
 
       const projectPath = path.join(env.testDir, 'pmo/projects/delete-project');
       expect(fs.existsSync(projectPath)).to.be.false;
@@ -317,14 +317,14 @@ describe('PMO Project Commands E2E Tests', () => {
       createLocalTestTicket(db, 'TKT-001', 'Ticket 1', 'delete-project', 'backlog');
       createLocalTestTicket(db, 'TKT-002', 'Ticket 2', 'delete-project', 'in_progress');
 
-      await execInProcess('project delete delete-project --force');
+      await execInProcess('project delete delete-project --force --machine');
 
       const tickets = db.prepare('SELECT * FROM pmo_tickets WHERE project_id = ?').all('delete-project');
       expect(tickets).to.have.lengthOf(0);
     });
 
     it('should refuse to delete default project', async () => {
-      const output = await execInProcess('project delete default --force');
+      const output = await execInProcess('project delete default --force --machine');
 
       expect(output.toLowerCase()).to.contain('cannot delete');
 
@@ -333,7 +333,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should error for non-existent project', async () => {
-      const output = await execInProcess('project delete non-existent --force');
+      const output = await execInProcess('project delete non-existent --force --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -342,7 +342,7 @@ describe('PMO Project Commands E2E Tests', () => {
       createLocalTestTicket(db, 'TKT-001', 'Ticket 1', 'delete-project', 'backlog');
       createLocalTestTicket(db, 'TKT-002', 'Ticket 2', 'delete-project', 'in_progress');
 
-      const output = await execInProcess('project delete delete-project --force');
+      const output = await execInProcess('project delete delete-project --force --machine');
 
       // Non-TTY outputs JSON; verify deletion happened via DB
       const tickets = db.prepare('SELECT * FROM pmo_tickets WHERE project_id = ?').all('delete-project');
@@ -353,7 +353,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should show success message', async () => {
-      const output = await execInProcess('project delete delete-project --force');
+      const output = await execInProcess('project delete delete-project --force --machine');
 
       // Non-TTY outputs JSON with success: true
       expect(output).to.satisfy((o: string) =>
@@ -370,14 +370,14 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should archive a project', async () => {
-      await execInProcess('project archive archive-project --force');
+      await execInProcess('project archive archive-project --force --machine');
 
       const project = db.prepare('SELECT is_archived FROM pmo_projects WHERE id = ?').get('archive-project') as { is_archived: number };
       expect(project.is_archived).to.equal(1);
     });
 
     it('should show success message', async () => {
-      const output = await execInProcess('project archive archive-project --force');
+      const output = await execInProcess('project archive archive-project --force --machine');
 
       // Non-TTY outputs JSON with success: true
       expect(output).to.satisfy((o: string) =>
@@ -386,8 +386,8 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should not archive already archived project', async () => {
-      await execInProcess('project archive archive-project --force');
-      const output = await execInProcess('project archive archive-project --force');
+      await execInProcess('project archive archive-project --force --machine');
+      const output = await execInProcess('project archive archive-project --force --machine');
 
       // Non-TTY may output JSON with success (no-op) or text with error
       expect(output.toLowerCase()).to.satisfy((o: string) =>
@@ -396,7 +396,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should error for non-existent project', async () => {
-      const output = await execInProcess('project archive non-existent --force');
+      const output = await execInProcess('project archive non-existent --force --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -411,14 +411,14 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should unarchive a project', async () => {
-      await execInProcess('project unarchive unarchive-project');
+      await execInProcess('project unarchive unarchive-project --machine');
 
       const project = db.prepare('SELECT is_archived FROM pmo_projects WHERE id = ?').get('unarchive-project') as { is_archived: number };
       expect(project.is_archived).to.equal(0);
     });
 
     it('should show success message', async () => {
-      const output = await execInProcess('project unarchive unarchive-project');
+      const output = await execInProcess('project unarchive unarchive-project --machine');
 
       // Non-TTY outputs JSON with success: true
       expect(output).to.satisfy((o: string) =>
@@ -428,7 +428,7 @@ describe('PMO Project Commands E2E Tests', () => {
 
     it('should not unarchive non-archived project', async () => {
       db.prepare('UPDATE pmo_projects SET is_archived = 0 WHERE id = ?').run('unarchive-project');
-      const output = await execInProcess('project unarchive unarchive-project');
+      const output = await execInProcess('project unarchive unarchive-project --machine');
 
       // Non-TTY may output JSON with success (no-op) or text with error
       expect(output.toLowerCase()).to.satisfy((o: string) =>
@@ -437,7 +437,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should error for non-existent project', async () => {
-      const output = await execInProcess('project unarchive non-existent');
+      const output = await execInProcess('project unarchive non-existent --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -450,21 +450,21 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should update project name with --name flag', async () => {
-      await execInProcess('project update update-project --name "New Project Name"');
+      await execInProcess('project update update-project --name "New Project Name" --machine');
 
       const project = db.prepare('SELECT name FROM pmo_projects WHERE id = ?').get('update-project') as { name: string };
       expect(project.name).to.equal('New Project Name');
     });
 
     it('should update project description with --description flag', async () => {
-      await execInProcess('project update update-project --description "New description"');
+      await execInProcess('project update update-project --description "New description" --machine');
 
       const project = db.prepare('SELECT description FROM pmo_projects WHERE id = ?').get('update-project') as { description: string };
       expect(project.description).to.equal('New description');
     });
 
     it('should update both name and description', async () => {
-      await execInProcess('project update update-project --name "Updated Name" --description "Updated description"');
+      await execInProcess('project update update-project --name "Updated Name" --description "Updated description" --machine');
 
       const project = db.prepare('SELECT name, description FROM pmo_projects WHERE id = ?').get('update-project') as { name: string; description: string };
       expect(project.name).to.equal('Updated Name');
@@ -472,14 +472,14 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should clear description with empty string', async () => {
-      await execInProcess('project update update-project --description ""');
+      await execInProcess('project update update-project --description "" --machine');
 
       const project = db.prepare('SELECT description FROM pmo_projects WHERE id = ?').get('update-project') as { description: string | null };
       expect(project.description).to.be.null;
     });
 
     it('should show success message', async () => {
-      const output = await execInProcess('project update update-project --name "Success Test"');
+      const output = await execInProcess('project update update-project --name "Success Test" --machine');
 
       // Non-TTY outputs JSON with success: true
       expect(output).to.satisfy((o: string) =>
@@ -488,13 +488,13 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should error for non-existent project', async () => {
-      const output = await execInProcess('project update non-existent --name "Test"');
+      const output = await execInProcess('project update non-existent --name "Test" --machine');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
 
     it('should report no changes when same values provided', async () => {
-      const output = await execInProcess('project update update-project --name "Update Test Project"');
+      const output = await execInProcess('project update update-project --name "Update Test Project" --machine');
 
       // Non-TTY outputs JSON; check for no-change indicator in either format
       expect(output.toLowerCase()).to.satisfy((o: string) =>
@@ -506,7 +506,7 @@ describe('PMO Project Commands E2E Tests', () => {
       const before = db.prepare('SELECT updated_at FROM pmo_projects WHERE id = ?').get('update-project') as { updated_at: string };
 
       // Wait a bit to ensure timestamp differs
-      await execInProcess('project update update-project --name "Timestamp Test"');
+      await execInProcess('project update update-project --name "Timestamp Test" --machine');
 
       const after = db.prepare('SELECT updated_at FROM pmo_projects WHERE id = ?').get('update-project') as { updated_at: string };
       expect(after.updated_at).to.not.equal(before.updated_at);
@@ -522,7 +522,7 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should preserve project ID when updating name', async () => {
-      await execInProcess('project update update-project --name "Completely Different Name"');
+      await execInProcess('project update update-project --name "Completely Different Name" --machine');
 
       const project = db.prepare('SELECT id, name FROM pmo_projects WHERE id = ?').get('update-project') as { id: string; name: string };
       expect(project.id).to.equal('update-project');
@@ -539,34 +539,34 @@ describe('PMO Project Commands E2E Tests', () => {
     });
 
     it('should show only non-archived projects by default', async () => {
-      const output = await execInProcess('project list');
+      const output = await execInProcess('project list --machine');
 
       expect(output).to.contain('Active Project');
       expect(output).not.to.contain('Archived Project');
     });
 
     it('should show only archived projects with --archived flag', async () => {
-      const output = await execInProcess('project list --archived');
+      const output = await execInProcess('project list --archived --machine');
 
       expect(output).to.contain('Archived Project');
       expect(output).not.to.contain('Active Project');
     });
 
     it('should show all projects with --all flag', async () => {
-      const output = await execInProcess('project list --all');
+      const output = await execInProcess('project list --all --machine');
 
       expect(output).to.contain('Active Project');
       expect(output).to.contain('Archived Project');
     });
 
     it('should indicate archived projects when showing all', async () => {
-      const output = await execInProcess('project list --all');
+      const output = await execInProcess('project list --all --machine');
 
       expect(output).to.contain('archived');
     });
 
     it('should show hint about archived projects when viewing active', async () => {
-      const output = await execInProcess('project list');
+      const output = await execInProcess('project list --machine');
 
       // Non-TTY outputs JSON; check for archived hint in either format
       expect(output.toLowerCase()).to.satisfy((o: string) =>
@@ -578,7 +578,7 @@ describe('PMO Project Commands E2E Tests', () => {
       // Unarchive all projects
       db.prepare('UPDATE pmo_projects SET is_archived = 0').run();
 
-      const output = await execInProcess('project list --archived');
+      const output = await execInProcess('project list --archived --machine');
 
       // Non-TTY outputs JSON; check for empty indicator in either format
       expect(output.toLowerCase()).to.satisfy((o: string) =>

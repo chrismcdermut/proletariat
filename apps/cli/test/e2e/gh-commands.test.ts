@@ -52,7 +52,7 @@ describe('GitHub CLI Commands E2E Tests', () => {
     })
 
     it('should check GitHub CLI status', async () => {
-      const output = await execInProcess('gh status')
+      const output = await execInProcess('gh status --machine')
 
       // In non-TTY mode, output is JSON
       if (isJsonOutput(output)) {
@@ -75,7 +75,7 @@ describe('GitHub CLI Commands E2E Tests', () => {
     })
 
     it('should indicate when gh CLI is not installed', async () => {
-      const output = await execInProcess('gh status')
+      const output = await execInProcess('gh status --machine')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -92,7 +92,7 @@ describe('GitHub CLI Commands E2E Tests', () => {
     })
 
     it('should indicate authentication status when gh is installed', async () => {
-      const output = await execInProcess('gh status')
+      const output = await execInProcess('gh status --machine')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -109,7 +109,7 @@ describe('GitHub CLI Commands E2E Tests', () => {
     })
 
     it('should check GH_TOKEN status when authenticated', async () => {
-      const output = await execInProcess('gh status')
+      const output = await execInProcess('gh status --machine')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -266,7 +266,7 @@ describe('GitHub CLI Commands E2E Tests', () => {
    */
   describe('Command delegation', () => {
     it('should delegate to status command', async () => {
-      const output = await execInProcess('gh status')
+      const output = await execInProcess('gh status --machine')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -299,7 +299,7 @@ describe('GitHub CLI Commands E2E Tests', () => {
    */
   describe('Error handling', () => {
     it('should handle unknown subcommand gracefully', async () => {
-      const output = await execInProcess('gh unknown-subcommand')
+      const output = await execInProcess('gh unknown-subcommand --machine')
 
       // Should show error about unknown command or help
       const validOutput =

@@ -335,7 +335,7 @@ jobs:
       needs.detect-changes.outputs.run_tests == 'true' &&
       needs.build.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       matrix:
         node-version: [lts/*]

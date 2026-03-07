@@ -82,7 +82,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should report Docker status', async () => {
-      const output = await execInProcess('docker status')
+      const output = await execInProcess('docker status --machine')
 
       // docker status outputs JSON in non-TTY (piped) environments
       const hasStatus = output.includes('"running"') || output.includes('Docker Status')
@@ -91,7 +91,7 @@ describe('Docker Commands E2E Tests', () => {
 
     it('should indicate when Docker is not available', async () => {
       // In test environment, Docker is typically not running
-      const output = await execInProcess('docker status')
+      const output = await execInProcess('docker status --machine')
 
       // If Docker isn't running, should show appropriate message
       if (output.includes('Not Running')) {
@@ -128,7 +128,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should handle missing workspace gracefully', async () => {
-      const output = await execInProcess('docker list')
+      const output = await execInProcess('docker list --machine')
 
       const validOutput =
         output.includes('Not in a workspace') ||
@@ -172,7 +172,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should handle missing workspace gracefully', async () => {
-      const output = await execInProcess('docker clean --force')
+      const output = await execInProcess('docker clean --force --machine')
 
       expect(hasDockerOrWorkspaceError(output) ||
         output.includes('No orphaned containers') ||
@@ -213,7 +213,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should require a target argument', async () => {
-      const output = await execInProcess('docker logs')
+      const output = await execInProcess('docker logs --machine')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -223,7 +223,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should accept execution ID format', async () => {
-      const output = await execInProcess('docker logs WORK-001')
+      const output = await execInProcess('docker logs WORK-001 --machine')
 
       // Should process the command (may fail due to no Docker or no execution)
       expect(
@@ -260,7 +260,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should require a target argument', async () => {
-      const output = await execInProcess('docker stop')
+      const output = await execInProcess('docker stop --machine')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -303,7 +303,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should require a target argument', async () => {
-      const output = await execInProcess('docker shell')
+      const output = await execInProcess('docker shell --machine')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -333,7 +333,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should require a target argument', async () => {
-      const output = await execInProcess('docker restart')
+      const output = await execInProcess('docker restart --machine')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -362,7 +362,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should require a target argument', async () => {
-      const output = await execInProcess('docker start')
+      const output = await execInProcess('docker start --machine')
 
       const validOutput =
         output.includes('Missing required arg') ||
@@ -372,7 +372,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should accept execution ID format', async () => {
-      const output = await execInProcess('docker start WORK-001')
+      const output = await execInProcess('docker start WORK-001 --machine')
 
       expect(
         hasDockerOrWorkspaceError(output) ||
@@ -397,7 +397,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should handle missing workspace gracefully', async () => {
-      const output = await execInProcess('docker sync')
+      const output = await execInProcess('docker sync --machine')
 
       expect(
         hasDockerOrWorkspaceError(output) ||
@@ -441,7 +441,7 @@ describe('Docker Commands E2E Tests', () => {
     })
 
     it('should handle Docker not running gracefully', async () => {
-      const output = await execInProcess('docker prune --force')
+      const output = await execInProcess('docker prune --force --machine')
 
       expect(
         hasDockerOrWorkspaceError(output) ||
@@ -1051,7 +1051,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
     })
 
     it('should skip confirmation with --force flag', async () => {
-      const output = await execInProcess('docker stop test-container --force')
+      const output = await execInProcess('docker stop test-container --force --machine')
 
       // With --force, should NOT output a prompt - goes straight to action
       // (will fail because container doesn't exist, but no prompt was shown)
@@ -1128,7 +1128,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
     })
 
     it('should skip confirmation with --force flag', async () => {
-      const output = await execInProcess('docker restart test-container --force')
+      const output = await execInProcess('docker restart test-container --force --machine')
 
       const hasPrompt = output.includes('"prompt"')
       if (!hasDockerOrWorkspaceError(output)) {
@@ -1187,7 +1187,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
     })
 
     it('should skip confirmation with --force flag', async () => {
-      const output = await execInProcess('docker clean --force')
+      const output = await execInProcess('docker clean --force --machine')
 
       const hasPrompt = output.includes('"prompt"')
       if (!hasDockerOrWorkspaceError(output) && !output.includes('No orphaned containers')) {
@@ -1196,7 +1196,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
     })
 
     it('should accept --dry-run to show preview without removing', async () => {
-      const output = await execInProcess('docker clean --dry-run')
+      const output = await execInProcess('docker clean --dry-run --machine')
 
       // --dry-run should not ask for confirmation, it just shows preview
       if (!hasDockerOrWorkspaceError(output)) {
@@ -1268,7 +1268,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
     })
 
     it('should skip confirmation with --force flag', async () => {
-      const output = await execInProcess('docker prune --force')
+      const output = await execInProcess('docker prune --force --machine')
 
       const hasPrompt = output.includes('"prompt"')
       if (!hasDockerOrWorkspaceError(output)) {
@@ -1277,7 +1277,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
     })
 
     it('should accept --dry-run to show preview without pruning', async () => {
-      const output = await execInProcess('docker prune --dry-run')
+      const output = await execInProcess('docker prune --dry-run --machine')
 
       if (!hasDockerOrWorkspaceError(output)) {
         expect(output.includes('DRY RUN') || output.includes('preview')).to.be.true

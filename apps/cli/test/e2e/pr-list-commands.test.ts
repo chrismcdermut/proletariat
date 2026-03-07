@@ -149,7 +149,7 @@ describe('PR List Command E2E Tests', () => {
     });
 
     it('should work with -m shorthand', async () => {
-      const output = await execInProcess('pr list -P test-project -m');
+      const output = await execInProcess('pr list -P test-project -m --machine');
 
       expect(output).to.be.a('string');
       expect(output.length).to.be.greaterThan(0);

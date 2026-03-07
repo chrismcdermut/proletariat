@@ -353,7 +353,7 @@ describe('Execution Commands E2E Tests', () => {
     it('should list executions with all key data columns', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'host', display_mode: 'terminal' });
 
-      const output = await execInProcess('execution list');
+      const output = await execInProcess('execution list --machine');
 
       expect(output).to.contain('WORK-001');
       expect(output).to.contain('TKT-001');
@@ -367,7 +367,7 @@ describe('Execution Commands E2E Tests', () => {
       createExecution(db, 'TKT-002', 'agent-2', 'completed');
       createExecution(db, 'TKT-003', 'agent-3', 'failed');
 
-      const output = await execInProcess('execution list');
+      const output = await execInProcess('execution list --machine');
 
       expect(output).to.contain('agent-1');
       expect(output).to.contain('agent-2');
@@ -378,7 +378,7 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     it('should show empty message when no executions', async () => {
-      const output = await execInProcess('execution list');
+      const output = await execInProcess('execution list --machine');
       expect(output).to.contain('No executions found');
     });
 
@@ -386,7 +386,7 @@ describe('Execution Commands E2E Tests', () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-      const output = await execInProcess('execution list --status running');
+      const output = await execInProcess('execution list --status running --machine');
       expect(output).to.contain('agent-1');
       expect(output).not.to.contain('agent-2');
     });
@@ -395,7 +395,7 @@ describe('Execution Commands E2E Tests', () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-      const output = await execInProcess('execution list --status completed');
+      const output = await execInProcess('execution list --status completed --machine');
       expect(output).not.to.contain('agent-1');
       expect(output).to.contain('agent-2');
     });
@@ -404,7 +404,7 @@ describe('Execution Commands E2E Tests', () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'failed');
 
-      const output = await execInProcess('execution list --status failed');
+      const output = await execInProcess('execution list --status failed --machine');
       expect(output).not.to.contain('agent-1');
       expect(output).to.contain('agent-2');
     });
@@ -413,7 +413,7 @@ describe('Execution Commands E2E Tests', () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-      const output = await execInProcess('execution list --agent agent-1');
+      const output = await execInProcess('execution list --agent agent-1 --machine');
       expect(output).to.contain('agent-1');
       expect(output).not.to.contain('agent-2');
     });
@@ -423,7 +423,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, `TKT-${String(i).padStart(3, '0')}`, 'agent-1', 'completed');
       }
 
-      const output = await execInProcess('execution list --limit 2');
+      const output = await execInProcess('execution list --limit 2 --machine');
       const matches = output.match(/WORK-/g) || [];
       expect(matches.length).to.equal(2);
     });
@@ -431,7 +431,7 @@ describe('Execution Commands E2E Tests', () => {
     it('should show suggested commands for running executions', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-      const output = await execInProcess('execution list');
+      const output = await execInProcess('execution list --machine');
       expect(output).to.contain('prlt execution logs');
       expect(output).to.contain('prlt execution stop');
     });
@@ -439,7 +439,7 @@ describe('Execution Commands E2E Tests', () => {
     it('should display devcontainer environment correctly', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'devcontainer' });
 
-      const output = await execInProcess('execution list');
+      const output = await execInProcess('execution list --machine');
       expect(output).to.contain('devcontainer');
     });
 
@@ -447,7 +447,7 @@ describe('Execution Commands E2E Tests', () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running', { permission_mode: 'safe' });
       createExecution(db, 'TKT-002', 'agent-2', 'running', { permission_mode: 'danger' });
 
-      const output = await execInProcess('execution list');
+      const output = await execInProcess('execution list --machine');
       expect(output).to.contain('safe');
       expect(output).to.contain('danger');
     });
@@ -464,7 +464,7 @@ describe('Execution Commands E2E Tests', () => {
         fs.writeFileSync(logPath, logContent);
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
-        const output = await execInProcess('execution logs WORK-001');
+        const output = await execInProcess('execution logs WORK-001 --machine');
 
         expect(output).to.contain('Line 1: Starting agent');
         expect(output).to.contain('Line 2: Processing ticket');
@@ -476,7 +476,7 @@ describe('Execution Commands E2E Tests', () => {
         fs.writeFileSync(logPath, 'test log content\n');
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
-        const output = await execInProcess('execution logs WORK-001');
+        const output = await execInProcess('execution logs WORK-001 --machine');
         expect(output).to.contain('WORK-001');
         expect(output).to.contain('TKT-001');
       });
@@ -484,19 +484,19 @@ describe('Execution Commands E2E Tests', () => {
       it('should show message when execution has no log file', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = await execInProcess('execution logs WORK-001');
+        const output = await execInProcess('execution logs WORK-001 --machine');
         expect(output).to.contain('No log file');
       });
 
       it('should show tmux attach command when session exists', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running', { session_id: 'prlt-session-1' });
 
-        const output = await execInProcess('execution logs WORK-001');
+        const output = await execInProcess('execution logs WORK-001 --machine');
         expect(output).to.contain('tmux attach -t prlt-session-1');
       });
 
       it('should error when execution not found', async () => {
-        const output = await execInProcess('execution logs NONEXISTENT');
+        const output = await execInProcess('execution logs NONEXISTENT --machine');
         expect(output.toLowerCase()).to.contain('not found');
       });
 
@@ -506,7 +506,7 @@ describe('Execution Commands E2E Tests', () => {
         fs.writeFileSync(logPath, lines);
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
-        const output = await execInProcess('execution logs WORK-001 --tail 3');
+        const output = await execInProcess('execution logs WORK-001 --tail 3 --machine');
 
         expect(output).to.contain('Log line 18');
         expect(output).to.contain('Log line 19');
@@ -662,7 +662,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should stop a running execution and update DB status', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = await execInProcess('execution stop WORK-001');
+        const output = await execInProcess('execution stop WORK-001 --machine');
 
         expect(output).to.contain('Stopped');
         expect(output).to.contain('WORK-001');
@@ -675,7 +675,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should show agent and ticket details after stop', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = await execInProcess('execution stop WORK-001');
+        const output = await execInProcess('execution stop WORK-001 --machine');
 
         expect(output).to.contain('TKT-001');
         expect(output).to.contain('agent-1');
@@ -685,7 +685,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = await execInProcess('execution stop WORK-001');
+        const output = await execInProcess('execution stop WORK-001 --machine');
 
         expect(output).to.contain('Stopped');
         // Target execution stopped
@@ -699,7 +699,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should stop a starting execution', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'starting');
 
-        const output = await execInProcess('execution stop WORK-001');
+        const output = await execInProcess('execution stop WORK-001 --machine');
 
         expect(output).to.contain('Stopped');
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
@@ -709,7 +709,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should show message when execution is already stopped and not change DB', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'stopped');
 
-        const output = await execInProcess('execution stop WORK-001');
+        const output = await execInProcess('execution stop WORK-001 --machine');
         expect(output).to.contain('not running');
         // Verify DB status was NOT changed
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
@@ -719,7 +719,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should show message when execution is completed and not change DB', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'completed');
 
-        const output = await execInProcess('execution stop WORK-001');
+        const output = await execInProcess('execution stop WORK-001 --machine');
         expect(output).to.contain('not running');
         // Verify DB status was NOT changed to 'stopped'
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
@@ -727,14 +727,14 @@ describe('Execution Commands E2E Tests', () => {
       });
 
       it('should error when execution not found', async () => {
-        const output = await execInProcess('execution stop NONEXISTENT');
+        const output = await execInProcess('execution stop NONEXISTENT --machine');
         expect(output.toLowerCase()).to.contain('not found');
       });
 
       it('should handle --force flag', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = await execInProcess('execution stop WORK-001 --force');
+        const output = await execInProcess('execution stop WORK-001 --force --machine');
 
         expect(output).to.contain('Stopped');
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
@@ -747,7 +747,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = await execInProcess('execution stop --all');
+        const output = await execInProcess('execution stop --all --machine');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         // Verify each specific execution was stopped
@@ -761,7 +761,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'starting');
 
-        const output = await execInProcess('execution stop --all');
+        const output = await execInProcess('execution stop --all --machine');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
@@ -773,7 +773,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-002', 'agent-2', 'completed');
         createExecution(db, 'TKT-003', 'agent-3', 'failed');
 
-        const output = await execInProcess('execution stop --all');
+        const output = await execInProcess('execution stop --all --machine');
 
         expect(output).to.contain('Stopping 1 execution(s)');
         const completedRow = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-002') as { status: string };
@@ -786,14 +786,14 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = await execInProcess('execution stop --all');
+        const output = await execInProcess('execution stop --all --machine');
 
         expect(output).to.contain('Summary');
         expect(output).to.contain('Stopped: 2');
       });
 
       it('should show empty message when no running executions', async () => {
-        const output = await execInProcess('execution stop --all');
+        const output = await execInProcess('execution stop --all --machine');
         expect(output).to.contain('No running executions');
       });
 
@@ -801,7 +801,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = await execInProcess('execution stop --all --force');
+        const output = await execInProcess('execution stop --all --force --machine');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
@@ -814,7 +814,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = await execInProcess('execution stop --agent agent-1');
+        const output = await execInProcess('execution stop --agent agent-1 --machine');
 
         expect(output).to.contain('Stopping 1 execution(s)');
 
@@ -830,7 +830,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-002', 'agent-1', 'running');
         createExecution(db, 'TKT-003', 'agent-2', 'running');
 
-        const output = await execInProcess('execution stop --agent agent-1');
+        const output = await execInProcess('execution stop --agent agent-1 --machine');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         const rows = db.prepare('SELECT status FROM agent_work WHERE agent_name = ? AND status = ?').all('agent-1', 'stopped') as { status: string }[];
@@ -840,7 +840,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should show empty message when agent has no running executions', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'completed');
 
-        const output = await execInProcess('execution stop --agent agent-1');
+        const output = await execInProcess('execution stop --agent agent-1 --machine');
         expect(output).to.contain('No running executions');
         expect(output).to.contain('agent-1');
       });
@@ -1015,7 +1015,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should stop a running execution and update DB status', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = await execInProcess('execution kill WORK-001');
+        const output = await execInProcess('execution kill WORK-001 --machine');
 
         expect(output).to.contain('Stopped');
         expect(output).to.contain('WORK-001');
@@ -1028,7 +1028,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should show agent and ticket details after kill', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = await execInProcess('execution kill WORK-001');
+        const output = await execInProcess('execution kill WORK-001 --machine');
 
         expect(output).to.contain('TKT-001');
         expect(output).to.contain('agent-1');
@@ -1037,7 +1037,7 @@ describe('Execution Commands E2E Tests', () => {
       it('should handle --force flag', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = await execInProcess('execution kill WORK-001 --force');
+        const output = await execInProcess('execution kill WORK-001 --force --machine');
 
         expect(output).to.contain('Stopped');
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
@@ -1045,7 +1045,7 @@ describe('Execution Commands E2E Tests', () => {
       });
 
       it('should error when execution not found', async () => {
-        const output = await execInProcess('execution kill NONEXISTENT');
+        const output = await execInProcess('execution kill NONEXISTENT --machine');
         expect(output.toLowerCase()).to.contain('not found');
       });
     });
@@ -1055,7 +1055,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = await execInProcess('execution kill --all');
+        const output = await execInProcess('execution kill --all --machine');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
@@ -1063,7 +1063,7 @@ describe('Execution Commands E2E Tests', () => {
       });
 
       it('should show empty message when no running executions', async () => {
-        const output = await execInProcess('execution kill --all');
+        const output = await execInProcess('execution kill --all --machine');
         expect(output).to.contain('No running executions');
       });
     });
@@ -1073,7 +1073,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = await execInProcess('execution kill --agent agent-1');
+        const output = await execInProcess('execution kill --agent agent-1 --machine');
 
         expect(output).to.contain('Stopping 1 execution(s)');
 
@@ -1129,7 +1129,7 @@ describe('Execution Commands E2E Tests', () => {
         expect(selectedExec).to.exist;
 
         // Step 3: Agent executes the kill command (use execution kill directly)
-        const killOutput = await execInProcess('execution kill WORK-001');
+        const killOutput = await execInProcess('execution kill WORK-001 --machine');
 
         // Step 4: Verify ONLY the selected execution was stopped
         expect(killOutput).to.contain('Stopped');

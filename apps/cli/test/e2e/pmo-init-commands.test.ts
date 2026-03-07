@@ -60,13 +60,13 @@ describe('PMO Init Commands E2E Tests', () => {
   // ===========================================================================
   describe('prlt pmo init (fresh init - create)', () => {
     it('should initialize PMO with all flags and report success', async () => {
-      const output = await execInProcess('pmo init --location separate --template kanban --name "test-board"');
+      const output = await execInProcess('pmo init --location separate --template kanban --name "test-board" --machine');
 
       expect(output).to.contain('PMO initialized successfully');
     });
 
     it('should create project in database with correct name', async () => {
-      await execInProcess('pmo init --location separate --template kanban --name "test-board"');
+      await execInProcess('pmo init --location separate --template kanban --name "test-board" --machine');
 
       // Re-open database to see new tables
       db.close();
@@ -78,7 +78,7 @@ describe('PMO Init Commands E2E Tests', () => {
     });
 
     it('should create PMO directory and project folder structure', async () => {
-      await execInProcess('pmo init --location separate --template kanban --name "test-board"');
+      await execInProcess('pmo init --location separate --template kanban --name "test-board" --machine');
 
       const pmoDir = path.join(testDir, 'pmo');
       expect(fs.existsSync(pmoDir)).to.be.true;
@@ -89,7 +89,7 @@ describe('PMO Init Commands E2E Tests', () => {
     });
 
     it('should store PMO path setting in database', async () => {
-      await execInProcess('pmo init --location separate --template kanban --name "test-board"');
+      await execInProcess('pmo init --location separate --template kanban --name "test-board" --machine');
 
       db.close();
       db = new Database(dbPath);
@@ -117,7 +117,7 @@ describe('PMO Init Commands E2E Tests', () => {
     });
 
     it('should initialize with linear template', async () => {
-      await execInProcess('pmo init --location separate --template linear --name "linear-board"');
+      await execInProcess('pmo init --location separate --template linear --name "linear-board" --machine');
 
       db.close();
       db = new Database(dbPath);
@@ -160,7 +160,7 @@ describe('PMO Init Commands E2E Tests', () => {
 
       // STEP 3: Agent provides confirmation + all required flags to complete
       const output = await execInProcess(
-        'pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "agent-board"'
+        'pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "agent-board" --machine'
       );
       expect(output).to.contain('PMO initialized successfully');
 
@@ -278,7 +278,7 @@ describe('PMO Init Commands E2E Tests', () => {
   describe('prlt pmo init (end result verification)', () => {
     describe('fresh init → verify created', () => {
       it('should create kanban board file in project directory', async () => {
-        await execInProcess('pmo init --location separate --template kanban --name "my-project"');
+        await execInProcess('pmo init --location separate --template kanban --name "my-project" --machine');
 
         const boardPath = path.join(testDir, 'pmo', 'projects', 'my-project', 'kanban.md');
         expect(fs.existsSync(boardPath)).to.be.true;
@@ -289,7 +289,7 @@ describe('PMO Init Commands E2E Tests', () => {
       });
 
       it('should create epic folder structure with lifecycle stages', async () => {
-        await execInProcess('pmo init --location separate --template kanban --name "my-project"');
+        await execInProcess('pmo init --location separate --template kanban --name "my-project" --machine');
 
         const epicsDir = path.join(testDir, 'pmo', 'projects', 'my-project', 'epics');
         expect(fs.existsSync(epicsDir)).to.be.true;
@@ -301,7 +301,7 @@ describe('PMO Init Commands E2E Tests', () => {
       });
 
       it('should create README in PMO directory', async () => {
-        await execInProcess('pmo init --location separate --template kanban --name "my-project"');
+        await execInProcess('pmo init --location separate --template kanban --name "my-project" --machine');
 
         const readmePath = path.join(testDir, 'pmo', 'README.md');
         expect(fs.existsSync(readmePath)).to.be.true;
@@ -323,7 +323,7 @@ describe('PMO Init Commands E2E Tests', () => {
         const oldTicket = db.prepare('SELECT * FROM pmo_tickets WHERE id = ?').get('TKT-001');
         expect(oldTicket).to.not.be.undefined;
 
-        await execInProcess('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board"');
+        await execInProcess('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board" --machine');
 
         // Verify old data is gone, new data exists
         db.close();
@@ -342,7 +342,7 @@ describe('PMO Init Commands E2E Tests', () => {
       });
 
       it('should create new project directory after reinitialize', async () => {
-        await execInProcess('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board"');
+        await execInProcess('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board" --machine');
 
         const newProjectDir = path.join(testDir, 'pmo', 'projects', 'reinit-board');
         expect(fs.existsSync(newProjectDir)).to.be.true;
@@ -358,7 +358,7 @@ describe('PMO Init Commands E2E Tests', () => {
       });
 
       it('should preserve all existing data when cancelled via action flag', async () => {
-        const output = await execInProcess('pmo init --action cancel');
+        const output = await execInProcess('pmo init --action cancel --machine');
         expect(output).to.contain('Cancelled');
 
         // All old data should still be intact
@@ -371,7 +371,7 @@ describe('PMO Init Commands E2E Tests', () => {
       });
 
       it('should preserve all existing data when confirmation text is wrong', async () => {
-        const output = await execInProcess('pmo init --action reinitialize --confirmation "no"');
+        const output = await execInProcess('pmo init --action reinitialize --confirmation "no" --machine');
         expect(output).to.contain('Cancelled');
 
         // All old data should still be intact
@@ -382,7 +382,7 @@ describe('PMO Init Commands E2E Tests', () => {
       });
 
       it('should preserve PMO directory when cancelled', async () => {
-        await execInProcess('pmo init --action cancel');
+        await execInProcess('pmo init --action cancel --machine');
 
         const pmoDir = path.join(testDir, 'pmo');
         expect(fs.existsSync(pmoDir)).to.be.true;

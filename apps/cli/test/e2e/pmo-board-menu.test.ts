@@ -242,7 +242,7 @@ describe('PMO Board Menu E2E Tests', () => {
       createTestTicket(dbPath, 'TKT-401', 'Sync flow ticket', 'default-backlog', 'P1');
 
       // Pre-condition: export first so there's a board.md to sync from
-      await execInProcess('board --action export');
+      await execInProcess('board --action export --machine');
 
       // Step 1: Agent gets the board menu
       const menu = agentExec('board --machine');
@@ -268,7 +268,7 @@ describe('PMO Board Menu E2E Tests', () => {
       createTestTicket(dbPath, 'TKT-402', 'Before modification', 'default-backlog', 'P1');
 
       // Export to create the board.md
-      await execInProcess('board --action export');
+      await execInProcess('board --action export --machine');
 
       // Modify the board.md file
       const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
@@ -318,7 +318,7 @@ describe('PMO Board Menu E2E Tests', () => {
       createTestTicket(dbPath, 'TKT-002', 'Setup CI/CD', 'default-backlog', 'P2');
       createTestTicket(dbPath, 'TKT-003', 'Implement navigation', 'default-in-progress', 'P1');
 
-      const output = await execInProcess('board --action view');
+      const output = await execInProcess('board --action view --machine');
 
       expect(output).to.include('TKT-001');
       expect(output).to.include('Add login screen');
@@ -332,7 +332,7 @@ describe('PMO Board Menu E2E Tests', () => {
       createTestTicket(dbPath, 'TKT-001', 'Ticket 1', 'default-backlog', 'P1');
       createTestTicket(dbPath, 'TKT-002', 'Ticket 2', 'default-backlog', 'P2');
 
-      const output = await execInProcess('board --action view');
+      const output = await execInProcess('board --action view --machine');
 
       expect(output).to.include('(2)');
     });
@@ -342,14 +342,14 @@ describe('PMO Board Menu E2E Tests', () => {
     it('should output board as markdown', async () => {
       createTestTicket(dbPath, 'TKT-001', 'Login feature', 'default-backlog', 'P1');
 
-      const output = await execInProcess('board --action markdown');
+      const output = await execInProcess('board --action markdown --machine');
 
       expect(output).to.include('TKT-001');
       expect(output).to.include('Login feature');
     });
 
     it('should output markdown for empty board', async () => {
-      const output = await execInProcess('board --action markdown');
+      const output = await execInProcess('board --action markdown --machine');
       expect(output).to.be.a('string');
     });
   });
@@ -357,10 +357,10 @@ describe('PMO Board Menu E2E Tests', () => {
   describe('board --action export (direct)', () => {
     it('should export board to kanban.md and overwrite on re-export', async () => {
       createTestTicket(dbPath, 'TKT-001', 'First export', 'default-backlog', 'P1');
-      await execInProcess('board --action export');
+      await execInProcess('board --action export --machine');
 
       createTestTicket(dbPath, 'TKT-002', 'Second export', 'default-backlog', 'P2');
-      await execInProcess('board --action export');
+      await execInProcess('board --action export --machine');
 
       const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
       const content = fs.readFileSync(kanbanPath, 'utf-8');
@@ -372,9 +372,9 @@ describe('PMO Board Menu E2E Tests', () => {
   describe('board --action sync --force (direct)', () => {
     it('should sync from exported board.md successfully', async () => {
       createTestTicket(dbPath, 'TKT-001', 'Sync test', 'default-backlog', 'P1');
-      await execInProcess('board --action export');
+      await execInProcess('board --action export --machine');
 
-      const output = await execInProcess('board --action sync --force');
+      const output = await execInProcess('board --action sync --force --machine');
 
       expect(output).to.satisfy((s: string) =>
         s.includes('synced') || s.includes('already in sync')
@@ -383,20 +383,20 @@ describe('PMO Board Menu E2E Tests', () => {
 
     it('should detect and apply changes from modified board.md', async () => {
       createTestTicket(dbPath, 'TKT-001', 'Original title', 'default-backlog', 'P1');
-      await execInProcess('board --action export');
+      await execInProcess('board --action export --machine');
 
       const kanbanPath = path.join(testDir, 'pmo', 'projects', 'default', 'kanban.md');
       let content = fs.readFileSync(kanbanPath, 'utf-8');
       content = content.replace('Original title', 'Modified title');
       fs.writeFileSync(kanbanPath, content);
 
-      const output = await execInProcess('board --action sync --force');
+      const output = await execInProcess('board --action sync --force --machine');
 
       expect(output).to.include('synced');
     });
 
     it('should error when board.md does not exist', async () => {
-      const output = await execInProcess('board --action sync --force');
+      const output = await execInProcess('board --action sync --force --machine');
 
       expect(output.toLowerCase()).to.satisfy((s: string) =>
         s.includes('not found') || s.includes('board.md') || s.includes('error')
@@ -406,7 +406,7 @@ describe('PMO Board Menu E2E Tests', () => {
 
   describe('board with project flag', () => {
     it('should use specified project with -P flag', async () => {
-      const output = await execInProcess('board --action view -P default');
+      const output = await execInProcess('board --action view -P default --machine');
       expect(output).to.include('Total:');
     });
 
