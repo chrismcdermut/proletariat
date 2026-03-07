@@ -156,14 +156,15 @@ export default class ExecutionLogs extends PMOCommand {
           tailProcess.on('close', resolve)
         })
       } else if (flags.tail) {
-        // Show last n lines
-        const tailProcess = spawn('tail', ['-n', flags.tail.toString(), execution.logPath], {
-          stdio: 'inherit',
-        })
-
-        await new Promise((resolve) => {
-          tailProcess.on('close', resolve)
-        })
+        // Show last n lines (read in Node.js for testability and portability)
+        const content = fs.readFileSync(execution.logPath, 'utf-8')
+        const allLines = content.split('\n')
+        // Remove trailing empty element from final newline
+        if (allLines.length > 0 && allLines[allLines.length - 1] === '') {
+          allLines.pop()
+        }
+        const tailLines = allLines.slice(-flags.tail)
+        this.log(tailLines.join('\n'))
       } else {
         // Show entire file
         const content = fs.readFileSync(execution.logPath, 'utf-8')

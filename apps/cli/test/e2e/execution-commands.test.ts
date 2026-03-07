@@ -379,7 +379,9 @@ describe('Execution Commands E2E Tests', () => {
 
     it('should show empty message when no executions', async () => {
       const output = await execInProcess('execution list --machine');
-      expect(output).to.contain('No executions found');
+      // In JSON/machine mode, empty list outputs empty JSON array
+      const json = JSON.parse(output);
+      expect(json).to.be.an('array').that.is.empty;
     });
 
     it('should filter by --status running', async () => {
@@ -432,8 +434,12 @@ describe('Execution Commands E2E Tests', () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
 
       const output = await execInProcess('execution list --machine');
-      expect(output).to.contain('prlt execution logs');
-      expect(output).to.contain('prlt execution stop');
+      // In JSON/machine mode, outputs execution data as JSON array
+      // (suggested commands are only shown in human text mode)
+      const json = JSON.parse(output);
+      expect(json).to.be.an('array').with.length(1);
+      expect(json[0]).to.have.property('id', 'WORK-001');
+      expect(json[0]).to.have.property('status', 'running');
     });
 
     it('should display devcontainer environment correctly', async () => {
