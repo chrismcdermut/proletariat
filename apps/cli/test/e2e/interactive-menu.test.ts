@@ -177,7 +177,8 @@ const skipSuite = !hasTmux() || !hasPrlt();
 
     it('should show selectable options in create flow', () => {
       session.sendCommand('prlt ticket create');
-      session.waitForStable(1000, MENU_TIMEOUT);
+      // Wait for the interactive prompt to appear with the selection indicator
+      session.waitForOutput('❯', MENU_TIMEOUT);
 
       const screen = session.getScreen();
       // Should have the selection indicator
@@ -266,6 +267,10 @@ const skipSuite = !hasTmux() || !hasPrlt();
       session.sendCommand('prlt work');
       session.waitForOutput('Work Operations', MENU_TIMEOUT);
 
+      // Scroll down to reveal options that may be below the inquirer page fold
+      for (let i = 0; i < 5; i++) session.send('Down');
+      session.waitForStable(500);
+
       const screen = session.getScreen();
       expect(screen.raw).to.match(/Spawn|spawn/i);
       expect(screen.raw).to.match(/Watch|watch/i);
@@ -353,8 +358,9 @@ const skipSuite = !hasTmux() || !hasPrlt();
       // Send Ctrl+C
       session.send('C-c');
 
-      // Wait for shell prompt to return
-      session.waitForStable(500, MENU_TIMEOUT);
+      // Wait for shell prompt to return — the CLI needs time to handle the
+      // signal, clean up the menu, and the shell needs to display a new prompt
+      session.waitForStable(1000, MENU_TIMEOUT);
 
       const screen = session.getScreen();
       // Should see the bash prompt (ends with $ or #)

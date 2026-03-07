@@ -77,7 +77,7 @@ export class InteractiveTestSession {
 
     this.config = {
       width: config.width ?? 120,
-      height: config.height ?? 40,
+      height: config.height ?? 120,
       env: config.env ?? {},
       cwd: config.cwd ?? process.cwd(),
       defaultTimeout: config.defaultTimeout ?? 10000,
@@ -103,8 +103,16 @@ export class InteractiveTestSession {
       .join(' && ');
 
     // Create tmux session with bash (no rc files for clean env)
+    // BASH_SILENCE_DEPRECATION_WARNING suppresses macOS "default shell is now zsh" warning
+    // which is emitted by Apple's patched bash binary before profile scripts run.
     this.tmuxExec(
-      `new-session -d -s ${this.sessionName} -x ${this.config.width} -y ${this.config.height} "bash --norc --noprofile"`
+      `new-session -d -s ${this.sessionName} -x ${this.config.width} -y ${this.config.height} "BASH_SILENCE_DEPRECATION_WARNING=1 bash --norc --noprofile"`
+    );
+
+    // Force the window to the requested dimensions — tmux may ignore -x/-y
+    // when other clients are attached to the server.
+    this.tmuxExec(
+      `resize-window -t ${this.sessionName} -x ${this.config.width} -y ${this.config.height}`
     );
 
     this.started = true;
@@ -125,6 +133,11 @@ export class InteractiveTestSession {
       this.tmuxSendKeys('Enter');
       this.sleep(300);
     }
+
+    // Clear the screen to remove any shell init output (env exports, cd, etc.)
+    this.tmuxSendKeys('clear');
+    this.tmuxSendKeys('Enter');
+    this.sleep(300);
   }
 
   /**
