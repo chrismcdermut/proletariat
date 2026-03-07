@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+import Database from 'better-sqlite3';
 import {
   execInProcess,
   extractJson,
@@ -27,6 +28,7 @@ import {
  */
 describe('Session Peek Commands E2E Tests', () => {
   let env: TestEnvironment;
+  let db: Database.Database;
 
   beforeEach(() => {
     env = createTestEnvironment('session-peek-e2e-');
@@ -36,15 +38,14 @@ describe('Session Peek Commands E2E Tests', () => {
     createPMODirectories(env.pmoPath, 'default');
 
     // Initialize PMO tables using production schema
-    const db = setupProductionSchema(env.dbPath, env.pmoPath);
+    db = setupProductionSchema(env.dbPath, env.pmoPath);
 
-    // Add workspace tables
+    // Add workspace tables (for agent/session discovery)
     addWorkspaceTables(db, { type: 'hq', workspaceName: 'test-hq', hasPmo: true });
-
-    db.close();
   });
 
   afterEach(() => {
+    if (db) db.close();
     cleanupTestEnvironment(env);
   });
 
