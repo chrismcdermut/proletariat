@@ -16,6 +16,9 @@ import {
   createTestEnvironment,
   cleanupTestEnvironment,
   createHQConfig,
+  createPMODirectories,
+  setupProductionSchema,
+  addWorkspaceTables,
   findChoice,
   execInProcess,
   hasContextError,
@@ -54,69 +57,15 @@ function initGitRepo(dir: string): void {
 }
 
 /**
- * Set up test database with workspace schema.
+ * Set up test database with production PMO + workspace schema.
+ * Repo and branch commands extend PMOCommand, so PMO must be initialized.
  */
-function setupTestDatabase(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workspace (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      type TEXT NOT NULL,
-      workspace_name TEXT NOT NULL,
-      has_pmo BOOLEAN DEFAULT FALSE,
-      active_theme_id TEXT,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS repositories (
-      name TEXT PRIMARY KEY,
-      path TEXT NOT NULL,
-      type TEXT DEFAULT 'main',
-      source_url TEXT,
-      action TEXT,
-      added_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS agent_themes (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      display_name TEXT NOT NULL,
-      description TEXT,
-      builtin BOOLEAN DEFAULT FALSE,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS agent_theme_names (
-      theme_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      PRIMARY KEY (theme_id, name)
-    );
-    CREATE TABLE IF NOT EXISTS agents (
-      name TEXT PRIMARY KEY,
-      type TEXT NOT NULL DEFAULT 'persistent',
-      status TEXT NOT NULL DEFAULT 'active',
-      base_name TEXT,
-      theme_id TEXT,
-      worktree_path TEXT,
-      mount_mode TEXT NOT NULL DEFAULT 'worktree',
-      created_at TEXT NOT NULL,
-      cleaned_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS agent_worktrees (
-      agent_name TEXT NOT NULL,
-      repo_name TEXT NOT NULL,
-      worktree_path TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      last_commit_hash TEXT,
-      commits_ahead INTEGER NOT NULL DEFAULT 0,
-      is_clean INTEGER NOT NULL DEFAULT 1,
-      last_checked TEXT,
-      PRIMARY KEY (agent_name, repo_name)
-    );
-    CREATE TABLE IF NOT EXISTS workspace_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
-    VALUES (1, 'hq', 'test-workspace', 0, datetime('now'));
-  `);
+function setupTestDb(env: TestEnvironment): Database.Database {
+  const db = setupProductionSchema(env.dbPath, env.pmoPath);
+  addWorkspaceTables(db, { type: 'hq', hasPmo: true });
+  createHQConfig(env.proletariatDir);
+  createPMODirectories(env.pmoPath);
+  return db;
 }
 
 describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
@@ -127,9 +76,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
 
   beforeEach(() => {
     env = createTestEnvironment('repo-agent-');
-    db = new Database(env.dbPath);
-    setupTestDatabase(db);
-    createHQConfig(env.proletariatDir, { name: 'test-hq', hasPmo: false });
+    db = setupTestDb(env);
     fs.mkdirSync(path.join(env.testDir, 'repos'), { recursive: true });
   });
 
@@ -398,9 +345,8 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
 
   beforeEach(() => {
     env = createTestEnvironment('branch-agent-');
-    db = new Database(env.dbPath);
-    setupTestDatabase(db);
-    createHQConfig(env.proletariatDir, { name: 'test-hq', hasPmo: false });
+    db = setupTestDb(env);
+    initGitRepo(env.testDir);
   });
 
   afterEach(() => {
