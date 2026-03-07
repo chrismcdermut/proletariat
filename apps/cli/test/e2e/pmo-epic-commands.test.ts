@@ -56,7 +56,7 @@ describe('PMO Epic Commands E2E Tests', () => {
 
   describe('prlt epic create', () => {
     it('should create epic with auto-generated ID', async () => {
-      await execInProcess('epic create --title "User Authentication" --machine');
+      await execInProcess('epic create --title "User Authentication"');
 
       const epics = db.prepare('SELECT * FROM pmo_epics WHERE title = ?').all('User Authentication') as Array<{ id: string; status: string }>;
       expect(epics).to.have.lengthOf(1);
@@ -65,7 +65,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should create epic with specified status', async () => {
-      await execInProcess('epic create --title "Future Feature" --status draft --machine');
+      await execInProcess('epic create --title "Future Feature" --status draft');
 
       const epics = db.prepare('SELECT * FROM pmo_epics WHERE title = ?').all('Future Feature') as Array<{ status: string }>;
       expect(epics).to.have.lengthOf(1);
@@ -73,7 +73,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should create markdown file in correct status folder', async () => {
-      await execInProcess('epic create --title "Active Epic" --status active --machine');
+      await execInProcess('epic create --title "Active Epic" --status active');
 
       const epic = db.prepare('SELECT id FROM pmo_epics WHERE title = ?').get('Active Epic') as { id: string };
       const filePath = path.join(epicsDir, 'active', `${epic.id}.md`);
@@ -82,7 +82,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should create markdown file with correct template sections', async () => {
-      await execInProcess('epic create --title "Template Test" --machine');
+      await execInProcess('epic create --title "Template Test"');
 
       const epic = db.prepare('SELECT id FROM pmo_epics WHERE title = ?').get('Template Test') as { id: string };
       const filePath = path.join(epicsDir, 'active', `${epic.id}.md`);
@@ -103,8 +103,8 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should increment epic ID counter', async () => {
-      await execInProcess('epic create --title "First Epic" --machine');
-      await execInProcess('epic create --title "Second Epic" --machine');
+      await execInProcess('epic create --title "First Epic"');
+      await execInProcess('epic create --title "Second Epic"');
 
       const epics = db.prepare('SELECT id FROM pmo_epics ORDER BY created_at').all() as Array<{ id: string }>;
       expect(epics).to.have.lengthOf(2);
@@ -113,7 +113,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should store file path in database', async () => {
-      await execInProcess('epic create --title "File Path Test" --machine');
+      await execInProcess('epic create --title "File Path Test"');
 
       const epic = db.prepare('SELECT file_path FROM pmo_epics WHERE title = ?').get('File Path Test') as { file_path: string };
       expect(epic.file_path).to.contain('epics/active/EPIC-');
@@ -131,7 +131,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should list all epics', async () => {
-      const output = await execInProcess('epic list --machine');
+      const output = await execInProcess('epic list');
 
       expect(output).to.contain('EPIC-001');
       expect(output).to.contain('Active Epic 1');
@@ -141,7 +141,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should filter by status', async () => {
-      const output = await execInProcess('epic list --status active --machine');
+      const output = await execInProcess('epic list --status active');
 
       expect(output).to.contain('EPIC-001');
       expect(output).to.contain('EPIC-002');
@@ -150,7 +150,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should show epic status in output', async () => {
-      const output = await execInProcess('epic list --machine');
+      const output = await execInProcess('epic list');
 
       expect(output).to.contain('active');
       expect(output).to.contain('draft');
@@ -161,7 +161,7 @@ describe('PMO Epic Commands E2E Tests', () => {
       // Clear all epics
       db.prepare('DELETE FROM pmo_epics').run();
 
-      const output = await execInProcess('epic list --machine');
+      const output = await execInProcess('epic list');
 
       expect(output.toLowerCase()).to.match(/no epics|empty|0 epics/i);
     });
@@ -174,7 +174,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should display epic details', async () => {
-      const output = await execInProcess('epic view EPIC-001 --machine');
+      const output = await execInProcess('epic view EPIC-001');
 
       expect(output).to.contain('EPIC-001');
       expect(output).to.contain('View Test Epic');
@@ -186,7 +186,7 @@ describe('PMO Epic Commands E2E Tests', () => {
       createTestTicket(db, 'TKT-001', 'Ticket 1', 'EPIC-001', 'backlog');
       createTestTicket(db, 'TKT-002', 'Ticket 2', 'EPIC-001', 'done');
 
-      const output = await execInProcess('epic view EPIC-001 --machine');
+      const output = await execInProcess('epic view EPIC-001');
 
       expect(output).to.contain('TKT-001');
       expect(output).to.contain('Ticket 1');
@@ -198,14 +198,14 @@ describe('PMO Epic Commands E2E Tests', () => {
       createTestTicket(db, 'TKT-001', 'Incomplete', 'EPIC-001', 'backlog');
       createTestTicket(db, 'TKT-002', 'Complete', 'EPIC-001', 'done');
 
-      const output = await execInProcess('epic view EPIC-001 --machine');
+      const output = await execInProcess('epic view EPIC-001');
 
       // Should show progress indicator (1/2 = 50%)
       expect(output).to.match(/50%|1\/2|progress/i);
     });
 
     it('should error for non-existent epic', async () => {
-      const output = await execInProcess('epic view EPIC-999 --machine');
+      const output = await execInProcess('epic view EPIC-999');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -218,14 +218,14 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should move epic to complete status', async () => {
-      await execInProcess('epic archive EPIC-001 --force --machine');
+      await execInProcess('epic archive EPIC-001 --force');
 
       const epic = db.prepare('SELECT status FROM pmo_epics WHERE id = ?').get('EPIC-001') as { status: string };
       expect(epic.status).to.equal('complete');
     });
 
     it('should move markdown file to complete folder', async () => {
-      await execInProcess('epic archive EPIC-001 --force --machine');
+      await execInProcess('epic archive EPIC-001 --force');
 
       const oldPath = path.join(epicsDir, 'active', 'EPIC-001.md');
       const newPath = path.join(epicsDir, 'complete', 'EPIC-001.md');
@@ -235,7 +235,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should update status in markdown frontmatter', async () => {
-      await execInProcess('epic archive EPIC-001 --force --machine');
+      await execInProcess('epic archive EPIC-001 --force');
 
       const filePath = path.join(epicsDir, 'complete', 'EPIC-001.md');
       const content = fs.readFileSync(filePath, 'utf-8');
@@ -248,6 +248,7 @@ describe('PMO Epic Commands E2E Tests', () => {
 
       const output = await execInProcess('epic archive EPIC-001 --machine');
 
+      // In JSON mode, the prompt message contains the warning text
       expect(output.toLowerCase()).to.match(/not all|incomplete|warning/i);
     });
   });
@@ -259,14 +260,14 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should move epic to active status', async () => {
-      await execInProcess('epic activate EPIC-001 --machine');
+      await execInProcess('epic activate EPIC-001');
 
       const epic = db.prepare('SELECT status FROM pmo_epics WHERE id = ?').get('EPIC-001') as { status: string };
       expect(epic.status).to.equal('active');
     });
 
     it('should move markdown file to active folder', async () => {
-      await execInProcess('epic activate EPIC-001 --machine');
+      await execInProcess('epic activate EPIC-001');
 
       const oldPath = path.join(epicsDir, 'draft', 'EPIC-001.md');
       const newPath = path.join(epicsDir, 'active', 'EPIC-001.md');
@@ -276,7 +277,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should update status in markdown frontmatter', async () => {
-      await execInProcess('epic activate EPIC-001 --machine');
+      await execInProcess('epic activate EPIC-001');
 
       const filePath = path.join(epicsDir, 'active', 'EPIC-001.md');
       const content = fs.readFileSync(filePath, 'utf-8');
@@ -291,7 +292,7 @@ describe('PMO Epic Commands E2E Tests', () => {
       const epic = db.prepare('SELECT status FROM pmo_epics WHERE id = ?').get('EPIC-001') as { status: string };
       expect(epic.status).to.equal('draft'); // Verify starting status
 
-      await execInProcess('epic activate EPIC-001 --machine');
+      await execInProcess('epic activate EPIC-001');
 
       const updatedEpic = db.prepare('SELECT status FROM pmo_epics WHERE id = ?').get('EPIC-001') as { status: string };
       expect(updatedEpic.status).to.equal('active');
@@ -306,14 +307,14 @@ describe('PMO Epic Commands E2E Tests', () => {
 
     it('should move epic to specified status', async () => {
       // Moving to 'dropped' requires --force to skip confirmation
-      await execInProcess('epic move EPIC-001 dropped --force --machine');
+      await execInProcess('epic move EPIC-001 dropped --force');
 
       const epic = db.prepare('SELECT status FROM pmo_epics WHERE id = ?').get('EPIC-001') as { status: string };
       expect(epic.status).to.equal('dropped');
     });
 
     it('should move to draft status', async () => {
-      await execInProcess('epic move EPIC-001 draft --machine');
+      await execInProcess('epic move EPIC-001 draft');
 
       const epic = db.prepare('SELECT status FROM pmo_epics WHERE id = ?').get('EPIC-001') as { status: string };
       expect(epic.status).to.equal('draft');
@@ -323,7 +324,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should move to future status', async () => {
-      await execInProcess('epic move EPIC-001 future --machine');
+      await execInProcess('epic move EPIC-001 future');
 
       const epic = db.prepare('SELECT status FROM pmo_epics WHERE id = ?').get('EPIC-001') as { status: string };
       expect(epic.status).to.equal('future');
@@ -337,17 +338,18 @@ describe('PMO Epic Commands E2E Tests', () => {
 
       const output = await execInProcess('epic move EPIC-001 complete --machine');
 
+      // In JSON mode, the prompt message contains the warning text
       expect(output.toLowerCase()).to.match(/not all|incomplete|warning/i);
     });
 
     it('should reject invalid status', async () => {
-      const output = await execInProcess('epic move EPIC-001 invalid_status --machine');
+      const output = await execInProcess('epic move EPIC-001 invalid_status');
 
       expect(output.toLowerCase()).to.match(/invalid|error|unknown/i);
     });
 
     it('should noop if already in target status', async () => {
-      const output = await execInProcess('epic move EPIC-001 active --machine');
+      const output = await execInProcess('epic move EPIC-001 active');
 
       expect(output.toLowerCase()).to.match(/already|same/i);
     });
@@ -360,7 +362,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should show 0% when no tickets', async () => {
-      const output = await execInProcess('epic progress EPIC-001 --machine');
+      const output = await execInProcess('epic progress EPIC-001');
 
       expect(output).to.match(/0%|0\/0|no tickets/i);
     });
@@ -369,7 +371,7 @@ describe('PMO Epic Commands E2E Tests', () => {
       createTestTicket(db, 'TKT-001', 'Done', 'EPIC-001', 'done');
       createTestTicket(db, 'TKT-002', 'Not done', 'EPIC-001', 'backlog');
 
-      const output = await execInProcess('epic progress EPIC-001 --machine');
+      const output = await execInProcess('epic progress EPIC-001');
 
       expect(output).to.match(/50%|1\/2/i);
     });
@@ -378,7 +380,7 @@ describe('PMO Epic Commands E2E Tests', () => {
       createTestTicket(db, 'TKT-001', 'Done 1', 'EPIC-001', 'done');
       createTestTicket(db, 'TKT-002', 'Done 2', 'EPIC-001', 'done');
 
-      const output = await execInProcess('epic progress EPIC-001 --machine');
+      const output = await execInProcess('epic progress EPIC-001');
 
       expect(output).to.match(/100%|2\/2|complete/i);
     });
@@ -388,7 +390,7 @@ describe('PMO Epic Commands E2E Tests', () => {
       createTestTicket(db, 'TKT-002', 'In Progress', 'EPIC-001', 'in_progress');
       createTestTicket(db, 'TKT-003', 'Backlog', 'EPIC-001', 'backlog');
 
-      const output = await execInProcess('epic progress EPIC-001 --machine');
+      const output = await execInProcess('epic progress EPIC-001');
 
       // Should show remaining work with non-done tickets
       // TKT-001 is done so won't appear in "Remaining work", but TKT-002 and TKT-003 will
@@ -397,7 +399,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should error for non-existent epic', async () => {
-      const output = await execInProcess('epic progress EPIC-999 --machine');
+      const output = await execInProcess('epic progress EPIC-999');
 
       expect(output.toLowerCase()).to.contain('not found');
     });
@@ -417,7 +419,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should link ticket to epic via ticket create --epic', async () => {
-      await execInProcess('ticket create --title "Linked Ticket" --epic EPIC-001 --column Backlog --machine');
+      await execInProcess('ticket create --title "Linked Ticket" --epic EPIC-001 --column Backlog');
 
       // Open fresh connection after CLI subprocess completes
       const freshDb = new Database(env.dbPath);
@@ -429,7 +431,7 @@ describe('PMO Epic Commands E2E Tests', () => {
     });
 
     it('should update epic markdown when ticket is linked', async () => {
-      await execInProcess('ticket create --title "Sync Test" --epic EPIC-001 --column Backlog --machine');
+      await execInProcess('ticket create --title "Sync Test" --epic EPIC-001 --column Backlog');
 
       const filePath = path.join(epicsDir, 'active', 'EPIC-001.md');
       const content = fs.readFileSync(filePath, 'utf-8');
