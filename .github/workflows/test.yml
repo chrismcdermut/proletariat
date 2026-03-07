@@ -423,6 +423,7 @@ jobs:
             json-mode)
               echo "Running JSON/machine mode e2e tests"
               npx mocha --forbid-only \
+                --ignore "test/e2e/work-*.test.ts" \
                 "test/e2e/*-json-mode.test.ts" \
                 "test/e2e/json-mode-*.test.ts" \
                 "test/e2e/machine-mode-*.test.ts"
@@ -430,6 +431,8 @@ jobs:
             integrations)
               echo "Running integration e2e tests"
               npx mocha --forbid-only \
+                --ignore "test/e2e/*-agent-flow.test.ts" \
+                --ignore "test/e2e/*-json-mode.test.ts" \
                 "test/e2e/gh-*.test.ts" \
                 "test/e2e/pr-*.test.ts" \
                 "test/e2e/branch-*.test.ts" \
