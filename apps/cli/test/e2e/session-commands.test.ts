@@ -1,17 +1,13 @@
 import { expect } from 'chai';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
-  execInProcess,
+  execProduction,
   extractJson,
   agentExec,
   findChoiceByValue,
-  createTestEnvironment,
-  cleanupTestEnvironment,
-  createHQConfig,
-  createPMODirectories,
-  setupProductionSchema,
-  addWorkspaceTables,
-  TestEnvironment,
 } from './test-helpers.js';
 
 /**
@@ -27,7 +23,8 @@ import {
  * Each subcommand is tested through the interactive menu flow AND directly with flags.
  */
 describe('Session Commands E2E Tests', () => {
-  let env: TestEnvironment;
+  let testDir: string;
+  let originalCwd: string;
   let dbPath: string;
 
   /**
@@ -84,24 +81,96 @@ describe('Session Commands E2E Tests', () => {
   }
 
   beforeEach(() => {
-    env = createTestEnvironment('session-e2e-');
-    dbPath = env.dbPath;
+    originalCwd = process.cwd();
+    testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'session-e2e-')));
+    process.chdir(testDir);
 
-    // Create HQ config and PMO directories
-    createHQConfig(env.proletariatDir, { hasPmo: true });
-    createPMODirectories(env.pmoPath, 'default');
+    const proletariatDir = path.join(testDir, '.proletariat');
+    fs.mkdirSync(proletariatDir, { recursive: true });
+    dbPath = path.join(proletariatDir, 'workspace.db');
 
-    // Initialize PMO tables using production schema (creates pmo_projects, pmo_tickets, agent_work, etc.)
-    const db = setupProductionSchema(dbPath, env.pmoPath);
-
-    // Add workspace tables (workspace, agents, repositories, etc.)
-    addWorkspaceTables(db, { type: 'hq', workspaceName: 'test-hq', hasPmo: true });
-
+    // Create blank DB - let the CLI's ensurePMOTables() create all tables
+    // with the correct schema on first access
+    const db = new Database(dbPath);
     db.close();
+
+    // Create HQ config file (required for findPMO)
+    const configPath = path.join(proletariatDir, 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({
+      type: 'hq',
+      name: 'test-hq',
+      hasPmo: true,
+    }), 'utf-8');
+
+    // Create PMO directory structure
+    fs.mkdirSync(path.join(testDir, 'pmo', 'projects', 'default'), { recursive: true });
+
+    // Run a safe command to trigger PMO table initialization
+    // The CLI's PMOCommand.init() creates all PMO tables via ensurePMOTables()
+    execProduction('session --machine');
+
+    // Create workspace tables needed by getWorkspaceInfo() (used by session list/attach)
+    // These are separate from PMO tables and created by the workspace init flow
+    const initDb = new Database(dbPath);
+    initDb.exec(`
+      CREATE TABLE IF NOT EXISTS agent_themes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        builtin BOOLEAN DEFAULT FALSE,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS workspace (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
+        workspace_name TEXT NOT NULL,
+        has_pmo BOOLEAN DEFAULT FALSE,
+        active_theme_id TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
+      );
+      CREATE TABLE IF NOT EXISTS repositories (
+        name TEXT PRIMARY KEY,
+        path TEXT NOT NULL,
+        type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
+        source_url TEXT,
+        action TEXT CHECK (action IN ('clone', 'move', 'link')),
+        added_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS agents (
+        name TEXT PRIMARY KEY,
+        type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
+        base_name TEXT,
+        theme_id TEXT,
+        worktree_path TEXT,
+        mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
+        created_at TEXT NOT NULL,
+        cleaned_at TEXT,
+        FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
+      );
+      CREATE TABLE IF NOT EXISTS agent_worktrees (
+        agent_name TEXT NOT NULL,
+        repo_name TEXT NOT NULL,
+        worktree_path TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (agent_name, repo_name),
+        FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
+        FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
+      );
+      INSERT OR IGNORE INTO workspace (id, type, workspace_name, has_pmo, created_at)
+      VALUES (1, 'hq', 'test-hq', 1, datetime('now'));
+    `);
+    initDb.close();
   });
 
   afterEach(() => {
-    cleanupTestEnvironment(env);
+    process.chdir(originalCwd);
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
   });
 
   // =========================================================================
@@ -188,14 +257,14 @@ describe('Session Commands E2E Tests', () => {
   // prlt session list - direct invocation with flags
   // =========================================================================
   describe('prlt session list', () => {
-    it('should return JSON array when DB has no execution records', async () => {
-      const output = await execInProcess('session list --json');
+    it('should return JSON array when DB has no execution records', () => {
+      const output = execProduction('session list --json');
       // Output is JSON in non-TTY (piped) environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
       expect(sessions).to.be.an('array');
     });
 
-    it('should return DB-tracked sessions even without tmux verification (default mode)', async () => {
+    it('should return DB-tracked sessions even without tmux verification (default mode)', () => {
       // Seed a running execution - no tmux session exists to verify it
       seedExecutionRecords([{
         id: 'exec-001',
@@ -206,7 +275,7 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       // Sessions are always shown from DB, even without tmux verification
-      const output = await execInProcess('session list --json');
+      const output = execProduction('session list --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string; exists: boolean; source: string; ticketId: string }>;
       expect(sessions).to.be.an('array');
       // Filter to DB-sourced sessions for our seeded ticket (host may have real orphan tmux sessions)
@@ -218,7 +287,7 @@ describe('Session Commands E2E Tests', () => {
       }
     });
 
-    it('should show stale sessions with --all flag including ticket ID and agent name', async () => {
+    it('should show stale sessions with --all flag including ticket ID and agent name', () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -227,7 +296,7 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = await execInProcess('session list --all --json');
+      const output = execProduction('session list --all --json');
 
       // Output is JSON array in non-TTY environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -238,7 +307,7 @@ describe('Session Commands E2E Tests', () => {
       expect(session!.status).to.equal('stale');
     });
 
-    it('should include stale sessions in JSON output when using --all', async () => {
+    it('should include stale sessions in JSON output when using --all', () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -247,13 +316,13 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = await execInProcess('session list --all --json');
+      const output = execProduction('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ status: string }>;
       const staleSessions = sessions.filter(s => s.status === 'stale');
       expect(staleSessions.length).to.be.greaterThanOrEqual(1);
     });
 
-    it('should show multiple stale sessions with --all when multiple executions exist', async () => {
+    it('should show multiple stale sessions with --all when multiple executions exist', () => {
       seedExecutionRecords([
         {
           id: 'exec-001',
@@ -271,7 +340,7 @@ describe('Session Commands E2E Tests', () => {
         },
       ]);
 
-      const output = await execInProcess('session list --all --json');
+      const output = execProduction('session list --all --json');
 
       // Output is JSON array in non-TTY environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -286,7 +355,7 @@ describe('Session Commands E2E Tests', () => {
       expect(session2!.agentName).to.equal('clever-lovelace');
     });
 
-    it('should show session ID in the output', async () => {
+    it('should show session ID in the output', () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -295,13 +364,13 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = await execInProcess('session list --all --json');
+      const output = execProduction('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
       const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
       expect(session).to.not.be.undefined;
     });
 
-    it('should show host type indicator for host sessions', async () => {
+    it('should show host type indicator for host sessions', () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -311,7 +380,7 @@ describe('Session Commands E2E Tests', () => {
         environment: 'host',
       }]);
 
-      const output = await execInProcess('session list --all --json');
+      const output = execProduction('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string; environment: string }>;
       const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
       expect(session).to.not.be.undefined;
@@ -327,8 +396,8 @@ describe('Session Commands E2E Tests', () => {
   // since it's already migrated using this.selectFromList() in base-command.ts.
   // =========================================================================
   describe('prlt session attach', () => {
-    it('should output JSON error NO_SESSIONS when no sessions exist (--json)', async () => {
-      const output = await execInProcess('session attach --json');
+    it('should output JSON error NO_SESSIONS when no sessions exist (--json)', () => {
+      const output = execProduction('session attach --json');
       const json = extractJson<{ error: { code: string; message: string }; prompt?: unknown }>(output);
 
       // If real tmux sessions exist on host, attach may return a prompt instead of error
@@ -339,8 +408,8 @@ describe('Session Commands E2E Tests', () => {
       expect(json.error.message).to.include('No active sessions');
     });
 
-    it('should output JSON error NO_SESSIONS when no sessions exist (--machine)', async () => {
-      const output = await execInProcess('session attach --machine');
+    it('should output JSON error NO_SESSIONS when no sessions exist (--machine)', () => {
+      const output = execProduction('session attach --machine');
       const json = extractJson<{ error: { code: string; message: string }; prompt?: unknown }>(output);
 
       // If real tmux sessions exist on host, attach may return a prompt instead of error
@@ -350,7 +419,7 @@ describe('Session Commands E2E Tests', () => {
       expect(json.error.code).to.equal('NO_SESSIONS');
     });
 
-    it('should output NO_SESSIONS even when execution records exist (tmux verification fails)', async () => {
+    it('should output NO_SESSIONS even when execution records exist (tmux verification fails)', () => {
       // Seed execution records - but no tmux sessions exist
       seedExecutionRecords([{
         id: 'exec-001',
@@ -360,7 +429,7 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = await execInProcess('session attach --json');
+      const output = execProduction('session attach --json');
       const json = extractJson<{ error: { code: string; message: string }; prompt?: unknown }>(output);
 
       // If real tmux sessions exist on host, attach may return a prompt instead of error
@@ -371,8 +440,8 @@ describe('Session Commands E2E Tests', () => {
       expect(json.error.code).to.equal('NO_SESSIONS');
     });
 
-    it('should output NO_SESSIONS for named session arg when no tmux sessions exist', async () => {
-      const output = await execInProcess('session attach TKT-100-implement --json');
+    it('should output NO_SESSIONS for named session arg when no tmux sessions exist', () => {
+      const output = execProduction('session attach TKT-100-implement --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       // If real tmux sessions exist on host, error code may differ
@@ -392,7 +461,7 @@ describe('Session Commands E2E Tests', () => {
   // Tests the COMPLETE agentic flow: get menu → pick choice → follow command → verify result
   // =========================================================================
   describe('Agent flow: session menu → session list (with data)', () => {
-    it('should navigate menu → list choice → execute → verify session data appears', async () => {
+    it('should navigate menu → list choice → execute → verify session data appears', () => {
       // Seed execution data first
       seedExecutionRecords([{
         id: 'exec-001',
@@ -413,7 +482,7 @@ describe('Session Commands E2E Tests', () => {
       expect(listChoice!.command).to.equal('prlt session list --json');
 
       // Step 3: Agent executes the list command
-      const listOutput = await execInProcess('session list --json');
+      const listOutput = execProduction('session list --json');
 
       // Step 4: Verify END RESULT - check list returns valid JSON array
       const sessions = JSON.parse(listOutput) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -428,7 +497,7 @@ describe('Session Commands E2E Tests', () => {
   });
 
   describe('Agent flow: session menu → session attach (error path)', () => {
-    it('should navigate menu → attach choice → execute → verify NO_SESSIONS JSON error', async () => {
+    it('should navigate menu → attach choice → execute → verify NO_SESSIONS JSON error', () => {
       // Step 1: Agent gets session menu
       const menuResult = agentExec('session --machine');
       expect(menuResult).to.not.be.null;
@@ -440,7 +509,7 @@ describe('Session Commands E2E Tests', () => {
 
       // Step 3: Agent executes the attach command from the choice
       const attachCmd = attachChoice!.command!.replace('prlt ', '');
-      const attachOutput = await execInProcess(attachCmd);
+      const attachOutput = execProduction(attachCmd);
 
       // Step 4: Verify END RESULT - structured JSON response returned
       const json = extractJson<{ error?: { code: string; message: string }; prompt?: unknown }>(attachOutput);
@@ -452,7 +521,7 @@ describe('Session Commands E2E Tests', () => {
       }
     });
 
-    it('should navigate menu → attach choice → with seeded data → still NO_SESSIONS (tmux required)', async () => {
+    it('should navigate menu → attach choice → with seeded data → still NO_SESSIONS (tmux required)', () => {
       // Seed execution records
       seedExecutionRecords([{
         id: 'exec-001',
@@ -469,7 +538,7 @@ describe('Session Commands E2E Tests', () => {
       // Step 2: Navigate to attach
       const attachChoice = findChoiceByValue(menuResult!.prompt.choices, 'attach');
       const attachCmd = attachChoice!.command!.replace('prlt ', '');
-      const attachOutput = await execInProcess(attachCmd);
+      const attachOutput = execProduction(attachCmd);
 
       // Step 3: Verify - structured JSON response (error or prompt if real sessions exist)
       const json = extractJson<{ error?: { code: string }; prompt?: unknown }>(attachOutput);
@@ -487,8 +556,8 @@ describe('Session Commands E2E Tests', () => {
   // we can only test error paths (no matching execution, no active session).
   // =========================================================================
   describe('prlt session poke', () => {
-    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match agent name (--json)', async () => {
-      const output = await execInProcess('session poke nonexistent-agent "hello" --json');
+    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match agent name (--json)', () => {
+      const output = execProduction('session poke nonexistent-agent "hello" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -498,8 +567,8 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.message).to.include('no active session');
     });
 
-    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match ticket ID (--json)', async () => {
-      const output = await execInProcess('session poke TKT-999 "hello" --json');
+    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match ticket ID (--json)', () => {
+      const output = execProduction('session poke TKT-999 "hello" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -508,7 +577,7 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.message).to.include('TKT-999');
     });
 
-    it('should output JSON error NO_ACTIVE_EXECUTION when execution exists but is not running', async () => {
+    it('should output JSON error NO_ACTIVE_EXECUTION when execution exists but is not running', () => {
       // Seed a completed execution - should not be matched
       seedExecutionRecords([{
         id: 'exec-done-001',
@@ -519,7 +588,7 @@ describe('Session Commands E2E Tests', () => {
         status: 'completed',
       }]);
 
-      const output = await execInProcess('session poke done-agent "hello" --json');
+      const output = execProduction('session poke done-agent "hello" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -527,7 +596,7 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
     });
 
-    it('should resolve agent by exact agent name and fail at tmux level (no tmux in test env)', async () => {
+    it('should resolve agent by exact agent name and fail at tmux level (no tmux in test env)', () => {
       seedExecutionRecords([{
         id: 'exec-poke-001',
         ticketId: 'TKT-600',
@@ -537,7 +606,7 @@ describe('Session Commands E2E Tests', () => {
         status: 'running',
       }]);
 
-      const output = await execInProcess('session poke poke-target "test message" --json');
+      const output = execProduction('session poke poke-target "test message" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       // Should resolve execution but fail at tmux send-keys (no tmux in test)
@@ -547,7 +616,7 @@ describe('Session Commands E2E Tests', () => {
       expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
     });
 
-    it('should resolve agent by ticket ID and fail at tmux level', async () => {
+    it('should resolve agent by ticket ID and fail at tmux level', () => {
       seedExecutionRecords([{
         id: 'exec-poke-002',
         ticketId: 'TKT-601',
@@ -557,7 +626,7 @@ describe('Session Commands E2E Tests', () => {
         status: 'running',
       }]);
 
-      const output = await execInProcess('session poke TKT-601 "test message" --json');
+      const output = execProduction('session poke TKT-601 "test message" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -565,7 +634,7 @@ describe('Session Commands E2E Tests', () => {
       expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
     });
 
-    it('should require exact agent name match (partial names do not match)', async () => {
+    it('should require exact agent name match (partial names do not match)', () => {
       seedExecutionRecords([{
         id: 'exec-poke-003a',
         ticketId: 'TKT-700',
@@ -576,7 +645,7 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       // "alpha" is not an exact match for "alpha-agent"
-      const output = await execInProcess('session poke alpha "test" --json');
+      const output = execProduction('session poke alpha "test" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -584,7 +653,7 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
     });
 
-    it('should resolve docker container agent by name and attempt docker exec (not host tmux)', async () => {
+    it('should resolve docker container agent by name and attempt docker exec (not host tmux)', () => {
       seedExecutionRecords([{
         id: 'exec-poke-docker-001',
         ticketId: 'TKT-800',
@@ -596,7 +665,7 @@ describe('Session Commands E2E Tests', () => {
         containerId: 'abc123def456',
       }]);
 
-      const output = await execInProcess('session poke docker-agent "test message" --json');
+      const output = execProduction('session poke docker-agent "test message" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -606,7 +675,7 @@ describe('Session Commands E2E Tests', () => {
       expect(['SEND_FAILED', 'CONTAINER_NOT_RUNNING']).to.include(json!.error.code);
     });
 
-    it('should resolve devcontainer agent by name and attempt docker exec', async () => {
+    it('should resolve devcontainer agent by name and attempt docker exec', () => {
       seedExecutionRecords([{
         id: 'exec-poke-devcontainer-001',
         ticketId: 'TKT-801',
@@ -618,7 +687,7 @@ describe('Session Commands E2E Tests', () => {
         containerId: 'def456abc789',
       }]);
 
-      const output = await execInProcess('session poke devcontainer-agent "test message" --json');
+      const output = execProduction('session poke devcontainer-agent "test message" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
