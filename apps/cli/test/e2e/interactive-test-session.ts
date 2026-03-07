@@ -27,7 +27,7 @@ import * as crypto from 'node:crypto';
 export interface InteractiveSessionConfig {
   /** Terminal width in columns (default: 120) */
   width?: number;
-  /** Terminal height in rows (default: 40) */
+  /** Terminal height in rows (default: 120) */
   height?: number;
   /** Environment variables to set in the session */
   env?: Record<string, string>;
