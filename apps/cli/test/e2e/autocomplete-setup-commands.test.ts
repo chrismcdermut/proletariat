@@ -306,26 +306,24 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
   });
 
   // ===========================================================================
-  // Non-machine mode with --shell (piped output enters JSON mode via isNonTTY)
+  // Machine mode with --shell (JSON output via --machine flag)
   // ===========================================================================
 
-  describe('Non-machine mode with --shell flag (piped output)', () => {
-    // Note: In piped/test environments, isNonTTY() returns true, so the command
-    // automatically enters JSON mode even without --machine flag. This is correct
-    // behavior - it ensures agents get structured output when piping.
+  describe('Machine mode with --shell flag (JSON output)', () => {
+    // execInProcess sets PRLT_FORCE_TEXT=1 for non-JSON/machine commands,
+    // so use --machine explicitly to get JSON output.
 
-    it('should output JSON for zsh config info without --machine flag', async () => {
-      const output = await execAutocomplete('autocomplete setup --shell zsh');
+    it('should output JSON for zsh config info with --machine flag', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell zsh --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
-      // In piped mode, isNonTTY() triggers JSON output
       expect(json).to.not.be.null;
       expect(json!.result.shell).to.equal('zsh');
       expect(json!.result.snippet).to.include('autocomplete:script zsh');
     });
 
     it('should install for zsh with --shell and --install flags', async () => {
-      await execAutocomplete('autocomplete setup --shell zsh --install');
+      await execAutocomplete('autocomplete setup --shell zsh --install --machine');
 
       // Verify it installed (check config file)
       const zshrcPath = path.join(fakeHome, '.zshrc');
@@ -334,8 +332,8 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
       expect(content).to.include('prlt autocomplete');
     });
 
-    it('should output JSON for bash config info without --machine flag', async () => {
-      const output = await execAutocomplete('autocomplete setup --shell bash');
+    it('should output JSON for bash config info with --machine flag', async () => {
+      const output = await execAutocomplete('autocomplete setup --shell bash --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
@@ -345,10 +343,10 @@ describe('Autocomplete Setup Commands E2E - Agent Flow (--machine)', function (t
 
     it('should detect already-configured when installing twice', async () => {
       // First install
-      await execAutocomplete('autocomplete setup --shell zsh --install');
+      await execAutocomplete('autocomplete setup --shell zsh --install --machine');
 
       // Second install - should detect already configured
-      const output = await execAutocomplete('autocomplete setup --shell zsh --install');
+      const output = await execAutocomplete('autocomplete setup --shell zsh --install --machine');
       const json = extractJson<MachineSuccessResponse>(output);
 
       expect(json).to.not.be.null;
