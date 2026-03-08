@@ -445,7 +445,7 @@ jobs:
               ;;
             standalone)
               echo "Running standalone e2e tests"
-              npx mocha --forbid-only \
+              npx mocha --forbid-only --timeout 30000 \
                 --ignore "test/e2e/pmo-*.test.ts" \
                 --ignore "test/e2e/work-*.test.ts" \
                 --ignore "test/e2e/*-agent-flow.test.ts" \

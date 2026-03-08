@@ -523,9 +523,8 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
     });
 
     it('should display context information', async () => {
-      const output = await execInProcess('whoami');
+      const output = await execInProcess('whoami --json');
 
-      // Output is JSON in non-TTY (piped) environments
       const json = JSON.parse(output);
       expect(json).to.have.property('agent');
       expect(json).to.have.property('environment');
@@ -533,7 +532,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
     });
 
     it('should show environment type', async () => {
-      const output = await execInProcess('whoami');
+      const output = await execInProcess('whoami --json');
 
       const json = JSON.parse(output);
       // Environment can be 'host' or 'devcontainer' depending on runtime context
@@ -543,7 +542,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
     });
 
     it('should display working directory path', async () => {
-      const output = await execInProcess('whoami');
+      const output = await execInProcess('whoami --json');
 
       const json = JSON.parse(output);
       expect(json.workingDir).to.be.a('string');
