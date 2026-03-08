@@ -29,7 +29,9 @@ function hasDockerOrWorkspaceError(output: string): boolean {
     output.includes('does not exist') ||
     output.includes('error getting credentials') ||
     output.includes('credential') ||
-    output.includes('error during connect')
+    output.includes('error during connect') ||
+    output.includes('Start Docker') ||
+    output.includes('process.exit')
   )
 }
 
@@ -494,17 +496,29 @@ describe('Docker Commands E2E Tests', () => {
     /**
      * Helper to safely parse JSON from command output.
      * Returns null if output contains error messages or no valid JSON.
+     * Handles formatted (pretty-printed) JSON where keys are on separate lines.
      */
     function tryParsePromptJson(output: string): { prompt: Record<string, unknown>; metadata: Record<string, unknown> } | null {
       if (hasDockerOrWorkspaceError(output)) {
         return null
       }
 
-      const jsonMatch = output.match(/\{"prompt"[\s\S]*\}/)
-      if (!jsonMatch) return null
+      // Find the first line starting with '{' and parse from there
+      const lines = output.split('\n')
+      let jsonStart = -1
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim().startsWith('{')) {
+          jsonStart = i
+          break
+        }
+      }
+      if (jsonStart === -1) return null
 
+      const jsonStr = lines.slice(jsonStart).join('\n')
       try {
-        return JSON.parse(jsonMatch[0])
+        const parsed = JSON.parse(jsonStr)
+        if (parsed.prompt) return parsed
+        return null
       } catch {
         return null
       }
