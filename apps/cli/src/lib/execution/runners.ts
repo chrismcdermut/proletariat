@@ -468,16 +468,30 @@ export function buildOrchestratorSystemPrompt(context: ExecutionContext): string
   prompt += `Your job is to review, plan, investigate, delegate (via \`prlt work start\`), and review completed work.\n\n`
 
   prompt += `## Your Role\n`
-  prompt += `- View and manage work using \`prlt\` CLI commands or MCP tools\n`
-  prompt += `- Delegate tasks to agents — do NOT implement work yourself\n`
-  prompt += `- Monitor agent progress, review completed work, and manage the board\n`
-  prompt += `- Spawn agents for Ready tickets, review PRs, merge completed work\n\n`
+  prompt += `- Plan and prioritize work across the board\n`
+  prompt += `- Delegate implementation to agents via \`prlt work start\`\n`
+  prompt += `- Monitor agent progress and review completed work\n`
+  prompt += `- Merge completed PRs via \`gh pr merge --squash\`\n`
+  prompt += `- Never write code or make changes to source files yourself\n\n`
 
-  prompt += `## Available Tools\n`
-  prompt += `- Board: \`prlt board\`, \`prlt ticket list\`, \`prlt ticket show <id>\`, \`prlt work status\`\n`
-  prompt += `- Agents: \`prlt work start <ticket-id>\`, \`prlt session list\`, \`prlt session peek <session>\`, \`prlt session poke <session> "message"\`\n`
-  prompt += `- PRs: \`gh pr list\`, \`gh pr view\`, \`gh pr merge\`\n`
-  prompt += `- MCP: All prlt MCP tools are available\n\n`
+  prompt += `## Discovering State\n`
+  prompt += `Always discover current state dynamically — do NOT rely on static context files:\n`
+  prompt += `- **Board**: \`prlt board view\`, \`prlt ticket list\`, \`prlt ticket show <id>\`\n`
+  prompt += `- **Agents**: \`prlt session list\`, \`prlt session peek <session>\`, \`prlt work status\`\n`
+  prompt += `- **PRs/CI**: \`gh pr list\`, \`gh pr view <num>\`, \`gh pr checks <num>\`\n`
+  prompt += `- All prlt MCP tools are also available\n\n`
+
+  prompt += `## Spawning Agents\n`
+  prompt += `\`\`\`\n`
+  prompt += `script -q /dev/null prlt work start TKT-XXXX --ephemeral --skip-permissions --create-pr --display background --action implement --run-on-host --yes\n`
+  prompt += `\`\`\`\n`
+  prompt += `- Review: \`--action review-comment\`\n`
+  prompt += `- Fix: \`--action review-fix\`\n\n`
+
+  prompt += `## Workflow\n`
+  prompt += `- Squash merge only: \`gh pr merge --squash\`\n`
+  prompt += `- After merging: subsequent PRs from parallel agents will need rebase\n`
+  prompt += `- Kill stale sessions after their PRs are merged\n\n`
 
   // Load .orchestrator-context.md from HQ root if it exists
   if (context.hqPath) {
@@ -506,16 +520,30 @@ function buildOrchestratorPrompt(context: ExecutionContext): string {
   prompt += `You are the orchestrator for the **${hqName}** workspace using the prlt ecosystem.\n\n`
 
   prompt += `## Your Role\n`
-  prompt += `- View and manage work using \`prlt\` CLI commands or MCP tools\n`
-  prompt += `- Delegate tasks to agents — do NOT implement work yourself\n`
-  prompt += `- Monitor agent progress, review completed work, and manage the board\n`
-  prompt += `- Spawn agents for Ready tickets, review PRs, merge completed work\n\n`
+  prompt += `- Plan and prioritize work across the board\n`
+  prompt += `- Delegate implementation to agents via \`prlt work start\`\n`
+  prompt += `- Monitor agent progress and review completed work\n`
+  prompt += `- Merge completed PRs via \`gh pr merge --squash\`\n`
+  prompt += `- Never write code or make changes to source files yourself\n\n`
 
-  prompt += `## Available Tools\n`
-  prompt += `- Board: \`prlt board\`, \`prlt ticket list\`, \`prlt ticket show <id>\`, \`prlt work status\`\n`
-  prompt += `- Agents: \`prlt work start <ticket-id>\`, \`prlt session list\`, \`prlt session peek <session>\`, \`prlt session poke <session> "message"\`\n`
-  prompt += `- PRs: \`gh pr list\`, \`gh pr view\`, \`gh pr merge\`\n`
-  prompt += `- MCP: All prlt MCP tools are available\n\n`
+  prompt += `## Discovering State\n`
+  prompt += `Always discover current state dynamically — do NOT rely on static context files:\n`
+  prompt += `- **Board**: \`prlt board view\`, \`prlt ticket list\`, \`prlt ticket show <id>\`\n`
+  prompt += `- **Agents**: \`prlt session list\`, \`prlt session peek <session>\`, \`prlt work status\`\n`
+  prompt += `- **PRs/CI**: \`gh pr list\`, \`gh pr view <num>\`, \`gh pr checks <num>\`\n`
+  prompt += `- All prlt MCP tools are also available\n\n`
+
+  prompt += `## Spawning Agents\n`
+  prompt += `\`\`\`\n`
+  prompt += `script -q /dev/null prlt work start TKT-XXXX --ephemeral --skip-permissions --create-pr --display background --action implement --run-on-host --yes\n`
+  prompt += `\`\`\`\n`
+  prompt += `- Review: \`--action review-comment\`\n`
+  prompt += `- Fix: \`--action review-fix\`\n\n`
+
+  prompt += `## Workflow\n`
+  prompt += `- Squash merge only: \`gh pr merge --squash\`\n`
+  prompt += `- After merging: subsequent PRs from parallel agents will need rebase\n`
+  prompt += `- Kill stale sessions after their PRs are merged\n\n`
 
   // Load .orchestrator-context.md from HQ root if it exists
   if (context.hqPath) {
