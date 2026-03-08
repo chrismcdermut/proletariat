@@ -48,16 +48,18 @@ describe('PMO Roadmap Commands E2E Tests', () => {
 
   describe('prlt roadmap create', () => {
     it('should create roadmap with name argument', async () => {
-      const output = await execInProcess('roadmap create "Public Roadmap"');
+      const output = await execInProcess('roadmap create "Public Roadmap" --machine');
 
-      expect(filterOutput(output)).to.contain('Created roadmap');
+      // In machine mode, output is JSON
+      const parsed = JSON.parse(filterOutput(output));
+      expect(parsed).to.have.property('name', 'Public Roadmap');
 
       const roadmaps = db.prepare('SELECT * FROM pmo_roadmaps WHERE name = ?').all('Public Roadmap') as Array<{ id: string }>;
       expect(roadmaps).to.have.lengthOf(1);
     });
 
     it('should create roadmap with flags', async () => {
-      await execInProcess('roadmap create --name "Internal Roadmap" --description "Internal planning"');
+      await execInProcess('roadmap create --name "Internal Roadmap" --description "Internal planning" --machine');
 
       const roadmaps = db.prepare('SELECT * FROM pmo_roadmaps WHERE name = ?').all('Internal Roadmap') as Array<{ description: string }>;
       expect(roadmaps).to.have.lengthOf(1);
@@ -65,7 +67,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
     });
 
     it('should auto-generate roadmap ID from name', async () => {
-      await execInProcess('roadmap create "My Test Roadmap"');
+      await execInProcess('roadmap create "My Test Roadmap" --machine');
 
       const roadmaps = db.prepare('SELECT id FROM pmo_roadmaps WHERE name = ?').all('My Test Roadmap') as Array<{ id: string }>;
       expect(roadmaps).to.have.lengthOf(1);
@@ -73,7 +75,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
     });
 
     it('should create roadmap with custom ID', async () => {
-      await execInProcess('roadmap create --name "Custom" --id my-custom-id');
+      await execInProcess('roadmap create --name "Custom" --id my-custom-id --machine');
 
       const roadmaps = db.prepare('SELECT id FROM pmo_roadmaps WHERE id = ?').all('my-custom-id') as Array<{ id: string }>;
       expect(roadmaps).to.have.lengthOf(1);
@@ -125,8 +127,8 @@ describe('PMO Roadmap Commands E2E Tests', () => {
   describe('prlt roadmap list', () => {
     it('should list all roadmaps', async () => {
       // Create roadmaps via CLI
-      await execInProcess('roadmap create "Roadmap 1"');
-      await execInProcess('roadmap create "Roadmap 2"');
+      await execInProcess('roadmap create "Roadmap 1" --machine');
+      await execInProcess('roadmap create "Roadmap 2" --machine');
 
       const output = await execInProcess('roadmap list');
 
@@ -137,7 +139,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
 
   describe('prlt roadmap view', () => {
     it('should show roadmap details', async () => {
-      await execInProcess('roadmap create --name "Test Roadmap" --description "A test roadmap" --id test-roadmap');
+      await execInProcess('roadmap create --name "Test Roadmap" --description "A test roadmap" --id test-roadmap --machine');
 
       const output = await execInProcess('roadmap view test-roadmap');
 
@@ -147,7 +149,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
 
   describe('prlt roadmap update', () => {
     it('should update roadmap name', async () => {
-      await execInProcess('roadmap create --name "Original Name" --id update-test');
+      await execInProcess('roadmap create --name "Original Name" --id update-test --machine');
 
       await execInProcess('roadmap update update-test --name "Updated Name"');
 
@@ -156,7 +158,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
     });
 
     it('should update roadmap description', async () => {
-      await execInProcess('roadmap create --name "Test" --id update-test');
+      await execInProcess('roadmap create --name "Test" --id update-test --machine');
 
       await execInProcess('roadmap update update-test --description "Updated description"');
 
@@ -167,7 +169,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
 
   describe('prlt roadmap delete', () => {
     it('should delete roadmap with force flag', async () => {
-      await execInProcess('roadmap create --name "To Delete" --id to-delete');
+      await execInProcess('roadmap create --name "To Delete" --id to-delete --machine');
 
       await execInProcess('roadmap delete to-delete --force');
 
@@ -178,7 +180,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
 
   describe('prlt roadmap add-project', () => {
     it('should add project to roadmap', async () => {
-      await execInProcess('roadmap create --name "Roadmap" --id roadmap');
+      await execInProcess('roadmap create --name "Roadmap" --id roadmap --machine');
 
       await execInProcess('roadmap add-project roadmap test-project');
 
@@ -189,7 +191,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
 
   describe('prlt roadmap remove-project', () => {
     it('should remove project from roadmap', async () => {
-      await execInProcess('roadmap create --name "Roadmap" --id roadmap');
+      await execInProcess('roadmap create --name "Roadmap" --id roadmap --machine');
       await execInProcess('roadmap add-project roadmap test-project');
 
       await execInProcess('roadmap remove-project roadmap test-project --force');
@@ -199,7 +201,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
     });
 
     it('should not delete the project itself', async () => {
-      await execInProcess('roadmap create --name "Roadmap" --id roadmap');
+      await execInProcess('roadmap create --name "Roadmap" --id roadmap --machine');
       await execInProcess('roadmap add-project roadmap test-project');
 
       await execInProcess('roadmap remove-project roadmap test-project --force');
@@ -217,7 +219,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
     });
 
     it('should reorder project to new position', async () => {
-      await execInProcess('roadmap create --name "Roadmap" --id roadmap');
+      await execInProcess('roadmap create --name "Roadmap" --id roadmap --machine');
       await execInProcess('roadmap add-project roadmap test-project');
       await execInProcess('roadmap add-project roadmap project-2');
       await execInProcess('roadmap add-project roadmap project-3');
@@ -231,7 +233,7 @@ describe('PMO Roadmap Commands E2E Tests', () => {
 
   describe('prlt roadmap generate', () => {
     it('should generate markdown file', async () => {
-      await execInProcess('roadmap create --name "Generated Roadmap" --description "Test generation" --id gen-test');
+      await execInProcess('roadmap create --name "Generated Roadmap" --description "Test generation" --id gen-test --machine');
       await execInProcess('roadmap add-project gen-test test-project');
       // Add a ticket for the project (uses production status_id format)
       createTestTicket(db, 'test-project', { id: 'TKT-001', title: 'Test Ticket', priority: 'P0' });
@@ -245,8 +247,8 @@ describe('PMO Roadmap Commands E2E Tests', () => {
     });
 
     it('should generate all roadmaps with --all flag', async () => {
-      await execInProcess('roadmap create --name "Roadmap One" --id r1');
-      await execInProcess('roadmap create --name "Roadmap Two" --id r2');
+      await execInProcess('roadmap create --name "Roadmap One" --id r1 --machine');
+      await execInProcess('roadmap create --name "Roadmap Two" --id r2 --machine');
 
       const output = await execInProcess('roadmap generate --all');
 
