@@ -104,7 +104,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
         if (!result || !result.prompt) return;
 
         expect(result.prompt.type).to.equal('list');
-        expect(result.prompt.name).to.equal('permissionMode');
+        expect(result.prompt.name).to.equal('selectedMode');
         expect(result.prompt.message).to.include('Permission');
         // Check command fields
         const dangerChoice = result.prompt.choices!.find((c) => c.value === 'danger');
