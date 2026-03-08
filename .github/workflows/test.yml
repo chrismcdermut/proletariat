@@ -201,7 +201,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        node-version: [lts/*]
+        node-version: ['22']
     steps:
       - uses: actions/checkout@v4
 
@@ -241,7 +241,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        node-version: [lts/*]
+        node-version: ['22']
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -270,8 +270,9 @@ jobs:
 
       # Rebuild better-sqlite3 native binding for the current Node.js ABI.
       # pnpm skips this during install because better-sqlite3 is in ignoredBuiltDependencies.
+      # Retry once on failure to handle EEXIST race condition in node-gyp symlink creation.
       - name: Rebuild better-sqlite3 native binding
-        run: npm rebuild better-sqlite3
+        run: npm rebuild better-sqlite3 || npm rebuild better-sqlite3
         working-directory: apps/cli
 
       # Fail fast if the native binding is missing or was compiled for a different ABI.
@@ -347,7 +348,7 @@ jobs:
     timeout-minutes: 35
     strategy:
       matrix:
-        node-version: [lts/*]
+        node-version: ['22']
         shard: ${{ fromJson(needs.detect-changes.outputs.e2e_shards) }}
       fail-fast: false
     steps:
@@ -377,8 +378,9 @@ jobs:
 
       # Rebuild better-sqlite3 native binding for the current Node.js ABI.
       # pnpm skips this during install because better-sqlite3 is in ignoredBuiltDependencies.
+      # Retry once on failure to handle EEXIST race condition in node-gyp symlink creation.
       - name: Rebuild better-sqlite3 native binding
-        run: npm rebuild better-sqlite3
+        run: npm rebuild better-sqlite3 || npm rebuild better-sqlite3
         working-directory: apps/cli
 
       # Fail fast if the native binding is missing or was compiled for a different ABI.
