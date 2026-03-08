@@ -194,10 +194,10 @@ export default class OrchestratorStart extends PromptCommand {
       sandboxed = true
     } else {
       const permissionChoices = [
-        { name: 'Sandboxed (requires approval for dangerous operations)', value: 'sandboxed', command: 'prlt orchestrator start --sandboxed --json' },
-        { name: 'Accept all (--dangerously-skip-permissions)', value: 'skip', command: 'prlt orchestrator start --skip-permissions --json' },
+        { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'sandboxed', command: 'prlt orchestrator start --sandboxed --json' },
+        { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'skip', command: 'prlt orchestrator start --skip-permissions --json' },
       ]
-      const permissionMessage = 'Select permission mode:'
+      const permissionMessage = 'Permission mode:'
 
       if (jsonMode) {
         outputPromptAsJson(
@@ -242,6 +242,33 @@ export default class OrchestratorStart extends PromptCommand {
           db?.close()
         }
       }
+    }
+
+    // Default orchestrator prompt when none provided
+    if (!actionPrompt) {
+      actionPrompt = [
+        `You are an **orchestrator** for this project running inside the prlt runtime.`,
+        ``,
+        `## Your Role`,
+        `- You investigate, plan, delegate, and review — you do NOT implement work yourself`,
+        `- You spawn agent sessions via \`prlt\` to do the actual work`,
+        `- You monitor progress, review results, and coordinate across agents`,
+        ``,
+        `## prlt Runtime Context`,
+        `- You are running in a prlt orchestrator session (tmux)`,
+        `- Board: \`prlt board\`, \`prlt ticket list\`, \`prlt ticket show <id>\``,
+        `- Spawn agents: \`prlt work start <ticket-id>\``,
+        `- Monitor: \`prlt session list\`, \`prlt session peek <session>\`, \`prlt session poke <session> "message"\``,
+        `- Status: \`prlt work status\``,
+        `- PRs: \`gh pr list\`, \`gh pr view\`, \`gh pr merge\``,
+        ``,
+        `## Workflow`,
+        `1. Check the board for Ready tickets`,
+        `2. Spawn agents for tickets that need work`,
+        `3. Monitor agent progress via session peek`,
+        `4. Review completed work and PRs`,
+        `5. Poke agents with guidance when they get stuck`,
+      ].join('\n')
     }
 
     // Build execution context
@@ -338,7 +365,7 @@ export default class OrchestratorStart extends PromptCommand {
       this.log('')
       this.log(styles.muted(`   Starting orchestrator...`))
       this.log(styles.muted(`   Executor: ${selectedExecutor}`))
-      this.log(styles.muted(`   Permission mode: ${sandboxed ? 'sandboxed' : 'skip-permissions'}`))
+      this.log(styles.muted(`   Permission mode: ${sandboxed ? 'safe' : 'danger'}`))
       this.log(styles.muted(`   Display mode: ${displayMode}`))
       this.log(styles.muted(`   Directory: ${hqPath}`))
       if (orchestratorName !== 'main') {
