@@ -103,6 +103,7 @@ interface LinearIssueNode {
   }
   state?: {
     name?: string
+    type?: string
   }
   team?: {
     key?: string

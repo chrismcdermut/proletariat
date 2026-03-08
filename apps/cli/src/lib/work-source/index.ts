@@ -10,3 +10,7 @@ export {
   loadActiveWorkSource,
   getRegisteredWorkSources,
 } from './config.js'
+export {
+  type WorkSourceClient,
+  getWorkSourceClient,
+} from './client.js'
