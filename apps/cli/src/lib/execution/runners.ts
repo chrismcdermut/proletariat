@@ -794,6 +794,21 @@ export async function runHost(
   // Build script that runs executor and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
   const systemPromptVar = systemPromptPath ? `\nSYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
+
+  // Ephemeral agents auto-close after completion instead of dropping to interactive shell
+  const postExecBlock = context.isEphemeral
+    ? `
+echo ""
+echo "✅ Ephemeral agent work complete. Session will auto-close in 5s..."
+sleep 5
+exit 0
+`
+    : `
+echo ""
+echo "✅ Agent work complete. Press Enter to close or run more commands."
+exec $SHELL
+`
+
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
@@ -807,11 +822,7 @@ cd "${context.worktreePath}"
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"${systemPromptPath ? ' "$SYSTEM_PROMPT_PATH"' : ''}
-
-echo ""
-echo "✅ Agent work complete. Press Enter to close or run more commands."
-exec $SHELL
-`
+${postExecBlock}`
   fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
   try {
@@ -1953,6 +1964,16 @@ async function runDevcontainerInTerminal(
   // Write script - run the command directly
   // No auth check needed - if auth is required, Claude will show "Invalid API key"
   // and user can run /login from there
+
+  // Ephemeral agents auto-close after completion
+  const postExecBlock = context.isEphemeral
+    ? `echo ""
+echo "✅ Ephemeral agent work complete. Session will auto-close in 5s..."
+sleep 5
+exit 0`
+    : `# Keep shell open after completion
+exec $SHELL`
+
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 ${setTitleCmds}
@@ -1965,8 +1986,7 @@ ${devcontainerCmd}
 # Clean up script file
 rm -f "${scriptPath}"
 
-# Keep shell open after completion
-exec $SHELL
+${postExecBlock}
 `
   fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
@@ -2215,6 +2235,16 @@ async function runDevcontainerInTmux(
     // Unset CI to prevent Claude from detecting CI environment which suppresses TUI output
     // Unset CLAUDECODE to allow Claude Code to run (prevents nested session error)
     // Note: We keep DEVCONTAINER set so prlt workspace detection works correctly
+    // Ephemeral agents auto-close after completion
+    const containerPostExec = context.isEphemeral
+      ? `echo ""
+echo "✅ Ephemeral agent work complete. Session will auto-close in 5s..."
+sleep 5
+exit 0`
+      : `echo ""
+echo "✅ Agent work complete. Press Enter to close or run more commands."
+exec bash`
+
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
 export COLORTERM=truecolor
@@ -2223,9 +2253,7 @@ unset CLAUDECODE
 echo "🚀 Starting: ${sessionName}"
 echo ""
 ${claudeCmd}
-echo ""
-echo "✅ Agent work complete. Press Enter to close or run more commands."
-exec bash
+${containerPostExec}
 `
     const scriptPath = `/tmp/prlt-${sessionName}.sh`
 

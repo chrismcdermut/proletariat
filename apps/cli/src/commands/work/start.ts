@@ -1267,6 +1267,7 @@ export default class WorkStart extends PMOCommand {
         hqPath,
         pmoPath: this.pmoPath,          // PMO path for container mounting
         repoWorktrees,
+        isEphemeral: isEphemeralAgent,
         // Action context
         actionId: selectedAction?.id,
         actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
@@ -2693,6 +2694,7 @@ export default class WorkStart extends PMOCommand {
       hqPath: workspaceInfo.path,
       pmoPath: this.pmoPath,
       repoWorktrees,
+      isEphemeral: workspaceInfo.agents.find(a => a.name === agentName)?.type === 'ephemeral',
       createPR: flags['create-pr'] || false,
       // Use 'implement' action for batch mode
       actionId: defaultAction?.id,
