@@ -43,6 +43,7 @@ export {
   LinearIssueAdapter,
   JiraIssueAdapter,
   AsanaIssueAdapter,
+  ShortcutIssueAdapter,
 } from './adapters.js'
 
 // Mapping store
@@ -87,6 +88,20 @@ export {
   importAsanaTaskToPmo,
   type AsanaAdapterConfig,
 } from './asana.js'
+
+// Shortcut helpers
+export {
+  normalizeShortcutStory,
+  normalizeShortcutStoryToEnvelope,
+  buildShortcutTicketDescription,
+  buildShortcutMetadata,
+  buildShortcutSpawnContextMessage,
+  buildShortcutStoryChoiceCommand,
+  getShortcutStoryByKey,
+  listShortcutStories,
+  importShortcutStoryToPmo,
+  type ShortcutAdapterConfig,
+} from './shortcut.js'
 
 export {
   resolveMirrorToPmo,

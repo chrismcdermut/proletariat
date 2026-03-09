@@ -2,11 +2,12 @@ import Database from 'better-sqlite3'
 import { loadAsanaConfig } from '../asana/config.js'
 import { loadLinearConfig } from '../linear/config.js'
 import { loadJiraConfig } from '../jira/config.js'
+import { loadShortcutConfig } from '../shortcut/config.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 const ACTIVE_SOURCE_KEY = 'work.active_source'
 
-export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'asana', 'monday'] as const
+export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'monday'] as const
 export type WorkSourceProvider = typeof WORK_SOURCE_PROVIDERS[number]
 
 export interface WorkSourceRef {
@@ -105,6 +106,14 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
     providers.set('asana', {
       provider: 'asana',
       context: asanaConfig.projectName ?? asanaConfig.projectGid ?? undefined,
+    })
+  }
+
+  const shortcutConfig = loadShortcutConfig(db)
+  if (shortcutConfig) {
+    providers.set('shortcut', {
+      provider: 'shortcut',
+      context: shortcutConfig.workspaceSlug ?? undefined,
     })
   }
 

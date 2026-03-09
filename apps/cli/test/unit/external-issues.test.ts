@@ -377,8 +377,8 @@ describe('External Issues', () => {
       expect(ISSUE_SOURCES).to.include('jira');
     });
 
-    it('has exactly 2 known sources', () => {
-      expect(ISSUE_SOURCES).to.have.length(3);
+    it('has exactly 4 known sources', () => {
+      expect(ISSUE_SOURCES).to.have.length(4);
     });
   });
 

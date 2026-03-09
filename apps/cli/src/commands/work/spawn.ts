@@ -46,12 +46,23 @@ import {
   loadJiraConfig,
 } from '../../lib/jira/index.js'
 import {
+  isShortcutConfigured,
+  loadShortcutConfig,
+} from '../../lib/shortcut/index.js'
+import {
   listJiraIssues,
   getJiraIssueByKey,
   buildJiraTicketDescription,
   buildJiraMetadata,
   type JiraAdapterConfig,
 } from '../../lib/external-issues/jira.js'
+import {
+  listShortcutStories,
+  getShortcutStoryByKey,
+  buildShortcutTicketDescription,
+  buildShortcutMetadata,
+  type ShortcutAdapterConfig,
+} from '../../lib/external-issues/shortcut.js'
 import {
   ExternalIssueAdapterError,
   type NormalizedIssueEnvelope,
@@ -87,6 +98,9 @@ export default class WorkSpawn extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --from jira:PROJ PROJ-123 PROJ-456  # Pull specific Jira issues',
     '<%= config.bin %> <%= command.id %> --from jira --jira-project PROJ   # Jira with explicit project key',
     '<%= config.bin %> work source set jira:PROJ                           # Persist Jira as default source',
+    '<%= config.bin %> <%= command.id %> --from shortcut                     # Pull Shortcut stories → PMO → spawn',
+    '<%= config.bin %> <%= command.id %> --from shortcut sc-123 sc-456       # Pull specific Shortcut stories',
+    '<%= config.bin %> work source set shortcut                              # Persist Shortcut as default source',
   ]
 
   static flags = {
@@ -235,6 +249,11 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Maximum number of Jira issues to pull',
       default: 20,
     }),
+    // Shortcut integration flags
+    'shortcut-limit': Flags.integer({
+      description: 'Maximum number of Shortcut stories to pull',
+      default: 20,
+    }),
   }
 
   private async findLinkedJiraTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
@@ -252,6 +271,46 @@ export default class WorkSpawn extends PMOCommand {
     const existing = await this.findLinkedJiraTicket(projectId, envelope)
     const description = buildJiraTicketDescription(envelope)
     const metadata = buildJiraMetadata(envelope)
+
+    if (existing) {
+      return this.storage.updateTicket(existing.id, {
+        title: envelope.title,
+        description,
+        priority: envelope.priority ?? undefined,
+        category: envelope.category ?? undefined,
+        labels: envelope.labels,
+        metadata: {
+          ...existing.metadata,
+          ...metadata,
+        },
+      })
+    }
+
+    return this.storage.createTicket(projectId, {
+      title: envelope.title,
+      description,
+      priority: envelope.priority ?? undefined,
+      category: envelope.category ?? undefined,
+      labels: envelope.labels,
+      metadata,
+    })
+  }
+
+  private async findLinkedShortcutTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
+    const tickets = await this.storage.listTickets(projectId)
+    return tickets.find((ticket) => {
+      const source = ticket.metadata?.external_source
+      const key = ticket.metadata?.external_key
+      const id = ticket.metadata?.external_id
+      return source === 'shortcut'
+        && (key === envelope.source.externalKey || id === envelope.source.externalId)
+    })
+  }
+
+  private async findOrCreateShortcutTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket> {
+    const existing = await this.findLinkedShortcutTicket(projectId, envelope)
+    const description = buildShortcutTicketDescription(envelope)
+    const metadata = buildShortcutMetadata(envelope)
 
     if (existing) {
       return this.storage.updateTicket(existing.id, {
@@ -690,10 +749,148 @@ export default class WorkSpawn extends PMOCommand {
 
       // Sync board
       await autoExportToBoard(this.pmoPath, this.storage)
+    } else if (resolvedSource?.provider === 'shortcut') {
+      // =========================================================================
+      // Shortcut source: Pull Shortcut stories → mirror into PMO → spawn from PMO
+      // =========================================================================
+      const db = this.storage.getDatabase()
+
+      if (!isShortcutConfigured(db)) {
+        return handleError('SHORTCUT_NOT_CONFIGURED', 'Shortcut is not configured. Set PRLT_SHORTCUT_API_TOKEN or SHORTCUT_API_TOKEN environment variables, or use "prlt shortcut connect".')
+      }
+
+      const shortcutConfig = loadShortcutConfig(db)!
+
+      // Determine project first (needed for ticket creation)
+      const shortcutProjectId = await this.requireProject({
+        jsonMode: jsonMode ? {
+          flags,
+          commandName: 'work spawn',
+          baseCommand: `prlt work spawn --from ${formatWorkSourceRef(resolvedSource)}`,
+        } : undefined,
+      })
+
+      // Get project workflow statuses for mapping
+      const workflow = await this.storage.getProjectWorkflow(shortcutProjectId)
+      if (!workflow) {
+        return handleError('NO_WORKFLOW', 'Project has no workflow configured.')
+      }
+
+      // Check if args are Shortcut identifiers (e.g., sc-123 or plain numbers)
+      const shortcutIdentifiers = ticketIdArgs.filter((id) => /^(sc-)?\d+$/i.test(id))
+      const pmoTicketIds: string[] = []
+
+      const shortcutAdapterConfig: ShortcutAdapterConfig = {
+        apiToken: shortcutConfig.apiToken,
+        workspaceSlug: shortcutConfig.workspaceSlug,
+      }
+
+      if (shortcutIdentifiers.length > 0) {
+        // Fetch and import specific Shortcut stories
+        if (!jsonMode) {
+          this.log(styles.muted(`Pulling ${shortcutIdentifiers.length} story(ies) from Shortcut...`))
+        }
+
+        for (const identifier of shortcutIdentifiers) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const envelope = await getShortcutStoryByKey(shortcutAdapterConfig, identifier)
+            if (!envelope) {
+              if (!jsonMode) this.warn(`Shortcut story not found: ${identifier}`)
+              continue
+            }
+
+            // eslint-disable-next-line no-await-in-loop
+            const ticket = await this.findOrCreateShortcutTicket(shortcutProjectId, envelope)
+            pmoTicketIds.push(ticket.id)
+            if (!jsonMode) {
+              this.log(styles.muted(`  Imported: ${identifier} → ${ticket.id}`))
+            }
+          } catch (error) {
+            if (error instanceof ExternalIssueAdapterError) {
+              return handleError(`SHORTCUT_${error.code}`, error.message)
+            }
+            throw error
+          }
+        }
+      } else {
+        // Fetch stories using filters
+        if (!jsonMode) {
+          this.log(styles.muted('Pulling stories from Shortcut...'))
+        }
+
+        let issues: NormalizedIssueEnvelope[]
+        try {
+          issues = await listShortcutStories(shortcutAdapterConfig, {
+            limit: flags['shortcut-limit'],
+          })
+        } catch (error) {
+          if (error instanceof ExternalIssueAdapterError) {
+            return handleError(`SHORTCUT_${error.code}`, error.message)
+          }
+          const msg = error instanceof Error ? error.message : 'Failed to fetch Shortcut stories.'
+          return handleError('SHORTCUT_REQUEST_FAILED', msg)
+        }
+
+        if (issues.length === 0) {
+          if (jsonMode) {
+            outputSuccessAsJson({
+              imported: 0,
+              spawned: 0,
+              message: 'No matching Shortcut stories found.',
+            }, createMetadata('work spawn', flags))
+            return
+          }
+          this.log(styles.muted('No matching Shortcut stories found.'))
+          return
+        }
+
+        if (!jsonMode) {
+          this.log(styles.muted(`Found ${issues.length} story(ies). Importing into PMO...`))
+        }
+
+        let imported = 0
+        let skipped = 0
+
+        for (const envelope of issues) {
+          // eslint-disable-next-line no-await-in-loop
+          const existing = await this.findLinkedShortcutTicket(shortcutProjectId, envelope)
+          if (existing) {
+            pmoTicketIds.push(existing.id)
+            skipped++
+          } else {
+            // eslint-disable-next-line no-await-in-loop
+            const ticket = await this.findOrCreateShortcutTicket(shortcutProjectId, envelope)
+            pmoTicketIds.push(ticket.id)
+            imported++
+          }
+        }
+
+        if (!jsonMode) {
+          if (imported > 0) this.log(styles.success(`  Imported: ${imported}`))
+          if (skipped > 0) this.log(styles.muted(`  Already imported: ${skipped}`))
+        }
+      }
+
+      if (pmoTicketIds.length === 0) {
+        return handleError('NO_SHORTCUT_STORIES', 'No Shortcut stories were imported. Nothing to spawn.')
+      }
+
+      if (!jsonMode) {
+        this.log('')
+        this.log(styles.header(`Spawning agents for ${pmoTicketIds.length} imported ticket(s)...`))
+        this.log('')
+      }
+
+      // Replace ticket args with the imported PMO ticket IDs
+      ticketIdArgs = pmoTicketIds
+
+      // Sync board
+      await autoExportToBoard(this.pmoPath, this.storage)
     } else if (resolvedSource && resolvedSource.provider !== 'pmo') {
       return handleError(
         'SOURCE_NOT_SUPPORTED',
-        `Source "${resolvedSource.provider}" is configured but not supported by work spawn yet. Use --from pmo, --from linear[:team], or --from jira[:project].`,
+        `Source "${resolvedSource.provider}" is configured but not supported by work spawn yet. Use --from pmo, --from linear[:team], --from jira[:project], or --from shortcut.`,
       )
     }
 

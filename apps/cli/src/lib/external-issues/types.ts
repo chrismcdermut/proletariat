@@ -14,17 +14,17 @@
  * Supported external issue sources.
  *
  */
-export type IssueSource = 'linear' | 'jira' | 'asana'
+export type IssueSource = 'linear' | 'jira' | 'asana' | 'shortcut'
 
 /**
  * All valid issue sources as a const array.
  */
-export const ISSUE_SOURCES = ['linear', 'jira', 'asana'] as const
+export const ISSUE_SOURCES = ['linear', 'jira', 'asana', 'shortcut'] as const
 
 /**
  * Providers supported by the external execution mapping store.
  */
-export type ExternalMappingProvider = 'linear' | 'jira' | 'asana' | 'monday' | 'pmo'
+export type ExternalMappingProvider = 'linear' | 'jira' | 'shortcut' | 'asana' | 'monday' | 'pmo'
 
 // =============================================================================
 // IssueEnvelope - Canonical External Issue Format
