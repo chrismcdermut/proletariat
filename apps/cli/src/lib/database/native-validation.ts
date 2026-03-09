@@ -4,6 +4,7 @@ export interface BetterSqlite3RuntimeInfo {
   abi: string
   platform: NodeJS.Platform
   arch: string
+  isBun: boolean
 }
 
 export interface BetterSqlite3ValidationOptions {
@@ -23,6 +24,15 @@ function parseNodeMajor(version: string): number | null {
   return match ? Number.parseInt(match[1], 10) : null
 }
 
+/**
+ * Detect whether the current runtime is Bun rather than Node.js.
+ * Bun sets `process.versions.bun` and the `Bun` global.
+ */
+function detectBunRuntime(): boolean {
+  return typeof (process.versions as Record<string, string | undefined>).bun === 'string'
+    || typeof (globalThis as Record<string, unknown>).Bun !== 'undefined'
+}
+
 export function getBetterSqlite3RuntimeInfo(): BetterSqlite3RuntimeInfo {
   return {
     nodeVersion: process.version,
@@ -30,6 +40,7 @@ export function getBetterSqlite3RuntimeInfo(): BetterSqlite3RuntimeInfo {
     abi: process.versions.modules,
     platform: process.platform,
     arch: process.arch,
+    isBun: detectBunRuntime(),
   }
 }
 
@@ -39,13 +50,14 @@ export function buildBetterSqlite3ValidationMessage(
   context: string
 ): string {
   const reason = cause instanceof Error ? cause.message : String(cause)
+  const runtimeLabel = info.isBun ? 'bun' : 'node'
   const nodeMajorHint = info.nodeMajor === null || SUPPORTED_NODE_MAJORS.includes(info.nodeMajor)
     ? null
     : `- Unsupported Node major for this CLI: ${info.nodeMajor} (supported: ${SUPPORTED_NODE_MAJORS.join(', ')})`
 
   const lines = [
     `better-sqlite3 native module failed to load (${context}).`,
-    `Runtime: node ${info.nodeVersion} (ABI ${info.abi}) on ${info.platform}-${info.arch}.`,
+    `Runtime: ${runtimeLabel} ${info.nodeVersion} (ABI ${info.abi}) on ${info.platform}-${info.arch}.`,
     `Error: ${reason}`,
     '',
     'Fix steps:',
@@ -59,7 +71,30 @@ export function buildBetterSqlite3ValidationMessage(
     lines.splice(2, 0, nodeMajorHint)
   }
 
+  if (info.isBun || isBunNodeGypError(cause)) {
+    lines.push(
+      '',
+      'Bun users:',
+      '  Bun\'s node-gyp compatibility is limited and may fail to compile',
+      '  better-sqlite3. Recommended alternatives:',
+      '  - Install with npm instead: npm install -g @proletariat/cli',
+      '  - Install with Homebrew (macOS): brew install chrismcdermut/proletariat/prlt',
+      '  - Use Node.js 22 (LTS) for best compatibility',
+    )
+  }
+
   return lines.join('\n')
+}
+
+/**
+ * Detect whether an error looks like a bun-specific node-gyp failure.
+ * Bun's node-gyp integration has known issues with the `isexe` module
+ * (used by `which`) and other native compilation steps.
+ */
+function isBunNodeGypError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const msg = error.message.toLowerCase()
+  return msg.includes('isexe') || msg.includes('which.js') || msg.includes('node-gyp')
 }
 
 /**
@@ -72,6 +107,7 @@ export function buildBetterSqlite3ValidationMessage(
  * - "MODULE_NOT_FOUND" code (Node can't resolve the addon)
  * - "was compiled against a different Node.js version" (ABI mismatch)
  * - "A dynamic link library (DLL) initialization routine failed" (Windows ABI issue)
+ * - "isexe" / "which.js" (bun node-gyp compatibility issues)
  */
 export function isBetterSqlite3NativeError(error: unknown): boolean {
   if (!(error instanceof Error)) return false
@@ -87,6 +123,9 @@ export function isBetterSqlite3NativeError(error: unknown): boolean {
   if (msg.includes('cannot open shared object file')) return true
   if (msg.includes('is not a valid win32 application')) return true
   if (msg.includes('node_module_version')) return true
+  // Bun-specific: node-gyp fails because bun's `which` shim uses an
+  // incompatible `isexe` version that throws at runtime.
+  if (msg.includes('isexe') && msg.includes('not a function')) return true
 
   return false
 }
