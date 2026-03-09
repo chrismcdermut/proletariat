@@ -126,11 +126,11 @@ describe('Devcontainer', () => {
       expect(result.customizations.vscode.extensions).to.include('anthropic.claude-code')
     })
 
-    it('should set remoteUser to node', () => {
+    it('should set remoteUser to dev', () => {
       const options = makeOptions()
       const result = generateDevcontainerJson(options)
 
-      expect(result.remoteUser).to.equal('node')
+      expect(result.remoteUser).to.equal('dev')
     })
 
     it('should add NET_ADMIN and NET_RAW capabilities', () => {
@@ -177,11 +177,11 @@ describe('Devcontainer', () => {
       ...overrides,
     })
 
-    it('should use node:22 base image', () => {
+    it('should use ubuntu:24.04 base image', () => {
       const options = makeOptions()
       const result = generateDockerfile(options)
 
-      expect(result).to.include('FROM node:22')
+      expect(result).to.include('FROM ubuntu:24.04')
     })
 
     it('should set DEVCONTAINER env var', () => {
@@ -232,6 +232,47 @@ describe('Devcontainer', () => {
       const result = generateDockerfile(options)
 
       expect(result).to.include('WORKDIR /workspace')
+    })
+
+    it('should install Node.js 22 via NodeSource', () => {
+      const options = makeOptions()
+      const result = generateDockerfile(options)
+
+      expect(result).to.include('nodesource.com/setup_22.x')
+    })
+
+    it('should install Python 3', () => {
+      const options = makeOptions()
+      const result = generateDockerfile(options)
+
+      expect(result).to.include('python3')
+      expect(result).to.include('python3-pip')
+      expect(result).to.include('python3-venv')
+    })
+
+    it('should install Go', () => {
+      const options = makeOptions()
+      const result = generateDockerfile(options)
+
+      expect(result).to.include('go.dev/dl/go')
+      expect(result).to.include('/usr/local/go/bin')
+    })
+
+    it('should install Rust via rustup', () => {
+      const options = makeOptions()
+      const result = generateDockerfile(options)
+
+      expect(result).to.include('rustup.rs')
+      expect(result).to.include('.cargo/bin')
+    })
+
+    it('should create dev user instead of using node user', () => {
+      const options = makeOptions()
+      const result = generateDockerfile(options)
+
+      expect(result).to.include('useradd -m -u 1000 -g dev')
+      expect(result).to.include('USER dev')
+      expect(result).to.not.include('USER node')
     })
   })
 
@@ -396,7 +437,7 @@ describe('Devcontainer', () => {
     it('should return false when .devcontainer exists but no devcontainer.json', () => {
       const devcontainerDir = path.join(testDir, '.devcontainer')
       fs.mkdirSync(devcontainerDir, { recursive: true })
-      fs.writeFileSync(path.join(devcontainerDir, 'Dockerfile'), 'FROM node:20')
+      fs.writeFileSync(path.join(devcontainerDir, 'Dockerfile'), 'FROM ubuntu:24.04')
 
       expect(hasDevcontainerConfig(testDir)).to.be.false
     })

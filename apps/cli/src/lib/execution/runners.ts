@@ -1309,7 +1309,7 @@ function createDockerContainer(
     ),
     // Claude credentials - shared named volume (login once, all containers share)
     // Only needed for Claude Code executor
-    ...(isClaudeExecutor(executor) ? [`-v "claude-credentials:/home/node/.claude"`] : []),
+    ...(isClaudeExecutor(executor) ? [`-v "claude-credentials:/home/dev/.claude"`] : []),
   ]
 
   // Build environment flags
@@ -1418,8 +1418,8 @@ function runContainerSetup(containerId: string, permissionMode: PermissionMode =
   // Only needed for Claude Code executor - other executors have their own config
   if (isClaudeExecutor(executor)) {
     // This is needed for Claude Code to recognize settings and bypass prompts
-    // Note: Auth tokens are in the claude-credentials volume at /home/node/.claude/.credentials.json
-    // But settings (.claude.json) need to be at /home/node/.claude.json (outside the .claude dir)
+    // Note: Auth tokens are in the claude-credentials volume at /home/dev/.claude/.credentials.json
+    // But settings (.claude.json) need to be at /home/dev/.claude.json (outside the .claude dir)
     try {
       const hostClaudeJson = path.join(os.homedir(), '.claude.json')
       let settings: Record<string, unknown> = {}
@@ -1472,9 +1472,9 @@ function runContainerSetup(containerId: string, permissionMode: PermissionMode =
 
       // Pipe settings via stdin to avoid ARG_MAX limits with large .claude.json files
       const settingsJson = JSON.stringify(settings)
-      // Write to container at /home/node/.claude.json using stdin piping
+      // Write to container at /home/dev/.claude.json using stdin piping
       execSync(
-        `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
+        `docker exec -i ${containerId} bash -c 'cat > /home/dev/.claude.json'`,
         { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
       )
       console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${permissionMode === 'danger'})`)
@@ -1483,7 +1483,7 @@ function runContainerSetup(containerId: string, permissionMode: PermissionMode =
       // This prevents Claude Code from prompting about permission mode on first run
       const claudeSettings = JSON.stringify({ skipDangerousModePermissionPrompt: true })
       execSync(
-        `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
+        `docker exec -i ${containerId} bash -c 'mkdir -p /home/dev/.claude && cat > /home/dev/.claude/settings.json'`,
         { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }
       )
       console.debug(`[runners:docker] Wrote ~/.claude/settings.json to container`)
@@ -1836,7 +1836,7 @@ export async function runDevcontainer(
     if (containerId && githubToken) {
       try {
         // Write token to file and configure git credential helper
-        execSync(`docker exec ${containerId} bash -c 'echo "${githubToken}" > /home/node/.github-token && chmod 600 /home/node/.github-token && git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/node/.github-token)\\"; }; f" && git config --global url."https://github.com/".insteadOf "git@github.com:"'`, {
+        execSync(`docker exec ${containerId} bash -c 'echo "${githubToken}" > /home/dev/.github-token && chmod 600 /home/dev/.github-token && git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/dev/.github-token)\\"; }; f" && git config --global url."https://github.com/".insteadOf "git@github.com:"'`, {
           stdio: 'pipe',
         })
       } catch {
@@ -2700,7 +2700,7 @@ export async function runOrchestratorInDocker(
       // Docker socket for sibling container pattern
       `-v /var/run/docker.sock:/var/run/docker.sock`,
       // Claude credentials volume (shared with agent containers)
-      ...(executor === 'claude-code' ? ['-v "claude-credentials:/home/node/.claude"'] : []),
+      ...(executor === 'claude-code' ? ['-v "claude-credentials:/home/dev/.claude"'] : []),
       // Persistent bash history
       '-v "claude-bash-history:/commandhistory"',
     ]
@@ -2788,13 +2788,13 @@ export async function runOrchestratorInDocker(
         }
 
         execSync(
-          `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
+          `docker exec -i ${containerId} bash -c 'cat > /home/dev/.claude.json'`,
           { input: JSON.stringify(settings), stdio: ['pipe', 'pipe', 'pipe'] }
         )
 
         const claudeSettings = JSON.stringify({ skipDangerousModePermissionPrompt: true })
         execSync(
-          `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
+          `docker exec -i ${containerId} bash -c 'mkdir -p /home/dev/.claude && cat > /home/dev/.claude/settings.json'`,
           { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }
         )
       } catch (error) {

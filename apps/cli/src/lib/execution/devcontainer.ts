@@ -95,7 +95,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     'source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached',
     'source=claude-bash-history,target=/commandhistory,type=volume',
     // Claude credentials volume - only needed for Claude Code executor
-    ...(isClaude ? ['source=claude-credentials,target=/home/node/.claude,type=volume'] : []),
+    ...(isClaude ? ['source=claude-credentials,target=/home/dev/.claude,type=volume'] : []),
     // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
     // to avoid corruption from concurrent writes by multiple containers
     // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
@@ -149,7 +149,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       `--memory=${options.memory || cfg.devcontainer.memory}`,
       `--cpus=${options.cpus || cfg.devcontainer.cpus}`,
     ],
-    remoteUser: 'node',
+    remoteUser: 'dev',
     mounts,
     containerEnv: {
       DEVCONTAINER: 'true',
@@ -172,7 +172,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       PRLT_REGISTRY: channel.registry,
       ...(!useMount ? { PRLT_VERSION: channel.version || 'latest' } : {}),
       // /hq/.proletariat/bin contains prlt wrapper with ESM loader for native modules
-      PATH: '/hq/.proletariat/bin:/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin',
+      PATH: '/hq/.proletariat/bin:/home/dev/.npm-global/bin:/home/dev/.cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin',
     },
     workspaceFolder: '/workspace',
     postStartCommand: 'sudo /usr/local/bin/init-firewall.sh && /usr/local/bin/setup-prlt.sh',
@@ -184,12 +184,13 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
 
 /**
  * Generate Dockerfile content for the devcontainer.
- * Uses architecture auto-detection for cross-platform compatibility.
+ * Uses a polyglot base image with Node.js, Python, Go, and Rust.
+ * Architecture auto-detection for cross-platform compatibility.
  */
 export function generateDockerfile(options: DevcontainerOptions): string {
   const timezone = options.timezone || 'America/Los_Angeles'
 
-  return `FROM node:22
+  return `FROM ubuntu:24.04
 
 # Ensure we run as root for apt-get and system setup
 USER root
@@ -197,22 +198,61 @@ USER root
 ARG TZ=${timezone}
 ENV TZ=\${TZ}
 ENV DEVCONTAINER=true
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Create dev user (uid 1000 for compatibility with host file ownership)
+RUN groupadd -g 1000 dev && \\
+    useradd -m -u 1000 -g dev -s /bin/zsh dev && \\
+    echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \\
-    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh tmux \\
-    iptables ipset iproute2 dnsutils jq nano vim \\
+    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 tmux \\
+    iptables ipset iproute2 dnsutils jq nano vim curl wget \\
+    ca-certificates software-properties-common build-essential \\
     && rm -rf /var/lib/apt/lists/* \\
     && git lfs install
 
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \\
+      | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \\
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \\
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \\
+      > /etc/apt/sources.list.d/github-cli.list && \\
+    apt-get update && apt-get install -y gh && \\
+    rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 22
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \\
+    apt-get install -y nodejs && \\
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python 3 with pip and venv
+RUN apt-get update && apt-get install -y \\
+    python3 python3-pip python3-venv && \\
+    rm -rf /var/lib/apt/lists/* && \\
+    ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install Go (architecture-aware)
+ARG GO_VERSION=1.23.6
+RUN ARCH=$(dpkg --print-architecture) && \\
+    curl -fsSL "https://go.dev/dl/go\${GO_VERSION}.linux-\${ARCH}.tar.gz" | tar -C /usr/local -xzf -
+ENV PATH=/usr/local/go/bin:\$PATH
+
+# Install Rust via rustup (as dev user for proper home dir setup)
+USER dev
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH=/home/dev/.cargo/bin:\$PATH
+USER root
+
 # Create workspace and claude directories
-RUN mkdir -p /workspace /home/node/.claude \\
-    && chown -R node:node /workspace /home/node/.claude
+RUN mkdir -p /workspace /home/dev/.claude \\
+    && chown -R dev:dev /workspace /home/dev/.claude
 
 # Set up persistent bash history
 RUN mkdir -p /commandhistory \\
     && touch /commandhistory/.bash_history \\
-    && chown -R node:node /commandhistory
+    && chown -R dev:dev /commandhistory
 
 # Install git-delta for better diffs (architecture-aware)
 RUN ARCH=$(dpkg --print-architecture) && \\
@@ -220,18 +260,19 @@ RUN ARCH=$(dpkg --print-architecture) && \\
     dpkg -i /tmp/delta.deb && \\
     rm /tmp/delta.deb
 
-# Install zsh with oh-my-zsh
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \\
-    && chsh -s /bin/zsh node
+# Install zsh with oh-my-zsh for dev user
+USER dev
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+USER root
 
 # Configure npm global directory
-RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
-    && chown -R node:node /home/node/.npm-global
-ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
-ENV PATH=/home/node/.npm-global/bin:\$PATH
+RUN mkdir -p /home/dev/.npm-global/bin /home/dev/.npm-global/lib \\
+    && chown -R dev:dev /home/dev/.npm-global
+ENV NPM_CONFIG_PREFIX=/home/dev/.npm-global
+ENV PATH=/home/dev/.npm-global/bin:\$PATH
 
-# Install pnpm and executor CLI as node user so files are owned correctly
-USER node
+# Install pnpm and executor CLI as dev user so files are owned correctly
+USER dev
 RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
 USER root
 
@@ -252,8 +293,8 @@ COPY init-firewall.sh /usr/local/bin/init-firewall.sh
 COPY setup-prlt.sh /usr/local/bin/setup-prlt.sh
 RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/setup-prlt.sh
 
-# Allow node user to run firewall script without password
-RUN echo "node ALL=(ALL) NOPASSWD: /usr/local/bin/init-firewall.sh" >> /etc/sudoers
+# Allow dev user to run firewall script without password
+RUN echo "dev ALL=(ALL) NOPASSWD: /usr/local/bin/init-firewall.sh" >> /etc/sudoers
 
 # Set default editor
 ENV EDITOR=nano
@@ -261,7 +302,7 @@ ENV EDITOR=nano
 # Configure shell history
 ENV HISTFILE=/commandhistory/.bash_history
 
-USER node
+USER dev
 WORKDIR /workspace
 `
 }
@@ -442,8 +483,8 @@ export function generatePrltSetupScript(): string {
 #
 setup_git_wrapper() {
     # Create git wrapper script in user's bin directory (already in PATH before /usr/bin)
-    mkdir -p /home/node/.npm-global/bin
-    cat > /home/node/.npm-global/bin/git << 'GITWRAPPER'
+    mkdir -p /home/dev/.npm-global/bin
+    cat > /home/dev/.npm-global/bin/git << 'GITWRAPPER'
 #!/bin/bash
 # Git wrapper that handles worktree path translation for containers
 # Translates host paths in .git files to container paths
@@ -492,7 +533,7 @@ fi
 exec /usr/bin/git "$@"
 GITWRAPPER
 
-    chmod +x /home/node/.npm-global/bin/git
+    chmod +x /home/dev/.npm-global/bin/git
     echo "Git wrapper installed for worktree path translation"
 }
 
@@ -505,7 +546,7 @@ fi
 
 # Copy Claude credentials from workspace to home (each container gets its own copy)
 if [ -f "/workspace/.claude.json" ]; then
-    cp /workspace/.claude.json /home/node/.claude.json
+    cp /workspace/.claude.json /home/dev/.claude.json
     echo "Claude credentials copied"
 fi
 
@@ -528,11 +569,11 @@ fi
 
 if [ -n "$TOKEN" ]; then
     # Store token in a file for the credential helper (avoids env var issues)
-    echo "$TOKEN" > /home/node/.github-token
-    chmod 600 /home/node/.github-token
+    echo "$TOKEN" > /home/dev/.github-token
+    chmod 600 /home/dev/.github-token
 
     # Configure git credential helper to read token from file
-    git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/node/.github-token)\\"; }; f"
+    git config --global credential.helper "!f() { echo \\"username=x-access-token\\"; echo \\"password=\\$(cat /home/dev/.github-token)\\"; }; f"
 
     # Convert SSH URLs to HTTPS (SCP style: git@github.com:user/repo.git)
     git config --global url."https://github.com/".insteadOf "git@github.com:"
@@ -611,7 +652,7 @@ configure_git_identity
 PRLT_CONFIGURED=false
 if command -v prlt &> /dev/null; then
     PRLT_PATH=$(which prlt)
-    if [[ "$PRLT_PATH" == "/home/node/.npm-global/bin/prlt" ]]; then
+    if [[ "$PRLT_PATH" == "/home/dev/.npm-global/bin/prlt" ]]; then
         DESIRED_VERSION="\${PRLT_VERSION:-latest}"
         CURRENT_VERSION=$(prlt --version 2>/dev/null | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' || echo "unknown")
 
@@ -639,7 +680,7 @@ fi
 if [ "$PRLT_CONFIGURED" = "false" ] && [ -d "/opt/prlt/apps/cli" ]; then
     echo "Setting up mounted prlt..."
 
-    PRLT_LOCAL="/home/node/.prlt-local"
+    PRLT_LOCAL="/home/dev/.prlt-local"
 
     # Only rebuild if not already done
     if [ ! -f "$PRLT_LOCAL/.setup-complete" ]; then
@@ -660,13 +701,13 @@ if [ "$PRLT_CONFIGURED" = "false" ] && [ -d "/opt/prlt/apps/cli" ]; then
     fi
 
     # Create ESM loader to redirect better-sqlite3 to rebuilt version
-    LOADER="/home/node/.prlt-local/loader.mjs"
+    LOADER="/home/dev/.prlt-local/loader.mjs"
     cat > "$LOADER" << 'LOADER_EOF'
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === "better-sqlite3") {
     return {
       shortCircuit: true,
-      url: "file:///home/node/.prlt-local/node_modules/better-sqlite3/lib/index.js"
+      url: "file:///home/dev/.prlt-local/node_modules/better-sqlite3/lib/index.js"
     };
   }
   return nextResolve(specifier, context);
@@ -674,15 +715,15 @@ export async function resolve(specifier, context, nextResolve) {
 LOADER_EOF
 
     # Create wrapper script that uses ESM loader for native module resolution
-    WRAPPER="/home/node/.npm-global/bin/prlt"
-    mkdir -p /home/node/.npm-global/bin
+    WRAPPER="/home/dev/.npm-global/bin/prlt"
+    mkdir -p /home/dev/.npm-global/bin
     cat > "$WRAPPER" << 'WRAPPER_EOF'
 #!/bin/bash
-NODE_NO_WARNINGS=1 exec node --experimental-loader /home/node/.prlt-local/loader.mjs /opt/prlt/apps/cli/bin/run.js "$@"
+NODE_NO_WARNINGS=1 exec node --experimental-loader /home/dev/.prlt-local/loader.mjs /opt/prlt/apps/cli/bin/run.js "$@"
 WRAPPER_EOF
     chmod +x "$WRAPPER"
     # Create prltdev symlink for consistency with dev environment
-    ln -sf "$WRAPPER" /home/node/.npm-global/bin/prltdev
+    ln -sf "$WRAPPER" /home/dev/.npm-global/bin/prltdev
     echo "prlt wrapper ready at $WRAPPER (also available as prltdev)"
 elif [ "$PRLT_CONFIGURED" = "false" ]; then
     echo "No mounted prlt found, skipping setup"
@@ -784,32 +825,71 @@ export interface OrchestratorDockerOptions {
 export function generateOrchestratorDockerfile(options: OrchestratorDockerOptions): string {
   const timezone = options.timezone || 'America/Los_Angeles'
 
-  return `FROM node:22
+  return `FROM ubuntu:24.04
 
 # Ensure we run as root for apt-get and system setup
 USER root
 
 ARG TZ=${timezone}
 ENV TZ=\${TZ}
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Create dev user (uid 1000 for compatibility with host file ownership)
+RUN groupadd -g 1000 dev && \\
+    useradd -m -u 1000 -g dev -s /bin/zsh dev && \\
+    echo "dev ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Install system dependencies (no iptables/ipset - orchestrator doesn't use firewall)
 RUN apt-get update && apt-get install -y \\
-    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh tmux \\
-    jq nano vim curl docker.io \\
+    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 tmux \\
+    jq nano vim curl wget ca-certificates software-properties-common build-essential \\
+    docker.io \\
     && rm -rf /var/lib/apt/lists/* \\
     && git lfs install
 
-# Create workspace and claude directories
-RUN mkdir -p /workspace /hq /home/node/.claude \\
-    && chown -R node:node /workspace /hq /home/node/.claude
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \\
+      | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \\
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \\
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \\
+      > /etc/apt/sources.list.d/github-cli.list && \\
+    apt-get update && apt-get install -y gh && \\
+    rm -rf /var/lib/apt/lists/*
 
-# Add node user to docker group so it can use Docker socket
-RUN groupadd -f docker && usermod -aG docker node
+# Install Node.js 22
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \\
+    apt-get install -y nodejs && \\
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python 3 with pip and venv
+RUN apt-get update && apt-get install -y \\
+    python3 python3-pip python3-venv && \\
+    rm -rf /var/lib/apt/lists/* && \\
+    ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install Go (architecture-aware)
+ARG GO_VERSION=1.23.6
+RUN ARCH=$(dpkg --print-architecture) && \\
+    curl -fsSL "https://go.dev/dl/go\${GO_VERSION}.linux-\${ARCH}.tar.gz" | tar -C /usr/local -xzf -
+ENV PATH=/usr/local/go/bin:\$PATH
+
+# Install Rust via rustup (as dev user for proper home dir setup)
+USER dev
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH=/home/dev/.cargo/bin:\$PATH
+USER root
+
+# Create workspace and claude directories
+RUN mkdir -p /workspace /hq /home/dev/.claude \\
+    && chown -R dev:dev /workspace /hq /home/dev/.claude
+
+# Add dev user to docker group so it can use Docker socket
+RUN groupadd -f docker && usermod -aG docker dev
 
 # Set up persistent bash history
 RUN mkdir -p /commandhistory \\
     && touch /commandhistory/.bash_history \\
-    && chown -R node:node /commandhistory
+    && chown -R dev:dev /commandhistory
 
 # Install git-delta for better diffs (architecture-aware)
 RUN ARCH=$(dpkg --print-architecture) && \\
@@ -817,18 +897,19 @@ RUN ARCH=$(dpkg --print-architecture) && \\
     dpkg -i /tmp/delta.deb && \\
     rm /tmp/delta.deb
 
-# Install zsh with oh-my-zsh
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \\
-    && chsh -s /bin/zsh node
+# Install zsh with oh-my-zsh for dev user
+USER dev
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+USER root
 
 # Configure npm global directory
-RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
-    && chown -R node:node /home/node/.npm-global
-ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
-ENV PATH=/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+RUN mkdir -p /home/dev/.npm-global/bin /home/dev/.npm-global/lib \\
+    && chown -R dev:dev /home/dev/.npm-global
+ENV NPM_CONFIG_PREFIX=/home/dev/.npm-global
+ENV PATH=/home/dev/.npm-global/bin:/home/dev/.cargo/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
 
-# Install pnpm and executor CLI as node user
-USER node
+# Install pnpm and executor CLI as dev user
+USER dev
 RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
 USER root
 
@@ -848,7 +929,7 @@ ENV EDITOR=nano
 # Configure shell history
 ENV HISTFILE=/commandhistory/.bash_history
 
-USER node
+USER dev
 WORKDIR /hq
 `
 }
@@ -899,7 +980,7 @@ export function updateDevcontainerMounts(agentDir: string, _repoWorktrees: strin
   devcontainerJson.mounts = [
     'source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached',
     'source=claude-bash-history,target=/commandhistory,type=volume',
-    'source=claude-credentials,target=/home/node/.claude,type=volume',
+    'source=claude-credentials,target=/home/dev/.claude,type=volume',
   ]
 
   // Write back
