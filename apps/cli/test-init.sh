@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-# Test script for prlt init command
+# Test script for prlt new command (HQ creation)
 
 # Clean up any test directories from previous runs
 rm -rf /tmp/test-init-*
 
-echo "=== Testing prlt init scenarios ==="
+echo "=== Testing prlt new scenarios ==="
 echo ""
 
 # Test 1: Outside git repo - should work with HQ suffix choice
@@ -14,7 +14,7 @@ echo "Test 1: Initialize outside git repo"
 mkdir -p /tmp/test-init-outside
 cd /tmp/test-init-outside
 echo "Current dir: $(pwd)"
-echo "Run: ./bin/run.js init"
+echo "Run: ./bin/run.js new"
 echo "(Follow prompts: name=testcompany, add suffix=yes, location=default)"
 echo ""
 
@@ -24,7 +24,7 @@ mkdir -p /tmp/test-init-repo
 cd /tmp/test-init-repo
 git init
 echo "Current dir: $(pwd)"
-echo "Run: ./bin/run.js init"
+echo "Run: ./bin/run.js new"
 echo "(Follow prompts: name=myproject, add suffix=yes, location=../myproject-hq)"
 echo ""
 
@@ -34,7 +34,7 @@ mkdir -p /tmp/test-init-jail
 cd /tmp/test-init-jail
 git init
 echo "Current dir: $(pwd)"
-echo "Run: ./bin/run.js init"
+echo "Run: ./bin/run.js new"
 echo "(Follow prompts: name=jail, add suffix=no, location=./jail)"
 echo "This should fail with 'That's jail!' error"
 echo ""

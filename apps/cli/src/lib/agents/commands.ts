@@ -205,7 +205,7 @@ export function getWorkspaceInfo(): WorkspaceInfo {
     currentDir = path.dirname(currentDir);
   }
 
-  throw new Error('Not in an HQ or workspace directory. Run "prlt init" first.');
+  throw new Error('Not in an HQ or workspace directory. Run "prlt new" first.');
 }
 
 /**

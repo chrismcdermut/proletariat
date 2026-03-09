@@ -54,7 +54,7 @@ export default class View extends PMOCommand {
     // Find HQ root
     const hqPath = findHQRoot();
     if (!hqPath) {
-      return handleError('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt init" first.');
+      return handleError('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt new" first.');
     }
 
     let repoName: string | null = args.name || null;

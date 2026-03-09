@@ -14,7 +14,13 @@ describe('CLI Commands', () => {
     it('shows init command', async () => {
       const { stdout } = await runCommand(['--help'], { root });
       expect(stdout).to.contain('init');
-      expect(stdout).to.contain('Initialize an HQ');
+      expect(stdout).to.contain('Initialize machine-level');
+    });
+
+    it('shows new command', async () => {
+      const { stdout } = await runCommand(['--help'], { root });
+      expect(stdout).to.contain('new');
+      expect(stdout).to.contain('Create a new headquarters');
     });
 
     it('shows agent topic', async () => {
@@ -103,6 +109,7 @@ describe('Command Contract', () => {
   // Test commands that actually exist
   const expectedCommands = [
     'init',
+    'new',
     'agent staff remove',
     'agent visit',
     'agent status',

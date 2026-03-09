@@ -112,7 +112,7 @@ export function startWatcher(
     throw new Error(`kanban.md not found at ${boardPath}`);
   }
   if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
+    throw new Error(`Database not found at ${dbPath}. Run 'prlt new' first.`);
   }
 
   let watcher: FSWatcher | null = null;

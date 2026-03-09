@@ -111,7 +111,7 @@ class Prlt < Formula
   test do
     assert_match version.to_s, shell_output("#{bin}/prlt --version")
     # Verify better-sqlite3 native module works by creating an HQ (uses SQLite)
-    assert_match '"success": true', shell_output("#{bin}/prlt init --json --name test-hq --no-pmo")
+    assert_match '"success": true', shell_output("#{bin}/prlt new --json --name test-hq --no-pmo")
   end
 end
 FORMULA

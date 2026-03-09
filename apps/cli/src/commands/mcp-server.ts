@@ -96,7 +96,7 @@ export default class McpServerCommand extends Command {
     const ctx: McpToolContext = {
       get storage() {
         if (!pmoContext) {
-          throw new Error('PMO not initialized. Run "prlt init" first.')
+          throw new Error('PMO not initialized. Run "prlt new" first.')
         }
         return pmoContext.storage
       },

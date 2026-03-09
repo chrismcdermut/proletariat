@@ -435,7 +435,7 @@ export { findHQRoot } from '../workspace.js';
 export function getWorkspaceRepoInfo(): WorkspaceRepoInfo {
   const hqPath = findHQRoot();
   if (!hqPath) {
-    throw new Error('Not in an HQ directory. Run "prlt init" first.');
+    throw new Error('Not in an HQ directory. Run "prlt new" first.');
   }
 
   const reposPath = path.join(hqPath, 'repos');

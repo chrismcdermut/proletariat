@@ -368,7 +368,7 @@ export function registerInitTools(server: McpServer, ctx: McpToolContext): void 
         const reposFlag = params.repos?.length ? `--repos ${params.repos.join(',')}` : ''
         const agentsFlag = params.agents?.length ? `--agents ${params.agents.join(',')}` : ''
         const pmoFlag = params.pmo === false ? '--no-pmo' : '--pmo'
-        const output = ctx.runCommand(`prlt init --name ${params.name} ${pathFlag} ${reposFlag} ${agentsFlag} ${pmoFlag} --json`)
+        const output = ctx.runCommand(`prlt new --name ${params.name} ${pathFlag} ${reposFlag} ${agentsFlag} ${pmoFlag} --json`)
         return textResponse(output)
       } catch (error) {
         return errorResponse(error)

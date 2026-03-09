@@ -47,7 +47,8 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 | Command               | 📝 | ✅ | 🧪 | 👤 | Description                 | Spec                                                 |
 | --------------------- | -- | -- | -- | -- | --------------------------- | ---------------------------------------------------- |
-| `prlt init <hq-name>` | ✓  | ✓  | ✓  | -  | Initialize new HQ workspace | -                                                    |
+| `prlt init`           | ✓  | ✓  | ✓  | -  | Initialize machine config   | -                                                    |
+| `prlt new <hq-name>`  | ✓  | ✓  | ✓  | -  | Create new HQ workspace     | -                                                    |
 | `prlt help [command]` | ✓  | ✓  | ✓  | -  | Show help for commands      | oclif built-in                                       |
 | `prlt --version`      | -  | -  | -  | -  | Show CLI version            | -                                                    |
 

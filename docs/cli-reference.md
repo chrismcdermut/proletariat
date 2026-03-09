@@ -40,10 +40,18 @@ prlt asana sync --dry-run
 
 #### `prlt init`
 
-Initialize a new HQ workspace.
+Initialize machine-level Proletariat configuration (`~/.proletariat`).
 
 ```bash
 prlt init
+```
+
+#### `prlt new`
+
+Create a new HQ workspace.
+
+```bash
+prlt new
 ```
 
 #### `prlt workspace list`

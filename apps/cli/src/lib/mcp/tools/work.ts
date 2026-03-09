@@ -174,7 +174,7 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
         // Require workspace context for spawn operations
         if (!ctx.getWorkspaceContext) {
           throw new Error(
-            'Workspace not initialized. work_start requires a workspace with agents. Run "prlt init" first.'
+            'Workspace not initialized. work_start requires a workspace with agents. Run "prlt new" first.'
           )
         }
 

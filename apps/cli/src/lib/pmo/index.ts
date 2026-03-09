@@ -222,7 +222,7 @@ export async function promptForBoardName(defaultName?: string): Promise<string> 
 }
 
 /**
- * Full PMO setup prompt - used by both `prlt init` and `prlt pmo init`
+ * Full PMO setup prompt - used by both `prlt new` and `prlt pmo init`
  *
  * PMO is included by default (no prompt) per TKT-469 requirements.
  */
@@ -318,7 +318,7 @@ export interface CreatePMOOptions {
 /**
  * Create PMO structure in HQ
  *
- * Used by both `prlt init` and `prlt pmo init` for consistent behavior.
+ * Used by both `prlt new` and `prlt pmo init` for consistent behavior.
  *
  * Structure:
  * - PMO data is stored in workspace.db (pmo_* tables)
@@ -348,7 +348,7 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
   // Initialize workspace.db with PMO tables
   const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
   if (!fs.existsSync(dbPath)) {
-    throw new Error(`workspace.db not found. Run 'prlt init' first.`);
+    throw new Error(`workspace.db not found. Run 'prlt new' first.`);
   }
 
   const storage = new SQLiteStorage(dbPath);

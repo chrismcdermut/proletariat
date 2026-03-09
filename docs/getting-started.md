@@ -48,14 +48,12 @@ brew update && brew upgrade prlt
 npm update -g @proletariat/cli
 ```
 
-## Step 1: Initialize Your Workspace
+## Step 1: Create Your Headquarters
 
-Create and initialize a workspace:
+Create a new headquarters workspace:
 
 ```bash
-mkdir my-project
-cd my-project
-prlt init
+prlt new
 ```
 
 This creates:
@@ -184,7 +182,7 @@ gh pr merge
 
 | Task | Command |
 |------|---------|
-| Initialize | `prlt init` |
+| Create HQ | `prlt new` |
 | Create ticket | `prlt ticket create` |
 | List tickets | `prlt ticket list` |
 | Start work | `prlt work start TKT-001` |

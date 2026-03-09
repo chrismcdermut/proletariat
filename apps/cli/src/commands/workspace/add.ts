@@ -58,7 +58,7 @@ export default class WorkspaceAdd extends Command {
     if (!fs.existsSync(configPath)) {
       this.error(
         `Not a valid workspace: missing .proletariat/config.json\n` +
-          `Run "prlt init" to create a new workspace.`
+          `Run "prlt new" to create a new workspace.`
       );
     }
 

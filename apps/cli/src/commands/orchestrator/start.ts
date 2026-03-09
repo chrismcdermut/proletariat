@@ -284,10 +284,10 @@ export default class OrchestratorStart extends PromptCommand {
     const hqPath = findHQRoot(process.cwd())
     if (!hqPath) {
       if (jsonMode) {
-        outputErrorAsJson('NO_HQ', 'Not in an HQ workspace. Run "prlt init" first.', createMetadata('orchestrator start', flags))
+        outputErrorAsJson('NO_HQ', 'Not in an HQ workspace. Run "prlt new" first.', createMetadata('orchestrator start', flags))
         return
       }
-      this.error('Not in an HQ workspace. Run "prlt init" first.')
+      this.error('Not in an HQ workspace. Run "prlt new" first.')
     }
 
     // Resolve orchestrator name (interactive prompt when --name is omitted)

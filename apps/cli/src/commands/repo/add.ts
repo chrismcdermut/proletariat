@@ -68,7 +68,7 @@ export default class Add extends PMOCommand {
     // Find HQ root
     const hqPath = findHQRoot();
     if (!hqPath) {
-      return handleError('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt init" first.');
+      return handleError('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt new" first.');
     }
 
     // Bulk mode: add multiple repositories interactively

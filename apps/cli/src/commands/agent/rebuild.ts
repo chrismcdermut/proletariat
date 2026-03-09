@@ -92,7 +92,7 @@ export default class AgentRebuild extends PMOCommand {
     // Get workspace info
     const workspaceInfo = getWorkspaceInfo();
     if (!workspaceInfo) {
-      this.error('Not in a proletariat workspace. Run `prlt init` first.');
+      this.error('Not in a proletariat workspace. Run `prlt new` first.');
     }
 
     this.log(colors.primary(`🔨 Rebuilding agent: ${agentName}\n`));

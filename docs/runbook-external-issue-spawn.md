@@ -14,7 +14,7 @@ External issue spawn lets operators pull issues from Linear or Jira and spawn ag
 
 ## Prerequisites
 
-- `prlt` CLI installed and configured (`prlt init` completed).
+- `prlt` CLI installed and configured (`prlt new` completed).
 - An active HQ workspace with at least one project.
 - Network access to the external issue tracker API.
 

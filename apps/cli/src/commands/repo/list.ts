@@ -39,7 +39,7 @@ export default class List extends PMOCommand {
     // Find HQ root
     const hqPath = findHQRoot();
     if (!hqPath) {
-      this.error('Not in an HQ directory. Run "prlt init" first.');
+      this.error('Not in an HQ directory. Run "prlt new" first.');
     }
 
     const { repositories } = getWorkspaceRepoInfo();

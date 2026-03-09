@@ -10,7 +10,7 @@
  *   node scripts/seed-explore-data.mjs
  *
  * Or via prlt:
- *   prlt init  # Must have a workspace first
+ *   prlt new   # Must have a workspace first
  *   node scripts/seed-explore-data.mjs
  */
 

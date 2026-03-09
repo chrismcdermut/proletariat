@@ -39,7 +39,7 @@ describe('prlt init', () => {
     it('shows help text', async () => {
       try {
         const { stdout } = await runCommand(['init', '--help'], { root });
-        expect(stdout).to.contain('Initialize an HQ');
+        expect(stdout).to.contain('Initialize machine-level');
         expect(stdout).to.contain('USAGE');
       } catch {
         // Skip help test if command fails to run
