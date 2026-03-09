@@ -19,6 +19,12 @@ import {
   buildPromptConfig,
   createMetadata,
 } from '../lib/prompt-json.js';
+import {
+  detectRuntimes,
+  displayRuntimeDetection,
+  promptSetupMode,
+  spawnSetupAgent,
+} from '../lib/onboarding/index.js';
 
 export default class Init extends Command {
   static description = 'Initialize an HQ (headquarters) for managing repositories, agents, and projects';
@@ -71,6 +77,31 @@ export default class Init extends Command {
    */
   private async runHumanMode(): Promise<void> {
     console.log(chalk.blue('🚀 Welcome to Proletariat...\n'));
+
+    // Detect available AI coding agent runtimes
+    const runtimes = detectRuntimes();
+    displayRuntimeDetection(runtimes);
+
+    // If agent runtimes are available, offer agent-guided setup
+    if (runtimes.length > 0) {
+      const { mode, runtime } = await promptSetupMode(runtimes, false);
+
+      if (mode === 'agent-guided' && runtime) {
+        console.log(chalk.blue(`\nStarting ${runtime.displayName} setup assistant...\n`));
+        try {
+          const { exitCode } = await spawnSetupAgent(runtime);
+          if (exitCode !== 0) {
+            console.log(chalk.yellow(`\nAgent exited with code ${exitCode}. Falling back to manual setup.\n`));
+          } else {
+            return;
+          }
+        } catch (error) {
+          console.log(chalk.yellow(`\nCould not start agent: ${error instanceof Error ? error.message : error}`));
+          console.log(chalk.yellow('Falling back to manual setup.\n'));
+        }
+      }
+    }
+
     console.log(chalk.blue('🏢 Setting up your headquarters...\n'));
 
     // Step 1: Get HQ name
