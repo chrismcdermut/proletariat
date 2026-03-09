@@ -39,8 +39,7 @@ import {
 } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 
-// Catch-all devcontainer image for directories without .devcontainer
-const CATCHALL_DEVCONTAINER_IMAGE = 'ghcr.io/chrismcdermut/proletariat-claude:latest'
+// Catch-all devcontainer image loaded from config (or DEFAULT_EXECUTION_CONFIG.claudeImage)
 
 export default class QA extends PromptCommand {
   static description = 'Spawn an exploratory QA agent to autonomously test the CLI (no ticket required)'
@@ -532,12 +531,13 @@ Clean up your tmux session when done.`,
     }
 
     // Prepare devcontainer if needed
+    const claudeImage = DEFAULT_EXECUTION_CONFIG.claudeImage
     const hasProjectDevcontainer = hasDevcontainerConfig(workDir)
     let devcontainerConfigDir = workDir
     let cleanupDevcontainer: (() => void) | undefined
 
     if (environment === 'devcontainer' && !hasProjectDevcontainer) {
-      const imageCheck = await this.checkCatchallImage()
+      const imageCheck = await this.checkCatchallImage(claudeImage)
       if (!imageCheck.available) {
         if (jsonMode) {
           outputErrorAsJson('CONTAINER_IMAGE_UNAVAILABLE', imageCheck.error!, createMetadata('qa', flags))
@@ -546,8 +546,8 @@ Clean up your tmux session when done.`,
         this.error(imageCheck.error!)
       }
 
-      this.log(styles.muted(`   Using catch-all devcontainer: ${CATCHALL_DEVCONTAINER_IMAGE}`))
-      const devcontainerSetup = await this.setupCatchallDevcontainer(workDir, 'qa-explore')
+      this.log(styles.muted(`   Using catch-all devcontainer: ${claudeImage}`))
+      const devcontainerSetup = await this.setupCatchallDevcontainer(workDir, 'qa-explore', claudeImage)
       devcontainerConfigDir = devcontainerSetup.configDir
       cleanupDevcontainer = devcontainerSetup.cleanup
     }
@@ -803,14 +803,14 @@ Clean up your tmux session when done.`,
   /**
    * Set up catch-all devcontainer for directories without one.
    */
-  private async setupCatchallDevcontainer(workDir: string, slug: string): Promise<{ configDir: string; workDir: string; cleanup: () => void }> {
+  private async setupCatchallDevcontainer(workDir: string, slug: string, claudeImage: string): Promise<{ configDir: string; workDir: string; cleanup: () => void }> {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-qa-'))
     const devcontainerDir = path.join(tempDir, '.devcontainer')
     fs.mkdirSync(devcontainerDir, { recursive: true })
 
     const devcontainerJson = {
       name: `qa-${slug}`,
-      image: CATCHALL_DEVCONTAINER_IMAGE,
+      image: claudeImage,
       customizations: {
         vscode: {
           extensions: ['anthropic.claude-code'],
@@ -849,19 +849,19 @@ Clean up your tmux session when done.`,
   /**
    * Check if catch-all container image is available.
    */
-  private async checkCatchallImage(): Promise<{ available: boolean; error?: string }> {
+  private async checkCatchallImage(claudeImage: string): Promise<{ available: boolean; error?: string }> {
     try {
-      execSync(`docker image inspect ${CATCHALL_DEVCONTAINER_IMAGE}`, { stdio: 'pipe' })
+      execSync(`docker image inspect ${claudeImage}`, { stdio: 'pipe' })
       return { available: true }
     } catch {
-      this.log(styles.muted(`   Pulling container image: ${CATCHALL_DEVCONTAINER_IMAGE}`))
+      this.log(styles.muted(`   Pulling container image: ${claudeImage}`))
       try {
-        execSync(`docker pull ${CATCHALL_DEVCONTAINER_IMAGE}`, { stdio: 'pipe', timeout: 120000 })
+        execSync(`docker pull ${claudeImage}`, { stdio: 'pipe', timeout: 120000 })
         return { available: true }
       } catch {
         return {
           available: false,
-          error: `Failed to pull catch-all container image: ${CATCHALL_DEVCONTAINER_IMAGE}. Try running on host instead.`,
+          error: `Failed to pull catch-all container image: ${claudeImage}. Try running on host instead.`,
         }
       }
     }

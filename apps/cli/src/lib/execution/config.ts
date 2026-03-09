@@ -43,6 +43,7 @@ const CONFIG_KEYS = {
   vmUser: 'execution.vm.user',
   vmKeyPath: 'execution.vm.key_path',
   vmSyncMethod: 'execution.vm.sync_method',
+  claudeImage: 'execution.claude_image',
   coderName: 'coder.name',
   authMethod: 'execution.auth_method',
   createPrDefault: 'execution.create_pr_default',
@@ -128,6 +129,12 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     if (legacySandboxed !== null) {
       config.permissionMode = legacySandboxed === 'true' ? 'safe' : 'danger'
     }
+  }
+
+  // Load Claude image preference
+  const claudeImage = getSetting(db, CONFIG_KEYS.claudeImage)
+  if (claudeImage) {
+    config.claudeImage = claudeImage
   }
 
   // Load auth method preference
@@ -252,6 +259,13 @@ export function saveTmuxControlMode(db: Database.Database, enabled: boolean): vo
  */
 export function saveTerminalOpenInBackground(db: Database.Database, enabled: boolean): void {
   setSetting(db, CONFIG_KEYS.terminalOpenInBackground, enabled.toString())
+}
+
+/**
+ * Save Claude container image preference
+ */
+export function saveClaudeImage(db: Database.Database, image: string): void {
+  setSetting(db, CONFIG_KEYS.claudeImage, image)
 }
 
 /**

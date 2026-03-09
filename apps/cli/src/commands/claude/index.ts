@@ -39,8 +39,7 @@ import {
 } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 
-// Catch-all devcontainer image for directories without .devcontainer
-const CATCHALL_DEVCONTAINER_IMAGE = 'ghcr.io/chrismcdermut/proletariat-claude:latest'
+// Catch-all devcontainer image loaded from config (or DEFAULT_EXECUTION_CONFIG.claudeImage)
 
 /**
  * Check for uncommitted changes in git repo
@@ -373,11 +372,12 @@ export default class Claude extends PromptCommand {
     const sessionName = `adhoc-${slug}`
 
     // Prepare devcontainer if needed and not present
+    const claudeImage = DEFAULT_EXECUTION_CONFIG.claudeImage
     let devcontainerConfigDir = workDir
     let cleanupDevcontainer: (() => void) | undefined
     if (environment === 'devcontainer' && !hasProjectDevcontainer) {
       // Check if catch-all image is available
-      const imageCheck = await this.checkCatchallImage()
+      const imageCheck = await this.checkCatchallImage(claudeImage)
       if (!imageCheck.available) {
         if (jsonMode) {
           outputErrorAsJson('CONTAINER_IMAGE_UNAVAILABLE', imageCheck.error!, createMetadata('claude', flags))
@@ -387,8 +387,8 @@ export default class Claude extends PromptCommand {
       }
 
       // Create temporary devcontainer config using catch-all image
-      this.log(styles.muted(`   Using catch-all devcontainer: ${CATCHALL_DEVCONTAINER_IMAGE}`))
-      const devcontainerSetup = await this.setupCatchallDevcontainer(workDir, slug!)
+      this.log(styles.muted(`   Using catch-all devcontainer: ${claudeImage}`))
+      const devcontainerSetup = await this.setupCatchallDevcontainer(workDir, slug!, claudeImage)
       devcontainerConfigDir = devcontainerSetup.configDir
       cleanupDevcontainer = devcontainerSetup.cleanup
     }
@@ -955,7 +955,7 @@ export default class Claude extends PromptCommand {
    * Uses a temp directory to avoid polluting user's cwd
    * Returns { configDir, workDir } where configDir contains .devcontainer
    */
-  private async setupCatchallDevcontainer(workDir: string, slug: string): Promise<{ configDir: string; workDir: string; cleanup: () => void }> {
+  private async setupCatchallDevcontainer(workDir: string, slug: string, claudeImage: string): Promise<{ configDir: string; workDir: string; cleanup: () => void }> {
     // Create temp directory for devcontainer config
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-adhoc-'))
     const devcontainerDir = path.join(tempDir, '.devcontainer')
@@ -965,7 +965,7 @@ export default class Claude extends PromptCommand {
     // Use absolute path for mount to point to user's actual workDir
     const devcontainerJson = {
       name: `adhoc-${slug}`,
-      image: CATCHALL_DEVCONTAINER_IMAGE,
+      image: claudeImage,
       customizations: {
         vscode: {
           extensions: ['anthropic.claude-code'],
@@ -1007,21 +1007,21 @@ export default class Claude extends PromptCommand {
    * Check if catch-all container image is available
    * Returns true if image exists locally or can be pulled
    */
-  private async checkCatchallImage(): Promise<{ available: boolean; error?: string }> {
+  private async checkCatchallImage(claudeImage: string): Promise<{ available: boolean; error?: string }> {
     try {
       // First check if image exists locally
-      execSync(`docker image inspect ${CATCHALL_DEVCONTAINER_IMAGE}`, { stdio: 'pipe' })
+      execSync(`docker image inspect ${claudeImage}`, { stdio: 'pipe' })
       return { available: true }
     } catch {
       // Image not local, try to pull it
-      this.log(styles.muted(`   Pulling container image: ${CATCHALL_DEVCONTAINER_IMAGE}`))
+      this.log(styles.muted(`   Pulling container image: ${claudeImage}`))
       try {
-        execSync(`docker pull ${CATCHALL_DEVCONTAINER_IMAGE}`, { stdio: 'pipe', timeout: 120000 })
+        execSync(`docker pull ${claudeImage}`, { stdio: 'pipe', timeout: 120000 })
         return { available: true }
       } catch {
         return {
           available: false,
-          error: `Failed to pull catch-all container image: ${CATCHALL_DEVCONTAINER_IMAGE}. Try running on host instead, or ensure Docker is configured correctly.`,
+          error: `Failed to pull catch-all container image: ${claudeImage}. Try running on host instead, or ensure Docker is configured correctly.`,
         }
       }
     }

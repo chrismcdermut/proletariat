@@ -349,6 +349,7 @@ export interface ExecutionConfig {
     app: TerminalApp
     openInBackground: boolean  // Open terminal tabs without stealing focus (default: true)
   }
+  claudeImage: string  // Catch-all container image for ad-hoc Claude/QA sessions (used when no .devcontainer exists)
   devcontainer: {
     defaultImage: string
     memory: string
@@ -391,6 +392,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   shell: 'zsh',  // macOS default
   outputMode: 'interactive',  // Show streaming UI by default
   permissionMode: 'safe',  // Require approval for dangerous operations by default
+  claudeImage: 'ghcr.io/chrismcdermut/proletariat-claude:latest',  // Catch-all container image
   tmux: {
     session: 'proletariat',
     layout: 'window',

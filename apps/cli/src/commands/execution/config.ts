@@ -12,6 +12,7 @@ import {
   saveTmuxControlMode,
   saveShell,
   saveExecutionSetting,
+  saveClaudeImage,
 } from '../../lib/execution/config.js'
 import {
   TerminalApp,
@@ -38,6 +39,7 @@ export default class ExecutionConfig extends PMOCommand {
     '<%= config.bin %> execution config --set defaultEnvironment host',
     '<%= config.bin %> execution config --set outputMode interactive',
     '<%= config.bin %> execution config --set permissionMode safe',
+    '<%= config.bin %> execution config --set "claudeImage ghcr.io/my-org/my-claude:latest"',
     '<%= config.bin %> execution config --setting outputMode --json  # Show output mode choices',
   ]
 
@@ -123,6 +125,7 @@ export default class ExecutionConfig extends PMOCommand {
             defaultExecutor: config.defaultExecutor,
             outputMode: config.outputMode,
             permissionMode: config.permissionMode,
+            claudeImage: config.claudeImage,
           }, createMetadata('execution config', flags))
         } else {
           this.log('')
@@ -132,6 +135,9 @@ export default class ExecutionConfig extends PMOCommand {
           this.log(styles.emphasis('Environment'))
           this.log(`  defaultEnvironment: ${config.defaultEnvironment}`)
           this.log(`  defaultExecutor:    ${config.defaultExecutor}`)
+          this.log('')
+          this.log(styles.emphasis('Container'))
+          this.log(`  claudeImage:        ${config.claudeImage}`)
           this.log('')
           this.log(styles.emphasis('Output'))
           this.log(`  outputMode:         ${config.outputMode}`)
@@ -164,6 +170,7 @@ export default class ExecutionConfig extends PMOCommand {
         { name: `Default Environment: ${config.defaultEnvironment}`, value: 'defaultEnvironment', command: 'prlt execution config --setting defaultEnvironment --json' },
         { name: `Output Mode: ${config.outputMode}`, value: 'outputMode', command: 'prlt execution config --setting outputMode --json' },
         { name: `Permission Mode: ${config.permissionMode}`, value: 'permissionMode', command: 'prlt execution config --setting permissionMode --json' },
+        { name: `Claude Image: ${config.claudeImage}`, value: 'claudeImage', command: 'prlt execution config --setting claudeImage --json' },
         { name: `Terminal App: ${config.terminal.app}`, value: 'terminal.app', command: 'prlt execution config --setting terminal.app --json' },
         { name: `Open Tabs in Background: ${config.terminal.openInBackground}`, value: 'terminal.openInBackground', command: 'prlt execution config --setting terminal.openInBackground --json' },
         { name: `Shell: ${config.shell}`, value: 'shell', command: 'prlt execution config --setting shell --json' },
@@ -178,12 +185,14 @@ export default class ExecutionConfig extends PMOCommand {
           choices: [
             new inquirer.Separator('── Execution ──'),
             ...settingChoices.slice(0, 3),
+            new inquirer.Separator('── Container ──'),
+            settingChoices[3],
             new inquirer.Separator('── Terminal ──'),
-            ...settingChoices.slice(3, 5),
+            ...settingChoices.slice(4, 6),
             new inquirer.Separator('── Shell ──'),
-            settingChoices[5],
-            new inquirer.Separator('── Tmux ──'),
             settingChoices[6],
+            new inquirer.Separator('── Tmux ──'),
+            settingChoices[7],
             new inquirer.Separator(),
             { name: 'Exit', value: '__exit__' },
           ],
@@ -271,6 +280,21 @@ export default class ExecutionConfig extends PMOCommand {
         ], jsonModeConfig)
         this.setConfigValue(db, 'permissionMode', newPerm, false)
         this.log(styles.success(`Permission mode set to: ${newPerm}`))
+        break
+      }
+
+      case 'claudeImage': {
+        const { newImage } = await this.prompt<{ newImage: string }>([
+          {
+            type: 'input',
+            name: 'newImage',
+            message: 'Container image for ad-hoc Claude/QA sessions (catch-all):',
+            default: config.claudeImage,
+            validate: (input: unknown) => (input as string).trim() ? true : 'Image name required',
+          },
+        ], jsonModeConfig)
+        saveClaudeImage(db, newImage.trim())
+        this.log(styles.success(`Claude image set to: ${newImage.trim()}`))
         break
       }
 
@@ -404,6 +428,9 @@ export default class ExecutionConfig extends PMOCommand {
       case 'permissionmode':
         // Store permission mode preference
         this.setPermissionMode(db, value as PermissionMode)
+        break
+      case 'claudeimage':
+        saveClaudeImage(db, value)
         break
       case 'terminal.app':
         saveTerminalApp(db, value as TerminalApp)
