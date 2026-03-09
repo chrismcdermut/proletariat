@@ -10,6 +10,7 @@
 import { execSync } from 'node:child_process'
 import type { AgentRunner } from './agent-runner.js'
 import { ClaudeCodeRunner } from './claude-code-runner.js'
+import { EventEmittingRunner } from '../events/emitting-runner.js'
 
 // Re-export interface and types for consumers
 export type { AgentRunner, AgentSession, SpawnConfig } from './agent-runner.js'
@@ -96,4 +97,14 @@ export function getRunner(name?: string): AgentRunner | null {
   }
 
   return null
+}
+
+/**
+ * Wrap a runner with event emission.
+ *
+ * Returns an EventEmittingRunner that delegates to the given runner
+ * while emitting runtime events on the global EventBus.
+ */
+export function withEvents(runner: AgentRunner): AgentRunner {
+  return new EventEmittingRunner(runner)
 }
