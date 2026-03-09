@@ -1,15 +1,73 @@
+import { runCommand } from '@oclif/test';
 import { expect } from 'chai';
-import { execSync } from 'node:child_process';
+import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const CLI_PATH = path.resolve(__dirname, '../../bin/run.js');
+
+// Root directory for the CLI - needed for @oclif/test to find commands
+const root = path.resolve(__dirname, '../..');
+
+/**
+ * Environment variables that can cause the init hook or PMOCommand.init()
+ * to detect ambient workspace state and emit preflight output to stdout.
+ * Clearing these ensures help assertions get clean output regardless of
+ * whether the test runs locally (with a valid HQ at /hq) or in CI (no HQ).
+ */
+const WORKSPACE_ENV_VARS = [
+  'PRLT_HQ_PATH',
+  'PRLT_PMO_PATH',
+  'PRLT_DATABASE_PATH',
+  'PRLT_CONFIG_PATH',
+  'DEVCONTAINER',
+  'PRLT_TEST_ENV',
+  'PRLT_JSON',
+  'PRLT_FORCE_TEXT',
+] as const;
+
+/**
+ * Runs an async function with process.exit mocked to throw instead of terminating.
+ *
+ * CLI commands in JSON/machine mode call process.exit() to signal completion.
+ * When running in-process via runCommand(), this would kill the test runner.
+ * This wrapper replaces process.exit with a throw so @oclif/test's output
+ * capture returns the already-captured stdout/stderr alongside the error.
+ */
+async function withMockedProcessExit<T>(fn: () => Promise<T>): Promise<T> {
+  const originalExit = process.exit;
+  process.exit = ((code?: number) => {
+    throw new Error(`process.exit(${code ?? 0})`);
+  }) as never;
+
+  try {
+    return await fn();
+  } finally {
+    process.exit = originalExit;
+  }
+}
+
+// Helper to parse JSON from CLI output (handles warnings/noise)
+function parseJson(output: string): Record<string, unknown> | null {
+  const lines = output.split('\n');
+  let jsonStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim().startsWith('{')) {
+      jsonStart = i;
+      break;
+    }
+  }
+  if (jsonStart === -1) return null;
+  try {
+    return JSON.parse(lines.slice(jsonStart).join('\n'));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Unit tests for template/* command machine-readable output mode support
@@ -23,59 +81,35 @@ const CLI_PATH = path.resolve(__dirname, '../../bin/run.js');
  *   template save     - save ticket as template
  *   template update   - update phase template
  *   template delete   - delete templates
+ *
+ * Help tests use runCommand() (in-process via @oclif/test) for speed and
+ * reliability. Functional --json tests use runCommand() wrapped in
+ * withMockedProcessExit() because those commands call process.exit() via
+ * outputPromptAsJson, which would kill the test runner if unmocked.
  */
-describe('Template Commands Machine Output Mode Support', () => {
-  // Isolated env to prevent test commands from polluting production database
-  function getIsolatedEnv(): NodeJS.ProcessEnv {
-    const env = { ...process.env };
-    delete env.PRLT_HQ_PATH;
-    delete env.PRLT_PMO_PATH;
-    delete env.PRLT_DATABASE_PATH;
-    delete env.PRLT_CONFIG_PATH;
-    delete env.DEVCONTAINER;
-    delete env.PRLT_TEST_ENV;
-    return env;
-  }
+describe('Template Commands Machine Output Mode Support', function (this: Mocha.Suite) {
+  // First test in suite loads better-sqlite3 native module; allow extra time
+  this.timeout(120_000);
 
-  // Helper to run CLI and get output
-  function runCli(args: string, options?: { cwd?: string }): string {
-    try {
-      return execSync(`node ${CLI_PATH} ${args} 2>&1`, {
-        encoding: 'utf-8',
-        timeout: 10000,
-        env: getIsolatedEnv(),
-        cwd: options?.cwd,
-      });
-    } catch (error) {
-      // Return stderr/stdout even on error (JSON mode exits with code 2)
-      return (error as { stdout?: string; stderr?: string }).stdout ||
-             (error as { stderr?: string }).stderr || '';
-    }
-  }
-
-  // Helper to parse JSON from CLI output (handles warnings/noise)
-  function parseJson(output: string): Record<string, unknown> | null {
-    const lines = output.split('\n');
-    let jsonStart = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trim().startsWith('{')) {
-        jsonStart = i;
-        break;
-      }
-    }
-    if (jsonStart === -1) return null;
-    try {
-      return JSON.parse(lines.slice(jsonStart).join('\n'));
-    } catch {
-      return null;
-    }
-  }
-
-  // Minimal workspace for tests that run commands (not just --help)
   let tempHQ: string;
   let db: Database.Database;
+  let originalCwd: string;
+  let savedEnv: Record<string, string | undefined>;
 
   before(() => {
+    // Save original state
+    originalCwd = process.cwd();
+    savedEnv = {};
+    for (const key of WORKSPACE_ENV_VARS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+
+    // Force text output in non-TTY environments (CI) so help assertions
+    // see human-readable text, not JSON auto-detected by isNonTTY()
+    process.env.PRLT_FORCE_TEXT = '1';
+
+    // Create temp HQ with database for functional tests
     tempHQ = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'template-test-')));
     const proletariatDir = path.join(tempHQ, '.proletariat');
     fs.mkdirSync(proletariatDir, { recursive: true });
@@ -100,34 +134,51 @@ describe('Template Commands Machine Output Mode Support', () => {
     db.prepare("INSERT INTO pmo_projects (id, name, description, workflow_id) VALUES (?, ?, ?, ?)").run(
       'test-project', 'Test Project', 'Test project for template tests', 'default'
     );
+
+    process.chdir(tempHQ);
   });
 
   after(() => {
+    // Restore original state
+    process.chdir(originalCwd);
     if (db) db.close();
     if (tempHQ && fs.existsSync(tempHQ)) {
       fs.rmSync(tempHQ, { recursive: true, force: true });
     }
+    for (const key of WORKSPACE_ENV_VARS) {
+      if (savedEnv[key] !== undefined) {
+        process.env[key] = savedEnv[key];
+      } else {
+        delete process.env[key];
+      }
+    }
   });
 
   describe('template index (machineOutputFlags)', () => {
-    it('should have --json flag with -m shorthand in help', () => {
-      const output = runCli('template --help');
-      expect(output).to.include('--json');
-      expect(output).to.include('-m');
+    it('should have --json flag with -m shorthand in help', async () => {
+      const { stdout } = await runCommand(['template', '--help'], { root });
+      expect(stdout).to.include('--json');
+      expect(stdout).to.include('-m');
     });
 
-    it('should output JSON with command field for each choice', () => {
-      const output = runCli('template --json', { cwd: tempHQ });
-      const json = parseJson(output) as { prompt: { type: string; choices: Array<{ command?: string }> } };
+    // Functional test: uses runCommand + withMockedProcessExit because template --json calls process.exit()
+    it('should output JSON with command field for each choice', async () => {
+      const { stdout } = await withMockedProcessExit(() =>
+        runCommand(['template', '--json'], { root })
+      );
+      const json = parseJson(stdout) as { prompt: { type: string; choices: Array<{ command?: string }> } };
       expect(json).to.not.be.null;
       expect(json.prompt.type).to.equal('list');
       expect(json.prompt.choices).to.be.an('array');
       expect(json.prompt.choices.every((c) => c.command !== undefined)).to.be.true;
     });
 
-    it('should include navigation commands in choices', () => {
-      const output = runCli('template --json', { cwd: tempHQ });
-      const json = parseJson(output) as { prompt: { choices: Array<{ command: string }> } };
+    // Functional test: uses runCommand + withMockedProcessExit because template --json calls process.exit()
+    it('should include navigation commands in choices', async () => {
+      const { stdout } = await withMockedProcessExit(() =>
+        runCommand(['template', '--json'], { root })
+      );
+      const json = parseJson(stdout) as { prompt: { choices: Array<{ command: string }> } };
       expect(json).to.not.be.null;
       const commands = json.prompt.choices.map((c) => c.command);
       expect(commands).to.include('prlt template list --json');
@@ -137,57 +188,60 @@ describe('Template Commands Machine Output Mode Support', () => {
   });
 
   describe('template delete (machineOutputFlags via pmoBaseFlags)', () => {
-    it('should have --json flag with -m shorthand in help', () => {
-      const output = runCli('template delete --help');
-      expect(output).to.include('--json');
-      expect(output).to.include('-m');
+    it('should have --json flag with -m shorthand in help', async () => {
+      const { stdout } = await runCommand(['template', 'delete', '--help'], { root });
+      expect(stdout).to.include('--json');
+      expect(stdout).to.include('-m');
     });
   });
 
   describe('template create', () => {
-    it('should have --json flag in help', () => {
-      const output = runCli('template create --help');
-      expect(output).to.include('--json');
+    it('should have --json flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'create', '--help'], { root });
+      expect(stdout).to.include('--json');
     });
 
-    it('should have --subtask flag in help', () => {
-      const output = runCli('template create --help');
-      expect(output).to.include('--subtask');
+    it('should have --subtask flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'create', '--help'], { root });
+      expect(stdout).to.include('--subtask');
     });
 
-    it('should have --ac flag in help', () => {
-      const output = runCli('template create --help');
-      expect(output).to.include('--ac');
+    it('should have --ac flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'create', '--help'], { root });
+      expect(stdout).to.include('--ac');
     });
 
-    it('should have --label flag in help', () => {
-      const output = runCli('template create --help');
-      expect(output).to.include('--label');
+    it('should have --label flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'create', '--help'], { root });
+      expect(stdout).to.include('--label');
     });
 
-    it('should have --title-pattern flag in help', () => {
-      const output = runCli('template create --help');
-      expect(output).to.include('--title-pattern');
+    it('should have --title-pattern flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'create', '--help'], { root });
+      expect(stdout).to.include('--title-pattern');
     });
 
-    it('should have --description-template flag in help', () => {
-      const output = runCli('template create --help');
-      expect(output).to.include('--description-template');
+    it('should have --description-template flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'create', '--help'], { root });
+      expect(stdout).to.include('--description-template');
     });
 
-    it('should have --priority flag in help', () => {
-      const output = runCli('template create --help');
-      expect(output).to.include('--priority');
+    it('should have --priority flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'create', '--help'], { root });
+      expect(stdout).to.include('--priority');
     });
 
-    it('should have --category flag in help', () => {
-      const output = runCli('template create --help');
-      expect(output).to.include('--category');
+    it('should have --category flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'create', '--help'], { root });
+      expect(stdout).to.include('--category');
     });
 
-    it('should output JSON type prompt when --json is used without --type', () => {
-      const output = runCli('template create --json', { cwd: tempHQ });
-      const json = parseJson(output) as { prompt: { type: string; name: string; choices: Array<{ value: string }> } };
+    // Functional test: uses runCommand + withMockedProcessExit because template create --json calls process.exit()
+    it('should output JSON type prompt when --json is used without --type', async () => {
+      const { stdout } = await withMockedProcessExit(() =>
+        runCommand(['template', 'create', '--json'], { root })
+      );
+      const json = parseJson(stdout) as { prompt: { type: string; name: string; choices: Array<{ value: string }> } };
       expect(json).to.not.be.null;
       expect(json.prompt.type).to.equal('list');
       expect(json.prompt.name).to.equal('type');
@@ -198,41 +252,41 @@ describe('Template Commands Machine Output Mode Support', () => {
   });
 
   describe('template list', () => {
-    it('should have --json flag in help', () => {
-      const output = runCli('template list --help');
-      expect(output).to.include('--json');
+    it('should have --json flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'list', '--help'], { root });
+      expect(stdout).to.include('--json');
     });
   });
 
   describe('template apply', () => {
-    it('should have --json flag in help', () => {
-      const output = runCli('template apply --help');
-      expect(output).to.include('--json');
+    it('should have --json flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'apply', '--help'], { root });
+      expect(stdout).to.include('--json');
     });
   });
 
   describe('template save', () => {
-    it('should have --json flag in help', () => {
-      const output = runCli('template save --help');
-      expect(output).to.include('--json');
+    it('should have --json flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'save', '--help'], { root });
+      expect(stdout).to.include('--json');
     });
 
-    it('should have --template-name flag in help', () => {
-      const output = runCli('template save --help');
-      expect(output).to.include('--template-name');
-      expect(output).to.include('-n');
+    it('should have --template-name flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'save', '--help'], { root });
+      expect(stdout).to.include('--template-name');
+      expect(stdout).to.include('-n');
     });
 
-    it('should have -m shorthand for --json in help', () => {
-      const output = runCli('template save --help');
-      expect(output).to.include('-m');
+    it('should have -m shorthand for --json in help', async () => {
+      const { stdout } = await runCommand(['template', 'save', '--help'], { root });
+      expect(stdout).to.include('-m');
     });
   });
 
   describe('template update', () => {
-    it('should have --json flag in help', () => {
-      const output = runCli('template update --help');
-      expect(output).to.include('--json');
+    it('should have --json flag in help', async () => {
+      const { stdout } = await runCommand(['template', 'update', '--help'], { root });
+      expect(stdout).to.include('--json');
     });
   });
 });

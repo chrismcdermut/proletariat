@@ -186,7 +186,7 @@ describe('Session Commands E2E Tests', () => {
       expect(result!.prompt.name).to.equal('action');
       expect(result!.prompt.message).to.include('Session Management');
       expect(result!.prompt.choices).to.be.an('array');
-      expect(result!.prompt.choices.length).to.equal(7); // list, create, attach, peek, health, poke, cancel
+      expect(result!.prompt.choices.length).to.equal(8); // list, create, attach, peek, health, poke, prune, cancel
     });
 
     it('should include List choice with correct value and command', () => {
@@ -713,12 +713,12 @@ describe('Session Commands E2E Tests', () => {
       expect(result).to.not.be.null;
 
       const actionableChoices = result!.prompt.choices.filter(c => c.value !== 'cancel');
-      expect(actionableChoices.length).to.equal(6); // list, create, attach, peek, health, poke
+      expect(actionableChoices.length).to.equal(7); // list, create, attach, peek, health, poke, prune
 
       for (const choice of actionableChoices) {
         expect(choice.command).to.exist;
         expect(choice.command).to.include('--json');
-        expect(choice.command).to.match(/^prlt session (list|create|attach|peek|health|poke) --json$/);
+        expect(choice.command).to.match(/^prlt session (list|create|attach|peek|health|poke|prune) --json$/);
       }
     });
 
