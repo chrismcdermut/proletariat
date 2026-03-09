@@ -1,6 +1,5 @@
 import { runCommand } from '@oclif/test';
 import { expect } from 'chai';
-import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -32,26 +31,23 @@ const WORKSPACE_ENV_VARS = [
 ] as const;
 
 /**
- * Helper to run CLI via execSync for tests that trigger process.exit()
- * (e.g. --json mode calls outputPromptAsJson which exits the process).
- * These cannot use runCommand() since it runs in-process.
+ * Runs an async function with process.exit mocked to throw instead of terminating.
+ *
+ * CLI commands in JSON/machine mode call process.exit() to signal completion.
+ * When running in-process via runCommand(), this would kill the test runner.
+ * This wrapper replaces process.exit with a throw so @oclif/test's output
+ * capture returns the already-captured stdout/stderr alongside the error.
  */
-function execCli(args: string, options?: { cwd?: string }): string {
-  const binPath = path.join(root, 'bin', 'run.js');
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of WORKSPACE_ENV_VARS) {
-    delete env[key];
-  }
+async function withMockedProcessExit<T>(fn: () => Promise<T>): Promise<T> {
+  const originalExit = process.exit;
+  process.exit = ((code?: number) => {
+    throw new Error(`process.exit(${code ?? 0})`);
+  }) as never;
+
   try {
-    return execSync(`node ${binPath} ${args} 2>&1`, {
-      encoding: 'utf-8',
-      timeout: 30000,
-      env,
-      cwd: options?.cwd,
-    });
-  } catch (error) {
-    return (error as { stdout?: string; stderr?: string }).stdout ||
-           (error as { stderr?: string }).stderr || '';
+    return await fn();
+  } finally {
+    process.exit = originalExit;
   }
 }
 
@@ -87,9 +83,9 @@ function parseJson(output: string): Record<string, unknown> | null {
  *   template delete   - delete templates
  *
  * Help tests use runCommand() (in-process via @oclif/test) for speed and
- * reliability. Functional --json tests use execSync because those commands
- * call process.exit() via outputPromptAsJson, which would kill the test
- * runner if run in-process.
+ * reliability. Functional --json tests use runCommand() wrapped in
+ * withMockedProcessExit() because those commands call process.exit() via
+ * outputPromptAsJson, which would kill the test runner if unmocked.
  */
 describe('Template Commands Machine Output Mode Support', function (this: Mocha.Suite) {
   // First test in suite loads better-sqlite3 native module; allow extra time
@@ -165,20 +161,24 @@ describe('Template Commands Machine Output Mode Support', function (this: Mocha.
       expect(stdout).to.include('-m');
     });
 
-    // Functional test: uses execSync because template --json calls process.exit()
-    it('should output JSON with command field for each choice', () => {
-      const output = execCli('template --json', { cwd: tempHQ });
-      const json = parseJson(output) as { prompt: { type: string; choices: Array<{ command?: string }> } };
+    // Functional test: uses runCommand + withMockedProcessExit because template --json calls process.exit()
+    it('should output JSON with command field for each choice', async () => {
+      const { stdout } = await withMockedProcessExit(() =>
+        runCommand(['template', '--json'], { root })
+      );
+      const json = parseJson(stdout) as { prompt: { type: string; choices: Array<{ command?: string }> } };
       expect(json).to.not.be.null;
       expect(json.prompt.type).to.equal('list');
       expect(json.prompt.choices).to.be.an('array');
       expect(json.prompt.choices.every((c) => c.command !== undefined)).to.be.true;
     });
 
-    // Functional test: uses execSync because template --json calls process.exit()
-    it('should include navigation commands in choices', () => {
-      const output = execCli('template --json', { cwd: tempHQ });
-      const json = parseJson(output) as { prompt: { choices: Array<{ command: string }> } };
+    // Functional test: uses runCommand + withMockedProcessExit because template --json calls process.exit()
+    it('should include navigation commands in choices', async () => {
+      const { stdout } = await withMockedProcessExit(() =>
+        runCommand(['template', '--json'], { root })
+      );
+      const json = parseJson(stdout) as { prompt: { choices: Array<{ command: string }> } };
       expect(json).to.not.be.null;
       const commands = json.prompt.choices.map((c) => c.command);
       expect(commands).to.include('prlt template list --json');
@@ -236,10 +236,12 @@ describe('Template Commands Machine Output Mode Support', function (this: Mocha.
       expect(stdout).to.include('--category');
     });
 
-    // Functional test: uses execSync because template create --json calls process.exit()
-    it('should output JSON type prompt when --json is used without --type', () => {
-      const output = execCli('template create --json', { cwd: tempHQ });
-      const json = parseJson(output) as { prompt: { type: string; name: string; choices: Array<{ value: string }> } };
+    // Functional test: uses runCommand + withMockedProcessExit because template create --json calls process.exit()
+    it('should output JSON type prompt when --json is used without --type', async () => {
+      const { stdout } = await withMockedProcessExit(() =>
+        runCommand(['template', 'create', '--json'], { root })
+      );
+      const json = parseJson(stdout) as { prompt: { type: string; name: string; choices: Array<{ value: string }> } };
       expect(json).to.not.be.null;
       expect(json.prompt.type).to.equal('list');
       expect(json.prompt.name).to.equal('type');
