@@ -16,6 +16,12 @@ import {
   buildLinearTicketDescription,
   getLinearIssueByIdentifier,
 } from '../external-issues/linear.js'
+import {
+  buildShortcutMetadata,
+  buildShortcutSpawnContextMessage,
+  buildShortcutTicketDescription,
+  getShortcutStoryByKey,
+} from '../external-issues/shortcut.js'
 import type { NormalizedIssueEnvelope } from '../external-issues/types.js'
 import type { WorkSourceProvider } from './config.js'
 
@@ -87,10 +93,31 @@ class AsanaWorkSourceClient implements WorkSourceClient {
   }
 }
 
+class ShortcutWorkSourceClient implements WorkSourceClient {
+  readonly provider: WorkSourceProvider = 'shortcut'
+
+  async fetchByKey(key: string): Promise<NormalizedIssueEnvelope | null> {
+    return getShortcutStoryByKey({}, key)
+  }
+
+  buildTicketDescription(envelope: NormalizedIssueEnvelope): string {
+    return buildShortcutTicketDescription(envelope)
+  }
+
+  buildMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
+    return buildShortcutMetadata(envelope)
+  }
+
+  buildSpawnContextMessage(envelope: NormalizedIssueEnvelope, additionalMessage?: string): string {
+    return buildShortcutSpawnContextMessage(envelope, additionalMessage)
+  }
+}
+
 const SOURCE_CLIENTS: Partial<Record<WorkSourceProvider, WorkSourceClient>> = {
   linear: new LinearWorkSourceClient(),
   jira: new JiraWorkSourceClient(),
   asana: new AsanaWorkSourceClient(),
+  shortcut: new ShortcutWorkSourceClient(),
 }
 
 export function getWorkSourceClient(provider: WorkSourceProvider): WorkSourceClient | null {
