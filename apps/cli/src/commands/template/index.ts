@@ -1,8 +1,8 @@
 
 import { styles } from '../../lib/styles.js';
-import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
 import { PromptCommand } from '../../lib/prompt-command.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
 export default class Template extends PromptCommand {
   static description = 'Manage templates (ticket and phase)';
@@ -34,23 +34,28 @@ export default class Template extends PromptCommand {
       { name: 'Cancel', value: 'cancel', command: '' },
     ];
 
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', 'What would you like to do?', menuChoices),
-        createMetadata('template', flags)
-      );
-      return;
+    const resolver = new FlagResolver({
+      commandName: 'template',
+      baseCommand: 'prlt template',
+      jsonMode,
+      flags,
+    });
+
+    resolver.addPrompt({
+      flagName: 'action',
+      type: 'list',
+      message: 'What would you like to do?',
+      choices: () => menuChoices,
+      skipAutoCommand: true,
+    });
+
+    if (!jsonMode) {
+      this.log(`\n${styles.emphasis('Templates')}`);
+      this.log(styles.muted('Manage ticket and phase templates\n'));
     }
 
-    this.log(`\n${styles.emphasis('Templates')}`);
-    this.log(styles.muted('Manage ticket and phase templates\n'));
-
-    const { action } = await this.prompt<{ action: string }>([{
-      type: 'list',
-      name: 'action',
-      message: 'What would you like to do?',
-      choices: menuChoices.map(c => ({ name: c.name, value: c.value, command: c.command })),
-    }], null);
+    const resolved = await resolver.resolve();
+    const action = resolved.action as string;
 
     if (action === 'cancel') return;
 

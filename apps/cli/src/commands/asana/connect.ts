@@ -1,5 +1,4 @@
 import { Flags } from '@oclif/core'
-import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js'
 import {
@@ -8,6 +7,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 import {
   AsanaClient,
   clearAsanaConfig,
@@ -143,30 +143,35 @@ export default class AsanaConnect extends PMOCommand {
     let accessToken = getAsanaAccessToken(db)
 
     if (!accessToken) {
-      if (jsonMode) {
-        outputErrorAsJson(
-          'ACCESS_TOKEN_REQUIRED',
-          'Asana access token required. Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN.',
-          createMetadata('asana connect', flags),
-        )
-        this.exit(1)
+      if (!jsonMode) {
+        this.log('')
+        this.log(colors.primary('Asana Authentication'))
+        this.log('')
+        this.log('Create a Personal Access Token at:')
+        this.log(colors.textSecondary('  https://app.asana.com/0/my-apps'))
+        this.log('')
       }
 
-      this.log('')
-      this.log(colors.primary('Asana Authentication'))
-      this.log('')
-      this.log('Create a Personal Access Token at:')
-      this.log(colors.textSecondary('  https://app.asana.com/0/my-apps'))
-      this.log('')
+      const resolver = new FlagResolver({
+        commandName: 'asana connect',
+        baseCommand: 'prlt asana connect',
+        jsonMode,
+        flags,
+      })
 
-      const { inputToken } = await inquirer.prompt([{
-        type: 'password',
-        name: 'inputToken',
+      resolver.addPrompt({
+        flagName: 'accessToken',
+        type: 'input',
         message: 'Enter your Asana access token:',
-        mask: '*',
-        validate: (input: string) => input.trim().length > 0 || 'Access token is required',
-      }])
-      accessToken = inputToken
+        validate: (value) => String(value).trim().length > 0 || 'Access token is required',
+        context: {
+          hint: 'Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN environment variable, or provide the token interactively.',
+          url: 'https://app.asana.com/0/my-apps',
+        },
+      })
+
+      const resolved = await resolver.resolve()
+      accessToken = resolved.accessToken as string
     }
 
     if (!accessToken) {
@@ -231,22 +236,31 @@ export default class AsanaConnect extends PMOCommand {
         workspaceName = user.workspaces[0].name
       }
 
-      if (!workspaceGid && !jsonMode && user.workspaces.length > 1) {
-        const { selectedWorkspace } = await inquirer.prompt([{
+      if (!workspaceGid && user.workspaces.length > 1) {
+        const wsResolver = new FlagResolver({
+          commandName: 'asana connect',
+          baseCommand: 'prlt asana connect',
+          jsonMode,
+          flags,
+        })
+
+        wsResolver.addPrompt({
+          flagName: 'workspace',
           type: 'list',
-          name: 'selectedWorkspace',
           message: 'Select default Asana workspace (optional):',
-          choices: [
-            { name: 'Skip', value: null },
+          choices: () => [
+            { name: 'Skip', value: '__skip__' },
             ...user.workspaces.map((workspace) => ({
               name: workspace.name,
               value: workspace.gid,
             })),
           ],
-          default: null,
-        }])
+        })
 
-        if (selectedWorkspace) {
+        const wsResolved = await wsResolver.resolve()
+        const selectedWorkspace = wsResolved.workspace as string
+
+        if (selectedWorkspace && selectedWorkspace !== '__skip__') {
           const selected = user.workspaces.find((workspace) => workspace.gid === selectedWorkspace)
           workspaceGid = selected?.gid
           workspaceName = selected?.name

@@ -1,15 +1,13 @@
 import { Flags } from '@oclif/core'
-import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
   outputErrorAsJson,
-  outputPromptAsJson,
-  buildPromptConfig,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 import {
   LinearClient,
   isLinearConfigured,
@@ -113,34 +111,40 @@ export default class LinearConnect extends PMOCommand {
     let apiKey = getLinearApiKey(db)
 
     if (!apiKey) {
-      if (jsonMode) {
-        outputErrorAsJson(
-          'API_KEY_REQUIRED',
-          'Linear API key required. Set LINEAR_API_KEY or PRLT_LINEAR_API_KEY environment variable, or run interactively.',
-          createMetadata('linear connect', flags),
-        )
-        this.exit(1)
+      if (!jsonMode) {
+        this.log('')
+        this.log(colors.primary('Linear Authentication'))
+        this.log('')
+        this.log('Create a personal API key at:')
+        this.log(colors.textSecondary('  https://linear.app/settings/api'))
+        this.log('')
       }
 
-      this.log('')
-      this.log(colors.primary('Linear Authentication'))
-      this.log('')
-      this.log('Create a personal API key at:')
-      this.log(colors.textSecondary('  https://linear.app/settings/api'))
-      this.log('')
+      const resolver = new FlagResolver({
+        commandName: 'linear connect',
+        baseCommand: 'prlt linear connect',
+        jsonMode,
+        flags,
+      })
 
-      const { inputKey } = await inquirer.prompt([{
-        type: 'password',
-        name: 'inputKey',
+      resolver.addPrompt({
+        flagName: 'apiKey',
+        type: 'input',
         message: 'Enter your Linear API key:',
-        mask: '*',
-        validate: (input: string) => {
+        validate: (value) => {
+          const input = String(value)
           if (!input.trim()) return 'API key is required'
           if (!input.startsWith('lin_api_')) return 'Linear API keys start with "lin_api_"'
           return true
         },
-      }])
-      apiKey = inputKey
+        context: {
+          hint: 'Set LINEAR_API_KEY or PRLT_LINEAR_API_KEY environment variable, or provide the key interactively.',
+          url: 'https://linear.app/settings/api',
+        },
+      })
+
+      const resolved = await resolver.resolve()
+      apiKey = resolved.apiKey as string
     }
 
     // Verify the API key
@@ -314,38 +318,30 @@ export default class LinearConnect extends PMOCommand {
       return
     }
 
-    // JSON mode without --team: output success with available teams
-    if (jsonMode) {
-      const teamChoices = teams.map((t) => ({
-        name: `${t.name} (${t.key})`,
-        value: t.key,
-      }))
-      const message = 'Select a default team:'
-      outputPromptAsJson(
-        buildPromptConfig('list', 'team', message, teamChoices),
-        createMetadata('linear connect', flags),
-      )
-      return
-    }
-
-    // Interactive team selection
     this.log('')
     if (teams.length === 1) {
       saveLinearDefaultTeam(db, teams[0].id, teams[0].key)
       this.log(colors.textMuted(`  Default team set to: ${teams[0].name} (${teams[0].key})`))
     } else {
-      const teamChoices = teams.map((t) => ({
-        name: `${t.name} (${t.key})`,
-        value: t.id,
-      }))
-      const message = 'Select your default team:'
+      const teamResolver = new FlagResolver({
+        commandName: 'linear connect',
+        baseCommand: 'prlt linear connect',
+        jsonMode,
+        flags,
+      })
 
-      const { selectedTeamId } = await inquirer.prompt([{
+      teamResolver.addPrompt({
+        flagName: 'team',
         type: 'list',
-        name: 'selectedTeamId',
-        message,
-        choices: teamChoices,
-      }])
+        message: 'Select your default team:',
+        choices: () => teams.map((t) => ({
+          name: `${t.name} (${t.key})`,
+          value: t.id,
+        })),
+      })
+
+      const teamResolved = await teamResolver.resolve()
+      const selectedTeamId = teamResolved.team as string
 
       const selectedTeam = teams.find((t) => t.id === selectedTeamId)!
       saveLinearDefaultTeam(db, selectedTeam.id, selectedTeam.key)

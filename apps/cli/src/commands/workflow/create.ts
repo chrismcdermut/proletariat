@@ -1,15 +1,8 @@
 import { Args, Flags } from '@oclif/core';
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import type { StateCategory } from '../../lib/pmo/types.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildFormPromptConfig,
-  FormField,
-} from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
 export default class WorkflowCreate extends PMOCommand {
   static description = 'Create a new custom workflow';
@@ -46,45 +39,34 @@ export default class WorkflowCreate extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkflowCreate);
-
-    // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Get workflow name
-    let name = args.name;
+    const resolver = new FlagResolver({
+      commandName: 'workflow create',
+      baseCommand: 'prlt workflow create',
+      jsonMode,
+      flags: { ...flags, name: args.name },
+      args,
+    });
 
-    if (!name) {
-      const fields: FormField[] = [
-        { type: 'input', name: 'name', message: 'Workflow name:' },
-        { type: 'input', name: 'description', message: 'Description (optional):', default: flags.description },
-      ];
+    resolver.addPrompt({
+      flagName: 'name',
+      type: 'input',
+      message: 'Workflow name:',
+      validate: (value) => String(value).length > 0 || 'Name is required',
+    });
 
-      // In JSON mode, output form prompt and exit
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildFormPromptConfig(fields),
-          createMetadata('workflow create', flags)
-        );
-        return;
-      }
+    resolver.addPrompt({
+      flagName: 'description',
+      type: 'input',
+      message: 'Description (optional):',
+      when: (ctx) => ctx.flags.name !== undefined,
+    });
 
-      const answers = await inquirer.prompt<{ name: string; description?: string }>([
-        {
-          type: 'input',
-          name: 'name',
-          message: 'Workflow name:',
-          validate: (input: string) => input.length > 0 || 'Name is required',
-        },
-        {
-          type: 'input',
-          name: 'description',
-          message: 'Description (optional):',
-        },
-      ]);
-      name = answers.name;
-      if (answers.description) {
-        flags.description = answers.description;
-      }
+    const resolved = await resolver.resolve();
+    let name = resolved.name as string;
+    if (resolved.description) {
+      flags.description = resolved.description as string;
     }
 
     // Create the workflow

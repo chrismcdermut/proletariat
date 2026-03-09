@@ -1,5 +1,4 @@
 import { Flags } from '@oclif/core'
-import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js'
 import {
@@ -8,6 +7,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 import {
   MondayClient,
   isMondayConfigured,
@@ -107,23 +107,25 @@ export default class MondayConnect extends PMOCommand {
 
     let apiToken = getMondayApiToken(db)
     if (!apiToken) {
-      if (jsonMode) {
-        outputErrorAsJson(
-          'API_TOKEN_REQUIRED',
-          'Monday API token required. Set MONDAY_API_TOKEN or PRLT_MONDAY_API_TOKEN, or run interactively.',
-          createMetadata('monday connect', flags),
-        )
-        this.exit(1)
-      }
+      const resolver = new FlagResolver({
+        commandName: 'monday connect',
+        baseCommand: 'prlt monday connect',
+        jsonMode,
+        flags,
+      })
 
-      const answers = await inquirer.prompt([{
-        type: 'password',
-        name: 'token',
+      resolver.addPrompt({
+        flagName: 'token',
+        type: 'input',
         message: 'Enter your Monday API token:',
-        mask: '*',
-        validate: (value: string) => value.trim().length > 0 || 'API token is required',
-      }])
-      apiToken = answers.token
+        validate: (value) => String(value).trim().length > 0 || 'API token is required',
+        context: {
+          hint: 'Set MONDAY_API_TOKEN or PRLT_MONDAY_API_TOKEN environment variable, or provide the token interactively.',
+        },
+      })
+
+      const resolved = await resolver.resolve()
+      apiToken = resolved.token as string
     }
 
     if (!apiToken) {
@@ -132,14 +134,23 @@ export default class MondayConnect extends PMOCommand {
     const client = new MondayClient(apiToken)
 
     let boardId = flags.board ?? getMondayBoardId(db)
-    if (!boardId && !jsonMode) {
-      const answers = await inquirer.prompt([{
+    if (!boardId) {
+      const resolver = new FlagResolver({
+        commandName: 'monday connect',
+        baseCommand: 'prlt monday connect',
+        jsonMode,
+        flags,
+      })
+
+      resolver.addPrompt({
+        flagName: 'board',
         type: 'input',
-        name: 'boardId',
         message: 'Enter Monday board ID for ticket sync:',
-        validate: (value: string) => value.trim().length > 0 || 'Board ID is required',
-      }])
-      boardId = answers.boardId
+        validate: (value) => String(value).trim().length > 0 || 'Board ID is required',
+      })
+
+      const resolved = await resolver.resolve()
+      boardId = resolved.board as string
     }
 
     try {

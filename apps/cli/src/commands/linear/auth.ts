@@ -1,5 +1,4 @@
 import { Flags } from '@oclif/core'
-import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js'
 import {
@@ -8,6 +7,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { FlagResolver } from '../../lib/flags/index.js'
 import {
   LinearClient,
   isLinearConfigured,
@@ -144,35 +144,40 @@ export default class LinearAuth extends PMOCommand {
     let apiKey = envKey
 
     if (!apiKey) {
-      // Prompt for API key
-      if (jsonMode) {
-        outputErrorAsJson(
-          'API_KEY_REQUIRED',
-          'Linear API key required. Set LINEAR_API_KEY or PRLT_LINEAR_API_KEY environment variable, or run interactively.',
-          createMetadata('linear auth', flags),
-        )
-        this.exit(1)
+      if (!jsonMode) {
+        this.log('')
+        this.log(colors.primary('Linear Authentication'))
+        this.log('')
+        this.log('Create a personal API key at:')
+        this.log(colors.textSecondary('  https://linear.app/settings/api'))
+        this.log('')
       }
 
-      this.log('')
-      this.log(colors.primary('Linear Authentication'))
-      this.log('')
-      this.log('Create a personal API key at:')
-      this.log(colors.textSecondary('  https://linear.app/settings/api'))
-      this.log('')
+      const resolver = new FlagResolver({
+        commandName: 'linear auth',
+        baseCommand: 'prlt linear auth',
+        jsonMode,
+        flags,
+      })
 
-      const { inputKey } = await inquirer.prompt([{
-        type: 'password',
-        name: 'inputKey',
+      resolver.addPrompt({
+        flagName: 'apiKey',
+        type: 'input',
         message: 'Enter your Linear API key:',
-        mask: '*',
-        validate: (input: string) => {
+        validate: (value) => {
+          const input = String(value)
           if (!input.trim()) return 'API key is required'
           if (!input.startsWith('lin_api_')) return 'Linear API keys start with "lin_api_"'
           return true
         },
-      }])
-      apiKey = inputKey
+        context: {
+          hint: 'Set LINEAR_API_KEY or PRLT_LINEAR_API_KEY environment variable, or provide the key interactively.',
+          url: 'https://linear.app/settings/api',
+        },
+      })
+
+      const resolved = await resolver.resolve()
+      apiKey = resolved.apiKey as string
     }
 
     // Verify the API key
@@ -223,17 +228,25 @@ export default class LinearAuth extends PMOCommand {
       saveLinearDefaultTeam(db, teams[0].id, teams[0].key)
       this.log(colors.textMuted(`  Default team set to: ${teams[0].name} (${teams[0].key})`))
     } else {
-      const teamChoices = teams.map((t) => ({
-        name: `${t.name} (${t.key})`,
-        value: t.id,
-      }))
+      const teamResolver = new FlagResolver({
+        commandName: 'linear auth',
+        baseCommand: 'prlt linear auth',
+        jsonMode,
+        flags,
+      })
 
-      const { selectedTeamId } = await inquirer.prompt([{
+      teamResolver.addPrompt({
+        flagName: 'selectedTeamId',
         type: 'list',
-        name: 'selectedTeamId',
         message: 'Select your default team:',
-        choices: teamChoices,
-      }])
+        choices: () => teams.map((t) => ({
+          name: `${t.name} (${t.key})`,
+          value: t.id,
+        })),
+      })
+
+      const teamResolved = await teamResolver.resolve()
+      const selectedTeamId = teamResolved.selectedTeamId as string
 
       const selectedTeam = teams.find((t) => t.id === selectedTeamId)!
       saveLinearDefaultTeam(db, selectedTeam.id, selectedTeam.key)

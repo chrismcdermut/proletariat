@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
-import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
 export default class CategoryRename extends PMOCommand {
   static description = 'Rename a category (custom categories only)';
@@ -44,9 +44,6 @@ export default class CategoryRename extends PMOCommand {
     const categoryType = flags.type as CategoryType;
     const jsonMode = shouldOutputJson(flags);
 
-    let oldName = args.oldName;
-    let newName = args.newName;
-
     // Get custom categories for selection
     const customCategories = await this.storage.listCategories({ type: categoryType, isBuiltin: false });
 
@@ -55,35 +52,49 @@ export default class CategoryRename extends PMOCommand {
       return;
     }
 
-    // Prompt for category if not provided
-    if (!oldName) {
-      const message = 'Select category to rename:';
-      const choices = customCategories.map(c => ({
+    const resolver = new FlagResolver({
+      commandName: 'category rename',
+      baseCommand: `prlt category rename --type ${categoryType}`,
+      jsonMode,
+      flags: { ...flags, oldName: args.oldName, newName: args.newName },
+      args,
+    });
+
+    resolver.addPrompt({
+      flagName: 'oldName',
+      type: 'list',
+      message: 'Select category to rename:',
+      choices: () => customCategories.map(c => ({
         name: c.name + (c.description ? ` - ${c.description}` : ''),
         value: c.name,
-      }));
+      })),
+    });
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'oldName', message, choices),
-          createMetadata('category rename', flags)
-        );
-        return;
-      }
+    resolver.addPrompt({
+      flagName: 'newName',
+      type: 'input',
+      message: (ctx) => `Enter new name for "${ctx.flags.oldName}":`,
+      when: (ctx) => ctx.flags.oldName !== undefined,
+      validate: (value) => {
+        const input = String(value);
+        if (!input.trim()) return 'New name is required';
+        if (!/^[a-z][a-z0-9-]*$/.test(input.trim())) {
+          return 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens';
+        }
+        return true;
+      },
+    });
 
-      const result = await this.selectFromList({
-        message,
-        items: customCategories,
-        getName: (c) => c.name + (c.description ? ` - ${c.description}` : ''),
-        getValue: (c) => c.name,
-        getCommand: (c) => `prlt category rename --type ${categoryType} ${c.name}`,
-        allowCancel: true,
-      });
+    const resolved = await resolver.resolve();
 
-      if (!result) {
-        return;
-      }
-      oldName = result;
+    const oldName = resolved.oldName as string;
+    const newName = resolved.newName as string;
+
+    if (!oldName) {
+      this.error('Old name is required');
+    }
+    if (!newName) {
+      this.error('New name is required');
     }
 
     // Find the category
@@ -94,41 +105,6 @@ export default class CategoryRename extends PMOCommand {
 
     if (category.isBuiltin) {
       this.error(`Cannot rename built-in category "${oldName}"`);
-    }
-
-    // Prompt for new name if not provided
-    if (!newName) {
-      const message = `Enter new name for "${oldName}":`;
-
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('input', 'newName', message, []),
-          createMetadata('category rename', { ...flags, oldName })
-        );
-        return;
-      }
-
-      const { categoryNewName } = await this.prompt<{ categoryNewName: string }>([{
-        type: 'input',
-        name: 'categoryNewName',
-        message,
-        validate: (input: unknown) => {
-          if (!(input as string).trim()) return 'New name is required';
-          if (!/^[a-z][a-z0-9-]*$/.test((input as string).trim())) {
-            return 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens';
-          }
-          return true;
-        },
-      }], null);
-      newName = categoryNewName;
-    }
-
-    // At this point newName and oldName should be defined
-    if (!newName) {
-      this.error('New name is required');
-    }
-    if (!oldName) {
-      this.error('Old name is required');
     }
 
     // Validate new name format

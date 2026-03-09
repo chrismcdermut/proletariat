@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
-import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
 export default class CategoryCreate extends PMOCommand {
   static description = 'Create a new category';
@@ -46,40 +46,40 @@ export default class CategoryCreate extends PMOCommand {
     const categoryType = flags.type as CategoryType;
     const jsonMode = shouldOutputJson(flags);
 
-    let name = args.name;
-    let description = flags.description;
+    const resolver = new FlagResolver({
+      commandName: 'category create',
+      baseCommand: `prlt category create --type ${categoryType}`,
+      jsonMode,
+      flags: { ...flags, name: args.name },
+      args,
+    });
 
-    // Prompt for name if not provided
-    if (!name) {
-      const message = `Enter ${categoryType} category name:`;
-      const choices = [
-        { name: 'Enter category name', value: 'input' },
-      ];
+    resolver.addPrompt({
+      flagName: 'name',
+      type: 'input',
+      message: `Enter ${categoryType} category name:`,
+      validate: (value) => {
+        const input = String(value);
+        if (!input.trim()) return 'Category name is required';
+        if (!/^[a-z][a-z0-9-]*$/.test(input.trim())) {
+          return 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens';
+        }
+        return true;
+      },
+    });
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('input', 'name', message, choices),
-          createMetadata('category create', flags)
-        );
-        return;
-      }
+    resolver.addPrompt({
+      flagName: 'description',
+      type: 'input',
+      message: 'Description (optional):',
+      when: (ctx) => ctx.flags.name !== undefined,
+    });
 
-      const { categoryName } = await this.prompt<{ categoryName: string }>([{
-        type: 'input',
-        name: 'categoryName',
-        message,
-        validate: (input: unknown) => {
-          if (!(input as string).trim()) return 'Category name is required';
-          if (!/^[a-z][a-z0-9-]*$/.test((input as string).trim())) {
-            return 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens';
-          }
-          return true;
-        },
-      }], null);
-      name = categoryName;
-    }
+    const resolved = await resolver.resolve();
 
-    // At this point name should be defined
+    const name = resolved.name as string;
+    const description = (resolved.description as string) || undefined;
+
     if (!name) {
       this.error('Category name is required');
     }
@@ -89,19 +89,9 @@ export default class CategoryCreate extends PMOCommand {
       this.error('Category name must start with a letter and contain only lowercase letters, numbers, and hyphens');
     }
 
-    // Prompt for description if not provided
-    if (!description && !jsonMode) {
-      const { categoryDescription } = await this.prompt<{ categoryDescription: string }>([{
-        type: 'input',
-        name: 'categoryDescription',
-        message: 'Description (optional):',
-      }], null);
-      description = categoryDescription || undefined;
-    }
-
     try {
       const category = await this.storage.createCategory({
-        name: name,
+        name,
         type: categoryType,
         description,
       });

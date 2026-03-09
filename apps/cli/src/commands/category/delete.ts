@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
-import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
 export default class CategoryDelete extends PMOCommand {
   static description = 'Delete a category (custom categories only)';
@@ -41,8 +41,6 @@ export default class CategoryDelete extends PMOCommand {
     const categoryType = flags.type as CategoryType;
     const jsonMode = shouldOutputJson(flags);
 
-    let name = args.name;
-
     // Get custom categories for selection
     const customCategories = await this.storage.listCategories({ type: categoryType, isBuiltin: false });
 
@@ -51,35 +49,43 @@ export default class CategoryDelete extends PMOCommand {
       return;
     }
 
-    // Prompt for category if not provided
-    if (!name) {
-      const message = 'Select category to delete:';
-      const choices = customCategories.map(c => ({
+    const resolver = new FlagResolver({
+      commandName: 'category delete',
+      baseCommand: `prlt category delete --type ${categoryType}`,
+      jsonMode,
+      flags: { ...flags, name: args.name },
+      args,
+    });
+
+    resolver.addPrompt({
+      flagName: 'name',
+      type: 'list',
+      message: 'Select category to delete:',
+      choices: () => customCategories.map(c => ({
         name: c.name + (c.description ? ` - ${c.description}` : ''),
         value: c.name,
-      }));
+      })),
+    });
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'name', message, choices),
-          createMetadata('category delete', flags)
-        );
-        return;
-      }
+    resolver.addPrompt({
+      flagName: 'confirmed',
+      type: 'list',
+      message: (ctx) => `Are you sure you want to delete category "${ctx.flags.name}"?`,
+      choices: () => [
+        { name: 'Yes, delete it', value: 'yes' },
+        { name: 'No, cancel', value: 'no' },
+      ],
+      when: (ctx) => ctx.flags.name !== undefined,
+    });
 
-      const result = await this.selectFromList({
-        message,
-        items: customCategories,
-        getName: (c) => c.name + (c.description ? ` - ${c.description}` : ''),
-        getValue: (c) => c.name,
-        getCommand: (c) => `prlt category delete --type ${categoryType} ${c.name}`,
-        allowCancel: true,
-      });
+    const resolved = await resolver.resolve();
 
-      if (!result) {
-        return;
-      }
-      name = result;
+    const name = (resolved as Record<string, unknown>).name as string;
+    const confirmed = (resolved as Record<string, unknown>).confirmed as string;
+
+    if (confirmed === 'no') {
+      this.log(styles.muted('Deletion cancelled.'));
+      return;
     }
 
     // Find the category
@@ -90,24 +96,6 @@ export default class CategoryDelete extends PMOCommand {
 
     if (category.isBuiltin) {
       this.error(`Cannot delete built-in category "${name}"`);
-    }
-
-    // Confirm deletion
-    if (!jsonMode) {
-      const { confirmed } = await this.prompt<{ confirmed: boolean }>([{
-        type: 'list',
-        name: 'confirmed',
-        message: `Are you sure you want to delete category "${name}"?`,
-        choices: [
-          { name: 'Yes, delete it', value: true },
-          { name: 'No, cancel', value: false },
-        ],
-      }], null);
-
-      if (!confirmed) {
-        this.log(styles.muted('Deletion cancelled.'));
-        return;
-      }
     }
 
     try {
