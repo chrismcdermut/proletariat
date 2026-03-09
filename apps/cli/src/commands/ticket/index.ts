@@ -1,12 +1,6 @@
 
-import inquirer from 'inquirer';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
 export default class Ticket extends PMOCommand {
   static description = 'Interactive menu for ticket operations';
@@ -25,12 +19,8 @@ export default class Ticket extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(Ticket);
-
-    // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Define choices once, use for both JSON and interactive modes
-    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
       { name: 'Create new ticket', value: 'create', command: 'prlt ticket create --json' },
       { name: 'Create from template', value: 'template', command: 'prlt template apply --type ticket --json' },
@@ -47,36 +37,29 @@ export default class Ticket extends PMOCommand {
       { name: 'Delete ticket', value: 'delete', command: 'prlt ticket delete --json' },
       { name: 'Cancel', value: 'cancel' },
     ];
-    const message = 'Ticket Operations - What would you like to do?';
 
-    // In JSON mode, output action selection prompt
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices),
-        createMetadata('ticket', flags)
-      );
-      return;
-    }
+    const resolver = new FlagResolver({
+      commandName: 'ticket',
+      baseCommand: 'prlt ticket',
+      jsonMode,
+      flags,
+    });
 
-    // Show interactive menu
-    const { action } = await this.prompt<{ action: string }>([{
+    resolver.addPrompt({
+      flagName: 'action',
       type: 'list',
-      name: 'action',
-      message: '🎫 ' + message,
-      choices: [
-        ...menuChoices.slice(0, 11),
-        new inquirer.Separator('──────────────'),
-        menuChoices[11],
-        menuChoices[12],
-        menuChoices[13],
-      ],
-    }], null);
+      message: 'Ticket Operations - What would you like to do?',
+      choices: () => menuChoices,
+      skipAutoCommand: true,
+    });
+
+    const resolved = await resolver.resolve();
+    const action = (resolved as Record<string, unknown>).action as string;
 
     if (action === 'cancel') {
       return;
     }
 
-    // Run the selected subcommand
     switch (action) {
       case 'create':
         await this.config.runCommand('ticket:create', []);

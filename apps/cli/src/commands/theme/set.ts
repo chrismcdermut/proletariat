@@ -5,12 +5,7 @@ import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ensureBuiltinThemes } from '../../lib/themes.js';
 import { getThemes, getAvailableThemeNames, setActiveTheme, getActiveTheme } from '../../lib/database/index.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
 export default class ThemeSet extends PromptCommand {
   static description = 'Set the active theme for this workspace';
@@ -33,8 +28,6 @@ export default class ThemeSet extends PromptCommand {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ThemeSet);
-
-    // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
     try {
@@ -44,44 +37,32 @@ export default class ThemeSet extends PromptCommand {
       let themeId = args.theme;
 
       if (!themeId) {
-        // Interactive selection
         const themes = getThemes(workspaceInfo.path);
         const currentTheme = getActiveTheme(workspaceInfo.path);
 
-        // In JSON mode, output theme selection prompt
-        if (jsonMode) {
-          const themeChoices = themes.map(t => {
+        const resolver = new FlagResolver({
+          commandName: 'theme set',
+          baseCommand: 'prlt theme set',
+          jsonMode,
+          flags,
+        });
+
+        resolver.addPrompt({
+          flagName: 'theme',
+          type: 'list',
+          message: 'Select theme for this workspace:',
+          choices: () => themes.map(t => {
             const availableCount = getAvailableThemeNames(workspaceInfo.path, t.id).length;
             const isCurrent = currentTheme?.id === t.id;
             return {
-              name: `${t.display_name} (${availableCount} available)${isCurrent ? ' ✓ current' : ''}`,
-              value: t.id
+              name: `${t.display_name} (${availableCount} available)${isCurrent ? ' [current]' : ''}`,
+              value: t.id,
             };
-          });
-          outputPromptAsJson(
-            buildPromptConfig('list', 'theme', 'Select theme for this workspace:', themeChoices),
-            createMetadata('theme set', flags)
-          );
-          return;
-        }
-
-        const choices = themes.map(t => {
-          const availableCount = getAvailableThemeNames(workspaceInfo.path, t.id).length;
-          const isCurrent = currentTheme?.id === t.id;
-          return {
-            name: `${t.display_name} ${chalk.dim(`(${availableCount} available)`)}${isCurrent ? chalk.green(' ✓ current') : ''}`,
-            value: t.id
-          };
+          }),
         });
 
-        const { selected } = await this.prompt<{ selected: string }>([{
-          type: 'list',
-          name: 'selected',
-          message: 'Select theme for this workspace:',
-          choices
-        }], null);
-
-        themeId = selected;
+        const resolved = await resolver.resolve();
+        themeId = (resolved as Record<string, unknown>).theme as string;
       }
 
       setActiveTheme(workspaceInfo.path, themeId!);

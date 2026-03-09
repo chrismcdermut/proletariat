@@ -6,12 +6,7 @@ import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ensureBuiltinThemes } from '../../lib/themes.js';
 import { getThemes, getAvailableThemeNames } from '../../lib/database/index.js';
-import {
-  shouldOutputJson,
-  outputPromptAsJson,
-  createMetadata,
-  buildPromptConfig,
-} from '../../lib/prompt-json.js';
+import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js';
 
 export default class Theme extends PromptCommand {
   static description = 'Manage agent naming themes';
@@ -28,46 +23,37 @@ export default class Theme extends PromptCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Theme);
-
-    // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
-    // Define choices once, use for both JSON and interactive modes
-    // Each choice includes the full command for AI agents to execute
     const menuChoices = [
-      { id: 'list', name: 'List themes', command: 'prlt theme list --format json' },
-      { id: 'create', name: 'Create a new theme', command: 'prlt theme create --machine' },
-      { id: 'add-names', name: 'Add names to a theme', command: 'prlt theme add-names --machine' },
-      { id: 'cancel', name: 'Cancel', command: '' },
+      { name: 'List themes', value: 'list', command: 'prlt theme list --format json' },
+      { name: 'Create a new theme', value: 'create', command: 'prlt theme create --machine' },
+      { name: 'Add names to a theme', value: 'add-names', command: 'prlt theme add-names --machine' },
+      { name: 'Cancel', value: 'cancel', command: '' },
     ];
-    const message = 'What would you like to do?';
 
-    // In JSON mode, output menu prompt with commands for AI agents
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'action', message, menuChoices.map(c => ({
-          name: c.name,
-          value: c.id,
-          command: c.command,
-        }))),
-        createMetadata('theme', flags)
-      );
-      return;
+    const resolver = new FlagResolver({
+      commandName: 'theme',
+      baseCommand: 'prlt theme',
+      jsonMode,
+      flags,
+    });
+
+    resolver.addPrompt({
+      flagName: 'action',
+      type: 'list',
+      message: 'What would you like to do?',
+      choices: () => menuChoices,
+      skipAutoCommand: true,
+    });
+
+    if (!jsonMode) {
+      this.log(chalk.bold('\nAgent Themes'));
+      this.log(chalk.dim('Optional themed name pools for your agents.\n'));
     }
 
-    this.log(chalk.bold('\nAgent Themes'));
-    this.log(chalk.dim('Optional themed name pools for your agents.\n'));
-
-    const { action } = await this.prompt<{ action: string }>([{
-      type: 'list',
-      name: 'action',
-      message,
-      choices: [
-        ...menuChoices.slice(0, 3).map(c => ({ name: c.name, value: c.id })),
-        new inquirer.Separator(),
-        { name: menuChoices[3].name, value: menuChoices[3].id }
-      ]
-    }], null);
+    const resolved = await resolver.resolve();
+    const action = (resolved as Record<string, unknown>).action as string;
 
     if (action === 'cancel') {
       this.log(chalk.dim('Cancelled.'));
