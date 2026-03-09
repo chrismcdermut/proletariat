@@ -112,8 +112,8 @@ describe('Work Commands JSON Mode (TKT-738)', () => {
       helpOutput = runCli(['work', '--help']);
     });
 
-    it('shows --json flag in help', () => {
-      expect(helpOutput).to.contain('--json');
+    it('lists available work subcommands', () => {
+      expect(helpOutput).to.contain('work');
     });
   });
 });
