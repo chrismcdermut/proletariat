@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import * as fs from 'node:fs';
 import { PromptCommand } from '../../lib/prompt-command.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
+import { shouldOutputJson } from '../../lib/prompt-json.js';
 import { isValidHQ } from '../../lib/workspace.js';
 import {
   findWorkspacesByName,
@@ -33,6 +34,7 @@ export default class WorkspaceUse extends PromptCommand {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkspaceUse);
+    const jsonMode = shouldOutputJson(flags);
 
     const input = args.nameOrPath;
 
@@ -47,6 +49,11 @@ export default class WorkspaceUse extends PromptCommand {
       if (matches.length === 0) {
         // Check if input is a valid path that exists but isn't registered
         if (fs.existsSync(normalizedPath) && isValidHQ(normalizedPath)) {
+          if (jsonMode) {
+            this.log(JSON.stringify({ type: 'error', error: { code: 'NOT_REGISTERED', message: `Workspace at "${normalizedPath}" exists but is not registered` } }));
+            this.exit(1);
+            return;
+          }
           this.log(chalk.yellow(`Workspace at "${normalizedPath}" exists but is not registered.`));
           this.log(chalk.gray('Run "prlt workspace add" to register it first, or specify a registered workspace.'));
           this.log('');
@@ -62,6 +69,11 @@ export default class WorkspaceUse extends PromptCommand {
           this.error('Workspace not registered');
         }
 
+        if (jsonMode) {
+          this.log(JSON.stringify({ type: 'error', error: { code: 'WORKSPACE_NOT_FOUND', message: `Workspace not found: ${input}` } }));
+          this.exit(1);
+          return;
+        }
         this.error(`Workspace not found: ${input}`);
       }
 
@@ -95,20 +107,39 @@ export default class WorkspaceUse extends PromptCommand {
 
     // Validate workspace still exists on filesystem
     if (!fs.existsSync(workspace.path)) {
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'error', error: { code: 'PATH_NOT_FOUND', message: `Workspace path no longer exists: ${workspace.path}` } }));
+        this.exit(1);
+        return;
+      }
       this.error(`Workspace path no longer exists: ${workspace.path}`);
     }
 
     // Validate it's still a valid HQ
     if (!isValidHQ(workspace.path)) {
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'error', error: { code: 'INVALID_WORKSPACE', message: `Path is no longer a valid workspace: ${workspace.path}` } }));
+        this.exit(1);
+        return;
+      }
       this.error(`Path is no longer a valid workspace: ${workspace.path}`);
     }
 
     // Set as active workspace
     try {
       setActiveWorkspace(workspace.path);
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'success', result: { name: workspace.name, path: workspace.path, status: 'activated' } }));
+        return;
+      }
       this.log(chalk.green(`Active workspace set to: ${workspace.name}`));
       this.log(chalk.gray(`  Path: ${workspace.path}`));
     } catch (error) {
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'error', error: { code: 'SET_ACTIVE_FAILED', message: (error as Error).message } }));
+        this.exit(1);
+        return;
+      }
       this.error(`Failed to set active workspace: ${(error as Error).message}`);
     }
   }

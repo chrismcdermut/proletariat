@@ -36,6 +36,7 @@ export default class WorkspaceRemove extends PromptCommand {
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkspaceRemove);
+    const jsonMode = shouldOutputJson(flags);
 
     const input = args.nameOrPath;
 
@@ -50,6 +51,10 @@ export default class WorkspaceRemove extends PromptCommand {
     const removed = unregisterWorkspace(workspacePath);
 
     if (removed) {
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'success', result: { path: workspacePath, wasActive, status: 'unregistered' } }));
+        return;
+      }
       this.log(chalk.green(`Unregistered workspace: ${workspacePath}`));
       this.log(chalk.gray('Note: Files were NOT deleted, only removed from registry.'));
 
@@ -58,6 +63,11 @@ export default class WorkspaceRemove extends PromptCommand {
         this.log(chalk.gray('Run "prlt workspace use <name>" to set a new active workspace.'));
       }
     } else {
+      if (jsonMode) {
+        this.log(JSON.stringify({ type: 'error', error: { code: 'UNREGISTER_FAILED', message: `Failed to unregister workspace: ${workspacePath}` } }));
+        this.exit(1);
+        return;
+      }
       this.error(`Failed to unregister workspace: ${workspacePath}`);
     }
   }
