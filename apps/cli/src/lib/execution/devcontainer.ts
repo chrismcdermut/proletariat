@@ -183,25 +183,29 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
 }
 
 /**
- * Generate Dockerfile content for the devcontainer.
- * Uses architecture auto-detection for cross-platform compatibility.
+ * Name of the shared base Docker image.
+ * All agent and orchestrator containers inherit from this image.
  */
-export function generateDockerfile(options: DevcontainerOptions): string {
-  const timezone = options.timezone || 'America/Los_Angeles'
+export const BASE_IMAGE_NAME = 'prlt-base:latest'
 
+/**
+ * Generate the shared base Dockerfile that is common to all agent and orchestrator containers.
+ * Includes: system packages, git-delta, oh-my-zsh, npm global directory, pnpm.
+ * Does NOT include: executor CLI, prlt CLI, firewall packages, or Docker.
+ */
+export function generateBaseDockerfile(): string {
   return `FROM node:22
 
 # Ensure we run as root for apt-get and system setup
 USER root
 
-ARG TZ=${timezone}
+ARG TZ=America/Los_Angeles
 ENV TZ=\${TZ}
-ENV DEVCONTAINER=true
 
-# Install system dependencies
+# Install common system dependencies
 RUN apt-get update && apt-get install -y \\
     less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh tmux \\
-    iptables ipset iproute2 dnsutils jq nano vim \\
+    jq nano vim curl \\
     && rm -rf /var/lib/apt/lists/* \\
     && git lfs install
 
@@ -230,9 +234,46 @@ RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:\$PATH
 
-# Install pnpm and executor CLI as node user so files are owned correctly
+# Install pnpm as node user
 USER node
-RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
+RUN npm install -g pnpm
+USER root
+
+# Set default editor
+ENV EDITOR=nano
+
+# Configure shell history
+ENV HISTFILE=/commandhistory/.bash_history
+
+USER node
+WORKDIR /workspace
+`
+}
+
+/**
+ * Generate Dockerfile content for the agent devcontainer.
+ * Extends the shared base image with agent-specific layers:
+ * firewall packages, executor CLI, prlt CLI, and setup scripts.
+ */
+export function generateDockerfile(options: DevcontainerOptions): string {
+  const timezone = options.timezone || 'America/Los_Angeles'
+
+  return `FROM ${BASE_IMAGE_NAME}
+
+USER root
+
+ARG TZ=${timezone}
+ENV TZ=\${TZ}
+ENV DEVCONTAINER=true
+
+# Install agent-specific system dependencies (firewall support)
+RUN apt-get update && apt-get install -y \\
+    iptables ipset iproute2 dnsutils \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Install executor CLI as node user so files are owned correctly
+USER node
+RUN npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
 USER root
 
 # Install prlt CLI from public npm
@@ -254,12 +295,6 @@ RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/setup-prlt.sh
 
 # Allow node user to run firewall script without password
 RUN echo "node ALL=(ALL) NOPASSWD: /usr/local/bin/init-firewall.sh" >> /etc/sudoers
-
-# Set default editor
-ENV EDITOR=nano
-
-# Configure shell history
-ENV HISTFILE=/commandhistory/.bash_history
 
 USER node
 WORKDIR /workspace
@@ -734,7 +769,12 @@ export function createDevcontainerConfig(options: DevcontainerOptions, config?: 
   const devcontainerJsonPath = path.join(devcontainerDir, 'devcontainer.json')
   fs.writeFileSync(devcontainerJsonPath, JSON.stringify(devcontainerJson, null, 2) + '\n')
 
-  // Generate and write Dockerfile
+  // Generate and write shared base Dockerfile
+  const baseDockerfile = generateBaseDockerfile()
+  const baseDockerfilePath = path.join(devcontainerDir, 'Dockerfile.base')
+  fs.writeFileSync(baseDockerfilePath, baseDockerfile)
+
+  // Generate and write agent-specific Dockerfile (extends base image)
   const dockerfile = generateDockerfile(options)
   const dockerfilePath = path.join(devcontainerDir, 'Dockerfile')
   fs.writeFileSync(dockerfilePath, dockerfile)
@@ -784,52 +824,27 @@ export interface OrchestratorDockerOptions {
 export function generateOrchestratorDockerfile(options: OrchestratorDockerOptions): string {
   const timezone = options.timezone || 'America/Los_Angeles'
 
-  return `FROM node:22
+  return `FROM ${BASE_IMAGE_NAME}
 
-# Ensure we run as root for apt-get and system setup
 USER root
 
 ARG TZ=${timezone}
 ENV TZ=\${TZ}
 
-# Install system dependencies (no iptables/ipset - orchestrator doesn't use firewall)
+# Install orchestrator-specific dependencies (Docker CLI for sibling container pattern)
 RUN apt-get update && apt-get install -y \\
-    less git git-lfs procps sudo fzf zsh man-db unzip gnupg2 gh tmux \\
-    jq nano vim curl docker.io \\
-    && rm -rf /var/lib/apt/lists/* \\
-    && git lfs install
+    docker.io \\
+    && rm -rf /var/lib/apt/lists/*
 
-# Create workspace and claude directories
-RUN mkdir -p /workspace /hq /home/node/.claude \\
-    && chown -R node:node /workspace /hq /home/node/.claude
+# Create HQ directory
+RUN mkdir -p /hq && chown -R node:node /hq
 
 # Add node user to docker group so it can use Docker socket
 RUN groupadd -f docker && usermod -aG docker node
 
-# Set up persistent bash history
-RUN mkdir -p /commandhistory \\
-    && touch /commandhistory/.bash_history \\
-    && chown -R node:node /commandhistory
-
-# Install git-delta for better diffs (architecture-aware)
-RUN ARCH=$(dpkg --print-architecture) && \\
-    curl -L "https://github.com/dandavison/delta/releases/download/0.18.2/git-delta_0.18.2_\${ARCH}.deb" -o /tmp/delta.deb && \\
-    dpkg -i /tmp/delta.deb && \\
-    rm /tmp/delta.deb
-
-# Install zsh with oh-my-zsh
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \\
-    && chsh -s /bin/zsh node
-
-# Configure npm global directory
-RUN mkdir -p /home/node/.npm-global/bin /home/node/.npm-global/lib \\
-    && chown -R node:node /home/node/.npm-global
-ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
-ENV PATH=/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
-
-# Install pnpm and executor CLI as node user
+# Install executor CLI as node user
 USER node
-RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
+RUN npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
 USER root
 
 # Install prlt CLI
@@ -841,12 +856,6 @@ RUN if [ "\${PRLT_REGISTRY}" = "npm" ] || [ "\${PRLT_REGISTRY}" = "gh" ]; then \
     else \\
       echo "prlt will be mounted from host (mount mode)"; \\
     fi
-
-# Set default editor
-ENV EDITOR=nano
-
-# Configure shell history
-ENV HISTFILE=/commandhistory/.bash_history
 
 USER node
 WORKDIR /hq

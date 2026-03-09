@@ -6,10 +6,12 @@ import * as os from 'node:os'
 import {
   generateDevcontainerJson,
   generateDockerfile,
+  generateBaseDockerfile,
   generateFirewallScript,
   generatePrltSetupScript,
   createDevcontainerConfig,
   hasDevcontainerConfig,
+  BASE_IMAGE_NAME,
   DevcontainerOptions,
 } from '../../src/lib/execution/devcontainer.js'
 
@@ -177,11 +179,11 @@ describe('Devcontainer', () => {
       ...overrides,
     })
 
-    it('should use node:22 base image', () => {
+    it('should use shared base image', () => {
       const options = makeOptions()
       const result = generateDockerfile(options)
 
-      expect(result).to.include('FROM node:22')
+      expect(result).to.include(`FROM ${BASE_IMAGE_NAME}`)
     })
 
     it('should set DEVCONTAINER env var', () => {
@@ -232,6 +234,75 @@ describe('Devcontainer', () => {
       const result = generateDockerfile(options)
 
       expect(result).to.include('WORKDIR /workspace')
+    })
+
+    it('should install firewall packages (agent-specific)', () => {
+      const options = makeOptions()
+      const result = generateDockerfile(options)
+
+      expect(result).to.include('iptables')
+      expect(result).to.include('ipset')
+    })
+  })
+
+  describe('generateBaseDockerfile', () => {
+    it('should use node:22 base image', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.include('FROM node:22')
+    })
+
+    it('should install common system packages', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.include('git')
+      expect(result).to.include('zsh')
+      expect(result).to.include('tmux')
+      expect(result).to.include('jq')
+    })
+
+    it('should install git-delta', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.include('git-delta')
+    })
+
+    it('should install oh-my-zsh', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.include('ohmyzsh')
+    })
+
+    it('should install pnpm', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.include('npm install -g pnpm')
+    })
+
+    it('should NOT install executor CLI (agent-specific)', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.not.include('@anthropic-ai/claude-code')
+      expect(result).to.not.include('@openai/codex')
+    })
+
+    it('should NOT install prlt CLI (agent-specific)', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.not.include('@proletariat/cli')
+    })
+
+    it('should NOT include firewall packages (agent-specific)', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.not.include('iptables')
+      expect(result).to.not.include('ipset')
+    })
+
+    it('should NOT include docker.io (orchestrator-specific)', () => {
+      const result = generateBaseDockerfile()
+
+      expect(result).to.not.include('docker.io')
     })
   })
 
@@ -284,6 +355,22 @@ describe('Devcontainer', () => {
 
       const dockerfile = path.join(testDir, '.devcontainer', 'Dockerfile')
       expect(fs.existsSync(dockerfile)).to.be.true
+    })
+
+    it('should create Dockerfile.base for shared base image', () => {
+      const options: DevcontainerOptions = {
+        agentName: 'test-agent',
+        agentDir: testDir,
+      }
+
+      createDevcontainerConfig(options)
+
+      const baseDockerfile = path.join(testDir, '.devcontainer', 'Dockerfile.base')
+      expect(fs.existsSync(baseDockerfile)).to.be.true
+
+      // Base Dockerfile should use node:22
+      const content = fs.readFileSync(baseDockerfile, 'utf-8')
+      expect(content).to.include('FROM node:22')
     })
 
     it('should create init-firewall.sh script', () => {

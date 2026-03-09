@@ -21,7 +21,7 @@ import {
   DEFAULT_EXECUTION_CONFIG,
 } from './types.js'
 import { getSetTitleCommands } from '../terminal.js'
-import { readDevcontainerJson, generateOrchestratorDockerfile } from './devcontainer.js'
+import { readDevcontainerJson, generateOrchestratorDockerfile, generateBaseDockerfile, BASE_IMAGE_NAME } from './devcontainer.js'
 import type { OrchestratorDockerOptions } from './devcontainer.js'
 import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError } from './codex-adapter.js'
 
@@ -1273,6 +1273,39 @@ function imageExists(imageName: string): boolean {
 }
 
 /**
+ * Build the shared base Docker image (prlt-base:latest) if it doesn't exist.
+ * The base image contains common system packages, git-delta, oh-my-zsh, pnpm,
+ * and is shared across all agent and orchestrator containers.
+ * Returns true if the base image is available (already existed or was built).
+ */
+function ensureBaseImage(): boolean {
+  if (imageExists(BASE_IMAGE_NAME)) {
+    console.debug(`[runners:docker] Base image ${BASE_IMAGE_NAME} already exists`)
+    return true
+  }
+
+  console.debug(`[runners:docker] Building shared base image ${BASE_IMAGE_NAME}...`)
+
+  // Write base Dockerfile to a temp directory
+  const buildDir = path.join(os.tmpdir(), 'prlt-base-docker')
+  fs.mkdirSync(buildDir, { recursive: true })
+
+  const baseDockerfile = generateBaseDockerfile()
+  const dockerfilePath = path.join(buildDir, 'Dockerfile')
+  fs.writeFileSync(dockerfilePath, baseDockerfile)
+
+  try {
+    const buildCmd = `docker build -t ${BASE_IMAGE_NAME} -f "${dockerfilePath}" "${buildDir}"`
+    console.debug(`[runners:docker] Building base image: ${buildCmd}`)
+    execSync(buildCmd, { stdio: 'pipe' })
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to build base image:`, error)
+    return false
+  }
+}
+
+/**
  * Create and start a Docker container for an agent.
  * Uses raw Docker commands instead of devcontainer CLI.
  */
@@ -1541,6 +1574,12 @@ function ensureDockerContainer(
     } catch {
       // Ignore removal errors
     }
+  }
+
+  // Ensure the shared base image exists before building the agent-specific image.
+  // The base image contains common system packages and tools shared by all agents.
+  if (!ensureBaseImage()) {
+    console.debug(`[runners:docker] Failed to build base image, agent image build may fail`)
   }
 
   // Build image with version-aware cache busting (TKT-1029)
@@ -2657,6 +2696,14 @@ export async function runOrchestratorInDocker(
         execSync(`docker rm -f ${containerName}`, { stdio: 'pipe' })
       } catch {
         // Ignore removal errors
+      }
+    }
+
+    // Ensure the shared base image exists before building the orchestrator image
+    if (!ensureBaseImage()) {
+      return {
+        success: false,
+        error: 'Failed to build shared base Docker image. Check Docker is running and has internet access.',
       }
     }
 
