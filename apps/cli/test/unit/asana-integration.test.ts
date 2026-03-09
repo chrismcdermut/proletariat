@@ -28,8 +28,12 @@ import {
   buildAsanaMetadata,
   buildAsanaSpawnContextMessage,
   buildAsanaTaskChoiceCommand,
+  getAsanaTaskByGid,
+  listAsanaTasks,
+  importAsanaTaskToPmo,
 } from '../../src/lib/external-issues/asana.js'
 import { AsanaIssueAdapter } from '../../src/lib/external-issues/adapters.js'
+import { ExternalIssueAdapterError } from '../../src/lib/external-issues/types.js'
 
 describe('Asana Integration', () => {
   let env: TestEnvironment
@@ -298,6 +302,319 @@ describe('Asana Integration', () => {
       expect(buildAsanaTaskChoiceCommand('1234567890', 'my-project')).to.equal(
         'prlt work asana --task 1234567890 --json -P my-project'
       )
+    })
+  })
+
+  describe('getAsanaTaskByGid', () => {
+    const savedEnv: Record<string, string | undefined> = {}
+
+    before(() => {
+      savedEnv.PRLT_ASANA_ACCESS_TOKEN = process.env.PRLT_ASANA_ACCESS_TOKEN
+      savedEnv.ASANA_ACCESS_TOKEN = process.env.ASANA_ACCESS_TOKEN
+    })
+
+    beforeEach(() => {
+      delete process.env.PRLT_ASANA_ACCESS_TOKEN
+      delete process.env.ASANA_ACCESS_TOKEN
+    })
+
+    after(() => {
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value !== undefined) process.env[key] = value
+        else delete process.env[key]
+      }
+    })
+
+    it('throws MISSING_CONFIG when access token is missing', async () => {
+      try {
+        await getAsanaTaskByGid({}, '12345')
+        expect.fail('expected to throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+        expect((error as ExternalIssueAdapterError).code).to.equal('MISSING_CONFIG')
+      }
+    })
+
+    it('throws AUTH_FAILED for 401 responses', async () => {
+      const fetchImpl = async () => new Response('{}', { status: 401 })
+      try {
+        await getAsanaTaskByGid(
+          { accessToken: 'bad-token' },
+          '12345',
+          { fetchImpl },
+        )
+        expect.fail('expected to throw')
+      } catch (error) {
+        expect((error as ExternalIssueAdapterError).code).to.equal('AUTH_FAILED')
+      }
+    })
+
+    it('returns null for 404 responses', async () => {
+      const fetchImpl = async () => new Response('{}', { status: 404 })
+      const result = await getAsanaTaskByGid(
+        { accessToken: 'tok' },
+        '99999',
+        { fetchImpl },
+      )
+      expect(result).to.equal(null)
+    })
+
+    it('throws REQUEST_FAILED for server errors', async () => {
+      const fetchImpl = async () => new Response('{}', { status: 500 })
+      try {
+        await getAsanaTaskByGid(
+          { accessToken: 'tok' },
+          '12345',
+          { fetchImpl },
+        )
+        expect.fail('expected to throw')
+      } catch (error) {
+        expect((error as ExternalIssueAdapterError).code).to.equal('REQUEST_FAILED')
+      }
+    })
+
+    it('throws REQUEST_FAILED for API errors in response body', async () => {
+      const fetchImpl = async () => new Response(
+        JSON.stringify({ errors: [{ message: 'Something went wrong' }] }),
+        { status: 200 },
+      )
+      try {
+        await getAsanaTaskByGid(
+          { accessToken: 'tok' },
+          '12345',
+          { fetchImpl },
+        )
+        expect.fail('expected to throw')
+      } catch (error) {
+        expect((error as ExternalIssueAdapterError).code).to.equal('REQUEST_FAILED')
+        expect((error as ExternalIssueAdapterError).message).to.include('Something went wrong')
+      }
+    })
+
+    it('fetches and normalizes a task by GID', async () => {
+      const sampleTask = {
+        gid: '1234567890',
+        name: 'Build login page',
+        completed: false,
+        notes: 'Implement the login page.',
+        assignee: { gid: 'user-1', name: 'Alice' },
+        tags: [{ gid: 'tag-1', name: 'frontend' }],
+        memberships: [{
+          project: { gid: 'proj-1', name: 'Web App' },
+          section: { gid: 'sec-1', name: 'In Progress' },
+        }],
+        permalink_url: 'https://app.asana.com/0/proj-1/1234567890',
+      }
+      const fetchImpl = async () => new Response(
+        JSON.stringify({ data: sampleTask }),
+        { status: 200 },
+      )
+
+      const result = await getAsanaTaskByGid(
+        { accessToken: 'tok' },
+        '1234567890',
+        { fetchImpl },
+      )
+
+      expect(result).to.not.equal(null)
+      expect(result?.source.name).to.equal('asana')
+      expect(result?.source.externalId).to.equal('1234567890')
+      expect(result?.title).to.equal('Build login page')
+      expect(result?.status).to.equal('In Progress')
+    })
+
+    it('returns null when data is missing from response', async () => {
+      const fetchImpl = async () => new Response(
+        JSON.stringify({}),
+        { status: 200 },
+      )
+
+      const result = await getAsanaTaskByGid(
+        { accessToken: 'tok' },
+        '12345',
+        { fetchImpl },
+      )
+      expect(result).to.equal(null)
+    })
+  })
+
+  describe('listAsanaTasks', () => {
+    const savedEnv: Record<string, string | undefined> = {}
+
+    before(() => {
+      savedEnv.PRLT_ASANA_ACCESS_TOKEN = process.env.PRLT_ASANA_ACCESS_TOKEN
+      savedEnv.ASANA_ACCESS_TOKEN = process.env.ASANA_ACCESS_TOKEN
+      savedEnv.PRLT_ASANA_PROJECT_GID = process.env.PRLT_ASANA_PROJECT_GID
+    })
+
+    beforeEach(() => {
+      delete process.env.PRLT_ASANA_ACCESS_TOKEN
+      delete process.env.ASANA_ACCESS_TOKEN
+      delete process.env.PRLT_ASANA_PROJECT_GID
+    })
+
+    after(() => {
+      for (const [key, value] of Object.entries(savedEnv)) {
+        if (value !== undefined) process.env[key] = value
+        else delete process.env[key]
+      }
+    })
+
+    it('throws MISSING_CONFIG when access token is missing', async () => {
+      try {
+        await listAsanaTasks({})
+        expect.fail('expected to throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+        expect((error as ExternalIssueAdapterError).code).to.equal('MISSING_CONFIG')
+      }
+    })
+
+    it('throws MISSING_CONFIG when project GID is missing', async () => {
+      try {
+        await listAsanaTasks({ accessToken: 'tok' })
+        expect.fail('expected to throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ExternalIssueAdapterError)
+        expect((error as ExternalIssueAdapterError).code).to.equal('MISSING_CONFIG')
+      }
+    })
+
+    it('throws AUTH_FAILED for 401 responses', async () => {
+      const fetchImpl = async () => new Response('{}', { status: 401 })
+      try {
+        await listAsanaTasks(
+          { accessToken: 'bad-token', projectGid: 'proj-1' },
+          { fetchImpl },
+        )
+        expect.fail('expected to throw')
+      } catch (error) {
+        expect((error as ExternalIssueAdapterError).code).to.equal('AUTH_FAILED')
+      }
+    })
+
+    it('fetches and normalizes tasks from a project', async () => {
+      const tasks = [
+        {
+          gid: '111',
+          name: 'Task one',
+          completed: false,
+          notes: 'First task',
+          permalink_url: 'https://app.asana.com/0/0/111',
+        },
+        {
+          gid: '222',
+          name: 'Task two',
+          completed: true,
+          notes: 'Second task',
+          permalink_url: 'https://app.asana.com/0/0/222',
+        },
+      ]
+      const fetchImpl = async () => new Response(
+        JSON.stringify({ data: tasks }),
+        { status: 200 },
+      )
+
+      const result = await listAsanaTasks(
+        { accessToken: 'tok', projectGid: 'proj-1' },
+        { fetchImpl },
+      )
+
+      expect(result).to.have.lengthOf(2)
+      expect(result[0].source.externalId).to.equal('111')
+      expect(result[0].title).to.equal('Task one')
+      expect(result[1].source.externalId).to.equal('222')
+      expect(result[1].status).to.equal('Completed')
+    })
+
+    it('throws BAD_PAYLOAD when data is not an array', async () => {
+      const fetchImpl = async () => new Response(
+        JSON.stringify({ data: 'not-an-array' }),
+        { status: 200 },
+      )
+      try {
+        await listAsanaTasks(
+          { accessToken: 'tok', projectGid: 'proj-1' },
+          { fetchImpl },
+        )
+        expect.fail('expected to throw')
+      } catch (error) {
+        expect((error as ExternalIssueAdapterError).code).to.equal('BAD_PAYLOAD')
+      }
+    })
+  })
+
+  describe('importAsanaTaskToPmo', () => {
+    const sampleTask = {
+      gid: '1234567890',
+      name: 'Build login page',
+      completed: false,
+      notes: 'Implement the login page.',
+      assignee: { gid: 'user-1', name: 'Alice' },
+      tags: [{ gid: 'tag-1', name: 'frontend' }],
+      memberships: [{
+        project: { gid: 'proj-1', name: 'Web App' },
+        section: { gid: 'sec-1', name: 'In Progress' },
+      }],
+      permalink_url: 'https://app.asana.com/0/proj-1/1234567890',
+    }
+
+    function makeEnvelope() {
+      return normalizeAsanaTaskToEnvelope(sampleTask)
+    }
+
+    it('creates a new PMO ticket when none exists', async () => {
+      const createdTicket = { id: 'TKT-001' }
+      const storage = {
+        listTickets: async () => [],
+        createTicket: async (_projectId: string, input: Record<string, unknown>) => {
+          expect(input.title).to.equal('Build login page')
+          expect((input.metadata as Record<string, string>).external_source).to.equal('asana')
+          expect((input.metadata as Record<string, string>).external_key).to.equal('1234567890')
+          return createdTicket
+        },
+        updateTicket: async () => { throw new Error('should not be called') },
+      }
+
+      const result = await importAsanaTaskToPmo(storage, 'PROJ-001', makeEnvelope())
+      expect(result.ticketId).to.equal('TKT-001')
+      expect(result.created).to.equal(true)
+    })
+
+    it('updates existing PMO ticket matched by external_key', async () => {
+      const existingTicket = {
+        id: 'TKT-002',
+        metadata: { external_source: 'asana', external_key: '1234567890', external_id: '1234567890' },
+      }
+      const storage = {
+        listTickets: async () => [existingTicket],
+        createTicket: async () => { throw new Error('should not be called') },
+        updateTicket: async (ticketId: string) => {
+          expect(ticketId).to.equal('TKT-002')
+          return { id: ticketId }
+        },
+      }
+
+      const result = await importAsanaTaskToPmo(storage, 'PROJ-001', makeEnvelope())
+      expect(result.ticketId).to.equal('TKT-002')
+      expect(result.created).to.equal(false)
+    })
+
+    it('does not match tickets from different sources', async () => {
+      const linearTicket = {
+        id: 'TKT-004',
+        metadata: { external_source: 'linear', external_key: '1234567890' },
+      }
+      const createdTicket = { id: 'TKT-005' }
+      const storage = {
+        listTickets: async () => [linearTicket],
+        createTicket: async () => createdTicket,
+        updateTicket: async () => { throw new Error('should not be called') },
+      }
+
+      const result = await importAsanaTaskToPmo(storage, 'PROJ-001', makeEnvelope())
+      expect(result.ticketId).to.equal('TKT-005')
+      expect(result.created).to.equal(true)
     })
   })
 
