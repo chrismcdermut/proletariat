@@ -87,7 +87,7 @@ export default class WorkReady extends PMOCommand {
     try {
       workspaceInfo = getWorkspaceInfo();
     } catch {
-      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.');
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.');
     }
 
     // Open database for execution storage

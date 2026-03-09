@@ -26,7 +26,7 @@ The sync direction defaults to **inbound** (Linear → PMO). Outbound sync (PMO 
 
 - A Linear workspace with at least one team
 - A Linear personal API key (create at https://linear.app/settings/api)
-- An initialized prlt HQ with a project (`prlt init` + `prlt project create`)
+- An initialized prlt HQ with a project (`prlt new` + `prlt project create`)
 
 ---
 

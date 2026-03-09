@@ -55,7 +55,7 @@ export default class PRStatus extends PMOCommand {
 
     // PMOCommand ensures we have storage access
     if (!this.storage) {
-      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.');
+      return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.');
     }
 
     // Get ticket ID from args or flags

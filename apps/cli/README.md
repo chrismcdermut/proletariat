@@ -32,7 +32,7 @@ brew install chrismcdermut/proletariat/prlt    # macOS (Homebrew)
 # or
 npm install -g @proletariat/cli        # any platform (npm)
 
-prlt init
+prlt new
 prlt ticket create --title "Add OAuth" --category feature
 prlt work spawn   # Interactive: select tickets, environment, action
 ```
@@ -59,7 +59,7 @@ brew install chrismcdermut/proletariat/prlt  # Install (Homebrew, recommended)
 # or
 npm install -g @proletariat/cli              # Install (npm, all platforms)
 
-prlt init                          # Create HQ, add repos, choose theme
+prlt new                           # Create HQ, add repos, choose theme
 prlt ticket create --title "Add OAuth" --category feature
 prlt work spawn                    # Interactive: select tickets, environment, action
 # Agent creates PR → You review → Merge → Done
@@ -299,7 +299,7 @@ prlt agent themes create mytheme    # Create custom theme
 prlt agent themes add-names mytheme # Add names to custom theme
 ```
 
-Themes are selected during `prlt init`.
+Themes are selected during `prlt new`.
 
 ### Three Ways to Use Commands
 
@@ -628,7 +628,8 @@ Agent-created PRs ready for review:
   <tr><td rowspan="2"><b>session</b></td><td><code>prlt session list</code></td><td>List active tmux sessions</td></tr>
   <tr><td><code>prlt session attach <name></code></td><td>Attach to tmux session</td></tr>
   <!-- workspace -->
-  <tr><td rowspan="4"><b>workspace</b></td><td><code>prlt init</code></td><td>Initialize workspace</td></tr>
+  <tr><td rowspan="5"><b>workspace</b></td><td><code>prlt init</code></td><td>Initialize machine config</td></tr>
+  <tr><td><code>prlt new</code></td><td>Create new HQ workspace</td></tr>
   <tr><td><code>prlt workspace list</code></td><td>List workspaces</td></tr>
   <tr><td><code>prlt workspace add</code></td><td>Add workspace</td></tr>
   <tr><td><code>prlt workspace use <name></code></td><td>Switch workspace</td></tr>

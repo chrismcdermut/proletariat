@@ -58,7 +58,7 @@ export default class ExecutionStop extends PMOCommand {
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
-      this.error('Not in a workspace. Run "prlt init" first.')
+      this.error('Not in a workspace. Run "prlt new" first.')
     }
 
     // Open database

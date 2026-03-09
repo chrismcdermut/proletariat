@@ -499,7 +499,7 @@ Clean up your tmux session when done.`,
 
     if (flags.seed) {
       this.log(styles.warning('   --seed requires an HQ. Skipping seed step.'))
-      this.log(styles.muted('   Run "prlt init" first to set up an HQ, then use --seed.'))
+      this.log(styles.muted('   Run "prlt new" first to set up an HQ, then use --seed.'))
       this.log('')
     }
 

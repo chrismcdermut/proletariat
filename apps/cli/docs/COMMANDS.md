@@ -204,11 +204,24 @@ prlt board watch --debounce 1000
 
 ### `prlt init`
 
-Initialize an HQ (headquarters) for managing repositories, agents, and projects
+Initialize machine-level Proletariat configuration (~/.proletariat)
 
 **Examples:**
 ```bash
 prlt init
+```
+
+---
+
+## new
+
+### `prlt new`
+
+Create a new headquarters for managing repositories, agents, and projects
+
+**Examples:**
+```bash
+prlt new
 ```
 
 ---

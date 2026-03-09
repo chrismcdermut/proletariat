@@ -210,7 +210,7 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
   const dbPath = getDatabasePath(workspacePath);
 
   if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database not found: ${dbPath}. Run 'prlt init' first.`);
+    throw new Error(`Database not found: ${dbPath}. Run 'prlt new' first.`);
   }
 
   let db: Database.Database;

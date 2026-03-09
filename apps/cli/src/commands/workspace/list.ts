@@ -129,7 +129,7 @@ export default class WorkspaceList extends Command {
     // Human-readable output
     if (workspaces.length === 0) {
       this.log(chalk.yellow('No workspaces found.'));
-      this.log(chalk.gray('Run "prlt init" to create a new workspace.'));
+      this.log(chalk.gray('Run "prlt new" to create a new workspace.'));
       return;
     }
 

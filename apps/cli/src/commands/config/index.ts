@@ -67,10 +67,10 @@ export default class Config extends PromptCommand {
       workspaceInfo = getWorkspaceInfo()
     } catch {
       if (jsonMode) {
-        outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt init" first.', createMetadata('config', flags))
+        outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('config', flags))
         this.exit(1)
       }
-      this.error('Not in a workspace. Run "prlt init" first.')
+      this.error('Not in a workspace. Run "prlt new" first.')
     }
 
     // Open database

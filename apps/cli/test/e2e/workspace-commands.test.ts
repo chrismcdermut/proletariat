@@ -306,9 +306,9 @@ describe('Workspace Commands E2E Tests', () => {
   });
 
   // Output mode: HUMAN-READABLE TEXT (via execHuman / PRLT_FORCE_TEXT=1)
-  describe('workspace registration in prlt init', () => {
-    it('should auto-register workspace on init', async () => {
-      // This would require full init flow which is interactive
+  describe('workspace registration in prlt new', () => {
+    it('should auto-register workspace on new', async () => {
+      // This would require full new flow which is interactive
       // Just verify the machine config can be created via add command
       await execHuman(`workspace add ${testWorkspace1}`);
 

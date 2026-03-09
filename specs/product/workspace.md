@@ -13,8 +13,8 @@ Workspace initialization and context management. A workspace (HQ) is the root di
 
 | Ability | Storage | CLI |
 |---------|---------|-----|
-| Initialize HQ | `initializeHQ()` | `prlt init` |
-| Create workspace only | `createWorkspaceOnly()` | `prlt init` (workspace-only mode) |
+| Initialize HQ | `initializeHQ()` | `prlt new` |
+| Create workspace only | `createWorkspaceOnly()` | `prlt new` (workspace-only mode) |
 | Show context | - | `prlt whoami` |
 
 ## Data Model

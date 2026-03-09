@@ -275,7 +275,7 @@ export function getStorageWithAutoSync(
   const dbPath = getWorkspaceDbPath(pmoPath);
 
   if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database not found at ${dbPath}. Run 'prlt init' first.`);
+    throw new Error(`Database not found at ${dbPath}. Run 'prlt new' first.`);
   }
 
   // Note: Storage no longer holds project context - projectId is passed explicitly to operations

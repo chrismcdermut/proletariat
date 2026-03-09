@@ -184,7 +184,7 @@ export function isValidHQ(dir: string): boolean {
 export function getProletariatDir(workspacePath?: string): string {
   const hqPath = workspacePath || findHQRoot();
   if (!hqPath) {
-    throw new Error('Not in an HQ directory. Run "prlt init" first.');
+    throw new Error('Not in an HQ directory. Run "prlt new" first.');
   }
   return path.join(hqPath, '.proletariat');
 }
@@ -205,7 +205,7 @@ export function requireHQ(startDir?: string): string {
     const hint = process.env.PRLT_HQ_PATH
       ? `PRLT_HQ_PATH is set to "${process.env.PRLT_HQ_PATH}" but it's not a valid HQ.`
       : 'Set PRLT_HQ_PATH environment variable or run from within an HQ directory.';
-    throw new Error(`Not in an HQ directory. Run "prlt init" first.\n${hint}`);
+    throw new Error(`Not in an HQ directory. Run "prlt new" first.\n${hint}`);
   }
   return hqPath;
 }

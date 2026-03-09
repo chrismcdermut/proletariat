@@ -540,7 +540,7 @@ export function getIsolatedEnv(nodeEnv: string = 'production'): NodeJS.ProcessEn
   env.PRLT_SKIP_NEW_VERSION_CHECK = 'true';
 
   // Skip the init hook's first-time-user redirect. Without this, tests that run
-  // commands outside of a valid HQ directory get redirected to `prlt init`,
+  // commands outside of a valid HQ directory get redirected to `prlt new`,
   // which outputs JSON prompts that break test assertions.
   env.PRLT_SKIP_INIT_REDIRECT = '1';
 

@@ -207,7 +207,7 @@ test/
 
 | Command | Status | Test Cases |
 |---------|--------|------------|
-| `prlt init` | 🚧 | Initialize workspace |
+| `prlt new` | 🚧 | Initialize workspace |
 
 ---
 

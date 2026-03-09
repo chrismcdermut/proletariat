@@ -405,16 +405,47 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
   });
 
   // ================================================================
-  // INIT COMMAND TESTS
+  // INIT COMMAND TESTS (machine setup)
   // ================================================================
   describe('prlt init (JSON mode)', () => {
+    let testDir: string;
+    let originalCwd: string;
+
+    beforeEach(() => {
+      originalCwd = process.cwd();
+      testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'init-e2e-')));
+      process.chdir(testDir);
+    });
+
+    afterEach(() => {
+      process.chdir(originalCwd);
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    });
+
+    it('should initialize machine config in JSON mode', async () => {
+      const output = await execInProcess('init --json');
+      const result = extractJson<{ success: boolean; configDir: string; configPath: string }>(output);
+
+      expect(result).to.not.be.null;
+      expect(result!.success).to.equal(true);
+      expect(result!.configDir).to.be.a('string');
+      expect(result!.configPath).to.be.a('string');
+    });
+  });
+
+  // ================================================================
+  // NEW COMMAND TESTS (HQ creation)
+  // ================================================================
+  describe('prlt new (JSON mode)', () => {
     let testDir: string;
     let originalCwd: string;
     let uniqueId: string;
 
     beforeEach(() => {
       originalCwd = process.cwd();
-      testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'init-e2e-')));
+      testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'new-e2e-')));
       process.chdir(testDir);
       // Generate unique suffix to avoid conflicts with registered HQ names
       uniqueId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -429,7 +460,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
 
     it('should create HQ in JSON mode with --name flag', async () => {
       const hqName = `test-hq-${uniqueId}`;
-      const output = await execInProcess(`init --json --name ${hqName}`);
+      const output = await execInProcess(`new --json --name ${hqName}`);
       const result = extractJson<{ success: boolean; hq: { name: string; path: string } }>(output);
 
       // Skip if name collision or other environment issue
@@ -443,7 +474,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
     });
 
     it('should prompt for name in JSON mode without --name flag', async () => {
-      const output = await execInProcess('init --json');
+      const output = await execInProcess('new --json');
       const result = extractJson<{ prompt: { type: string; name: string; message: string } }>(output);
 
       expect(result).to.not.be.null;
@@ -453,7 +484,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
 
     it('should create HQ with agents in JSON mode', async () => {
       const hqName = `agent-hq-${uniqueId}`;
-      const output = await execInProcess(`init --json --name ${hqName} --agents alpha,beta`);
+      const output = await execInProcess(`new --json --name ${hqName} --agents alpha,beta`);
       const result = extractJson<{ success: boolean; hq: { agents: string[] } }>(output);
 
       // Skip if name collision or other environment issue
@@ -465,7 +496,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
 
     it('should create HQ without PMO using --no-pmo', async () => {
       const hqName = `no-pmo-hq-${uniqueId}`;
-      const output = await execInProcess(`init --json --name ${hqName} --no-pmo`);
+      const output = await execInProcess(`new --json --name ${hqName} --no-pmo`);
       const result = extractJson<{ success: boolean; hq: { pmo: boolean } }>(output);
 
       // Skip if name collision or other environment issue
@@ -478,7 +509,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
       // Create the directory first
       fs.mkdirSync(path.join(testDir, 'existing-hq'), { recursive: true });
 
-      const output = await execInProcess('init --json --name existing --path existing-hq');
+      const output = await execInProcess('new --json --name existing --path existing-hq');
       const result = extractJson<{ success: boolean; error: string }>(output);
 
       expect(result).to.not.be.null;
@@ -491,7 +522,7 @@ describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
     it('should create HQ with custom path', async () => {
       const hqName = `custom-hq-${uniqueId}`;
       const customPath = path.join(testDir, 'custom-location');
-      const output = await execInProcess(`init --json --name ${hqName} --path "${customPath}"`);
+      const output = await execInProcess(`new --json --name ${hqName} --path "${customPath}"`);
       const result = extractJson<{ success: boolean; hq: { name: string; path: string } }>(output);
 
       // Skip if name collision or other environment issue

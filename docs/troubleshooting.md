@@ -104,7 +104,7 @@ npm rebuild better-sqlite3 && node ./bin/validate-better-sqlite3.cjs
 
 ### Database Not Found
 
-**Symptom**: `Database not found at ... Run 'prlt init' first`
+**Symptom**: `Database not found at ... Run 'prlt new' first`
 
 **Cause**: Not in a prlt workspace or PRLT_HQ_PATH incorrect
 
@@ -112,7 +112,7 @@ npm rebuild better-sqlite3 && node ./bin/validate-better-sqlite3.cjs
 
 1. **Initialize workspace**:
    ```bash
-   prlt init
+   prlt new
    ```
 
 2. **Check current directory**:
@@ -158,7 +158,7 @@ npm rebuild better-sqlite3 && node ./bin/validate-better-sqlite3.cjs
 2. **Backup and recreate** (last resort):
    ```bash
    mv .proletariat/workspace.db .proletariat/workspace.db.backup
-   prlt init
+   prlt new
    ```
 
 ## Docker Issues

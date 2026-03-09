@@ -15,7 +15,7 @@ Specs are organized by system layer:
 ```
 specs/
 ├── cli/                    # CLI commands (presentation layer)
-│   ├── init-commands.md    # prlt init, prlt pmo init
+│   ├── init-commands.md    # prlt init, prlt new, prlt pmo init
 │   ├── agent-commands.md   # prlt agent commands
 │   ├── pmo-board-commands.md
 │   ├── pmo-project-commands.md

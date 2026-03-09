@@ -10,7 +10,7 @@ import { initAnalytics, shutdownAnalytics } from '../lib/telemetry/analytics.js'
 /**
  * Init hook - runs before every command
  *
- * 1. Detects first-time users and redirects them to the init flow.
+ * 1. Detects first-time users and redirects them to the `new` command.
  * 2. Shows an interactive update prompt when a newer version is cached.
  * 3. Triggers a background version check for the next startup.
  *
@@ -25,7 +25,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   await initSentry(config.version)
 
   // Commands that work without an HQ still run native module checks.
-  const hqOptionalCommands = ['init', 'commit', 'claude', 'pmo:init', 'telemetry']
+  const hqOptionalCommands = ['init', 'new', 'commit', 'claude', 'pmo:init', 'telemetry']
   const isHqOptionalCommand = !!id && hqOptionalCommands.some(cmd => id === cmd || id.startsWith(cmd + ':'))
 
   // Skip when running under oclif tooling (manifest, readme generation)
@@ -83,10 +83,10 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   if (!id || id === 'help') {
     // Check if this is first-time user running bare `prlt`
     if (!id && isFirstTimeUser()) {
-      // Run init command - in TTY it prompts interactively,
+      // Run new command - in TTY it prompts interactively,
       // in non-TTY it outputs a JSON prompt for the HQ name
       const { run } = await import('@oclif/core')
-      await run(['init'], config)
+      await run(['new'], config)
       await shutdownAnalytics()
       process.exit(0)
     }
@@ -98,10 +98,10 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     const chalk = await import('chalk')
     console.log(chalk.default.yellow('\n⚠️  No headquarters found. Let\'s set one up first.\n'))
 
-    // Run init command - in TTY it prompts interactively,
+    // Run new command - in TTY it prompts interactively,
     // in non-TTY it outputs a JSON prompt for the HQ name
     const { run } = await import('@oclif/core')
-    await run(['init'], config)
+    await run(['new'], config)
 
     console.log(chalk.default.blue(`\n✅ Setup complete! You can now run: prlt ${id}\n`))
     await shutdownAnalytics()

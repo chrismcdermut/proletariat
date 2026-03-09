@@ -34,7 +34,7 @@ my-project-hq/
 Initialize a new HQ with:
 
 ```bash
-prlt init
+prlt new
 ```
 
 The `init` command:
