@@ -263,28 +263,54 @@ describe('Agent Commands E2E Tests', () => {
       })
     })
 
-    describe('agent status - agent selection flow', () => {
-      it('should output agent selection with --machine', async () => {
-        const result = await agentExec('agent status --machine')
+    describe('agent status - JSON output', () => {
+      it('should output agent statuses with --machine', async () => {
+        const output = await execInProcess('agent status --machine')
+
+        if (hasContextError(output)) {
+          return
+        }
+
+        const result = extractJson<{ type: string; result?: { agents: unknown[] }; prompt?: { type: string }; metadata: { command: string } }>(output)
 
         if (!result) {
           return
         }
 
-        expect(result.prompt.type).to.equal('list')
+        // agent status --machine returns all agents directly (no prompt)
+        // when agents exist, or a prompt when the command needs selection
         expect(result.metadata.command).to.equal('agent status')
+        if (result.type === 'success' && result.result) {
+          expect(result.result).to.have.property('agents')
+          expect(Array.isArray(result.result.agents)).to.equal(true)
+        } else if (result.prompt) {
+          expect(result.prompt.type).to.equal('list')
+        }
       })
 
-      it('should include command in agent choices', async () => {
-        const result = await agentExec('agent status --machine')
+      it('should include agent data when agents exist', async () => {
+        const output = await execInProcess('agent status --machine')
+
+        if (hasContextError(output)) {
+          return
+        }
+
+        const result = extractJson<{ type: string; result?: { agents: Array<{ name: string }> }; prompt?: { choices: Array<{ command?: string }> } }>(output)
 
         if (!result) {
           return
         }
 
-        for (const choice of result.prompt.choices) {
-          if (choice.command) {
-            expect(choice.command).to.include('agent status')
+        // When returning all agents directly, each agent should have a name
+        if (result.type === 'success' && result.result?.agents) {
+          for (const agent of result.result.agents) {
+            expect(agent).to.have.property('name')
+          }
+        } else if (result.prompt?.choices) {
+          for (const choice of result.prompt.choices) {
+            if (choice.command) {
+              expect(choice.command).to.include('agent status')
+            }
           }
         }
       })

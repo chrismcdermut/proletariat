@@ -340,10 +340,14 @@ const skipSuite = !hasTmux() || !hasPrlt();
       session.waitForStable(1000, MENU_TIMEOUT);
 
       const screen = session.getScreen();
-      // Should have moved past the menu - either showing board or an error
-      // The key thing is that the menu prompt should no longer be showing
-      // the selection indicator for other items
-      expect(screen.raw).to.not.include('? 📋 Board Operations');
+      // After selection, the inquirer selection arrows (❯) should be gone
+      // because the menu is no longer in its interactive state.
+      // Note: the prompt text itself stays visible in terminal scrollback,
+      // so we check for the absence of the selection indicator instead.
+      const menuChoiceLines = screen.lines.filter(
+        (line: string) => line.includes('❯') && line.includes('Board')
+      );
+      expect(menuChoiceLines).to.have.length(0);
     });
   });
 
