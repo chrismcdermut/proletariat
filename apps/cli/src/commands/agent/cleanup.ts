@@ -26,6 +26,7 @@ export default class Cleanup extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --temp',
     '<%= config.bin %> <%= command.id %> --temp --dry-run',
     '<%= config.bin %> <%= command.id %> --all',
+    '<%= config.bin %> <%= command.id %> bold-bezos-1 --keep-dir',
     '<%= config.bin %> <%= command.id %> --json',
   ];
 
@@ -64,6 +65,10 @@ export default class Cleanup extends PMOCommand {
       description: 'Push unpushed commits before cleanup',
       default: false,
     }),
+    'keep-dir': Flags.boolean({
+      description: 'Kill containers and tmux sessions but preserve the agent directory',
+      default: false,
+    }),
     'no-interactive': Flags.boolean({
       description: 'Alias for --json flag',
       default: false,
@@ -96,6 +101,7 @@ export default class Cleanup extends PMOCommand {
     const skipConfirm = flags.yes;
     const forceCleanup = flags.force;
     const pushFirst = flags.push;
+    const keepDir = flags['keep-dir'];
 
     // Determine which agents to clean up
     let agentsToCleanup: string[] = [];
@@ -248,7 +254,9 @@ export default class Cleanup extends PMOCommand {
       { name: 'No, cancel', value: 'false' },
       { name: 'Yes, clean up', value: 'true' },
     ];
-    const confirmMessage = `Clean up ${agentsToCleanup.length} agent(s)? This will remove directories, containers, and tmux sessions.`;
+    const confirmMessage = keepDir
+      ? `Clean up ${agentsToCleanup.length} agent(s)? This will remove containers and tmux sessions but preserve directories.`
+      : `Clean up ${agentsToCleanup.length} agent(s)? This will remove directories, containers, and tmux sessions.`;
 
     // Confirm unless --yes or dry-run
     if (!skipConfirm && !dryRun) {
@@ -312,6 +320,7 @@ export default class Cleanup extends PMOCommand {
         dryRun,
         force: forceCleanup,
         pushFirst,
+        keepDir,
       });
 
       // Handle blocked by git status - offer interactive options
@@ -376,6 +385,7 @@ export default class Cleanup extends PMOCommand {
           dryRun,
           force: action === 'force',
           pushFirst: action === 'push',
+          keepDir,
         });
         results.push(retryResult);
         continue;

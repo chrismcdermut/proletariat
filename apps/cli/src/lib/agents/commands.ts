@@ -846,6 +846,8 @@ export interface CleanupOptions {
   force?: boolean;
   /** If true, push unpushed commits before cleanup */
   pushFirst?: boolean;
+  /** If true, kill containers and tmux sessions but preserve the agent directory and worktrees */
+  keepDir?: boolean;
 }
 
 export interface WorktreeGitStatus {
@@ -1154,6 +1156,7 @@ export async function cleanupAgent(
   const dryRun = options?.dryRun ?? false;
   const force = options?.force ?? false;
   const pushFirst = options?.pushFirst ?? false;
+  const keepDir = options?.keepDir ?? false;
 
   const result: CleanupResult = {
     agent: agentName,
@@ -1254,61 +1257,66 @@ export async function cleanupAgent(
     }
   }
 
-  // 3. Remove git worktrees for each repository
-  for (const repo of workspaceInfo.repositories) {
-    const worktreePath = path.join(agentDir, repo.name);
-    const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+  if (keepDir) {
+    log('Preserving agent directory and worktrees (--keep-dir)');
+  } else {
+    // 3. Remove git worktrees for each repository
+    for (const repo of workspaceInfo.repositories) {
+      const worktreePath = path.join(agentDir, repo.name);
+      const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
 
-    if (fs.existsSync(worktreePath) && fs.existsSync(sourceRepoPath)) {
-      if (dryRun) {
-        log(`[dry-run] Would remove worktree: ${worktreePath}`);
-      } else {
-        log(`Removing worktree: ${worktreePath}`);
-        try {
-          execSync(`git worktree remove "${worktreePath}" --force`, {
-            cwd: sourceRepoPath,
-            stdio: 'pipe'
-          });
-        } catch {
-          // If git worktree remove fails, we'll still try to remove the directory
+      if (fs.existsSync(worktreePath) && fs.existsSync(sourceRepoPath)) {
+        if (dryRun) {
+          log(`[dry-run] Would remove worktree: ${worktreePath}`);
+        } else {
+          log(`Removing worktree: ${worktreePath}`);
+          try {
+            execSync(`git worktree remove "${worktreePath}" --force`, {
+              cwd: sourceRepoPath,
+              stdio: 'pipe'
+            });
+          } catch {
+            // If git worktree remove fails, we'll still try to remove the directory
+          }
         }
       }
     }
-  }
 
-  // 4. Remove agent directory
-  if (fs.existsSync(agentDir)) {
-    if (dryRun) {
-      log(`[dry-run] Would remove directory: ${agentDir}`);
-      result.directoriesRemoved.push(agentDir);
-    } else {
-      log(`Removing directory: ${agentDir}`);
-      try {
-        fs.rmSync(agentDir, { recursive: true, force: true });
+    // 4. Remove agent directory
+    if (fs.existsSync(agentDir)) {
+      if (dryRun) {
+        log(`[dry-run] Would remove directory: ${agentDir}`);
         result.directoriesRemoved.push(agentDir);
-      } catch (error) {
-        result.errors.push(`Failed to remove directory ${agentDir}: ${error}`);
-        result.success = false;
+      } else {
+        log(`Removing directory: ${agentDir}`);
+        try {
+          fs.rmSync(agentDir, { recursive: true, force: true });
+          result.directoriesRemoved.push(agentDir);
+        } catch (error) {
+          result.errors.push(`Failed to remove directory ${agentDir}: ${error}`);
+          result.success = false;
+        }
       }
     }
-  }
 
-  // 5. Prune worktrees
-  if (!dryRun) {
-    for (const repo of workspaceInfo.repositories) {
-      const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
-      if (fs.existsSync(sourceRepoPath)) {
-        try {
-          execSync('git worktree prune', { cwd: sourceRepoPath, stdio: 'pipe' });
-        } catch {
-          // Ignore prune errors
+    // 5. Prune worktrees
+    if (!dryRun) {
+      for (const repo of workspaceInfo.repositories) {
+        const sourceRepoPath = path.join(workspaceInfo.path, 'repos', repo.name);
+        if (fs.existsSync(sourceRepoPath)) {
+          try {
+            execSync('git worktree prune', { cwd: sourceRepoPath, stdio: 'pipe' });
+          } catch {
+            // Ignore prune errors
+          }
         }
       }
     }
   }
 
   // 6. Mark agent as cleaned in database (not delete)
-  if (!dryRun && result.success) {
+  // Skip marking as cleaned when keeping directory - agent is still partially alive
+  if (!dryRun && result.success && !keepDir) {
     log(`Marking agent "${agentName}" as cleaned`);
     markAgentCleaned(workspaceInfo.path, agentName);
   }
