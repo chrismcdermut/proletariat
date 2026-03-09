@@ -52,7 +52,6 @@ const ISOLATION_ENV_VARS = [
   'PRLT_PMO_PATH',
   'PRLT_DATABASE_PATH',
   'PRLT_CONFIG_PATH',
-  'PRLT_FORCE_TEXT',
   'DEVCONTAINER',
   'PRLT_TEST_ENV',
 ];
@@ -625,90 +624,6 @@ export function getBinPath(): string {
 }
 
 /**
- * Check if a command string contains flags that request JSON output.
- * When these flags are present, we should NOT force text mode.
- */
-function wantsJsonOutput(cmd: string): boolean {
-  return /\s--json\b/.test(cmd) ||
-         /\s--list\b/.test(cmd) ||
-         /\s--machine\b/.test(cmd) ||
-         /\s-m\b/.test(cmd);
-}
-
-/**
- * Executes a CLI command in the isolated test environment.
- *
- * This function:
- * 1. Clears environment variables that could bypass isolation
- * 2. Runs the command from the test's current working directory
- * 3. Captures and returns stdout/stderr appropriately
- *
- * @param cmd - The CLI command to run (without 'prlt' prefix)
- * @returns The command output (stdout or filtered stderr)
- */
-export function exec(cmd: string): string {
-  try {
-    const binPath = getBinPath();
-    const result = execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      timeout: EXEC_TIMEOUT_MS,
-      env: {
-        ...getIsolatedEnv(),
-        // Force text output unless the command explicitly requests JSON via flags.
-        // Commands with --json, --list, or --machine need JSON mode to work.
-        ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
-      },
-      maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large JSON output
-    });
-    return filterOutput(result);
-  } catch (error: unknown) {
-    const execError = error as ExecError;
-    // Command failed - capture both stdout and stderr
-    const stdout = execError.stdout || '';
-    const stderr = execError.stderr || '';
-
-    // Return filtered stdout if available (for expected error messages)
-    if (stdout.trim()) {
-      return filterOutput(stdout);
-    }
-
-    // Filter out Node.js warnings from stderr
-    const filteredStderr = filterOutput(stderr);
-    return filteredStderr || filterOutput(execError.message || 'Unknown error');
-  }
-}
-
-/**
- * Executes a CLI command with output filtering applied.
- * Used by commit-commands tests that merge stdout/stderr.
- */
-export function execWithFilter(cmd: string): string {
-  try {
-    const binPath = getBinPath();
-    // Capture both stdout and stderr, then filter stderr noise
-    const result = execSync(`node ${binPath} ${cmd} 2>&1`, {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      timeout: EXEC_TIMEOUT_MS,
-      env: {
-        ...getIsolatedEnv(),
-        ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
-      },
-    });
-    return filterOutput(result);
-  } catch (error: unknown) {
-    const execError = error as ExecError;
-    const stdout = execError.stdout || '';
-    const stderr = execError.stderr || '';
-    // Return filtered output from either stream
-    const combined = stdout + stderr;
-    const filtered = filterOutput(combined);
-    return filtered || execError.message || 'Unknown error';
-  }
-}
-
-/**
  * Executes a CLI command in production mode from CLI directory.
  * Used by docker-commands tests and agent flow tests that need compiled JS.
  *
@@ -724,10 +639,6 @@ export function execProduction(cmd: string): string {
     const env = getIsolatedEnv('production');
     env.PRLT_HQ_PATH = process.cwd();
     env.PRLT_TEST_ENV = 'true'; // Required for PRLT_HQ_PATH to be respected
-    // Force text output unless the command explicitly requests JSON via flags.
-    if (!wantsJsonOutput(cmd)) {
-      env.PRLT_FORCE_TEXT = '1';
-    }
 
     const result = execSync(`node ${binPath} ${cmd}`, {
       encoding: 'utf-8',
@@ -743,46 +654,6 @@ export function execProduction(cmd: string): string {
     const output = execError.stdout || execError.stderr || execError.message || 'Unknown error';
     return filterNodeWarnings(output);
   }
-}
-
-/**
- * Executes a CLI command with minimal processing.
- * Returns raw output or error output without filtering.
- */
-export function execRaw(cmd: string): string {
-  try {
-    const binPath = getBinPath();
-    return execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: EXEC_TIMEOUT_MS,
-      env: {
-        ...getIsolatedEnv(),
-        ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
-      },
-    });
-  } catch (error: unknown) {
-    const execError = error as ExecError;
-    // Return output even if command exits with non-zero
-    return execError.stdout || execError.stderr || execError.message || 'Unknown error';
-  }
-}
-
-/**
- * Executes a CLI command and expects it to succeed.
- * Throws an error if the command fails.
- */
-export function execOrFail(cmd: string): string {
-  const binPath = getBinPath();
-  return execSync(`${binPath} ${cmd}`, {
-    encoding: 'utf-8',
-    cwd: process.cwd(),
-    timeout: EXEC_TIMEOUT_MS,
-    env: {
-      ...getIsolatedEnv(),
-      ...(wantsJsonOutput(cmd) ? {} : { PRLT_FORCE_TEXT: '1' }),
-    },
-  });
 }
 
 // =============================================================================
@@ -994,103 +865,6 @@ export function execWithForce(cmd: string): string {
 }
 
 // =============================================================================
-// Output Mode Helpers
-// =============================================================================
-// These helpers explicitly control the output mode for E2E tests, preventing
-// accidental coupling to non-TTY auto-detection behavior.
-//
-// - execAsHuman(): Forces human-readable text output via PRLT_FORCE_TEXT=1.
-//   Use for tests that assert on styled text (e.g., "Registered workspace").
-//
-// - execAsAgent(): Appends --json flag for explicit JSON/machine-readable output.
-//   Use for tests that parse JSON responses or test agent workflows.
-//
-// Tests should NOT rely on the implicit non-TTY → JSON auto-detection, except
-// for tests that specifically verify that behavior (e.g., prune dry-run safety).
-// =============================================================================
-
-/**
- * Execute a CLI command forcing human-readable text output.
- *
- * Sets PRLT_FORCE_TEXT=1 to override non-TTY auto-detection in execSync,
- * ensuring the CLI outputs styled text instead of JSON envelopes.
- *
- * Use this for tests that assert on human-readable output strings like
- * "Registered workspace", "Active workspace set to", etc.
- *
- * @param cmd - CLI command to run (without 'prlt' prefix)
- * @param env - Additional environment variables to merge
- * @returns Filtered command output (human-readable text)
- */
-export function execAsHuman(cmd: string, env: NodeJS.ProcessEnv = {}): string {
-  try {
-    const binPath = getBinPath();
-    const baseEnv: NodeJS.ProcessEnv = {
-      ...getIsolatedEnv(),
-      PRLT_FORCE_TEXT: '1',
-      ...env,
-    };
-
-    const result = execSync(`node ${binPath} ${cmd}`, {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      timeout: EXEC_TIMEOUT_MS,
-      env: baseEnv,
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    return filterOutput(result);
-  } catch (error: unknown) {
-    const execError = error as ExecError;
-    const stdout = execError.stdout || '';
-    const stderr = execError.stderr || '';
-    if (stdout.trim()) {
-      return filterOutput(stdout);
-    }
-    return filterOutput(stderr) || filterOutput(execError.message || 'Unknown error');
-  }
-}
-
-/**
- * Execute a CLI command in agent/JSON mode with explicit --json flag.
- *
- * Appends --json to the command to explicitly request JSON output,
- * rather than relying on non-TTY auto-detection.
- *
- * Use this for tests that parse JSON responses or simulate agent workflows.
- *
- * @param cmd - CLI command to run (without 'prlt' prefix). --json is appended automatically.
- * @param env - Additional environment variables to merge
- * @returns Filtered command output (JSON string)
- */
-export function execAsAgent(cmd: string, env: NodeJS.ProcessEnv = {}): string {
-  const jsonCmd = cmd.includes('--json') ? cmd : `${cmd} --json`;
-  try {
-    const binPath = getBinPath();
-    const baseEnv: NodeJS.ProcessEnv = {
-      ...getIsolatedEnv(),
-      ...env,
-    };
-
-    const result = execSync(`node ${binPath} ${jsonCmd}`, {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      timeout: EXEC_TIMEOUT_MS,
-      env: baseEnv,
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    return filterOutput(result);
-  } catch (error: unknown) {
-    const execError = error as ExecError;
-    const stdout = execError.stdout || '';
-    const stderr = execError.stderr || '';
-    if (stdout.trim()) {
-      return filterOutput(stdout);
-    }
-    return filterOutput(stderr) || filterOutput(execError.message || 'Unknown error');
-  }
-}
-
-// =============================================================================
 // In-Process Command Execution Helpers
 // =============================================================================
 // These helpers use oclif's runCommand to execute commands directly in the same
@@ -1103,12 +877,11 @@ export function execAsAgent(cmd: string, env: NodeJS.ProcessEnv = {}): string {
 // - Output captured via process.stdout.write interception
 //
 // Usage:
-//   // Instead of:     const output = exec('ticket list');
-//   // Use:            const output = await execInProcess('ticket list');
+//   const output = await execInProcess('ticket list');
 //   // Test functions must be async: it('...', async () => { ... });
 //
-// The original execSync-based helpers (exec, execAsHuman, etc.) are kept for
-// tests that genuinely need process isolation (signal handling, exit codes).
+// The execSync-based execProduction() is kept for tests that genuinely need
+// process isolation (signal handling, exit codes, compiled JS module resolution).
 // =============================================================================
 
 /**
@@ -1147,12 +920,6 @@ function isolateEnvForInProcess(
   // Skip the init hook's first-time-user redirect
   saved.PRLT_SKIP_INIT_REDIRECT = process.env.PRLT_SKIP_INIT_REDIRECT;
   process.env.PRLT_SKIP_INIT_REDIRECT = '1';
-
-  // Force text output unless the command explicitly requests JSON via flags
-  if (!wantsJsonOutput(cmd)) {
-    saved.PRLT_FORCE_TEXT = process.env.PRLT_FORCE_TEXT;
-    process.env.PRLT_FORCE_TEXT = '1';
-  }
 
   // Apply any extra env vars
   for (const [key, value] of Object.entries(extraEnv)) {
@@ -1203,20 +970,13 @@ async function withMockedProcessExit<T>(fn: () => Promise<T>): Promise<T> {
 
 /**
  * Executes a CLI command in-process using oclif's runCommand.
- * This is the async equivalent of exec() — no child process is spawned.
- *
- * The command runs in the same Node.js process with stdout/stderr captured
- * via process.stdout.write interception. Environment isolation is handled
- * by temporarily modifying process.env (restored after the command).
+ * No child process is spawned — runs in the same Node.js process with
+ * stdout/stderr captured via process.stdout.write interception.
  *
  * @param cmd - The CLI command to run (without 'prlt' prefix)
  * @returns The command output (stdout, or error message on failure)
  *
  * @example
- * // Before (sync, spawns child process):
- * const output = exec('ticket create --title "Test" --column "Backlog"');
- *
- * // After (async, in-process):
  * const output = await execInProcess('ticket create --title "Test" --column "Backlog"');
  */
 export async function execInProcess(cmd: string): Promise<string> {
@@ -1233,7 +993,7 @@ export async function execInProcess(cmd: string): Promise<string> {
     );
 
     if (error) {
-      // Match exec() behavior: return stdout if available, then stderr, then error message
+      // Return stdout if available, then stderr, then error message
       if (stdout.trim()) {
         return filterOutput(stdout);
       }
@@ -1248,46 +1008,7 @@ export async function execInProcess(cmd: string): Promise<string> {
 }
 
 /**
- * Executes a CLI command in-process forcing human-readable text output.
- * This is the async equivalent of execAsHuman().
- *
- * @param cmd - CLI command to run (without 'prlt' prefix)
- * @param env - Additional environment variables to merge
- * @returns Filtered command output (human-readable text)
- */
-export async function execInProcessAsHuman(
-  cmd: string,
-  env: Record<string, string | undefined> = {}
-): Promise<string> {
-  const restore = isolateEnvForInProcess(cmd, {
-    PRLT_FORCE_TEXT: '1',
-    ...env,
-  });
-
-  try {
-    const { stdout, stderr, error } = await withMockedProcessExit(() =>
-      runCommand(cmd, CLI_ROOT, {
-        stripAnsi: true,
-        testNodeEnv: 'production',
-      })
-    );
-
-    if (error) {
-      if (stdout.trim()) {
-        return filterOutput(stdout);
-      }
-      return filterOutput(stderr) || filterOutput(error.message || 'Unknown error');
-    }
-
-    return filterOutput(stdout);
-  } finally {
-    restore();
-  }
-}
-
-/**
- * Executes a CLI command in-process with explicit --json flag.
- * This is the async equivalent of execAsAgent().
+ * Executes a CLI command in-process with explicit --json flag appended.
  *
  * @param cmd - CLI command to run (without 'prlt' prefix). --json is appended automatically.
  * @param env - Additional environment variables to merge
