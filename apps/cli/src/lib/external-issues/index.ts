@@ -1,7 +1,7 @@
 /**
  * External Issue Adapter Module
  *
- * Shared contract for normalizing external issues (Linear, Jira) into
+ * Shared contract for normalizing external issues (Linear, Jira, Asana) into
  * a canonical IssueEnvelope format with deterministic spawn context mapping.
  */
 
@@ -42,6 +42,7 @@ export {
 export {
   LinearIssueAdapter,
   JiraIssueAdapter,
+  AsanaIssueAdapter,
 } from './adapters.js'
 
 // Mapping store
@@ -72,6 +73,20 @@ export {
   listLinearIssues,
   type LinearAdapterConfig,
 } from './linear.js'
+
+// Asana helpers
+export {
+  normalizeAsanaTask,
+  normalizeAsanaTaskToEnvelope,
+  buildAsanaTicketDescription,
+  buildAsanaMetadata,
+  buildAsanaSpawnContextMessage,
+  buildAsanaTaskChoiceCommand,
+  getAsanaTaskByGid,
+  listAsanaTasks,
+  importAsanaTaskToPmo,
+  type AsanaAdapterConfig,
+} from './asana.js'
 
 export {
   resolveMirrorToPmo,

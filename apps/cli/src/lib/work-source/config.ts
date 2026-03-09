@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+import { loadAsanaConfig } from '../asana/config.js'
 import { loadLinearConfig } from '../linear/config.js'
 import { loadJiraConfig } from '../jira/config.js'
 
@@ -96,6 +97,14 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
     providers.set('jira', {
       provider: 'jira',
       context: jiraConfig.projectKey ?? undefined,
+    })
+  }
+
+  const asanaConfig = loadAsanaConfig(db)
+  if (asanaConfig) {
+    providers.set('asana', {
+      provider: 'asana',
+      context: asanaConfig.projectName ?? asanaConfig.projectGid ?? undefined,
     })
   }
 

@@ -378,7 +378,7 @@ describe('External Issues', () => {
     });
 
     it('has exactly 2 known sources', () => {
-      expect(ISSUE_SOURCES).to.have.length(2);
+      expect(ISSUE_SOURCES).to.have.length(3);
     });
   });
 

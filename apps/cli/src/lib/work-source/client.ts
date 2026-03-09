@@ -1,4 +1,10 @@
 import {
+  buildAsanaMetadata,
+  buildAsanaSpawnContextMessage,
+  buildAsanaTicketDescription,
+  getAsanaTaskByGid,
+} from '../external-issues/asana.js'
+import {
   buildJiraMetadata,
   buildJiraSpawnContextMessage,
   buildJiraTicketDescription,
@@ -61,9 +67,30 @@ class JiraWorkSourceClient implements WorkSourceClient {
   }
 }
 
+class AsanaWorkSourceClient implements WorkSourceClient {
+  readonly provider: WorkSourceProvider = 'asana'
+
+  async fetchByKey(key: string): Promise<NormalizedIssueEnvelope | null> {
+    return getAsanaTaskByGid({}, key)
+  }
+
+  buildTicketDescription(envelope: NormalizedIssueEnvelope): string {
+    return buildAsanaTicketDescription(envelope)
+  }
+
+  buildMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
+    return buildAsanaMetadata(envelope)
+  }
+
+  buildSpawnContextMessage(envelope: NormalizedIssueEnvelope, additionalMessage?: string): string {
+    return buildAsanaSpawnContextMessage(envelope, additionalMessage)
+  }
+}
+
 const SOURCE_CLIENTS: Partial<Record<WorkSourceProvider, WorkSourceClient>> = {
   linear: new LinearWorkSourceClient(),
   jira: new JiraWorkSourceClient(),
+  asana: new AsanaWorkSourceClient(),
 }
 
 export function getWorkSourceClient(provider: WorkSourceProvider): WorkSourceClient | null {

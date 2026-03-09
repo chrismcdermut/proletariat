@@ -26,4 +26,14 @@ describe('Asana Commands', () => {
     expect(source).to.include('ticket')
     expect(source).to.include('task')
   })
+
+  it('import command defines import-related flags and description', () => {
+    const sourcePath = path.resolve(__dirname, '../../src/commands/asana/import.ts')
+    const source = fs.readFileSync(sourcePath, 'utf-8')
+
+    expect(source).to.include('Import Asana tasks into PMO as tickets')
+    expect(source).to.include('limit')
+    expect(source).to.include('dry-run')
+    expect(source).to.include('all')
+  })
 })
