@@ -57,6 +57,8 @@ export const PMO_TABLES = {
   monday_item_map: 'pmo_monday_item_map',  // Monday item ↔ PMO ticket mapping
   // Asana integration tables
   asana_task_map: 'pmo_asana_task_map',  // Asana task ↔ PMO ticket mapping
+  // Shortcut integration tables
+  shortcut_story_map: 'pmo_shortcut_story_map',  // Shortcut story ↔ PMO ticket mapping
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
