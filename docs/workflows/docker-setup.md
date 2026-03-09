@@ -306,9 +306,9 @@ If you need custom tools in the agent environment:
 1. Create Dockerfile:
 
 ```dockerfile
-FROM node:18
-RUN apt-get update && apt-get install -y git vim
-# Add your tools
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y git vim curl
+# Add your tools and language runtimes
 ```
 
 2. Build and tag:
