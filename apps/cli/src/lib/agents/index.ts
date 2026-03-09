@@ -8,6 +8,7 @@ import { getWorkspaceRepositories, getActiveTheme } from '../database/index.js';
 import { styles } from '../styles.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getGitIdentity } from '../pr/index.js';
+import { pruneWorktrees } from '../branch/index.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -191,6 +192,9 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                 // WORKTREE MODE: Create git worktree (original behavior)
                 console.log(styles.muted(`  Creating worktree for ${repo.name}...`));
 
+                // Prune stale worktree references before creating new ones
+                pruneWorktrees(sourceRepo);
+
                 // Fetch latest from origin to ensure we have up-to-date main
                 try {
                   execSync(`git fetch origin main`, {
@@ -344,6 +348,9 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
           });
         } else {
           // WORKTREE MODE: Create git worktree (original behavior)
+          // Prune stale worktree references before creating new ones
+          pruneWorktrees(sourceRepo);
+
           // Fetch latest from origin to ensure we have up-to-date main
           try {
             execSync(`git fetch origin main`, {
