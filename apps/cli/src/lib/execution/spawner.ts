@@ -15,6 +15,7 @@ import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
 import { WorkspaceInfo, resolveAgentDir } from '../agents/commands.js'
 import { findHQRoot } from '../repos/index.js'
 import { hasGitHubRemote } from '../repos/git.js'
+import { pruneWorktrees, checkoutBranchSafe } from '../branch/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
@@ -496,6 +497,9 @@ export async function spawnAgentForTicket(
           continue
         }
 
+        // Prune stale worktree references inside container
+        tryDockerGitCommand(containerId, containerRepoPath, 'worktree prune')
+
         try {
           // Fetch latest from origin inside container (may fail if offline)
           tryDockerGitCommand(containerId, containerRepoPath, 'fetch origin')
@@ -504,15 +508,31 @@ export async function spawnAgentForTicket(
           const baseBranch = findBaseBranchInContainer(containerId, containerRepoPath)
 
           // Check if branch exists and checkout, or create new branch
-          const branchExists = tryDockerGitCommand(containerId, containerRepoPath, `rev-parse --verify ${branch}`)
-          if (branchExists) {
+          const branchAlreadyExists = tryDockerGitCommand(containerId, containerRepoPath, `rev-parse --verify ${branch}`)
+          if (branchAlreadyExists) {
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout ${branch}`, { stdio: 'pipe' })
           } else {
             execSync(`docker exec ${containerId} git -C "${containerRepoPath}" checkout -b ${branch} ${baseBranch}`, { stdio: 'pipe' })
           }
           log(`Created branch ${branch} in ${repoName} from ${baseBranch} (inside container)`)
         } catch (error) {
-          log(`Could not create branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
+          const errorMsg = error instanceof Error ? error.message : String(error)
+          // Check for worktree conflict
+          if (errorMsg.includes('is already checked out at') || errorMsg.includes('is already used by worktree')) {
+            return {
+              success: false,
+              ticketId: ticket.id,
+              agentName,
+              error: `Branch "${branch}" is already checked out in another worktree in ${repoName}. ` +
+                'The other worktree must be removed first, or use a different agent.',
+            }
+          }
+          return {
+            success: false,
+            ticketId: ticket.id,
+            agentName,
+            error: `Could not create branch in ${repoName}: ${errorMsg}`,
+          }
         }
       }
     } else {
@@ -526,19 +546,21 @@ export async function spawnAgentForTicket(
         continue
       }
 
-      try {
-        // Find base branch (origin/main or origin/master)
-        const baseBranch = findBaseBranch(repoPath)
+      // Prune stale worktree references before branch operations
+      pruneWorktrees(repoPath)
 
-        // Check if branch exists and checkout, or create new branch
-        const branchExists = tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)
-        if (branchExists) {
-          execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-        } else {
-          execSync(`git checkout -b ${branch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
+      // Find base branch (origin/main or origin/master)
+      const baseBranch = findBaseBranch(repoPath)
+
+      // Checkout or create branch with worktree conflict handling
+      const checkoutError = checkoutBranchSafe(branch, baseBranch, repoPath)
+      if (checkoutError) {
+        return {
+          success: false,
+          ticketId: ticket.id,
+          agentName,
+          error: `Branch conflict in ${path.basename(repoPath)}: ${checkoutError}`,
         }
-      } catch (error) {
-        log(`Could not create branch in ${path.basename(repoPath)}: ${error instanceof Error ? error.message : error}`)
       }
     }
   }

@@ -67,6 +67,7 @@ import {
   saveActiveWorkSource,
   getRegisteredWorkSources,
 } from '../../lib/work-source/index.js'
+import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -2052,22 +2053,20 @@ export default class WorkStart extends PMOCommand {
 
           // Note: fetch already happened above (unconditionally for all action types)
 
-          try {
-            if (reusingWorktree) {
-              // Branch already checked out in this worktree — just fetch latest
-              this.log(styles.muted(`   ${repoName}: reusing existing branch (worktree recovery)`))
-            } else if (tryGitCommand(`git rev-parse --verify ${finalBranch}`, repoPath)) {
-              // Check if branch exists and checkout
-              execSync(`git checkout ${finalBranch}`, { cwd: repoPath, stdio: 'pipe' })
-              this.log(styles.muted(`   ${repoName}: checked out branch`))
+          if (reusingWorktree) {
+            // Branch already checked out in this worktree — just fetch latest
+            this.log(styles.muted(`   ${repoName}: reusing existing branch (worktree recovery)`))
+          } else {
+            // Prune stale worktree references before branch operations
+            pruneWorktrees(repoPath)
+
+            const baseBranch = findBaseBranch(repoPath)
+            const checkoutError = checkoutBranchSafe(finalBranch, baseBranch, repoPath)
+            if (checkoutError) {
+              this.warn(`${repoName}: ${checkoutError}`)
             } else {
-              // Branch doesn't exist - create from best available base
-              const baseBranch = findBaseBranch(repoPath)
-              execSync(`git checkout -b ${finalBranch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
-              this.log(styles.muted(`   ${repoName}: created new branch from ${baseBranch}`))
+              this.log(styles.muted(`   ${repoName}: branch ready`))
             }
-          } catch (error) {
-            this.warn(`Could not handle branch in ${repoName}: ${error instanceof Error ? error.message : error}`)
           }
         }
 
@@ -2731,17 +2730,13 @@ export default class WorkStart extends PMOCommand {
         // Fetch latest from origin (best-effort, may fail if offline)
         tryGitCommand('git fetch origin', repoPath)
 
-        try {
-          // Check if branch exists and checkout
-          if (tryGitCommand(`git rev-parse --verify ${branch}`, repoPath)) {
-            execSync(`git checkout ${branch}`, { cwd: repoPath, stdio: 'pipe' })
-          } else {
-            // Branch doesn't exist - create from best available base
-            const baseBranch = findBaseBranch(repoPath)
-            execSync(`git checkout -b ${branch} ${baseBranch}`, { cwd: repoPath, stdio: 'pipe' })
-          }
-        } catch {
-          // Ignore branch errors in batch mode - continue with other repos
+        // Prune stale worktree references before branch operations
+        pruneWorktrees(repoPath)
+
+        const baseBranch = findBaseBranch(repoPath)
+        const checkoutError = checkoutBranchSafe(branch, baseBranch, repoPath)
+        if (checkoutError) {
+          this.log(styles.warning(`   ${path.basename(repoPath)}: ${checkoutError}`))
         }
       }
 

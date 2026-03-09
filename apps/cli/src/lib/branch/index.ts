@@ -439,3 +439,152 @@ export function isGitRepo(cwd?: string): boolean {
     return false
   }
 }
+
+// =============================================================================
+// Worktree Conflict Detection & Resolution
+// =============================================================================
+
+/**
+ * Prune stale worktree references.
+ * This removes worktree entries that point to deleted directories,
+ * which can prevent branch operations from succeeding.
+ */
+export function pruneWorktrees(cwd?: string): void {
+  try {
+    execSync('git worktree prune', {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+  } catch {
+    // Ignore errors (e.g., not a git repo)
+  }
+}
+
+/**
+ * Check if a branch is already checked out in another worktree.
+ * Returns the worktree path if so, null otherwise.
+ */
+export function getBranchWorktreePath(branch: string, cwd?: string): string | null {
+  try {
+    const output = execSync('git worktree list --porcelain', {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    const blocks = output.split('\n\n').filter(Boolean)
+
+    for (const block of blocks) {
+      const lines = block.split('\n')
+      const worktreeLine = lines.find(l => l.startsWith('worktree '))
+      const branchLine = lines.find(l => l.startsWith('branch '))
+
+      if (!worktreeLine || !branchLine) continue
+
+      const worktreePath = worktreeLine.replace('worktree ', '')
+      const branchRef = branchLine.replace('branch refs/heads/', '')
+
+      if (branchRef === branch) {
+        return worktreePath
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null
+}
+
+export interface WorktreeConflictResult {
+  resolved: boolean
+  conflictPath?: string
+}
+
+/**
+ * Attempt to resolve a branch/worktree conflict.
+ *
+ * When a branch is checked out in another worktree, we:
+ * 1. Prune stale worktree references (directory may have been deleted)
+ * 2. Re-check if branch is still locked to another worktree
+ *
+ * Returns whether the conflict was resolved (stale ref pruned)
+ * and the conflicting worktree path if still locked.
+ */
+export function resolveWorktreeConflict(branch: string, cwd?: string): WorktreeConflictResult {
+  // Step 1: Prune stale worktree references
+  pruneWorktrees(cwd)
+
+  // Step 2: Re-check if branch is still checked out elsewhere
+  const conflictPath = getBranchWorktreePath(branch, cwd)
+
+  if (conflictPath) {
+    return { resolved: false, conflictPath }
+  }
+
+  return { resolved: true }
+}
+
+/**
+ * Checkout or create a branch, handling worktree conflicts.
+ *
+ * Attempts to checkout/create the branch. If blocked by a worktree conflict:
+ * 1. Prunes stale worktrees and retries
+ * 2. Returns an error with the conflicting worktree path if unresolvable
+ *
+ * @returns null on success, error message on failure
+ */
+export function checkoutBranchSafe(
+  branch: string,
+  baseBranch: string,
+  cwd?: string
+): string | null {
+  const branchAlreadyExists = branchExists(branch, cwd)
+
+  try {
+    if (branchAlreadyExists) {
+      execSync(`git checkout ${branch}`, {
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    } else {
+      execSync(`git checkout -b ${branch} ${baseBranch}`, {
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+    }
+    return null
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error)
+
+    // Check if this is a worktree conflict
+    if (errorMsg.includes('is already checked out at') || errorMsg.includes('is already used by worktree')) {
+      // Try to resolve by pruning stale worktrees
+      const resolution = resolveWorktreeConflict(branch, cwd)
+
+      if (resolution.resolved) {
+        // Stale ref was pruned — retry the checkout
+        try {
+          if (branchAlreadyExists) {
+            execSync(`git checkout ${branch}`, {
+              cwd,
+              stdio: ['pipe', 'pipe', 'pipe'],
+            })
+          } else {
+            execSync(`git checkout -b ${branch} ${baseBranch}`, {
+              cwd,
+              stdio: ['pipe', 'pipe', 'pipe'],
+            })
+          }
+          return null
+        } catch (retryError) {
+          return `Branch "${branch}" checkout failed after worktree cleanup: ${retryError instanceof Error ? retryError.message : retryError}`
+        }
+      }
+
+      return `Branch "${branch}" is already checked out in worktree at ${resolution.conflictPath}. ` +
+        'The other worktree must be removed first, or use a different agent/branch.'
+    }
+
+    // Non-worktree error
+    return `Could not checkout branch "${branch}": ${errorMsg}`
+  }
+}
