@@ -28,6 +28,11 @@ export interface AsanaTask {
   name: string
   completed: boolean
   notes?: string
+  assignee?: { gid: string; name: string } | null
+  tags?: Array<{ gid: string; name: string }>
+  memberships?: Array<{ project: { gid: string; name: string }; section?: { gid: string; name: string } }>
+  due_on?: string | null
+  permalink_url?: string
 }
 
 export interface AsanaTaskMap {

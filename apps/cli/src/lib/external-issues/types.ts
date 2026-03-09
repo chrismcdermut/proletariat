@@ -14,12 +14,12 @@
  * Supported external issue sources.
  *
  */
-export type IssueSource = 'linear' | 'jira'
+export type IssueSource = 'linear' | 'jira' | 'asana'
 
 /**
  * All valid issue sources as a const array.
  */
-export const ISSUE_SOURCES = ['linear', 'jira'] as const
+export const ISSUE_SOURCES = ['linear', 'jira', 'asana'] as const
 
 /**
  * Providers supported by the external execution mapping store.

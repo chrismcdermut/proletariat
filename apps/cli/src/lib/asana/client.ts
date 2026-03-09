@@ -111,20 +111,42 @@ export class AsanaClient {
     }
   }
 
+  private static readonly RICH_TASK_FIELDS = 'gid,name,completed,notes,assignee.gid,assignee.name,tags.gid,tags.name,memberships.project.gid,memberships.project.name,memberships.section.gid,memberships.section.name,due_on,permalink_url'
+
   async getTask(taskGid: string): Promise<AsanaTask | null> {
     try {
-      const task = await this.request<{ gid: string; name: string; completed: boolean; notes?: string }>(`/tasks/${taskGid}`, {
-        query: { opt_fields: 'gid,name,completed,notes' },
+      const task = await this.request<AsanaTask>(`/tasks/${taskGid}`, {
+        query: { opt_fields: AsanaClient.RICH_TASK_FIELDS },
       })
-      return {
-        gid: task.gid,
-        name: task.name,
-        completed: task.completed,
-        notes: task.notes,
-      }
+      return task
     } catch {
       return null
     }
+  }
+
+  async listTasks(projectGid: string, options?: { limit?: number; completedSince?: string }): Promise<AsanaTask[]> {
+    const limit = Math.max(1, Math.min(options?.limit ?? 50, 100))
+    const tasks = await this.request<AsanaTask[]>(`/projects/${projectGid}/tasks`, {
+      query: {
+        opt_fields: AsanaClient.RICH_TASK_FIELDS,
+        limit,
+        completed_since: options?.completedSince ?? 'now',
+      },
+    })
+    return tasks
+  }
+
+  async searchTasks(workspaceGid: string, query: string, options?: { limit?: number }): Promise<AsanaTask[]> {
+    const limit = Math.max(1, Math.min(options?.limit ?? 20, 100))
+    const tasks = await this.request<AsanaTask[]>(`/workspaces/${workspaceGid}/tasks/search`, {
+      query: {
+        'text': query,
+        'opt_fields': AsanaClient.RICH_TASK_FIELDS,
+        'limit': limit,
+        'is_subtask': false,
+      },
+    })
+    return tasks
   }
 
   async createTask(input: AsanaTaskUpsertInput): Promise<AsanaTask> {

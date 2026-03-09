@@ -5,6 +5,7 @@ import {
   type ExternalIssueAdapter,
   type ExternalExecutionMapping,
   type IssueEnvelope,
+  type IssueSource,
 } from './types.js'
 
 type FetchIssueByKey = (key: string) => Promise<unknown>
@@ -45,7 +46,7 @@ function deriveProjectKeyFromExternalKey(externalKey: string | undefined): strin
   return prefix && prefix.trim().length > 0 ? prefix : undefined
 }
 
-function ensureNormalized(source: 'linear' | 'jira', candidate: unknown): IssueEnvelope {
+function ensureNormalized(source: IssueSource, candidate: unknown): IssueEnvelope {
   try {
     return validateOrThrow(candidate)
   } catch (error) {
@@ -61,7 +62,7 @@ function ensureNormalized(source: 'linear' | 'jira', candidate: unknown): IssueE
   }
 }
 
-function getFetchByKeyOrThrow(source: 'linear' | 'jira', fetchByKey?: FetchIssueByKey): FetchIssueByKey {
+function getFetchByKeyOrThrow(source: IssueSource, fetchByKey?: FetchIssueByKey): FetchIssueByKey {
   if (fetchByKey) {
     return fetchByKey
   }
@@ -72,7 +73,7 @@ function getFetchByKeyOrThrow(source: 'linear' | 'jira', fetchByKey?: FetchIssue
   )
 }
 
-function getFetchByQueryOrThrow(source: 'linear' | 'jira', fetchByQuery?: FetchIssuesByQuery): FetchIssuesByQuery {
+function getFetchByQueryOrThrow(source: IssueSource, fetchByQuery?: FetchIssuesByQuery): FetchIssuesByQuery {
   if (fetchByQuery) {
     return fetchByQuery
   }
@@ -333,6 +334,131 @@ export class JiraIssueAdapter implements ExternalIssueAdapter {
         asNullableString(asRecord(fields.assignee).emailAddress) ??
         asNullableString(asRecord(fields.assignee).accountId),
       item_type: asNullableString(asRecord(fields.issuetype).name),
+      raw: data,
+    }
+
+    return ensureNormalized(this.source, envelope)
+  }
+
+  async fetchByKey(key: string): Promise<IssueEnvelope> {
+    const fetchIssueByKey = getFetchByKeyOrThrow(this.source, this.fetchByKeyImpl)
+    const raw = await fetchIssueByKey(key)
+    return this.normalize(raw)
+  }
+
+  async fetchByQuery(query: Record<string, unknown>): Promise<IssueEnvelope[]> {
+    const fetchIssuesByQuery = getFetchByQueryOrThrow(this.source, this.fetchByQueryImpl)
+    const rawIssues = await fetchIssuesByQuery(query)
+    return rawIssues.map((raw) => this.normalize(raw))
+  }
+
+  persistMapping(
+    store: ExternalExecutionMappingStore,
+    envelope: IssueEnvelope,
+    params?: { executionId?: string; prUrl?: string; lastSyncedAt?: Date; lastSpawnedAt?: Date }
+  ): ExternalExecutionMapping {
+    return store.upsertMapping({
+      provider: this.source,
+      externalId: envelope.external_id,
+      externalKey: envelope.external_key,
+      canonicalUrl: envelope.url,
+      latestStateSnapshot: {
+        status: envelope.status,
+        priority: envelope.priority,
+        assignee: envelope.assignee,
+        projectKey: envelope.project_key,
+      },
+      executionId: params?.executionId,
+      prUrl: params?.prUrl,
+      lastSyncedAt: params?.lastSyncedAt,
+      lastSpawnedAt: params?.lastSpawnedAt,
+    })
+  }
+
+  readMappingByExternalId(store: ExternalExecutionMappingStore, externalId: string): ExternalExecutionMapping | null {
+    return store.getByExternalId(this.source, externalId)
+  }
+
+  readMappingsByExecutionId(store: ExternalExecutionMappingStore, executionId: string): ExternalExecutionMapping[] {
+    return store.findByExecutionId(executionId).filter((mapping) => mapping.provider === this.source)
+  }
+}
+
+function normalizeAsanaLabels(rawTags: unknown): string[] {
+  if (!Array.isArray(rawTags)) {
+    return []
+  }
+  return rawTags
+    .map((tag) => {
+      if (typeof tag === 'string') {
+        return asString(tag)
+      }
+      if (typeof tag === 'object' && tag !== null) {
+        return asString((tag as Record<string, unknown>).name)
+      }
+      return undefined
+    })
+    .filter((label): label is string => typeof label === 'string')
+}
+
+function deriveAsanaStatusFromRecord(data: Record<string, unknown>): string {
+  if (data.completed === true) {
+    return 'Completed'
+  }
+  const memberships = data.memberships as Array<{ section?: { name?: string } }> | undefined
+  const sectionName = memberships?.[0]?.section?.name
+  if (sectionName) {
+    return sectionName
+  }
+  return 'Open'
+}
+
+function deriveAsanaUrlFromRecord(data: Record<string, unknown>): string | undefined {
+  const permalink = asString(data.permalink_url)
+  if (permalink) {
+    return permalink
+  }
+  const gid = asString(data.gid)
+  if (gid) {
+    return `https://app.asana.com/0/0/${gid}`
+  }
+  return undefined
+}
+
+function deriveAsanaProjectKeyFromRecord(data: Record<string, unknown>): string {
+  const memberships = data.memberships as Array<{ project?: { gid?: string; name?: string } }> | undefined
+  const project = memberships?.[0]?.project
+  return project?.name || project?.gid || 'ASANA'
+}
+
+export class AsanaIssueAdapter implements ExternalIssueAdapter {
+  readonly source = 'asana' as const
+
+  private readonly fetchByKeyImpl?: FetchIssueByKey
+  private readonly fetchByQueryImpl?: FetchIssuesByQuery
+
+  constructor(fetchers: AdapterFetchers = {}) {
+    this.fetchByKeyImpl = fetchers.fetchByKey
+    this.fetchByQueryImpl = fetchers.fetchByQuery
+  }
+
+  normalize(raw: unknown): IssueEnvelope {
+    const data = asRecord(raw)
+    const gid = asString(data.gid)
+
+    const envelope = {
+      source: this.source,
+      external_id: gid,
+      external_key: gid,
+      title: asString(data.name),
+      description: typeof data.notes === 'string' ? data.notes : '',
+      labels: normalizeAsanaLabels(data.tags),
+      priority: null,
+      status: deriveAsanaStatusFromRecord(data),
+      url: deriveAsanaUrlFromRecord(data),
+      project_key: deriveAsanaProjectKeyFromRecord(data),
+      assignee: asNullableString(asRecord(data.assignee).name),
+      item_type: 'task',
       raw: data,
     }
 
