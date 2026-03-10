@@ -14,6 +14,7 @@ import {
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getGitIdentity } from '../pr/index.js';
 import { findHQRoot } from '../workspace.js';
+import { isLocalPath, findRemoteUrl, setOriginUrl } from './git.js';
 
 export interface RepoToAdd {
   path: string;
@@ -254,8 +255,20 @@ export async function addRepositoriesToHQ(
         execSync(`git clone ${repo.path} ${targetPath}`, {
           stdio: 'inherit'
         });
+
+        // If cloned from a local path, resolve the GitHub remote and update origin
+        if (isLocalPath(repo.path)) {
+          const resolvedPath = path.resolve(repo.path);
+          const remoteUrl = findRemoteUrl(resolvedPath);
+          if (remoteUrl) {
+            setOriginUrl(targetPath, remoteUrl);
+            console.log(styles.muted(`  Updated origin to ${remoteUrl}`));
+          } else {
+            console.log(chalk.yellow(`  Warning: Source repo has no remote URL. Origin points to local path.`));
+          }
+        }
       }
-      
+
       addedRepos.push(repoName);
       console.log(chalk.green(`✅ Repository ${repoName} added successfully`));
     } catch (error) {
@@ -539,13 +552,33 @@ export async function addRepository(
     } else {
       console.log(styles.muted(`Cloning ${repoPath} to repos/${repoName}...`));
       execSync(`git clone "${repoPath}" "${targetPath}"`, { stdio: 'inherit' });
+
+      // If cloned from a local path, resolve the GitHub remote and update origin
+      if (isLocalPath(repoPath)) {
+        const resolvedPath = path.resolve(repoPath);
+        const remoteUrl = findRemoteUrl(resolvedPath);
+        if (remoteUrl) {
+          setOriginUrl(targetPath, remoteUrl);
+          console.log(styles.muted(`  Updated origin to ${remoteUrl}`));
+        } else {
+          console.log(chalk.yellow(`  Warning: Source repo has no remote URL. Origin points to local path.`));
+        }
+      }
     }
 
-    // Add to database
+    // Add to database (store the resolved remote URL if available)
+    let sourceUrl = repoPath;
+    if (isLocalPath(repoPath)) {
+      const resolvedPath = path.resolve(repoPath);
+      const remoteUrl = findRemoteUrl(resolvedPath);
+      if (remoteUrl) {
+        sourceUrl = remoteUrl;
+      }
+    }
     const dbRepoData = [{
       name: repoName,
       path: `repos/${repoName}`,
-      source_url: repoPath,
+      source_url: sourceUrl,
       action
     }];
     addRepositoriesToDatabase(hqPath, dbRepoData);
