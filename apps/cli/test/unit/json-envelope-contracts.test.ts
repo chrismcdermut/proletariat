@@ -35,7 +35,7 @@ const __dirname = path.dirname(__filename);
  * - Exit code constants
  * - Structural contracts for each output type
  */
-describe('JSON Envelope Contract Tests (TKT-1006)', () => {
+describe('@smoke JSON Envelope Contract Tests (TKT-1006)', () => {
 
   // ===========================================================================
   // Schema Stability: Type Discriminators

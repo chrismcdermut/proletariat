@@ -5,7 +5,7 @@ import {
   validateBetterSqlite3NativeBinding,
 } from '../../src/lib/database/native-validation.js'
 
-describe('better-sqlite3 native validation', () => {
+describe('@smoke better-sqlite3 native validation', () => {
   it('formats actionable guidance with runtime details', () => {
     const message = buildBetterSqlite3ValidationMessage(
       new Error('not a mach-o file'),

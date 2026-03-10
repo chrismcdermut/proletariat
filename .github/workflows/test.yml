@@ -6,6 +6,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      test_tier:
+        description: 'Test tier to run (smoke = @smoke tagged only, standard = scoped suite, full = everything)'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - smoke
+          - standard
+          - full
 
 # Cancel in-progress runs when a new commit is pushed to the same branch/PR.
 # This prevents wasted CI minutes when iterating on a PR.
@@ -22,11 +32,16 @@ concurrency:
 # - A verification step runs `require('better-sqlite3')` before tests to fail fast with
 #   clear diagnostics if the native binding is missing or incompatible.
 
-# Change-detection scoping:
+# Test tier system:
+# - smoke: runs only @smoke-tagged tests (~13 test files, <3 min) — default for PRs
+# - standard: runs scoped test suite based on change detection — same as previous PR behavior
+# - full: runs all tests including slow integration tests — default for push to main
+#
+# Change-detection scoping (for standard/full tiers):
 # - docs-only PRs skip all test suites entirely
 # - Scoped source changes (pmo, execution) run only affected unit + e2e subsets
 # - Core/runtime changes (database, shared lib, config files) trigger the full suite
-# - push to main and workflow_dispatch always run the full suite
+# - push to main always runs the full suite
 # - The ci-status job serves as a single required check for branch protection
 
 jobs:
@@ -37,6 +52,7 @@ jobs:
       scope: ${{ steps.classify.outputs.scope }}
       reason: ${{ steps.classify.outputs.reason }}
       e2e_shards: ${{ steps.classify.outputs.e2e_shards }}
+      test_tier: ${{ steps.classify.outputs.test_tier }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,7 +66,30 @@ jobs:
         id: classify
         shell: bash
         run: |
-          # For push to main and manual dispatch, always run full suite
+          # Determine test tier:
+          # - PRs default to smoke (fast feedback)
+          # - Push to main defaults to full
+          # - Manual dispatch uses the input value (default: full)
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TEST_TIER="smoke"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TEST_TIER="${{ github.event.inputs.test_tier || 'full' }}"
+          else
+            TEST_TIER="full"
+          fi
+          echo "test_tier=$TEST_TIER" >> "$GITHUB_OUTPUT"
+          echo "Test tier: $TEST_TIER"
+
+          # For smoke tier on PRs, we only run @smoke-tagged tests
+          if [[ "$TEST_TIER" == "smoke" ]]; then
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "scope=smoke" >> "$GITHUB_OUTPUT"
+            echo "reason=Smoke tier: running @smoke-tagged tests only (PR fast check)" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For push to main and manual dispatch (standard/full), determine scope
           if [[ "${{ github.event_name }}" != "pull_request" ]]; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
@@ -284,12 +323,94 @@ jobs:
           path: apps/cli/node_modules/.pnpm/**/better-sqlite3/build
           key: ${{ runner.os }}-node-${{ matrix.node-version }}-better-sqlite3-${{ hashFiles('**/pnpm-lock.yaml') }}
 
+  # Smoke tests: fast subset of @smoke-tagged tests for PR feedback.
+  # Runs both unit and e2e @smoke tests in a single job via --grep @smoke.
+  # Target: <3 min total. Skipped when running standard/full tiers.
+  smoke-tests:
+    needs: [detect-changes, build]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.run_tests == 'true' &&
+      needs.detect-changes.outputs.test_tier == 'smoke' &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node-version: ['22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store-path }}
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore better-sqlite3 native binding cache
+        id: sqlite-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: apps/cli/node_modules/.pnpm/**/better-sqlite3/build
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-better-sqlite3-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Rebuild better-sqlite3 native binding (cache miss)
+        if: steps.sqlite-cache.outputs.cache-hit != 'true'
+        run: npm rebuild better-sqlite3 || npm rebuild better-sqlite3
+        working-directory: apps/cli
+
+      - name: Verify better-sqlite3 native binding
+        run: |
+          node -e "
+            try {
+              require('better-sqlite3');
+              console.log('better-sqlite3 loaded successfully');
+            } catch (err) {
+              console.error('Failed to load better-sqlite3:', err.message);
+              process.exit(1);
+            }
+          "
+        working-directory: apps/cli
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output-node-${{ matrix.node-version }}
+          path: apps/cli/dist/
+
+      - name: Run smoke tests (@smoke tagged)
+        working-directory: apps/cli
+        env:
+          TEST_TIER: smoke
+        run: |
+          echo "Running @smoke-tagged tests (smoke tier)"
+          echo "Target: <3 min for fast PR feedback"
+          pnpm test:smoke
+
   # Unit tests run via ts-node directly (no compiled dist/ needed), so they
   # can start in parallel with the build job instead of waiting for it.
   # The postinstall script handles better-sqlite3 native binding rebuild.
+  # Skipped when test_tier is smoke (smoke-tests job handles those).
   unit-tests:
     needs: [detect-changes]
-    if: needs.detect-changes.outputs.run_tests == 'true'
+    if: |
+      needs.detect-changes.outputs.run_tests == 'true' &&
+      needs.detect-changes.outputs.test_tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -375,11 +496,13 @@ jobs:
           needs.detect-changes.outputs.scope == 'execution'
         run: pnpm --filter @proletariat/cli mocha --forbid-only "test/unit/codex-spawn-smoke.test.ts"
 
+  # Skipped when test_tier is smoke (smoke-tests job handles those).
   e2e-tests:
     needs: [detect-changes, build]
     if: |
       always() &&
       needs.detect-changes.outputs.run_tests == 'true' &&
+      needs.detect-changes.outputs.test_tier != 'smoke' &&
       needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -525,19 +648,22 @@ jobs:
   ci-status:
     name: CI Status
     if: always()
-    needs: [detect-changes, build, unit-tests, e2e-tests]
+    needs: [detect-changes, build, smoke-tests, unit-tests, e2e-tests]
     runs-on: ubuntu-latest
     steps:
       - name: CI Summary
         run: |
           SCOPE="${{ needs.detect-changes.outputs.scope }}"
           REASON="${{ needs.detect-changes.outputs.reason }}"
+          TIER="${{ needs.detect-changes.outputs.test_tier }}"
           BUILD="${{ needs.build.result }}"
+          SMOKE="${{ needs.smoke-tests.result }}"
           UNIT="${{ needs.unit-tests.result }}"
           E2E="${{ needs.e2e-tests.result }}"
 
           echo "## CI Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Test Tier:** \`$TIER\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Scope:** \`$SCOPE\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Reason:** $REASON" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -545,6 +671,7 @@ jobs:
           echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| detect-changes | ${{ needs.detect-changes.result }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| build | $BUILD |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| smoke-tests | $SMOKE |" >> "$GITHUB_STEP_SUMMARY"
           echo "| unit-tests | $UNIT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| e2e-tests (all shards) | $E2E |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -552,11 +679,13 @@ jobs:
 
           echo ""
           echo "=== CI Results ==="
+          echo "Test tier: $TIER"
           echo "Scope: $SCOPE"
           echo "Reason: $REASON"
           echo "E2E shards: ${{ needs.detect-changes.outputs.e2e_shards }}"
           echo "detect-changes: ${{ needs.detect-changes.result }}"
           echo "build: $BUILD"
+          echo "smoke-tests: $SMOKE"
           echo "unit-tests: $UNIT"
           echo "e2e-tests: $E2E"
 
@@ -569,6 +698,10 @@ jobs:
           fi
           if [[ "${{ needs.build.result }}" == "failure" ]]; then
             echo "FAIL: build failed"
+            exit 1
+          fi
+          if [[ "${{ needs.smoke-tests.result }}" == "failure" ]]; then
+            echo "FAIL: smoke-tests failed"
             exit 1
           fi
           if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then

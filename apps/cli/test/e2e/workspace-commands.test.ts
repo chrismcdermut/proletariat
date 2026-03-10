@@ -9,7 +9,7 @@ import { execSync } from 'node:child_process';
  * End-to-end tests for workspace commands.
  * Tests: prlt workspace list, use, add, remove
  */
-describe('Workspace Commands E2E Tests', () => {
+describe('@smoke Workspace Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let originalHome: string | undefined;

@@ -21,7 +21,7 @@ const CODEX_SUPPORTED_FLAGS = ['--yolo'] as const
  *   - Autonomous mode uses --yolo
  *   - Only flags in CODEX_SUPPORTED_FLAGS are allowed
  */
-describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
+describe('@smoke Codex Spawn Smoke Tests (TKT-1169)', () => {
   const makeContext = (overrides: Partial<ExecutionContext> = {}): ExecutionContext => ({
     ticketId: 'TKT-1169',
     ticketTitle: 'Codex spawn smoke test',

@@ -12,7 +12,7 @@ import { execInProcess } from './test-helpers.js';
  * Validates that config commands work in both interactive (via flags) and
  * JSON/agent mode, exercising the full command flow end-to-end.
  */
-describe('Config Commands E2E Tests', () => {
+describe('@smoke Config Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
