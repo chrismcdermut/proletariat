@@ -78,6 +78,7 @@ import {
   loadActiveWorkSource,
   saveActiveWorkSource,
   getRegisteredWorkSources,
+  getConnectedIntegrations,
 } from '../../lib/work-source/index.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
 
@@ -1303,6 +1304,8 @@ export default class WorkStart extends PMOCommand {
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
         // Additional instructions from --message flag
         customMessage: externalIssueContextMessage ?? flags.message,
+        // Connected integrations for prompt injection
+        connectedIntegrations: getConnectedIntegrations(db),
       }
 
       // Check if agent has devcontainer config
@@ -2727,6 +2730,8 @@ export default class WorkStart extends PMOCommand {
       actionPrompt: defaultAction?.prompt,
       actionEndPrompt: defaultAction?.endPrompt,
       modifiesCode: defaultAction?.modifiesCode ?? true,
+      // Connected integrations for prompt injection
+      connectedIntegrations: getConnectedIntegrations(db),
     }
 
     // Use devcontainer by default if available

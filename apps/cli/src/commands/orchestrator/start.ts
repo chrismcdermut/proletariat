@@ -43,6 +43,7 @@ import {
 } from '../../lib/execution/config.js'
 import { ensureBuiltinThemes } from '../../lib/themes.js'
 import { getActiveTheme, getAvailableThemeNames } from '../../lib/database/index.js'
+import { getConnectedIntegrations } from '../../lib/work-source/index.js'
 
 /**
  * Sanitize a name segment for use in tmux session names.
@@ -620,6 +621,11 @@ export default class OrchestratorStart extends PromptCommand {
       }
     } catch {
       // Ignore config loading errors, use defaults
+    }
+
+    // Inject connected integrations into context (must happen after db is opened)
+    if (db) {
+      context.connectedIntegrations = getConnectedIntegrations(db)
     }
 
     // Auto-detect shell (never prompt for orchestrator)

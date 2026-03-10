@@ -9,6 +9,7 @@ export {
   clearActiveWorkSource,
   loadActiveWorkSource,
   getRegisteredWorkSources,
+  getConnectedIntegrations,
 } from './config.js'
 export {
   type WorkSourceClient,
