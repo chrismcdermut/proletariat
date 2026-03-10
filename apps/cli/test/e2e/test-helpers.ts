@@ -22,6 +22,7 @@ import { runCommand } from '@oclif/test';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
+import { setupProductionSchemaFromCache } from '../setup/schema-template-cache.js';
 
 /**
  * Error type for execSync failures, which include stdout/stderr from the child process.
@@ -179,17 +180,9 @@ const T = PMO_TABLES;
  * @returns Database instance with production schema initialized
  */
 export function setupProductionSchema(dbPath: string, pmoPath: string): Database.Database {
-  const db = new Database(dbPath);
-  db.pragma('foreign_keys = ON');
-
-  // Initialize PMO tables using production schema and seeding
-  // This runs migrations, creates tables, and seeds builtin data
-  initializePMOTables(db);
-
-  // Store PMO path in settings
-  db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
-
-  return db;
+  // Use cached template DB — copies a pre-initialized file (~1ms)
+  // instead of running full schema init + seeding (~100-200ms)
+  return setupProductionSchemaFromCache(dbPath, pmoPath);
 }
 
 /**
