@@ -115,6 +115,28 @@ describe('shortcut external issues', () => {
     }
   })
 
+  it('passes search query and page_size in the URL when listing stories', async () => {
+    let capturedUrl = ''
+    const fetchImpl = async (url: string | URL | Request) => {
+      const urlStr = typeof url === 'string' ? url : url.toString()
+      if (urlStr.includes('/workflows')) {
+        return new Response(JSON.stringify([]), { status: 200 })
+      }
+      capturedUrl = urlStr
+      return new Response(JSON.stringify({ data: [] }), { status: 200 })
+    }
+
+    await listShortcutStories(
+      { apiToken: 'tok' },
+      { query: 'is:story owner:me', limit: 10, fetchImpl },
+    )
+
+    expect(capturedUrl).to.include('/search/stories?')
+    expect(capturedUrl).to.include('query=')
+    expect(capturedUrl).to.include(encodeURIComponent('is:story owner:me'))
+    expect(capturedUrl).to.include('page_size=10')
+  })
+
   it('throws AUTH_FAILED for 401 responses when listing stories', async () => {
     const fetchImpl = async () => new Response('{}', { status: 401 })
     try {

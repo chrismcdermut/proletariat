@@ -11,6 +11,7 @@ import {
   ISSUE_SOURCES,
   LinearIssueAdapter,
   JiraIssueAdapter,
+  ShortcutIssueAdapter,
   ExternalExecutionMappingStore,
   type IssueEnvelope,
 } from '../../src/lib/external-issues/index.js';
@@ -609,6 +610,173 @@ describe('External Issues', () => {
           expect(byExternal!.provider).to.equal('jira');
           expect(byExecution).to.have.length(1);
           expect(byExecution[0].externalKey).to.equal('PROJ-900');
+        } finally {
+          db.close();
+          fs.rmSync(testDir, { recursive: true, force: true });
+        }
+      });
+    });
+
+    describe('ShortcutIssueAdapter', () => {
+      it('normalizes a Shortcut story payload', () => {
+        const adapter = new ShortcutIssueAdapter();
+        const raw = {
+          id: 98765,
+          name: 'Add dark mode toggle',
+          description: 'Implement dark mode in settings panel',
+          app_url: 'https://app.shortcut.com/my-workspace/story/98765',
+          story_type: 'feature',
+          labels: [{ name: 'frontend' }, { name: 'P2' }],
+          workflow_state_name: 'In Development',
+          group_id: 'team-alpha',
+        };
+
+        const envelope = adapter.normalize(raw);
+        expect(envelope.source).to.equal('shortcut');
+        expect(envelope.external_id).to.equal('98765');
+        expect(envelope.external_key).to.equal('sc-98765');
+        expect(envelope.title).to.equal('Add dark mode toggle');
+        expect(envelope.priority).to.equal('P2');
+        expect(envelope.status).to.equal('In Development');
+        expect(envelope.project_key).to.equal('team-alpha');
+        expect(envelope.labels).to.deep.equal(['frontend', 'P2']);
+        expect(envelope.item_type).to.equal('feature');
+        expect(envelope.raw).to.deep.equal(raw);
+      });
+
+      it('derives priority from P0-P3 labels', () => {
+        const adapter = new ShortcutIssueAdapter();
+        const raw = {
+          id: 111,
+          name: 'Critical fix',
+          app_url: 'https://app.shortcut.com/ws/story/111',
+          labels: [{ name: 'urgent' }, { name: 'P0' }],
+          workflow_state_name: 'Started',
+        };
+
+        const envelope = adapter.normalize(raw);
+        expect(envelope.priority).to.equal('P0');
+      });
+
+      it('returns null priority when no P0-P3 label exists', () => {
+        const adapter = new ShortcutIssueAdapter();
+        const raw = {
+          id: 222,
+          name: 'No priority story',
+          app_url: 'https://app.shortcut.com/ws/story/222',
+          labels: [{ name: 'backend' }],
+          workflow_state_name: 'Ready',
+        };
+
+        const envelope = adapter.normalize(raw);
+        expect(envelope.priority).to.equal(null);
+      });
+
+      it('defaults project_key to DEFAULT when group_id is absent', () => {
+        const adapter = new ShortcutIssueAdapter();
+        const raw = {
+          id: 333,
+          name: 'Ungrouped story',
+          app_url: 'https://app.shortcut.com/ws/story/333',
+          workflow_state_name: 'Todo',
+        };
+
+        const envelope = adapter.normalize(raw);
+        expect(envelope.project_key).to.equal('DEFAULT');
+      });
+
+      it('throws typed normalize errors for missing required fields', () => {
+        const adapter = new ShortcutIssueAdapter();
+        try {
+          adapter.normalize({ id: 444 });
+          expect.fail('should have thrown');
+        } catch (err) {
+          expect(err).to.be.instanceOf(ExternalIssueError);
+          const issueErr = err as ExternalIssueError;
+          expect(issueErr.code).to.equal('NORMALIZE_FAILED');
+          expect(issueErr.source).to.equal('shortcut');
+        }
+      });
+
+      it('throws typed fetch errors when no fetcher is configured', async () => {
+        const adapter = new ShortcutIssueAdapter();
+        try {
+          await adapter.fetchByKey('sc-123');
+          expect.fail('should have thrown');
+        } catch (err) {
+          expect(err).to.be.instanceOf(ExternalIssueError);
+          const issueErr = err as ExternalIssueError;
+          expect(issueErr.code).to.equal('FETCH_FAILED');
+          expect(issueErr.source).to.equal('shortcut');
+        }
+      });
+
+      it('uses configured fetcher and normalizes key results', async () => {
+        const adapter = new ShortcutIssueAdapter({
+          fetchByKey: async () => ({
+            id: 555,
+            name: 'Fetched story',
+            app_url: 'https://app.shortcut.com/ws/story/555',
+            story_type: 'bug',
+            labels: [{ name: 'P1' }],
+            workflow_state_name: 'In Progress',
+          }),
+        });
+
+        const envelope = await adapter.fetchByKey('sc-555');
+        expect(envelope.source).to.equal('shortcut');
+        expect(envelope.external_key).to.equal('sc-555');
+        expect(envelope.item_type).to.equal('bug');
+      });
+
+      it('uses configured fetcher and normalizes query results', async () => {
+        const adapter = new ShortcutIssueAdapter({
+          fetchByQuery: async () => [
+            {
+              id: 666,
+              name: 'Query result story',
+              app_url: 'https://app.shortcut.com/ws/story/666',
+              story_type: 'chore',
+              labels: [],
+              workflow_state_name: 'Todo',
+              group_id: 'ops-team',
+            },
+          ],
+        });
+
+        const envelopes = await adapter.fetchByQuery({ query: 'is:story' });
+        expect(envelopes).to.have.length(1);
+        expect(envelopes[0].external_key).to.equal('sc-666');
+        expect(envelopes[0].item_type).to.equal('chore');
+        expect(envelopes[0].project_key).to.equal('ops-team');
+      });
+
+      it('persists and reads mapping records without PMO ticket dependency', () => {
+        const adapter = new ShortcutIssueAdapter();
+        const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shortcut-adapter-map-'));
+        const db = new Database(path.join(testDir, 'test.db'));
+        const store = new ExternalExecutionMappingStore(db);
+
+        try {
+          const envelope = adapter.normalize({
+            id: 77777,
+            name: 'Mapping test story',
+            app_url: 'https://app.shortcut.com/ws/story/77777',
+            story_type: 'feature',
+            labels: [{ name: 'P1' }],
+            workflow_state_name: 'Started',
+            group_id: 'eng-team',
+          });
+
+          adapter.persistMapping(store, envelope, { executionId: 'WORK-SC-001' });
+          const byExternal = adapter.readMappingByExternalId(store, '77777');
+          const byExecution = adapter.readMappingsByExecutionId(store, 'WORK-SC-001');
+
+          expect(byExternal).to.not.equal(null);
+          expect(byExternal!.provider).to.equal('shortcut');
+          expect(byExternal!.externalKey).to.equal('sc-77777');
+          expect(byExecution).to.have.length(1);
+          expect(byExecution[0].externalId).to.equal('77777');
         } finally {
           db.close();
           fs.rmSync(testDir, { recursive: true, force: true });

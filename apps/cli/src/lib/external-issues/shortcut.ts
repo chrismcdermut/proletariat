@@ -344,8 +344,9 @@ export async function listShortcutStories(
 
   // Use Shortcut search endpoint
   const searchQuery = options?.query || 'is:story !is:done !is:archived'
+  const searchUrl = `${config.apiUrl}/search/stories?query=${encodeURIComponent(searchQuery)}&page_size=${limit}`
 
-  const response = await fetchImpl(`${config.apiUrl}/search/stories`, {
+  const response = await fetchImpl(searchUrl, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
