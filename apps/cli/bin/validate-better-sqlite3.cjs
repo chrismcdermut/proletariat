@@ -7,6 +7,11 @@ function parseNodeMajor(version) {
   return match ? Number.parseInt(match[1], 10) : null
 }
 
+function isBunRuntime() {
+  return typeof process.versions.bun === 'string'
+    || typeof globalThis.Bun !== 'undefined'
+}
+
 function runtimeInfo() {
   return {
     nodeVersion: process.version,
@@ -14,24 +19,32 @@ function runtimeInfo() {
     abi: process.versions.modules,
     platform: process.platform,
     arch: process.arch,
+    isBun: isBunRuntime(),
   }
+}
+
+function isBunNodeGypError(error) {
+  if (!(error instanceof Error)) return false
+  const msg = error.message.toLowerCase()
+  return msg.includes('isexe') || msg.includes('which.js') || msg.includes('node-gyp')
 }
 
 function buildMessage(error, context) {
   const info = runtimeInfo()
+  const runtimeLabel = info.isBun ? 'bun' : 'node'
   const nodeMajorHint = info.nodeMajor === null || SUPPORTED_NODE_MAJORS.includes(info.nodeMajor)
     ? ''
     : `\n- Unsupported Node major for this CLI: ${info.nodeMajor} (supported: ${SUPPORTED_NODE_MAJORS.join(', ')})`
   const reason = error instanceof Error ? error.message : String(error)
 
-  return [
+  const lines = [
     '',
     '╔══════════════════════════════════════════════════════════════════╗',
     '║  better-sqlite3 native module validation failed                ║',
     '╚══════════════════════════════════════════════════════════════════╝',
     '',
     `Context: ${context}`,
-    `Runtime: node ${info.nodeVersion} (ABI ${info.abi}) on ${info.platform}-${info.arch}${nodeMajorHint}`,
+    `Runtime: ${runtimeLabel} ${info.nodeVersion} (ABI ${info.abi}) on ${info.platform}-${info.arch}${nodeMajorHint}`,
     `Error:   ${reason}`,
     '',
     'Fix steps:',
@@ -43,8 +56,22 @@ function buildMessage(error, context) {
     'If the problem persists, ensure you have build tools installed:',
     '  macOS:  xcode-select --install',
     '  Linux:  sudo apt-get install build-essential python3',
-    '',
-  ].join('\n')
+  ]
+
+  if (info.isBun || isBunNodeGypError(error)) {
+    lines.push(
+      '',
+      'Bun users:',
+      '  Bun\'s node-gyp compatibility is limited and may fail to compile',
+      '  better-sqlite3. Recommended alternatives:',
+      '  - Install with npm instead: npm install -g @proletariat/cli',
+      '  - Install with Homebrew (macOS): brew install chrismcdermut/proletariat/prlt',
+      '  - Use Node.js 22 (LTS) for best compatibility',
+    )
+  }
+
+  lines.push('')
+  return lines.join('\n')
 }
 
 function validate(context) {
@@ -61,6 +88,18 @@ function validate(context) {
 try {
   validate('postinstall')
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error))
+  const info = runtimeInfo()
+  const message = error instanceof Error ? error.message : String(error)
+  // Under bun, native module build failures are expected — warn instead of
+  // hard-failing so the install can complete. The user will get a clear error
+  // at runtime with actionable fix steps.
+  if (info.isBun) {
+    console.warn(message)
+    console.warn('\n[warn] Continuing installation despite validation failure (bun detected).')
+    console.warn('[warn] Run prlt with Node.js, or reinstall with npm/Homebrew for full support.\n')
+    process.exit(0)
+  }
+
+  console.error(message)
   process.exit(1)
 }

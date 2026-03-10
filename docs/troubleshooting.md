@@ -73,6 +73,37 @@ Common valid runtime targets:
 
 If your terminal architecture differs from your Node architecture (for example Rosetta shell with ARM Node), rebuild under the runtime you actually use to run `prlt`.
 
+### Bun Install Fails on better-sqlite3
+
+**Symptom**: `bun install -g @proletariat/cli` fails with errors like:
+- `TypeError: (0, isexe_1.default) is not a function`
+- `node-gyp` build failures referencing `which.js`
+- `better-sqlite3` compilation errors during install
+
+**Cause**: Bun's node-gyp compatibility is limited. The `which` package (a node-gyp dependency) relies on `isexe`, which behaves differently under Bun's runtime shims. This prevents better-sqlite3 from compiling its native C++ addon.
+
+**Solution**: Use a different package manager:
+
+```bash
+# Recommended: Homebrew (macOS) — no compilation needed
+brew install chrismcdermut/proletariat/prlt
+
+# Alternative: npm (all platforms)
+npm install -g @proletariat/cli
+
+# Alternative: pnpm
+pnpm install -g @proletariat/cli
+```
+
+If you want to use Bun for other tools but need `prlt`:
+
+```bash
+# Install prlt with npm, then use bun for everything else
+npm install -g @proletariat/cli
+```
+
+**Background**: `prlt` uses `better-sqlite3` for its local database, which requires a native C++ addon compiled for your specific Node.js version and platform. Bun's node-gyp support is experimental and cannot reliably compile this addon. The `postinstall` validation will warn (not error) under Bun to allow the install to complete, but `prlt` will not work until the native module is properly built with Node.js.
+
 ### Install-Time Native Validation
 
 `apps/cli` now validates `better-sqlite3` during `postinstall`:
@@ -81,24 +112,37 @@ If your terminal architecture differs from your Node architecture (for example R
 npm rebuild better-sqlite3 && node ./bin/validate-better-sqlite3.cjs
 ```
 
-### Permission Denied During Install
+Under **Bun**, the validation script will warn instead of failing, since Bun's node-gyp issues are expected. The install will complete but `prlt` may not function until the native module is rebuilt with Node.js.
 
-**Symptom**: `EACCES: permission denied`
+### Permission Denied During Install (EACCES)
+
+**Symptom**: `EACCES: permission denied, mkdir '/opt/homebrew/lib/node_modules/@proletariat'` or similar `EACCES` errors on `/usr/local/lib/node_modules`.
+
+**Cause**: npm's global install directory is owned by root or another user. This commonly happens on macOS when Node.js was installed via Homebrew (which puts global modules under `/opt/homebrew/`).
 
 **Solutions**:
 
-1. **Use npm prefix** (recommended):
+1. **Use Homebrew instead** (macOS, recommended — avoids the problem entirely):
    ```bash
-   mkdir ~/.npm-global
+   brew install chrismcdermut/proletariat/prlt
+   ```
+
+2. **Set a user-writable npm prefix** (all platforms):
+   ```bash
+   mkdir -p ~/.npm-global
    npm config set prefix '~/.npm-global'
-   export PATH=~/.npm-global/bin:$PATH
+   export PATH="$HOME/.npm-global/bin:$PATH"
+   # Add the export to ~/.zshrc or ~/.bashrc for persistence:
+   echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> ~/.zshrc
    npm install -g @proletariat/cli
    ```
 
-2. **Fix npm permissions**:
+3. **Fix existing npm directory permissions** (use with caution):
    ```bash
    sudo chown -R $(whoami) $(npm config get prefix)/{lib/node_modules,bin,share}
    ```
+
+**Do NOT use `sudo npm install -g`** — this can cause further permission issues and is not recommended.
 
 ## Workspace Issues
 

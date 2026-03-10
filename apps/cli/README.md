@@ -697,12 +697,80 @@ Claude Code handles its own authentication via `claude login`.
 
 ## Requirements
 
-- **Node.js 18+**
+- **Node.js 20+** (22 LTS recommended)
 - **Git**
 - **Claude Code** (`claude login` to authenticate)
 - **SQLite**
 - **Tmux** (session persistence)
 - **Docker** (optional—for isolated execution)
+
+---
+
+## Troubleshooting Installation
+
+### `bun install` fails on better-sqlite3
+
+**Symptom**: `bun install -g @proletariat/cli` fails with `isexe` or `node-gyp` errors during the `better-sqlite3` native module build.
+
+**Cause**: Bun's node-gyp compatibility is limited. The `which` dependency inside node-gyp uses `isexe`, which is incompatible with Bun's runtime shims.
+
+**Fix**: Use `npm` or Homebrew instead:
+
+```bash
+# Option 1: Homebrew (macOS, recommended)
+brew install chrismcdermut/proletariat/prlt
+
+# Option 2: npm (all platforms)
+npm install -g @proletariat/cli
+
+# Option 3: pnpm
+pnpm install -g @proletariat/cli
+```
+
+If you must use Bun, ensure Node.js 22 (LTS) is also installed and set `better-sqlite3` to use its prebuilt binaries:
+
+```bash
+npm rebuild better-sqlite3
+```
+
+### npm `EACCES: permission denied`
+
+**Symptom**: `npm install -g @proletariat/cli` fails with `EACCES: permission denied` on `/opt/homebrew/lib/node_modules` or `/usr/local/lib/node_modules`.
+
+**Fix**: Configure npm to use a user-writable directory:
+
+```bash
+mkdir -p ~/.npm-global
+npm config set prefix '~/.npm-global'
+export PATH="$HOME/.npm-global/bin:$PATH"
+# Add the export line to your ~/.zshrc or ~/.bashrc
+npm install -g @proletariat/cli
+```
+
+Or use Homebrew instead (macOS):
+
+```bash
+brew install chrismcdermut/proletariat/prlt
+```
+
+### Native module errors after install
+
+**Symptom**: `prlt` runs but crashes with `better_sqlite3.node` or ABI mismatch errors.
+
+**Fix**:
+
+```bash
+# Rebuild for the current Node version
+npm rebuild better-sqlite3
+
+# Verify it works
+node -e "require('better-sqlite3')"
+
+# If still failing, reinstall
+npm install -g @proletariat/cli --force
+```
+
+See the [full troubleshooting guide](../../docs/troubleshooting.md) for more details.
 
 ---
 
