@@ -555,7 +555,7 @@ export const PMO_TABLE_SCHEMAS = {
   // Provider-agnostic external issue ↔ execution mapping
   external_execution_map: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_map} (
-      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'asana', 'monday', 'pmo')),
+      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'pmo')),
       external_id TEXT NOT NULL,
       external_key TEXT,
       canonical_url TEXT,
