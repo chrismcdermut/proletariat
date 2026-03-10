@@ -23,6 +23,7 @@ import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCl
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
 import { type ExternalMappingProvider } from '../external-issues/types.js'
+import { copyMediaToAgentWorkspace } from '../media/index.js'
 import {
   DisplayMode,
   SessionManager,
@@ -567,6 +568,15 @@ export async function spawnAgentForTicket(
         }
       }
     }
+  }
+
+  // TKT-077: Copy preprocessed media assets into agent workspace
+  // Copies frames/, transcript.md, manifest.json (not raw source video)
+  try {
+    copyMediaToAgentWorkspace(hqPath, agentDir)
+  } catch {
+    // Non-fatal: media copy failure shouldn't block agent spawn
+    log('Warning: Could not copy media assets to agent workspace')
   }
 
   // TKT-1028: Clean up orphaned execution records before creating a new one.
