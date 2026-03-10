@@ -747,6 +747,8 @@ export function createTemplateTestEnvironment(
       const db = new Database(env.dbPath);
       db.pragma('foreign_keys = ON');
       db.pragma('busy_timeout = 5000');
+      // Update pmo_path to point to this instance's directory (template DB has the template dir's path)
+      db.prepare(`UPDATE ${T.settings} SET value = ? WHERE key = 'pmo_path'`).run(env.pmoPath);
       return { env, db };
     },
     cleanup(): void {
