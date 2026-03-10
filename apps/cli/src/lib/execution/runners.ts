@@ -456,6 +456,40 @@ export function runExecutorPreflight(
 }
 
 /**
+ * Build environment context section for agent prompts (TKT-035).
+ * Tells agents where they're running and what tools are available,
+ * preventing Docker vs prlt CLI confusion.
+ */
+function buildEnvironmentContext(context: ExecutionContext): string {
+  const env = context.executionEnvironment
+  if (!env) return ''
+
+  let section = `## Execution Environment\n\n`
+
+  if (env === 'devcontainer' || env === 'docker') {
+    section += `You are running inside a Docker container (${env}).\n\n`
+    section += `**IMPORTANT: The Docker CLI is NOT available inside this container.**\n`
+    section += `Do NOT run \`docker\` commands — they will fail.\n\n`
+    section += `Use \`prlt\` commands instead:\n`
+    section += `- Spawn agents: \`prlt work start <ticket-id>\` (not \`docker run\`)\n`
+    section += `- List containers: \`prlt docker list\` or use the \`docker_list\` MCP tool\n`
+    section += `- Container status: \`prlt docker status\` or use the \`docker_status\` MCP tool\n`
+    section += `- Container logs: \`prlt docker logs <agent>\` or use the \`docker_logs\` MCP tool\n`
+    section += `- Start/stop containers: \`prlt docker start/stop <agent>\`\n\n`
+    section += `Available MCP tools for container management: \`docker_status\`, \`docker_list\`, \`docker_start\`, \`docker_stop\`, \`docker_logs\`\n`
+    section += `Available MCP tools for agent management: \`agent_list\`, \`agent_status\`, \`agent_add\`, \`agent_remove\`\n\n`
+  } else if (env === 'host') {
+    section += `You are running directly on the host machine.\n\n`
+    section += `While \`docker\` commands may be available, prefer \`prlt\` commands for all orchestration tasks:\n`
+    section += `- Spawn agents: \`prlt work start <ticket-id>\` (not \`docker run\`)\n`
+    section += `- Manage containers: \`prlt docker list/status/start/stop/logs\`\n`
+    section += `- Manage agents: \`prlt agent list/status/add/remove\`\n\n`
+  }
+
+  return section
+}
+
+/**
  * Build the system prompt for orchestrator sessions.
  * This is injected via Claude Code's --system-prompt flag so the orchestrator
  * knows its role immediately without relying on CLAUDE.md.
@@ -492,6 +526,9 @@ export function buildOrchestratorSystemPrompt(context: ExecutionContext): string
   prompt += `- Squash merge only: \`gh pr merge --squash\`\n`
   prompt += `- After merging: subsequent PRs from parallel agents will need rebase\n`
   prompt += `- Kill stale sessions after their PRs are merged\n\n`
+
+  // Environment context (TKT-035): tell orchestrator about its execution environment
+  prompt += buildEnvironmentContext(context)
 
   // Load .orchestrator-context.md from HQ root if it exists
   if (context.hqPath) {
@@ -544,6 +581,9 @@ function buildOrchestratorPrompt(context: ExecutionContext): string {
   prompt += `- Squash merge only: \`gh pr merge --squash\`\n`
   prompt += `- After merging: subsequent PRs from parallel agents will need rebase\n`
   prompt += `- Kill stale sessions after their PRs are merged\n\n`
+
+  // Environment context (TKT-035): tell orchestrator about its execution environment
+  prompt += buildEnvironmentContext(context)
 
   // Load .orchestrator-context.md from HQ root if it exists
   if (context.hqPath) {
@@ -626,6 +666,12 @@ function buildPrompt(context: ExecutionContext): string {
   // Additional instructions from --message flag (appended to any action)
   if (context.customMessage) {
     prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
+  }
+
+  // Environment context (TKT-035): tell agent about its execution environment
+  const envContext = buildEnvironmentContext(context)
+  if (envContext) {
+    prompt += `\n${envContext}`
   }
 
   // END HOOK - Action-specific completion instructions
@@ -2659,6 +2705,11 @@ export async function runOrchestratorInDocker(
   const hqName = context.hqName || 'default'
   const orchestratorName = context.agentName || 'main'
 
+  // Ensure context knows it's running in Docker (TKT-035)
+  if (!context.executionEnvironment) {
+    context.executionEnvironment = 'docker'
+  }
+
   // Container name matches tmux session name for consistency
   const containerName = `prlt-orchestrator-${(hqName).replace(/[^a-zA-Z0-9._-]/g, '-')}-${(orchestratorName).replace(/[^a-zA-Z0-9._-]/g, '-')}`
   const imageName = `prlt-orchestrator-${(hqName).replace(/[^a-zA-Z0-9._-]/g, '-')}:latest`
@@ -2831,17 +2882,44 @@ export async function runOrchestratorInDocker(
     }
 
     // Build the prompt and write to temp file inside container
-    const prompt = buildPrompt(context)
-    const promptPath = `/tmp/orchestrator-prompt-${Date.now()}.txt`
-    try {
-      execSync(
-        `docker exec -i ${containerId} bash -c 'cat > ${promptPath}'`,
-        { input: prompt, stdio: ['pipe', 'pipe', 'pipe'] }
-      )
-    } catch {
-      return {
-        success: false,
-        error: 'Failed to write prompt to container',
+    // For Claude Code orchestrators, split into system prompt + user message (TKT-035)
+    const timestamp = Date.now()
+    const promptPath = `/tmp/orchestrator-prompt-${timestamp}.txt`
+    let systemPromptPath: string | null = null
+
+    if (context.isOrchestrator && isClaudeExecutor(executor)) {
+      // Split: system prompt (role/tools/env) via --system-prompt, user message as initial prompt
+      const systemPrompt = buildOrchestratorSystemPrompt(context)
+      systemPromptPath = `/tmp/orchestrator-system-prompt-${timestamp}.txt`
+      try {
+        execSync(
+          `docker exec -i ${containerId} bash -c 'cat > ${systemPromptPath}'`,
+          { input: systemPrompt, stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+      } catch {
+        return { success: false, error: 'Failed to write system prompt to container' }
+      }
+      // User message: action instructions or default startup
+      const userMessage = context.actionPrompt
+        || 'You are now running as the orchestrator. Check the board status and report what you see.'
+      try {
+        execSync(
+          `docker exec -i ${containerId} bash -c 'cat > ${promptPath}'`,
+          { input: userMessage, stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+      } catch {
+        return { success: false, error: 'Failed to write prompt to container' }
+      }
+    } else {
+      // Non-Claude executor or non-orchestrator: full combined prompt
+      const prompt = buildPrompt(context)
+      try {
+        execSync(
+          `docker exec -i ${containerId} bash -c 'cat > ${promptPath}'`,
+          { input: prompt, stdio: ['pipe', 'pipe', 'pipe'] }
+        )
+      } catch {
+        return { success: false, error: 'Failed to write prompt to container' }
       }
     }
 
@@ -2849,9 +2927,8 @@ export async function runOrchestratorInDocker(
     const skipPermissions = config.permissionMode === 'danger'
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     const effortFlag = skipPermissions ? '--effort high ' : ''
-    const executorCmd = executor === 'claude-code'
-      ? `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"`
-      : `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"`
+    const systemPromptFlag = systemPromptPath ? `--system-prompt "$(cat ${systemPromptPath})" ` : ''
+    const executorCmd = `claude ${permissionsFlag}${effortFlag}${systemPromptFlag}"$(cat ${promptPath})"`
 
     // Build tmux session name (reuses the same name as host tmux for consistency)
     const tmuxSessionName = options?.sessionName || containerName
@@ -2872,7 +2949,7 @@ export async function runOrchestratorInDocker(
         const scriptContent = `#!/bin/bash
 cd /hq
 unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT
-${executor === 'claude-code' ? `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"` : `claude "$(cat ${promptPath})"`}
+${executorCmd}
 echo ""
 echo "Orchestrator complete. Press Enter to close."
 exec bash
@@ -3082,6 +3159,11 @@ export async function runExecution(
   config: ExecutionConfig = DEFAULT_EXECUTION_CONFIG,
   options?: { host?: string; displayMode?: DisplayMode; sessionManager?: SessionManager }
 ): Promise<RunnerResult> {
+  // Ensure context knows its execution environment (TKT-035)
+  if (!context.executionEnvironment) {
+    context.executionEnvironment = environment
+  }
+
   // Ensure tmux server has keychain access for OAuth (host only)
   // Docker uses claude-credentials volume, devcontainer runs inside container
   if (environment === 'host') {

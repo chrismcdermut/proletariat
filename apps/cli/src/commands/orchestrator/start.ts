@@ -599,6 +599,7 @@ export default class OrchestratorStart extends PromptCommand {
       hqPath,
       isOrchestrator: true,
       hqName,
+      executionEnvironment: environment,
     }
 
     // Build execution config
