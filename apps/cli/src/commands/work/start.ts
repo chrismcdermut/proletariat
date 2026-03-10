@@ -58,6 +58,9 @@ import {
   buildJiraTicketDescription,
   getJiraIssueByKey,
 } from '../../lib/external-issues/jira.js'
+import {
+  getTrelloCardByKey,
+} from '../../lib/external-issues/trello.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 import {
@@ -136,7 +139,7 @@ function parseBooleanSetting(value: string | undefined): boolean | null {
 }
 
 function isIssueSource(value: string | undefined): value is IssueSource {
-  return value === 'linear' || value === 'jira'
+  return value === 'linear' || value === 'jira' || value === 'trello'
 }
 
 function buildExternalMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
@@ -375,6 +378,10 @@ export default class WorkStart extends PMOCommand {
       return getJiraIssueByKey({}, key)
     }
 
+    if (source === 'trello') {
+      return getTrelloCardByKey({}, key)
+    }
+
     return getLinearIssueByIdentifier({}, key)
   }
 
@@ -415,6 +422,7 @@ export default class WorkStart extends PMOCommand {
       choices: () => [
         { name: 'Linear', value: 'linear', command: 'prlt work start --from linear:ISSUE-KEY --json' },
         { name: 'Jira', value: 'jira', command: 'prlt work start --from jira:ISSUE-KEY --json' },
+        { name: 'Trello', value: 'trello', command: 'prlt work start --from trello:CARD-ID --json' },
       ],
     })
     const sourceResult = await sourceResolver.resolve()
@@ -442,7 +450,7 @@ export default class WorkStart extends PMOCommand {
     keyResolver.addPrompt({
       flagName: 'key',
       type: 'input',
-      message: `Enter ${source === 'linear' ? 'Linear' : 'Jira'} issue key:`,
+      message: `Enter ${source === 'linear' ? 'Linear' : source === 'trello' ? 'Trello' : 'Jira'} issue key:`,
       default: key,
       when: () => !key?.trim(),
       validate: (value) => (value as string).trim().length > 0 ? true : 'Issue key is required',
