@@ -9,6 +9,7 @@ import { spawn, execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { fileURLToPath } from 'node:url'
 import {
   ExecutionEnvironment,
   DisplayMode,
@@ -455,52 +456,148 @@ export function runExecutorPreflight(
   return { ok: true }
 }
 
+// =============================================================================
+// Orchestrator Prompt — Dynamic Command Registry
+// =============================================================================
+
 /**
- * Build environment context section for agent prompts (TKT-035).
- * Tells agents where they're running and what tools are available,
- * preventing Docker vs prlt CLI confusion.
+ * Registry of prlt commands relevant to the orchestrator, organized by category.
+ * Each command includes a checkPath used to verify the command exists at runtime.
+ * External commands (like gh) omit checkPath and are always included.
  */
-function buildEnvironmentContext(context: ExecutionContext): string {
-  const env = context.executionEnvironment
-  if (!env) return ''
+interface OrchestratorCommandDef {
+  cmd: string        // Full CLI invocation example
+  desc: string       // One-line description
+  checkPath?: string // Path under commands/ dir to verify existence (omit for external cmds)
+}
 
-  let section = `## Execution Environment\n\n`
+interface CommandCategory {
+  title: string
+  commands: OrchestratorCommandDef[]
+}
 
-  if (env === 'devcontainer' || env === 'docker') {
-    section += `You are running inside a Docker container (${env}).\n\n`
-    section += `**IMPORTANT: The Docker CLI is NOT available inside this container.**\n`
-    section += `Do NOT run \`docker\` commands — they will fail.\n\n`
-    section += `Use \`prlt\` commands instead:\n`
-    section += `- Spawn agents: \`prlt work start <ticket-id>\` (not \`docker run\`)\n`
-    section += `- List containers: \`prlt docker list\` or use the \`docker_list\` MCP tool\n`
-    section += `- Container status: \`prlt docker status\` or use the \`docker_status\` MCP tool\n`
-    section += `- Container logs: \`prlt docker logs <agent>\` or use the \`docker_logs\` MCP tool\n`
-    section += `- Start/stop containers: \`prlt docker start/stop <agent>\`\n\n`
-    section += `Available MCP tools for container management: \`docker_status\`, \`docker_list\`, \`docker_start\`, \`docker_stop\`, \`docker_logs\`\n`
-    section += `Available MCP tools for agent management: \`agent_list\`, \`agent_status\`, \`agent_add\`, \`agent_remove\`\n\n`
-  } else if (env === 'host') {
-    section += `You are running directly on the host machine.\n\n`
-    section += `While \`docker\` commands may be available, prefer \`prlt\` commands for all orchestration tasks:\n`
-    section += `- Spawn agents: \`prlt work start <ticket-id>\` (not \`docker run\`)\n`
-    section += `- Manage containers: \`prlt docker list/status/start/stop/logs\`\n`
-    section += `- Manage agents: \`prlt agent list/status/add/remove\`\n\n`
+const ORCHESTRATOR_COMMAND_REGISTRY: CommandCategory[] = [
+  {
+    title: 'Agent Lifecycle',
+    commands: [
+      { cmd: 'prlt work start <ticket> --ephemeral --skip-permissions --create-pr --display background --action implement --run-on-host --yes', desc: 'Spawn an agent for a ticket', checkPath: 'work/start' },
+      { cmd: 'prlt session list', desc: 'List running sessions', checkPath: 'session/list' },
+      { cmd: 'prlt session inspect <agent>', desc: 'Inspect session details', checkPath: 'session/inspect' },
+      { cmd: 'prlt session poke <agent> \'message\'', desc: 'Send message to agent', checkPath: 'session/poke' },
+      { cmd: 'prlt session peek <agent> --lines 200', desc: 'Read agent output', checkPath: 'session/peek' },
+      { cmd: 'prlt session health', desc: 'Check health of all sessions', checkPath: 'session/health' },
+      { cmd: 'prlt session restart <agent>', desc: 'Restart a stuck agent', checkPath: 'session/restart' },
+      { cmd: 'prlt session exec <agent> -- git status', desc: 'Run command in agent context', checkPath: 'session/exec' },
+      { cmd: 'prlt session prune', desc: 'Clean up dead sessions', checkPath: 'session/prune' },
+    ],
+  },
+  {
+    title: 'Board Management',
+    commands: [
+      { cmd: 'prlt board view', desc: 'View the board', checkPath: 'board/view' },
+      { cmd: 'prlt ticket list', desc: 'List tickets', checkPath: 'ticket/list' },
+      { cmd: 'prlt ticket show <id>', desc: 'Show ticket details', checkPath: 'ticket/show' },
+      { cmd: 'prlt ticket create --title \'x\' --description \'y\'', desc: 'Create a ticket', checkPath: 'ticket/create' },
+      { cmd: 'prlt ticket edit <id> --title \'...\' --add-ac \'...\'', desc: 'Edit ticket fields', checkPath: 'ticket/edit' },
+    ],
+  },
+  {
+    title: 'PR Workflow',
+    commands: [
+      { cmd: 'gh pr list', desc: 'List open PRs' },
+      { cmd: 'gh pr view <num>', desc: 'View PR details' },
+      { cmd: 'gh pr checks <num>', desc: 'Check CI status' },
+      { cmd: 'gh pr merge <num> --squash', desc: 'Merge PR (squash only)' },
+    ],
+  },
+]
+
+/**
+ * Anti-patterns: things the orchestrator should NEVER do, with the prlt alternative.
+ * Only included when the replacement command is available.
+ */
+interface AntiPatternDef {
+  bad: string        // What NOT to do
+  good: string       // What to do instead
+  checkPath?: string // prlt command path to verify the alternative exists
+}
+
+const ORCHESTRATOR_ANTI_PATTERNS: AntiPatternDef[] = [
+  { bad: 'docker exec <container> ...', good: 'prlt session exec', checkPath: 'session/exec' },
+  { bad: 'tmux send-keys ...', good: 'prlt session poke', checkPath: 'session/poke' },
+  { bad: 'tmux capture-pane ...', good: 'prlt session peek', checkPath: 'session/peek' },
+  { bad: 'Direct git operations on agent worktrees', good: 'prlt session exec', checkPath: 'session/exec' },
+]
+
+/**
+ * Resolve the commands directory for dynamic command availability checks.
+ * Looks for compiled command files under dist/commands/.
+ */
+let _commandsDir: string | null = null
+
+function getCommandsDir(): string {
+  if (_commandsDir === null) {
+    const currentFile = fileURLToPath(import.meta.url)
+    // From dist/lib/execution/runners.js → dist/commands/
+    _commandsDir = path.resolve(path.dirname(currentFile), '..', '..', 'commands')
   }
+  return _commandsDir
+}
 
+function isCommandAvailable(checkPath: string): boolean {
+  const dir = getCommandsDir()
+  // Check for compiled .js file or directory (which would contain index.js)
+  return fs.existsSync(path.join(dir, `${checkPath}.js`)) || fs.existsSync(path.join(dir, checkPath))
+}
+
+/**
+ * Build the dynamic command reference section for the orchestrator prompt.
+ * Only includes commands that are actually available in this build.
+ */
+function buildOrchestratorCommandReference(): string {
+  let ref = ''
+  for (const category of ORCHESTRATOR_COMMAND_REGISTRY) {
+    const available = category.commands.filter(c => !c.checkPath || isCommandAvailable(c.checkPath))
+    if (available.length === 0) continue
+    ref += `### ${category.title}\n`
+    for (const cmd of available) {
+      ref += `- \`${cmd.cmd}\` — ${cmd.desc}\n`
+    }
+    ref += '\n'
+  }
+  return ref
+}
+
+/**
+ * Build the anti-patterns section for the orchestrator prompt.
+ * Only includes anti-patterns where the prlt replacement is available.
+ */
+function buildOrchestratorAntiPatterns(): string {
+  const available = ORCHESTRATOR_ANTI_PATTERNS.filter(ap => !ap.checkPath || isCommandAvailable(ap.checkPath))
+  if (available.length === 0) return ''
+  let section = `## Anti-Patterns — NEVER DO\n\n`
+  for (const ap of available) {
+    section += `- \`${ap.bad}\` → use \`${ap.good}\` instead\n`
+  }
+  section += `\n`
   return section
 }
 
 /**
- * Build the system prompt for orchestrator sessions.
- * This is injected via Claude Code's --system-prompt flag so the orchestrator
- * knows its role immediately without relying on CLAUDE.md.
+ * Build the shared orchestrator prompt body (role, runtime, commands, anti-patterns).
+ * Used by both buildOrchestratorSystemPrompt and buildOrchestratorPrompt.
  */
-export function buildOrchestratorSystemPrompt(context: ExecutionContext): string {
-  const hqName = context.hqName || 'workspace'
-  let prompt = `You are an orchestrator for the **${hqName}** project. `
-  prompt += `Use \`prlt\` to view what's running — board, sessions, tickets, PRs. `
-  prompt += `Do not implement any work yourself. `
-  prompt += `Your job is to review, plan, investigate, delegate (via \`prlt work start\`), and review completed work.\n\n`
+function buildOrchestratorBody(hqName: string, context: ExecutionContext): string {
+  let prompt = ''
 
+  // Runtime declaration
+  prompt += `## prlt Is Your Orchestration Runtime\n\n`
+  prompt += `prlt is your orchestration runtime. NEVER use raw docker exec, tmux send-keys, or direct container access. `
+  prompt += `All orchestration goes through prlt. Every agent interaction, session management, and board operation `
+  prompt += `has a dedicated prlt command. Using raw infrastructure commands bypasses session tracking, breaks `
+  prompt += `health monitoring, and creates orphaned processes.\n\n`
+
+  // Role
   prompt += `## Your Role\n`
   prompt += `- Plan and prioritize work across the board\n`
   prompt += `- Delegate implementation to agents via \`prlt work start\`\n`
@@ -508,13 +605,11 @@ export function buildOrchestratorSystemPrompt(context: ExecutionContext): string
   prompt += `- Merge completed PRs via \`gh pr merge --squash\`\n`
   prompt += `- Never write code or make changes to source files yourself\n\n`
 
-  prompt += `## Discovering State\n`
-  prompt += `Always discover current state dynamically — do NOT rely on static context files:\n`
-  prompt += `- **Board**: \`prlt board view\`, \`prlt ticket list\`, \`prlt ticket show <id>\`\n`
-  prompt += `- **Agents**: \`prlt session list\`, \`prlt session peek <session>\`, \`prlt work status\`\n`
-  prompt += `- **PRs/CI**: \`gh pr list\`, \`gh pr view <num>\`, \`gh pr checks <num>\`\n`
-  prompt += `- All prlt MCP tools are also available\n\n`
+  // Command reference (dynamically generated)
+  prompt += `## Command Reference\n\n`
+  prompt += buildOrchestratorCommandReference()
 
+  // Spawning agents (detailed example)
   prompt += `## Spawning Agents\n`
   prompt += `\`\`\`\n`
   prompt += `script -q /dev/null prlt work start TKT-XXXX --ephemeral --skip-permissions --create-pr --display background --action implement --run-on-host --yes\n`
@@ -522,13 +617,14 @@ export function buildOrchestratorSystemPrompt(context: ExecutionContext): string
   prompt += `- Review: \`--action review-comment\`\n`
   prompt += `- Fix: \`--action review-fix\`\n\n`
 
+  // Anti-patterns (dynamically generated)
+  prompt += buildOrchestratorAntiPatterns()
+
+  // Workflow
   prompt += `## Workflow\n`
   prompt += `- Squash merge only: \`gh pr merge --squash\`\n`
   prompt += `- After merging: subsequent PRs from parallel agents will need rebase\n`
   prompt += `- Kill stale sessions after their PRs are merged\n\n`
-
-  // Environment context (TKT-035): tell orchestrator about its execution environment
-  prompt += buildEnvironmentContext(context)
 
   // Load .orchestrator-context.md from HQ root if it exists
   if (context.hqPath) {
@@ -548,6 +644,22 @@ export function buildOrchestratorSystemPrompt(context: ExecutionContext): string
   return prompt
 }
 
+/**
+ * Build the system prompt for orchestrator sessions.
+ * This is injected via Claude Code's --system-prompt flag so the orchestrator
+ * knows its role immediately without relying on CLAUDE.md.
+ */
+export function buildOrchestratorSystemPrompt(context: ExecutionContext): string {
+  const hqName = context.hqName || 'workspace'
+  let prompt = `You are an orchestrator for the **${hqName}** project. `
+  prompt += `Do not implement any work yourself. `
+  prompt += `Your job is to review, plan, investigate, delegate (via \`prlt work start\`), and review completed work.\n\n`
+
+  prompt += buildOrchestratorBody(hqName, context)
+
+  return prompt
+}
+
 function buildOrchestratorPrompt(context: ExecutionContext): string {
   // Full prompt including role context — used for non-Claude executors that
   // don't support --system-prompt. For Claude Code, runHost() splits this into
@@ -556,49 +668,7 @@ function buildOrchestratorPrompt(context: ExecutionContext): string {
   let prompt = `# Orchestrator: ${hqName}\n\n`
   prompt += `You are the orchestrator for the **${hqName}** workspace using the prlt ecosystem.\n\n`
 
-  prompt += `## Your Role\n`
-  prompt += `- Plan and prioritize work across the board\n`
-  prompt += `- Delegate implementation to agents via \`prlt work start\`\n`
-  prompt += `- Monitor agent progress and review completed work\n`
-  prompt += `- Merge completed PRs via \`gh pr merge --squash\`\n`
-  prompt += `- Never write code or make changes to source files yourself\n\n`
-
-  prompt += `## Discovering State\n`
-  prompt += `Always discover current state dynamically — do NOT rely on static context files:\n`
-  prompt += `- **Board**: \`prlt board view\`, \`prlt ticket list\`, \`prlt ticket show <id>\`\n`
-  prompt += `- **Agents**: \`prlt session list\`, \`prlt session peek <session>\`, \`prlt work status\`\n`
-  prompt += `- **PRs/CI**: \`gh pr list\`, \`gh pr view <num>\`, \`gh pr checks <num>\`\n`
-  prompt += `- All prlt MCP tools are also available\n\n`
-
-  prompt += `## Spawning Agents\n`
-  prompt += `\`\`\`\n`
-  prompt += `script -q /dev/null prlt work start TKT-XXXX --ephemeral --skip-permissions --create-pr --display background --action implement --run-on-host --yes\n`
-  prompt += `\`\`\`\n`
-  prompt += `- Review: \`--action review-comment\`\n`
-  prompt += `- Fix: \`--action review-fix\`\n\n`
-
-  prompt += `## Workflow\n`
-  prompt += `- Squash merge only: \`gh pr merge --squash\`\n`
-  prompt += `- After merging: subsequent PRs from parallel agents will need rebase\n`
-  prompt += `- Kill stale sessions after their PRs are merged\n\n`
-
-  // Environment context (TKT-035): tell orchestrator about its execution environment
-  prompt += buildEnvironmentContext(context)
-
-  // Load .orchestrator-context.md from HQ root if it exists
-  if (context.hqPath) {
-    const contextFilePath = path.join(context.hqPath, '.orchestrator-context.md')
-    if (fs.existsSync(contextFilePath)) {
-      try {
-        const contextContent = fs.readFileSync(contextFilePath, 'utf-8').trim()
-        if (contextContent) {
-          prompt += `## Workspace Context\n\n${contextContent}\n\n`
-        }
-      } catch {
-        // Ignore read errors
-      }
-    }
-  }
+  prompt += buildOrchestratorBody(hqName, context)
 
   // Include user's custom prompt or action content
   if (context.actionPrompt) {
@@ -666,12 +736,6 @@ function buildPrompt(context: ExecutionContext): string {
   // Additional instructions from --message flag (appended to any action)
   if (context.customMessage) {
     prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
-  }
-
-  // Environment context (TKT-035): tell agent about its execution environment
-  const envContext = buildEnvironmentContext(context)
-  if (envContext) {
-    prompt += `\n${envContext}`
   }
 
   // END HOOK - Action-specific completion instructions
@@ -2705,11 +2769,6 @@ export async function runOrchestratorInDocker(
   const hqName = context.hqName || 'default'
   const orchestratorName = context.agentName || 'main'
 
-  // Ensure context knows it's running in Docker (TKT-035)
-  if (!context.executionEnvironment) {
-    context.executionEnvironment = 'docker'
-  }
-
   // Container name matches tmux session name for consistency
   const containerName = `prlt-orchestrator-${(hqName).replace(/[^a-zA-Z0-9._-]/g, '-')}-${(orchestratorName).replace(/[^a-zA-Z0-9._-]/g, '-')}`
   const imageName = `prlt-orchestrator-${(hqName).replace(/[^a-zA-Z0-9._-]/g, '-')}:latest`
@@ -2882,44 +2941,17 @@ export async function runOrchestratorInDocker(
     }
 
     // Build the prompt and write to temp file inside container
-    // For Claude Code orchestrators, split into system prompt + user message (TKT-035)
-    const timestamp = Date.now()
-    const promptPath = `/tmp/orchestrator-prompt-${timestamp}.txt`
-    let systemPromptPath: string | null = null
-
-    if (context.isOrchestrator && isClaudeExecutor(executor)) {
-      // Split: system prompt (role/tools/env) via --system-prompt, user message as initial prompt
-      const systemPrompt = buildOrchestratorSystemPrompt(context)
-      systemPromptPath = `/tmp/orchestrator-system-prompt-${timestamp}.txt`
-      try {
-        execSync(
-          `docker exec -i ${containerId} bash -c 'cat > ${systemPromptPath}'`,
-          { input: systemPrompt, stdio: ['pipe', 'pipe', 'pipe'] }
-        )
-      } catch {
-        return { success: false, error: 'Failed to write system prompt to container' }
-      }
-      // User message: action instructions or default startup
-      const userMessage = context.actionPrompt
-        || 'You are now running as the orchestrator. Check the board status and report what you see.'
-      try {
-        execSync(
-          `docker exec -i ${containerId} bash -c 'cat > ${promptPath}'`,
-          { input: userMessage, stdio: ['pipe', 'pipe', 'pipe'] }
-        )
-      } catch {
-        return { success: false, error: 'Failed to write prompt to container' }
-      }
-    } else {
-      // Non-Claude executor or non-orchestrator: full combined prompt
-      const prompt = buildPrompt(context)
-      try {
-        execSync(
-          `docker exec -i ${containerId} bash -c 'cat > ${promptPath}'`,
-          { input: prompt, stdio: ['pipe', 'pipe', 'pipe'] }
-        )
-      } catch {
-        return { success: false, error: 'Failed to write prompt to container' }
+    const prompt = buildPrompt(context)
+    const promptPath = `/tmp/orchestrator-prompt-${Date.now()}.txt`
+    try {
+      execSync(
+        `docker exec -i ${containerId} bash -c 'cat > ${promptPath}'`,
+        { input: prompt, stdio: ['pipe', 'pipe', 'pipe'] }
+      )
+    } catch {
+      return {
+        success: false,
+        error: 'Failed to write prompt to container',
       }
     }
 
@@ -2927,8 +2959,9 @@ export async function runOrchestratorInDocker(
     const skipPermissions = config.permissionMode === 'danger'
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     const effortFlag = skipPermissions ? '--effort high ' : ''
-    const systemPromptFlag = systemPromptPath ? `--system-prompt "$(cat ${systemPromptPath})" ` : ''
-    const executorCmd = `claude ${permissionsFlag}${effortFlag}${systemPromptFlag}"$(cat ${promptPath})"`
+    const executorCmd = executor === 'claude-code'
+      ? `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"`
+      : `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"`
 
     // Build tmux session name (reuses the same name as host tmux for consistency)
     const tmuxSessionName = options?.sessionName || containerName
@@ -2949,7 +2982,7 @@ export async function runOrchestratorInDocker(
         const scriptContent = `#!/bin/bash
 cd /hq
 unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT
-${executorCmd}
+${executor === 'claude-code' ? `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"` : `claude "$(cat ${promptPath})"`}
 echo ""
 echo "Orchestrator complete. Press Enter to close."
 exec bash
@@ -3159,11 +3192,6 @@ export async function runExecution(
   config: ExecutionConfig = DEFAULT_EXECUTION_CONFIG,
   options?: { host?: string; displayMode?: DisplayMode; sessionManager?: SessionManager }
 ): Promise<RunnerResult> {
-  // Ensure context knows its execution environment (TKT-035)
-  if (!context.executionEnvironment) {
-    context.executionEnvironment = environment
-  }
-
   // Ensure tmux server has keychain access for OAuth (host only)
   // Docker uses claude-credentials volume, devcontainer runs inside container
   if (environment === 'host') {
