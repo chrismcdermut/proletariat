@@ -1,20 +1,20 @@
 import { expect } from 'chai'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import * as os from 'node:os'
 import Database from 'better-sqlite3'
 import { ExecutionStorage } from '../../src/lib/execution/storage.js'
 import { getAvailableAgents, selectAgent } from '../../src/lib/execution/spawner.js'
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js'
 import type { WorkspaceInfo } from '../../src/lib/agents/commands.js'
 import type { Agent } from '../../src/lib/database/index.js'
+import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
 
 /**
  * Unit tests for spawner functions
  * Tests getAvailableAgents() staff agent filtering (TKT-604)
+ *
+ * Uses savepoint-based isolation for fast test execution.
  */
 describe('Spawner', () => {
-  let testDir: string
+  let fastDb: FastTestDb
   let db: Database.Database
   let executionStorage: ExecutionStorage
 
@@ -50,46 +50,48 @@ describe('Spawner', () => {
     }
   }
 
+  before(() => {
+    fastDb = createFastTestDb((db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS ${PMO_TABLES.agent_work} (
+          id TEXT PRIMARY KEY,
+          ticket_id TEXT NOT NULL,
+          agent_name TEXT NOT NULL,
+          executor TEXT NOT NULL,
+          environment TEXT DEFAULT 'host',
+          display_mode TEXT DEFAULT 'terminal',
+          permission_mode TEXT DEFAULT 'safe',
+          status TEXT NOT NULL,
+          branch TEXT,
+          pid TEXT,
+          container_id TEXT,
+          session_id TEXT,
+          host TEXT,
+          log_path TEXT,
+          external_source TEXT,
+          external_key TEXT,
+          external_id TEXT,
+          external_url TEXT,
+          started_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          exit_code INTEGER
+        )
+      `)
+    })
+    db = fastDb.db
+  })
+
   beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spawner-test-'))
-    const dbPath = path.join(testDir, 'test.db')
-    db = new Database(dbPath)
-
-    // Create the agent_work table
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS ${PMO_TABLES.agent_work} (
-        id TEXT PRIMARY KEY,
-        ticket_id TEXT NOT NULL,
-        agent_name TEXT NOT NULL,
-        executor TEXT NOT NULL,
-        environment TEXT DEFAULT 'host',
-        display_mode TEXT DEFAULT 'terminal',
-        permission_mode TEXT DEFAULT 'safe',
-        status TEXT NOT NULL,
-        branch TEXT,
-        pid TEXT,
-        container_id TEXT,
-        session_id TEXT,
-        host TEXT,
-        log_path TEXT,
-        external_source TEXT,
-        external_key TEXT,
-        external_id TEXT,
-        external_url TEXT,
-        started_at INTEGER NOT NULL,
-        completed_at INTEGER,
-        exit_code INTEGER
-      )
-    `)
-
+    fastDb.savepoint()
     executionStorage = new ExecutionStorage(db)
   })
 
   afterEach(() => {
-    db.close()
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true })
-    }
+    fastDb.rollback()
+  })
+
+  after(() => {
+    fastDb.close()
   })
 
   describe('getAvailableAgents', () => {

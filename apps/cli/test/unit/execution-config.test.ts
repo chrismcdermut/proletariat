@@ -1,7 +1,4 @@
 import { expect } from 'chai';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 import Database from 'better-sqlite3';
 
 import {
@@ -28,37 +25,41 @@ import {
   hasCoderName,
 } from '../../src/lib/execution/config.js';
 import { DEFAULT_EXECUTION_CONFIG } from '../../src/lib/execution/types.js';
+import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js';
 
 /**
  * Unit tests for execution configuration
  * TKT-496: Terminal openInBackground setting
+ *
+ * Uses savepoint-based isolation for fast test execution.
  */
 describe('Execution Config', () => {
-  let testDir: string;
-  let dbPath: string;
+  let fastDb: FastTestDb;
   let db: Database.Database;
 
-  beforeEach(() => {
-    // Create temp directory and database for testing
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-config-test-'));
-    dbPath = path.join(testDir, 'test.db');
-    db = new Database(dbPath);
+  before(() => {
+    fastDb = createFastTestDb((db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+    });
+    db = fastDb.db;
+  });
 
-    // Create workspace_settings table
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS workspace_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT DEFAULT (datetime('now'))
-      )
-    `);
+  beforeEach(() => {
+    fastDb.savepoint();
   });
 
   afterEach(() => {
-    if (db) db.close();
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    fastDb.rollback();
+  });
+
+  after(() => {
+    fastDb.close();
   });
 
   describe('DEFAULT_EXECUTION_CONFIG', () => {

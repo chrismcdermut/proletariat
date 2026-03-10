@@ -1,12 +1,11 @@
 import { expect } from 'chai'
 import Database from 'better-sqlite3'
 import {
-  createTestEnvironment,
-  cleanupTestEnvironment,
-  setupProductionSchema,
+  createFastTestEnvironment,
+  setupProductionSchemaOnDb,
   createHQConfig,
   createPMODirectories,
-  type TestEnvironment,
+  type FastTestEnvironment,
 } from '../e2e/test-helpers.js'
 import {
   isAsanaConfigured,
@@ -36,25 +35,34 @@ import { AsanaIssueAdapter } from '../../src/lib/external-issues/adapters.js'
 import { ExternalIssueAdapterError } from '../../src/lib/external-issues/types.js'
 
 describe('Asana Integration', () => {
-  let env: TestEnvironment
+  let env: FastTestEnvironment
   let db: Database.Database
 
-  beforeEach(() => {
-    env = createTestEnvironment('asana-integration-')
+  before(() => {
+    env = createFastTestEnvironment('asana-integration-', (db, pmoPath) => {
+      setupProductionSchemaOnDb(db, pmoPath)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `)
+    })
+    db = env.db
     createHQConfig(env.proletariatDir)
     createPMODirectories(env.pmoPath)
-    db = setupProductionSchema(env.dbPath, env.pmoPath)
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS workspace_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      )
-    `)
+  })
+
+  beforeEach(() => {
+    env.savepoint()
   })
 
   afterEach(() => {
-    if (db) db.close()
-    cleanupTestEnvironment(env)
+    env.rollback()
+  })
+
+  after(() => {
+    env.cleanup()
   })
 
   function seedTicket(ticketId: string): void {
