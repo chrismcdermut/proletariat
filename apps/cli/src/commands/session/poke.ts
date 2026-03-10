@@ -1,5 +1,6 @@
-import { Args } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import * as path from 'node:path'
+import * as fs from 'node:fs'
 import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
@@ -10,6 +11,7 @@ import {
   getContainerTmuxSessionMap,
   findContainerSessionsByPrefix,
   findSessionForExecution,
+  captureTmuxPane,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
@@ -87,6 +89,9 @@ export default class SessionPoke extends PMOCommand {
   static examples = [
     '<%= config.bin %> session poke altman "Please focus on the tests first"',
     '<%= config.bin %> session poke TKT-123 "Add error handling for edge cases"',
+    '<%= config.bin %> session poke altman --file instructions.md',
+    'cat prompt.txt | <%= config.bin %> session poke altman --file -',
+    '<%= config.bin %> session poke altman "run tests" --wait --timeout 60',
   ]
 
   static args = {
@@ -95,13 +100,27 @@ export default class SessionPoke extends PMOCommand {
       required: true,
     }),
     message: Args.string({
-      description: 'Message to send to the agent session',
-      required: true,
+      description: 'Message to send to the agent session (optional if --file is used)',
+      required: false,
     }),
   }
 
   static flags = {
     ...pmoBaseFlags,
+    file: Flags.string({
+      char: 'F',
+      description: 'Read message from file (use - for stdin)',
+    }),
+    wait: Flags.boolean({
+      char: 'w',
+      description: 'Wait for response after sending message (capture output)',
+      default: false,
+    }),
+    timeout: Flags.integer({
+      char: 't',
+      description: 'Timeout in seconds for --wait mode',
+      default: 30,
+    }),
   }
 
   protected getPMOOptions() {
@@ -111,11 +130,66 @@ export default class SessionPoke extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SessionPoke)
     const jsonMode = shouldOutputJson(flags)
-    const { agent, message } = args
+    const { agent } = args
+
+    // Determine message: from args, --file, or stdin
+    let message = args.message || ''
+
+    if (flags.file) {
+      if (flags.file === '-') {
+        // Read from stdin
+        try {
+          message = fs.readFileSync(0, 'utf-8').trim()
+        } catch {
+          if (jsonMode) {
+            outputErrorAsJson(
+              'STDIN_READ_FAILED',
+              'Failed to read message from stdin.',
+              createMetadata('session poke', flags),
+            )
+            return
+          }
+          this.error('Failed to read message from stdin.')
+        }
+      } else {
+        // Read from file
+        try {
+          message = fs.readFileSync(flags.file, 'utf-8').trim()
+        } catch {
+          if (jsonMode) {
+            outputErrorAsJson(
+              'FILE_READ_FAILED',
+              `Failed to read message from file: ${flags.file}`,
+              createMetadata('session poke', flags),
+            )
+            return
+          }
+          this.error(`Failed to read message from file: ${flags.file}`)
+        }
+      }
+    }
+
+    if (!message) {
+      if (jsonMode) {
+        outputErrorAsJson(
+          'NO_MESSAGE',
+          'No message specified. Provide a message argument or use --file.',
+          createMetadata('session poke', flags),
+        )
+        return
+      }
+      this.error('No message specified. Provide a message argument or use --file.')
+    }
 
     // Resolve the agent's active session
     const resolved = this.resolveAgentSession(agent, jsonMode, flags)
     if (!resolved) return
+
+    // Capture pre-send output if --wait mode
+    let preSendContent: string | null = null
+    if (flags.wait) {
+      preSendContent = captureTmuxPane(resolved.sessionId, 50, resolved.containerId)
+    }
 
     // Send the message
     try {
@@ -168,6 +242,17 @@ export default class SessionPoke extends PMOCommand {
       return
     }
 
+    // Handle --wait mode: capture output after sending
+    let responseContent: string | undefined
+    if (flags.wait) {
+      responseContent = await this.waitForResponse(
+        resolved.sessionId,
+        preSendContent,
+        flags.timeout,
+        resolved.containerId,
+      )
+    }
+
     // Output result
     if (jsonMode) {
       outputSuccessAsJson({
@@ -175,12 +260,72 @@ export default class SessionPoke extends PMOCommand {
         agent: resolved.agentName,
         session: resolved.sessionId,
         message,
+        ...(responseContent !== undefined ? { response: responseContent } : {}),
       }, createMetadata('session poke', flags))
     }
 
-    this.log('')
-    this.log(styles.success(`Message sent to ${resolved.agentName} (${resolved.ticketId})`))
-    this.log('')
+    if (!jsonMode) {
+      this.log('')
+      this.log(styles.success(`Message sent to ${resolved.agentName} (${resolved.ticketId})`))
+      if (responseContent) {
+        this.log('')
+        this.log(styles.info('Response:'))
+        process.stdout.write(responseContent + '\n')
+      }
+      this.log('')
+    }
+  }
+
+  /**
+   * Wait for new output after sending a message.
+   * Polls the tmux pane and returns new content that appeared after sending.
+   */
+  private async waitForResponse(
+    sessionId: string,
+    preSendContent: string | null,
+    timeoutSecs: number,
+    containerId?: string,
+  ): Promise<string | undefined> {
+    const startTime = Date.now()
+    const pollInterval = 1000
+    const timeoutMs = timeoutSecs * 1000
+
+    // Wait a moment for the message to be processed
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    while (Date.now() - startTime < timeoutMs) {
+      const current = captureTmuxPane(sessionId, 200, containerId)
+
+      if (current && current !== preSendContent) {
+        // Check if the agent seems to have finished responding
+        // (output has stabilized for 2 seconds)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        const afterWait = captureTmuxPane(sessionId, 200, containerId)
+
+        if (afterWait === current) {
+          // Output has stabilized, return the new content
+          if (preSendContent) {
+            // Find new content that wasn't in pre-send capture
+            const preLines = preSendContent.split('\n')
+            const currentLines = current.split('\n')
+
+            // Find where new content starts
+            const overlap = Math.min(3, preLines.length)
+            const lastPreLines = preLines.slice(-overlap).join('\n')
+            const idx = current.indexOf(lastPreLines)
+
+            if (idx >= 0 && lastPreLines.length > 0) {
+              return current.slice(idx + lastPreLines.length).trim()
+            }
+          }
+          return current
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollInterval))
+    }
+
+    return undefined
   }
 
   /**

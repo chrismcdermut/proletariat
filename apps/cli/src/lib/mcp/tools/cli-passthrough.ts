@@ -486,6 +486,106 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
   )
 
   strictTool(server,
+    'session_inspect',
+    'Comprehensive agent status inspection — git, PR, process, output, and execution metadata',
+    {
+      target: z.string().describe('Agent name, ticket ID, or execution ID'),
+      lines: z.number().optional().describe('Number of output lines to capture (default 100)'),
+    },
+    async (params) => {
+      try {
+        const linesFlag = params.lines ? `--lines ${params.lines}` : ''
+        const output = ctx.runCommand(`prlt session inspect ${params.target} ${linesFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_restart',
+    'Gracefully restart a stuck agent — send Ctrl-C, wait, re-launch',
+    {
+      target: z.string().describe('Agent name, ticket ID, or execution ID'),
+      fresh: z.boolean().optional().describe('Reset worktree to branch HEAD before restarting'),
+      resume: z.boolean().optional().describe('Continue from where the agent left off'),
+      timeout: z.number().optional().describe('Seconds to wait for clean exit (default 15)'),
+    },
+    async (params) => {
+      try {
+        const freshFlag = params.fresh ? '--fresh' : ''
+        const resumeFlag = params.resume ? '--resume' : ''
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        const output = ctx.runCommand(`prlt session restart ${params.target} ${freshFlag} ${resumeFlag} ${timeoutFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_exec',
+    'Run a command in an agent\'s worktree/container context',
+    {
+      target: z.string().describe('Agent name, ticket ID, or execution ID'),
+      command: z.string().describe('Shell command to execute'),
+      timeout: z.number().optional().describe('Command timeout in seconds (default 30)'),
+    },
+    async (params) => {
+      try {
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        const output = ctx.runCommand(`prlt session exec ${params.target} ${timeoutFlag} --json -- ${params.command}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_peek',
+    'View agent tmux pane content without attaching',
+    {
+      target: z.string().describe('Agent name, ticket ID, or execution ID'),
+      lines: z.number().optional().describe('Number of scrollback lines (default 200)'),
+      full: z.boolean().optional().describe('Capture entire scrollback buffer'),
+    },
+    async (params) => {
+      try {
+        const linesFlag = params.lines ? `--lines ${params.lines}` : ''
+        const fullFlag = params.full ? '--full' : ''
+        const output = ctx.runCommand(`prlt session peek ${params.target} ${linesFlag} ${fullFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_poke',
+    'Send a message to a running agent session',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      message: z.string().describe('Message to send'),
+      wait: z.boolean().optional().describe('Wait for response after sending'),
+      timeout: z.number().optional().describe('Timeout in seconds for wait mode (default 30)'),
+    },
+    async (params) => {
+      try {
+        const waitFlag = params.wait ? '--wait' : ''
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        const output = ctx.runCommand(`prlt session poke ${params.target} "${params.message}" ${waitFlag} ${timeoutFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
     'config_show',
     'Show configuration',
     {},

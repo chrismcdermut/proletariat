@@ -1,5 +1,6 @@
 import { Args, Flags } from '@oclif/core'
 import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -14,6 +15,7 @@ import {
   captureTmuxPane,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { onShutdown } from '../../lib/signal-handler.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -48,6 +50,9 @@ export default class SessionPeek extends PMOCommand {
     '<%= config.bin %> session peek altman --lines 100',
     '<%= config.bin %> session peek TKT-123 --json',
     '<%= config.bin %> session peek altman | grep error',
+    '<%= config.bin %> session peek altman --full',
+    '<%= config.bin %> session peek altman --follow',
+    '<%= config.bin %> session peek altman --since "2024-01-15T10:00:00"',
   ]
 
   static args = {
@@ -62,7 +67,19 @@ export default class SessionPeek extends PMOCommand {
     lines: Flags.integer({
       char: 'l',
       description: 'Number of scrollback lines to capture',
-      default: 50,
+      default: 200,
+    }),
+    full: Flags.boolean({
+      description: 'Capture entire scrollback buffer',
+      default: false,
+    }),
+    since: Flags.string({
+      description: 'Get output since timestamp (ISO 8601 format)',
+    }),
+    follow: Flags.boolean({
+      char: 'f',
+      description: 'Stream output continuously (like tail -f)',
+      default: false,
     }),
   }
 
@@ -73,6 +90,9 @@ export default class SessionPeek extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SessionPeek)
     const jsonMode = shouldOutputJson(flags)
+
+    // Determine effective line count
+    const effectiveLines = flags.full ? 32768 : flags.lines
 
     // Discover all verified sessions
     const sessions = this.getVerifiedSessions()
@@ -110,19 +130,25 @@ export default class SessionPeek extends PMOCommand {
         this.error(`No matching session found for "${args.target}". Run "prlt session list" to see available sessions.`)
       }
 
+      // Handle --follow mode (streaming)
+      if (flags.follow && matched.length === 1) {
+        await this.followMode(matched[0], effectiveLines)
+        return
+      }
+
       // Output all matched sessions
       if (jsonMode && matched.length > 1) {
         // Collect all captures into a single JSON response
         const results = matched.map(session => {
           const containerId = session.environment === 'container' ? session.containerId : undefined
-          const content = captureTmuxPane(session.sessionId, flags.lines, containerId)
+          const content = this.captureWithFiltering(session, effectiveLines, flags.since)
           return {
             sessionId: session.sessionId,
             ticketId: session.ticketId,
             agentName: session.agentName,
             environment: session.environment,
             containerId: session.containerId,
-            lines: flags.lines,
+            lines: effectiveLines,
             content,
             captureError: content === null
               ? `Failed to capture pane content for session "${session.sessionId}".`
@@ -134,7 +160,7 @@ export default class SessionPeek extends PMOCommand {
       }
 
       for (const session of matched) {
-        this.outputPeek(session, flags.lines, jsonMode, flags)
+        this.outputPeek(session, effectiveLines, jsonMode, flags, flags.since)
       }
     } else {
       // No target: interactive selection
@@ -156,7 +182,12 @@ export default class SessionPeek extends PMOCommand {
         this.error('No session selected')
       }
 
-      this.outputPeek(session, flags.lines, jsonMode, flags)
+      if (flags.follow) {
+        await this.followMode(session, effectiveLines)
+        return
+      }
+
+      this.outputPeek(session, effectiveLines, jsonMode, flags, flags.since)
     }
   }
 
@@ -221,6 +252,49 @@ export default class SessionPeek extends PMOCommand {
   }
 
   /**
+   * Capture pane content with optional --since timestamp filtering.
+   */
+  private captureWithFiltering(
+    session: VerifiedSession,
+    lines: number,
+    since?: string,
+  ): string | null {
+    const containerId = session.environment === 'container' ? session.containerId : undefined
+    const content = captureTmuxPane(session.sessionId, lines, containerId)
+
+    if (!content || !since) return content
+
+    // Filter lines after the timestamp
+    // We can't precisely match timestamps in terminal output, but we can filter
+    // by looking for ISO-like timestamps in the output
+    try {
+      const sinceDate = new Date(since)
+      if (isNaN(sinceDate.getTime())) return content
+
+      const contentLines = content.split('\n')
+      let startIdx = 0
+
+      // Look for timestamps in the output to find where --since should start
+      for (let i = 0; i < contentLines.length; i++) {
+        const line = contentLines[i]
+        // Match common timestamp patterns: ISO 8601, log format, etc.
+        const tsMatch = line.match(/(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})/)
+        if (tsMatch) {
+          const lineDate = new Date(tsMatch[1])
+          if (!isNaN(lineDate.getTime()) && lineDate >= sinceDate) {
+            startIdx = i
+            break
+          }
+        }
+      }
+
+      return contentLines.slice(startIdx).join('\n')
+    } catch {
+      return content
+    }
+  }
+
+  /**
    * Output peek content for a session.
    * In raw mode: outputs plain text to stdout.
    * In JSON mode: outputs structured JSON.
@@ -230,9 +304,9 @@ export default class SessionPeek extends PMOCommand {
     lines: number,
     jsonMode: boolean,
     flags: Record<string, unknown>,
+    since?: string,
   ): void {
-    const containerId = session.environment === 'container' ? session.containerId : undefined
-    const content = captureTmuxPane(session.sessionId, lines, containerId)
+    const content = this.captureWithFiltering(session, lines, since)
 
     if (content === null) {
       if (jsonMode) {
@@ -263,6 +337,75 @@ export default class SessionPeek extends PMOCommand {
       // Raw text output — pipeable and scriptable
       process.stdout.write(content + '\n')
     }
+  }
+
+  /**
+   * Follow mode: continuously stream tmux output (like tail -f).
+   */
+  private async followMode(session: VerifiedSession, lines: number): Promise<void> {
+    const containerId = session.environment === 'container' ? session.containerId : undefined
+    let lastContent = ''
+    const pollIntervalMs = 1000
+
+    // Initial capture
+    const initial = captureTmuxPane(session.sessionId, lines, containerId)
+    if (initial) {
+      process.stdout.write(initial + '\n')
+      lastContent = initial
+    }
+
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        try {
+          const current = captureTmuxPane(session.sessionId, lines, containerId)
+          if (current === null) {
+            clearInterval(timer)
+            process.stdout.write('\n[session ended]\n')
+            resolve()
+            return
+          }
+
+          // Find new content by comparing with last capture
+          if (current !== lastContent) {
+            // Find the divergence point
+            const lastLines = lastContent.split('\n')
+            const currentLines = current.split('\n')
+
+            // Find where new content starts by looking for the last few lines of previous content
+            const overlap = Math.min(5, lastLines.length)
+            const searchStr = lastLines.slice(-overlap).join('\n')
+            const idx = current.indexOf(searchStr)
+
+            if (idx >= 0 && searchStr.length > 0) {
+              const newContent = current.slice(idx + searchStr.length)
+              if (newContent.trim()) {
+                // Remove leading newline if present
+                const output = newContent.startsWith('\n') ? newContent.slice(1) : newContent
+                if (output) process.stdout.write(output + '\n')
+              }
+            } else if (current.length > lastContent.length) {
+              // Fallback: just show lines that are different
+              const newLines = currentLines.slice(lastLines.length)
+              if (newLines.length > 0) {
+                process.stdout.write(newLines.join('\n') + '\n')
+              }
+            }
+
+            lastContent = current
+          }
+        } catch {
+          // Session may have ended
+          clearInterval(timer)
+          process.stdout.write('\n[session ended]\n')
+          resolve()
+        }
+      }, pollIntervalMs)
+
+      onShutdown(() => {
+        clearInterval(timer)
+        resolve()
+      })
+    })
   }
 
   /**
