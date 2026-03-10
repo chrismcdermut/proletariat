@@ -24,7 +24,7 @@ import {
 import { getSetTitleCommands } from '../terminal.js'
 import { readDevcontainerJson, generateOrchestratorDockerfile } from './devcontainer.js'
 import type { OrchestratorDockerOptions } from './devcontainer.js'
-import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError } from './codex-adapter.js'
+import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError, type CodexExecutionContext } from './codex-adapter.js'
 
 // =============================================================================
 // Terminal Title Helpers
@@ -328,7 +328,12 @@ async function ensureTmuxServerHasKeychainAccess(): Promise<void> {
 // Executor Commands
 // =============================================================================
 
-export function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
+export function getExecutorCommand(
+  executor: ExecutorType,
+  prompt: string,
+  skipPermissions: boolean = true,
+  executionContext?: CodexExecutionContext
+): { cmd: string; args: string[] } {
   switch (executor) {
     case 'claude-code':
       if (skipPermissions) {
@@ -343,12 +348,11 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
       return { cmd: 'claude', args: [prompt] }
     case 'codex': {
       // Delegate to Codex adapter for deterministic mode mapping.
-      // getExecutorCommand is called without display/output context, so we use
-      // 'interactive' as default context (safe for validation — all permission modes
-      // are valid with interactive). Runners that need stricter validation should
-      // call the adapter directly with the actual execution context.
+      // Uses provided executionContext, defaulting to 'interactive' when not specified.
+      // Runners that know the actual context should pass it explicitly.
       const codexPermission: PermissionMode = skipPermissions ? 'danger' : 'safe'
-      const codexResult = getCodexCommand(prompt, codexPermission, 'interactive')
+      const codexContext = executionContext || 'interactive'
+      const codexResult = getCodexCommand(prompt, codexPermission, codexContext)
       return { cmd: codexResult.cmd, args: codexResult.args }
     }
     case 'custom':
@@ -370,6 +374,14 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
  */
 export function isClaudeExecutor(executor: ExecutorType): boolean {
   return executor === 'claude-code'
+}
+
+/**
+ * Check if an executor is Codex.
+ * Used to gate Codex-specific flags and configuration.
+ */
+export function isCodexExecutor(executor: ExecutorType): boolean {
+  return executor === 'codex'
 }
 
 /**
@@ -882,7 +894,8 @@ export async function runHost(
 
   // Build the executor command using getExecutorCommand() output
   // For Claude Code, we also support outputMode and additional flags
-  // For non-Claude executors, we use the command as-is from getExecutorCommand()
+  // For Codex, we use the Codex adapter for deterministic command building
+  // For other executors, we use the command as-is from getExecutorCommand()
   let executorInvocation: string
   if (isClaudeExecutor(executor)) {
     // Build flags based on config - Claude-specific flags
@@ -894,8 +907,16 @@ export async function runHost(
     // Orchestrator sessions inject their role via --system-prompt
     const systemPromptFlag = systemPromptPath ? '--system-prompt "$(cat "$SYSTEM_PROMPT_PATH")" ' : ''
     executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
+  } else if (isCodexExecutor(executor)) {
+    // Codex-specific command building using the adapter
+    const codexPermission: PermissionMode = config.permissionMode
+    const codexContext = resolveCodexExecutionContext(displayMode, config.outputMode)
+    const codexResult = getCodexCommand('PROMPT_PLACEHOLDER', codexPermission, codexContext)
+    // Replace the placeholder prompt with a file read, pass other args as-is
+    const codexArgs = codexResult.args.map(a => a === 'PROMPT_PLACEHOLDER' ? '"$(cat "$PROMPT_PATH")"' : a)
+    executorInvocation = `${codexResult.cmd} ${codexArgs.join(' ')}`
   } else {
-    // Non-Claude executors: build command from getExecutorCommand() args
+    // Non-Claude, non-Codex executors: build command from getExecutorCommand() args
     // Replace the prompt in args with a file read to avoid shell escaping
     const argsWithFile = args.map(a => a === prompt ? '"$(cat "$PROMPT_PATH")"' : `"${a}"`)
     executorInvocation = `${cmd} ${argsWithFile.join(' ')}`
@@ -2709,8 +2730,9 @@ export async function runDocker(
     }
 
     // Build executor command using getExecutorCommand() for correct invocation
+    // Docker runner is always non-tty (detached with -d)
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
+    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger', 'non-tty')
 
     // For Claude Code in Docker, use --print for non-interactive output
     // Non-Claude executors use their native command format from getExecutorCommand()
@@ -3153,8 +3175,9 @@ export async function runVm(
     }
 
     // Execute on remote using executor-appropriate command
+    // VM runner is always non-tty (SSH + nohup)
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
+    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger', 'non-tty')
 
     // Build the remote command based on executor type
     let remoteCmd: string
