@@ -2,15 +2,16 @@
 import { expect } from 'chai';
 import Database from 'better-sqlite3';
 import {
-  createTestEnvironment,
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
   execInProcess,
-  setupProductionSchema,
+  setupProductionSchemaOnDb,
   createTestProject,
   createTestPhase,
+  createTemplateTestEnvironment,
   type TestEnvironment,
+  type TemplateTestEnvironment,
 } from './test-helpers.js';
 
 /**
@@ -44,20 +45,23 @@ function extractJson<T>(output: string): T {
  * 1. Phase commands support --machine flag (and legacy --json)
  * 2. JSON output includes proper prompt schema
  * 3. Flag accumulation works correctly in choices
+ *
+ * Uses template DB approach: schema initialized once, copied per test.
  */
 describe('Phase Commands JSON Mode', () => {
+  let template: TemplateTestEnvironment;
   let env: TestEnvironment;
   let db: Database.Database;
 
+  before(() => {
+    template = createTemplateTestEnvironment('phase-json-', (db, pmoPath) => {
+      setupProductionSchemaOnDb(db, pmoPath);
+      createTestProject(db, { id: 'test-project', name: 'Test Project' });
+    });
+  });
+
   beforeEach(() => {
-    env = createTestEnvironment('phase-json-');
-
-    // Use production schema - includes all builtin phases, workflows, actions, etc.
-    db = setupProductionSchema(env.dbPath, env.pmoPath);
-
-    // Create test project
-    createTestProject(db, { id: 'test-project', name: 'Test Project' });
-
+    ({ env, db } = template.createInstance());
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
   });
@@ -65,6 +69,10 @@ describe('Phase Commands JSON Mode', () => {
   afterEach(() => {
     if (db) db.close();
     cleanupTestEnvironment(env);
+  });
+
+  after(() => {
+    template.cleanup();
   });
 
   // Using shared createTestPhase helper from test-helpers.ts

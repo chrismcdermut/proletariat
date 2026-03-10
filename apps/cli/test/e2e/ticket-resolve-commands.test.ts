@@ -1,50 +1,48 @@
 import { expect } from 'chai';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
   execInProcess,
+  cleanupTestEnvironment,
   createHQConfig,
-  setupProductionSchema,
+  setupProductionSchemaOnDb,
   createTestProject,
   createTestTicket,
   createPMODirectories,
+  createTemplateTestEnvironment,
+  type TestEnvironment,
+  type TemplateTestEnvironment,
 } from './test-helpers.js';
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
 
 const T = PMO_TABLES;
 
 describe('Ticket Resolve Commands E2E Tests', () => {
-  let testDir: string;
-  let originalCwd: string;
-  let dbPath: string;
+  let template: TemplateTestEnvironment;
+  let env: TestEnvironment;
   let db: Database.Database;
   let projectId: string;
 
+  before(() => {
+    template = createTemplateTestEnvironment('ticket-resolve-e2e-', (db, pmoPath) => {
+      setupProductionSchemaOnDb(db, pmoPath);
+      createTestProject(db, { id: 'test-project', name: 'Test Project' });
+    });
+  });
+
   beforeEach(() => {
-    originalCwd = process.cwd();
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ticket-resolve-e2e-'));
-    process.chdir(testDir);
-
-    const proletariatDir = path.join(testDir, '.proletariat');
-    fs.mkdirSync(proletariatDir, { recursive: true });
-    createHQConfig(proletariatDir);
-
-    dbPath = path.join(proletariatDir, 'workspace.db');
-    const pmoPath = path.join(testDir, 'pmo');
-    createPMODirectories(pmoPath);
-
-    db = setupProductionSchema(dbPath, pmoPath);
-    projectId = createTestProject(db, { id: 'test-project', name: 'Test Project' });
+    ({ env, db } = template.createInstance());
+    createHQConfig(env.proletariatDir);
+    createPMODirectories(env.pmoPath);
+    projectId = 'test-project';
   });
 
   afterEach(() => {
     if (db) db.close();
-    process.chdir(originalCwd);
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    cleanupTestEnvironment(env);
+  });
+
+  after(() => {
+    template.cleanup();
   });
 
   describe('prlt ticket resolve', () => {

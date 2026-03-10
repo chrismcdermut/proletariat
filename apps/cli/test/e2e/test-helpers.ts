@@ -664,6 +664,99 @@ export function setupWorkspaceSchemaOnDb(
   `).run(type, workspaceName, hasPmo ? 1 : 0);
 }
 
+// =============================================================================
+// Template DB Helpers (for E2E tests that use execInProcess)
+// =============================================================================
+// E2E tests that run CLI commands (via execInProcess) need file-based databases
+// because the CLI commands open their own DB connections. SQLite savepoints are
+// per-connection, so they can't isolate across connections.
+//
+// The template approach: initialize the schema once into a template DB file,
+// then copy it for each test. This replaces the expensive schema initialization
+// (~100-200ms) with a fast file copy (~1-5ms).
+//
+// Usage:
+//   let template: TemplateTestEnvironment;
+//
+//   before(() => {
+//     template = createTemplateTestEnvironment('my-test-', (db, pmoPath) => {
+//       setupProductionSchemaOnDb(db, pmoPath);
+//       createTestProject(db, { id: 'default', name: 'Test Project' });
+//     });
+//   });
+//
+//   let env: TestEnvironment;
+//   let db: Database.Database;
+//
+//   beforeEach(() => {
+//     ({ env, db } = template.createInstance());
+//   });
+//
+//   afterEach(() => {
+//     db.close();
+//     cleanupTestEnvironment(env);
+//   });
+//
+//   after(() => {
+//     template.cleanup();
+//   });
+// =============================================================================
+
+/**
+ * A template test environment that can spawn per-test instances cheaply.
+ */
+export interface TemplateTestEnvironment {
+  /** Creates a new test instance by copying the template DB. Returns env and open db. */
+  createInstance(): { env: TestEnvironment; db: Database.Database };
+  /** Call in after/afterAll to clean up the template. */
+  cleanup(): void;
+}
+
+/**
+ * Creates a template test environment with a pre-initialized database.
+ *
+ * The template database is created once with full schema and seed data.
+ * Each call to createInstance() copies the template to a fresh test directory,
+ * eliminating the expensive schema initialization per test.
+ *
+ * @param prefix - Prefix for temp directory names
+ * @param setup - Function to initialize the template database schema and seed data
+ * @returns TemplateTestEnvironment with createInstance() and cleanup() methods
+ */
+export function createTemplateTestEnvironment(
+  prefix: string,
+  setup: (db: Database.Database, pmoPath: string) => void
+): TemplateTestEnvironment {
+  // Create the template database
+  const templateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}template-`)));
+  const templateProletariatDir = path.join(templateDir, '.proletariat');
+  fs.mkdirSync(templateProletariatDir, { recursive: true });
+  const templateDbPath = path.join(templateProletariatDir, 'workspace.db');
+  const templatePmoPath = path.join(templateDir, 'pmo');
+
+  const templateDb = new Database(templateDbPath);
+  templateDb.pragma('foreign_keys = ON');
+  setup(templateDb, templatePmoPath);
+  templateDb.close();
+
+  return {
+    createInstance(): { env: TestEnvironment; db: Database.Database } {
+      const env = createTestEnvironment(prefix);
+      // Copy the template DB file instead of running schema init
+      fs.copyFileSync(templateDbPath, env.dbPath);
+      const db = new Database(env.dbPath);
+      db.pragma('foreign_keys = ON');
+      db.pragma('busy_timeout = 5000');
+      return { env, db };
+    },
+    cleanup(): void {
+      if (fs.existsSync(templateDir)) {
+        fs.rmSync(templateDir, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 /**
  * Gets the default status ID for a workflow.
  * Useful for creating tickets with the correct status_id.
