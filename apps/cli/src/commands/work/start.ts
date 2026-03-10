@@ -58,6 +58,18 @@ import {
   buildJiraTicketDescription,
   getJiraIssueByKey,
 } from '../../lib/external-issues/jira.js'
+import {
+  buildAsanaMetadata,
+  buildAsanaSpawnContextMessage,
+  buildAsanaTicketDescription,
+  getAsanaTaskByGid,
+} from '../../lib/external-issues/asana.js'
+import {
+  buildShortcutMetadata,
+  buildShortcutSpawnContextMessage,
+  buildShortcutTicketDescription,
+  getShortcutStoryByKey,
+} from '../../lib/external-issues/shortcut.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 import {
@@ -136,28 +148,37 @@ function parseBooleanSetting(value: string | undefined): boolean | null {
 }
 
 function isIssueSource(value: string | undefined): value is IssueSource {
-  return value === 'linear' || value === 'jira'
+  return value === 'linear' || value === 'jira' || value === 'asana' || value === 'shortcut'
 }
 
 function buildExternalMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
-  return envelope.source.name === 'jira'
-    ? buildJiraMetadata(envelope)
-    : buildLinearMetadata(envelope)
+  switch (envelope.source.name) {
+    case 'jira': return buildJiraMetadata(envelope)
+    case 'asana': return buildAsanaMetadata(envelope)
+    case 'shortcut': return buildShortcutMetadata(envelope)
+    default: return buildLinearMetadata(envelope)
+  }
 }
 
 function buildExternalTicketDescription(envelope: NormalizedIssueEnvelope): string {
-  return envelope.source.name === 'jira'
-    ? buildJiraTicketDescription(envelope)
-    : buildLinearTicketDescription(envelope)
+  switch (envelope.source.name) {
+    case 'jira': return buildJiraTicketDescription(envelope)
+    case 'asana': return buildAsanaTicketDescription(envelope)
+    case 'shortcut': return buildShortcutTicketDescription(envelope)
+    default: return buildLinearTicketDescription(envelope)
+  }
 }
 
 function buildExternalSpawnContextMessage(
   envelope: NormalizedIssueEnvelope,
   additionalMessage?: string,
 ): string {
-  return envelope.source.name === 'jira'
-    ? buildJiraSpawnContextMessage(envelope, additionalMessage)
-    : buildLinearSpawnContextMessage(envelope, additionalMessage)
+  switch (envelope.source.name) {
+    case 'jira': return buildJiraSpawnContextMessage(envelope, additionalMessage)
+    case 'asana': return buildAsanaSpawnContextMessage(envelope, additionalMessage)
+    case 'shortcut': return buildShortcutSpawnContextMessage(envelope, additionalMessage)
+    default: return buildLinearSpawnContextMessage(envelope, additionalMessage)
+  }
 }
 
 function getTicketExternalMetadata(ticket: { id: string; metadata?: Record<string, string> | null }): {
@@ -198,6 +219,8 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --from-issue --source jira --key PROJ-123 --mirror-to-pmo',
     '<%= config.bin %> <%= command.id %> --from linear:ENG-123              # Unified: provider:key shorthand',
     '<%= config.bin %> <%= command.id %> --from jira:PROJ-123               # Unified: Jira shorthand',
+    '<%= config.bin %> <%= command.id %> --from asana:1234567890            # Unified: Asana shorthand',
+    '<%= config.bin %> <%= command.id %> --from shortcut:sc-123             # Unified: Shortcut shorthand',
     '<%= config.bin %> <%= command.id %> --from-issue                       # Uses workspace active source',
   ]
 
@@ -240,7 +263,7 @@ export default class WorkStart extends PMOCommand {
     }),
     source: Flags.string({
       description: 'External issue source',
-      options: ['linear', 'jira'],
+      options: ['linear', 'jira', 'asana', 'shortcut'],
     }),
     key: Flags.string({
       description: 'External issue key (for example: ENG-123, PROJ-456)',
@@ -371,11 +394,12 @@ export default class WorkStart extends PMOCommand {
     source: IssueSource,
     key: string,
   ): Promise<NormalizedIssueEnvelope | null> {
-    if (source === 'jira') {
-      return getJiraIssueByKey({}, key)
+    switch (source) {
+      case 'jira': return getJiraIssueByKey({}, key)
+      case 'asana': return getAsanaTaskByGid({}, key)
+      case 'shortcut': return getShortcutStoryByKey({}, key)
+      default: return getLinearIssueByIdentifier({}, key)
     }
-
-    return getLinearIssueByIdentifier({}, key)
   }
 
   private async resolveIssueSourceAndKey(
@@ -415,6 +439,8 @@ export default class WorkStart extends PMOCommand {
       choices: () => [
         { name: 'Linear', value: 'linear', command: 'prlt work start --from linear:ISSUE-KEY --json' },
         { name: 'Jira', value: 'jira', command: 'prlt work start --from jira:ISSUE-KEY --json' },
+        { name: 'Asana', value: 'asana', command: 'prlt work start --from asana:TASK-GID --json' },
+        { name: 'Shortcut', value: 'shortcut', command: 'prlt work start --from shortcut:STORY-ID --json' },
       ],
     })
     const sourceResult = await sourceResolver.resolve()
@@ -442,7 +468,7 @@ export default class WorkStart extends PMOCommand {
     keyResolver.addPrompt({
       flagName: 'key',
       type: 'input',
-      message: `Enter ${source === 'linear' ? 'Linear' : 'Jira'} issue key:`,
+      message: `Enter ${source === 'linear' ? 'Linear' : source === 'jira' ? 'Jira' : source === 'asana' ? 'Asana task' : source === 'shortcut' ? 'Shortcut story' : source} key:`,
       default: key,
       when: () => !key?.trim(),
       validate: (value) => (value as string).trim().length > 0 ? true : 'Issue key is required',
