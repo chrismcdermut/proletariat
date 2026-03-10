@@ -15,6 +15,7 @@ import {
   isFirstTimeUser,
   runOnboardingWizard,
   runOnboardingJsonMode,
+  detectAITools,
 } from '../lib/onboarding/index.js';
 
 export default class Init extends Command {
@@ -74,9 +75,12 @@ export default class Init extends Command {
 
     if (firstTime) {
       if (jsonMode) {
-        // JSON mode: output onboarding prompt or handle --setup flag
-        runOnboardingJsonMode(flags);
-        // If runOnboardingJsonMode returns (manual mode), fall through to normal JSON output
+        // JSON mode: handle --setup flag for agent-driven onboarding
+        if (flags.setup) {
+          runOnboardingJsonMode(flags);
+          // If runOnboardingJsonMode returns (manual mode), fall through to normal JSON output
+        }
+        // No --setup flag: fall through to include onboarding info in success response
       } else {
         // Interactive mode: run the onboarding wizard
         const result = await runOnboardingWizard();
@@ -90,14 +94,26 @@ export default class Init extends Command {
 
     // Output results
     if (jsonMode) {
-      this.outputJson({
+      const jsonResult: Record<string, unknown> = {
         success: true,
         configDir: getMachineConfigDir(),
         configPath,
         headquarters: config.headquarters.length,
         prunedStaleEntries: prunedCount,
         activeHeadquarters: config.activeHeadquarters,
-      });
+      };
+
+      if (firstTime) {
+        const detection = detectAITools();
+        jsonResult.firstTimeUser = true;
+        jsonResult.detectedTools = detection.tools.map(t => ({
+          name: t.name,
+          command: t.command,
+          displayName: t.displayName,
+        }));
+      }
+
+      this.outputJson(jsonResult);
     } else {
       console.log(chalk.green('Machine configuration initialized.'));
       console.log(chalk.gray(`  Config: ${configPath}`));
