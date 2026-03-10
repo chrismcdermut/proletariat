@@ -35,6 +35,7 @@ import {
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getGitIdentity } from '../pr/index.js';
 import { getPMOContext } from '../pmo/index.js';
+import { resolveRemoteUrl } from '../repos/git.js';
 
 /**
  * Resolve the directory for an agent, cascading through resolution strategies.
@@ -644,15 +645,12 @@ export async function createEphemeralAgent(
         if (fs.existsSync(sourceRepoPath) && !fs.existsSync(targetPath)) {
           if (mountMode === 'clone') {
             // CLONE MODE: Create independent git clone
+            // Resolve local paths to GitHub remotes so agents can push/create PRs
             try {
-              const remoteUrl = execSync('git remote get-url origin', {
-                cwd: sourceRepoPath,
-                encoding: 'utf-8',
-                stdio: ['pipe', 'pipe', 'pipe']
-              }).trim();
+              const resolved = resolveRemoteUrl(sourceRepoPath);
 
-              if (remoteUrl) {
-                execSync(`git clone "${remoteUrl}" "${targetPath}"`, {
+              if (resolved.url) {
+                execSync(`git clone "${resolved.url}" "${targetPath}"`, {
                   stdio: 'pipe'
                 });
               }

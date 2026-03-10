@@ -9,6 +9,7 @@ import { styles } from '../styles.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getGitIdentity } from '../pr/index.js';
 import { pruneWorktrees } from '../branch/index.js';
+import { resolveRemoteUrl } from '../repos/git.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -102,15 +103,14 @@ export interface CreateAgentOptions {
 }
 
 /**
- * Get the remote URL for a git repository
+ * Get the remote URL for a git repository, resolving local paths to GitHub remotes.
  */
 function getRemoteUrl(repoPath: string): string | null {
-  try {
-    const url = execSync('git remote get-url origin', { cwd: repoPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-    return url || null;
-  } catch {
-    return null;
+  const result = resolveRemoteUrl(repoPath);
+  if (result.warning) {
+    console.log(chalk.yellow(`  Warning: ${result.warning}`));
   }
+  return result.url;
 }
 
 /**
