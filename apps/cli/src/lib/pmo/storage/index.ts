@@ -37,8 +37,6 @@ import {
   RoadmapFilter,
   RoadmapProject,
   Spec,
-  SpecDependency,
-  SpecDependencyType,
   SpecFilter,
   StateCategory,
   Subtask,
@@ -490,26 +488,6 @@ export class SQLiteStorage implements PMOStorage {
 
   async isTicketBlocked(ticketId: string): Promise<boolean> {
     return this.dependencyStorage.isTicketBlocked(ticketId)
-  }
-
-  async createSpecDependency(
-    specId: string,
-    dependsOnId: string,
-    type?: SpecDependencyType
-  ): Promise<SpecDependency> {
-    return this.dependencyStorage.createSpecDependency(specId, dependsOnId, type)
-  }
-
-  async deleteSpecDependency(
-    specId: string,
-    dependsOnId: string,
-    type?: SpecDependencyType
-  ): Promise<void> {
-    return this.dependencyStorage.deleteSpecDependency(specId, dependsOnId, type)
-  }
-
-  async listSpecDependencies(specId: string): Promise<SpecDependency[]> {
-    return this.dependencyStorage.listSpecDependencies(specId)
   }
 
   async createEpicDependency(

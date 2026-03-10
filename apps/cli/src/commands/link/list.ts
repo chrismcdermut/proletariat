@@ -8,7 +8,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 
-type EntityType = 'ticket' | 'spec' | 'epic'
+type EntityType = 'ticket' | 'epic'
 
 /**
  * Infer entity type from ID prefix
@@ -16,7 +16,6 @@ type EntityType = 'ticket' | 'spec' | 'epic'
 function inferEntityType(id: string): EntityType | null {
   const upper = id.toUpperCase()
   if (upper.startsWith('TKT-')) return 'ticket'
-  if (upper.startsWith('SPEC-')) return 'spec'
   if (upper.startsWith('EPIC-')) return 'epic'
   return null
 }
@@ -26,14 +25,13 @@ export default class LinkList extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001       # List ticket links',
-    '<%= config.bin %> <%= command.id %> SPEC-001      # List spec links',
     '<%= config.bin %> <%= command.id %> EPIC-001      # List epic links',
     '<%= config.bin %> <%= command.id %> TKT-001 --all # Include reverse links',
   ]
 
   static args = {
     id: Args.string({
-      description: 'Entity ID (TKT-xxx, SPEC-xxx, or EPIC-xxx)',
+      description: 'Entity ID (TKT-xxx or EPIC-xxx)',
       required: true,
     }),
   }
@@ -63,13 +61,11 @@ export default class LinkList extends PMOCommand {
     const entityType = inferEntityType(args.id)
 
     if (!entityType) {
-      return handleError('INVALID_ID', `Cannot infer entity type from "${args.id}". Use TKT-, SPEC-, or EPIC- prefix.`)
+      return handleError('INVALID_ID', `Cannot infer entity type from "${args.id}". Use TKT- or EPIC- prefix.`)
     }
 
     if (entityType === 'ticket') {
       await this.listTicketLinks(args.id, flags.all)
-    } else if (entityType === 'spec') {
-      await this.listSpecLinks(args.id, flags.all)
     } else if (entityType === 'epic') {
       await this.listEpicLinks(args.id, flags.all)
     }
@@ -127,42 +123,6 @@ export default class LinkList extends PMOCommand {
 
     if (dependencies.length === 0 && blockers.length === 0) {
       this.log(styles.muted('\n  No links.'))
-    }
-
-    this.log('')
-  }
-
-  private async listSpecLinks(specId: string, _showAll: boolean): Promise<void> {
-    const spec = await this.storage.getSpec(specId)
-    if (!spec) {
-      this.error(`Spec not found: ${specId}`)
-    }
-
-    const dependencies = await this.storage.listSpecDependencies(specId)
-
-    this.log(`\n${styles.emphasis(spec.id)}: ${spec.title}`)
-
-    if (dependencies.length === 0) {
-      this.log(styles.muted('\n  No links.'))
-      this.log('')
-      return
-    }
-
-    // Group by type
-    const byType: Record<string, typeof dependencies> = {}
-    for (const dep of dependencies) {
-      if (!byType[dep.dependencyType]) byType[dep.dependencyType] = []
-      byType[dep.dependencyType].push(dep)
-    }
-
-    for (const [depType, deps] of Object.entries(byType)) {
-      this.log(styles.muted(`\n  ${depType}:`))
-      for (const dep of deps) {
-        const targetSpec = await this.storage.getSpec(dep.dependsOnSpecId)
-        if (targetSpec) {
-          this.log(`    - ${targetSpec.id}: ${targetSpec.title}`)
-        }
-      }
     }
 
     this.log('')

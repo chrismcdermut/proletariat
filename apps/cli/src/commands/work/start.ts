@@ -1132,21 +1132,6 @@ export default class WorkStart extends PMOCommand {
         epicTitle = epic?.title
       }
 
-      // Get spec info if linked
-      let specId: string | undefined
-      let specTitle: string | undefined
-      let specProblem: string | undefined
-      let specSolution: string | undefined
-      if (ticket.specId) {
-        const spec = await this.storage.getSpec(ticket.specId)
-        if (spec) {
-          specId = spec.id
-          specTitle = spec.title
-          specProblem = spec.problem
-          specSolution = spec.solution
-        }
-      }
-
       // Determine action for this work session
       let selectedAction: WorkAction | null = null
       let customPrompt: string | undefined
@@ -1257,10 +1242,6 @@ export default class WorkStart extends PMOCommand {
         ticketPriority: ticket.priority,
         ticketCategory: ticket.category,
         epicTitle,
-        specId,
-        specTitle,
-        specProblem,
-        specSolution,
         agentName: assignedAgent,
         agentDir,         // Agent directory (contains .devcontainer)
         worktreePath,     // Worktree path (may be subdirectory of agentDir)
@@ -2614,7 +2595,7 @@ export default class WorkStart extends PMOCommand {
    * Spawn work on a single ticket with non-interactive defaults.
    */
   private async spawnSingleTicket(
-    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; specId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }>; metadata?: Record<string, string> },
+    ticket: { id: string; title: string; description?: string; assignee?: string; status?: string; priority?: string; category?: string; branch?: string; epicId?: string; projectId?: string; subtasks?: Array<{ title: string; done: boolean }>; metadata?: Record<string, string> },
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,
@@ -2650,24 +2631,11 @@ export default class WorkStart extends PMOCommand {
     const branch = ticket.branch || generateBranchName(ticket.id, ticket.title, coderName, agentName, ticket.category)
     const isExistingBranch = !!ticket.branch
 
-    // Get epic and spec info
+    // Get epic info
     let epicTitle: string | undefined
-    let specId: string | undefined
-    let specTitle: string | undefined
-    let specProblem: string | undefined
-    let specSolution: string | undefined
     if (ticket.epicId) {
       const epic = await this.storage.getEpic(ticket.epicId)
       epicTitle = epic?.title
-    }
-    if (ticket.specId) {
-      const spec = await this.storage.getSpec(ticket.specId)
-      if (spec) {
-        specId = spec.id
-        specTitle = spec.title
-        specProblem = spec.problem
-        specSolution = spec.solution
-      }
     }
 
     // Get default action for batch mode (use 'implement')
@@ -2682,10 +2650,6 @@ export default class WorkStart extends PMOCommand {
       ticketPriority: ticket.priority,
       ticketCategory: ticket.category,
       epicTitle,
-      specId,
-      specTitle,
-      specProblem,
-      specSolution,
       agentName,
       agentDir,
       worktreePath,

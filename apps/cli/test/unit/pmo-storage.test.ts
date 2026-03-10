@@ -937,51 +937,6 @@ describe('PMO SQLite Storage', () => {
     });
   });
 
-  describe('Spec Dependency Operations', () => {
-    let spec1Id: string;
-    let spec2Id: string;
-
-    beforeEach(async () => {
-      const spec1 = await storage.createSpec({ id: 'spec-1', title: 'Spec 1' });
-      const spec2 = await storage.createSpec({ id: 'spec-2', title: 'Spec 2' });
-      spec1Id = spec1.id;
-      spec2Id = spec2.id;
-    });
-
-    it('creates a depends_on dependency', async () => {
-      const dep = await storage.createSpecDependency(spec1Id, spec2Id, 'depends_on');
-
-      expect(dep.specId).to.equal(spec1Id);
-      expect(dep.dependsOnSpecId).to.equal(spec2Id);
-      expect(dep.dependencyType).to.equal('depends_on');
-    });
-
-    it('creates a relates_to dependency', async () => {
-      const dep = await storage.createSpecDependency(spec1Id, spec2Id, 'relates_to');
-      expect(dep.dependencyType).to.equal('relates_to');
-    });
-
-    it('defaults to depends_on type', async () => {
-      const dep = await storage.createSpecDependency(spec1Id, spec2Id);
-      expect(dep.dependencyType).to.equal('depends_on');
-    });
-
-    it('deletes a dependency', async () => {
-      await storage.createSpecDependency(spec1Id, spec2Id);
-      await storage.deleteSpecDependency(spec1Id, spec2Id);
-
-      const deps = await storage.listSpecDependencies(spec1Id);
-      expect(deps).to.have.length(0);
-    });
-
-    it('lists dependencies for a spec', async () => {
-      await storage.createSpecDependency(spec1Id, spec2Id);
-
-      const deps = await storage.listSpecDependencies(spec1Id);
-      expect(deps).to.have.length(1);
-    });
-  });
-
   describe('Epic Dependency Operations', () => {
     let epic1Id: string;
     let epic2Id: string;
