@@ -415,6 +415,10 @@ export async function spawnAgentForTicket(
     environment = 'host'
   }
 
+  // Set the execution environment on the context so prompt builders can include
+  // environment-specific guidance (TKT-035: Docker vs prlt CLI confusion)
+  context.executionEnvironment = environment
+
   const displayMode: DisplayMode = options.displayMode || 'terminal'
   const permissionMode: PermissionMode = (options.skipPermissions ?? false) ? 'danger' : 'safe'
 

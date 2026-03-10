@@ -180,6 +180,8 @@ export interface ExecutionContext {
   isOrchestrator?: boolean // Whether this is an orchestrator session (long-running manager, not a ticket worker)
   isEphemeral?: boolean // Whether this is an ephemeral agent (auto-closes session on completion)
   hqName?: string // HQ workspace name (used in orchestrator prompt)
+  // Execution environment (where the agent is running)
+  executionEnvironment?: ExecutionEnvironment // 'devcontainer', 'host', 'docker', 'vm'
 }
 
 // =============================================================================
