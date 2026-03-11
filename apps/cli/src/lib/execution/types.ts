@@ -182,6 +182,8 @@ export interface ExecutionContext {
   hqName?: string // HQ workspace name (used in orchestrator prompt)
   // Execution environment (where the agent is running)
   executionEnvironment?: ExecutionEnvironment // 'devcontainer', 'host', 'docker', 'vm'
+  // Tool policy (which MCP servers and CLI tools this agent can access)
+  toolPolicy?: import('../tool-registry.js').ToolPolicy
 }
 
 // =============================================================================

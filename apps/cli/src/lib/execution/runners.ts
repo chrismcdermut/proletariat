@@ -25,6 +25,7 @@ import { getSetTitleCommands } from '../terminal.js'
 import { readDevcontainerJson, generateOrchestratorDockerfile } from './devcontainer.js'
 import type { OrchestratorDockerOptions } from './devcontainer.js'
 import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError } from './codex-adapter.js'
+import { readToolRegistry, filterRegistryByPolicy, generateMcpConfig, buildToolsPromptSection } from '../tool-registry.js'
 
 // =============================================================================
 // Terminal Title Helpers
@@ -738,6 +739,20 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
   }
 
+  // TOOLS SECTION - inject available tools from tool registry
+  if (context.hqPath) {
+    try {
+      const fullRegistry = readToolRegistry(context.hqPath)
+      const filteredRegistry = filterRegistryByPolicy(fullRegistry, context.toolPolicy)
+      const toolsSection = buildToolsPromptSection(filteredRegistry)
+      if (toolsSection) {
+        prompt += toolsSection
+      }
+    } catch {
+      // Tool registry is optional - don't fail the prompt build
+    }
+  }
+
   // END HOOK - Action-specific completion instructions
   prompt += `\n---\n\n## When Complete\n\n`
 
@@ -880,6 +895,22 @@ export async function runHost(
     fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
   }
 
+  // Generate MCP config file from tool registry (if MCP servers are registered)
+  let mcpConfigPath: string | null = null
+  if (context.hqPath && isClaudeExecutor(executor)) {
+    try {
+      const fullRegistry = readToolRegistry(context.hqPath)
+      const filteredRegistry = filterRegistryByPolicy(fullRegistry, context.toolPolicy)
+      const mcpConfig = generateMcpConfig(filteredRegistry)
+      if (mcpConfig) {
+        mcpConfigPath = path.join(baseDir, `mcp-config-${context.ticketId}-${timestamp}.json`)
+        fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2), { mode: 0o644 })
+      }
+    } catch {
+      // MCP config generation is optional - don't fail the spawn
+    }
+  }
+
   // Build the executor command using getExecutorCommand() output
   // For Claude Code, we also support outputMode and additional flags
   // For non-Claude executors, we use the command as-is from getExecutorCommand()
@@ -893,7 +924,9 @@ export async function runHost(
     const effortFlag = skipPermissions ? '--effort high ' : ''
     // Orchestrator sessions inject their role via --system-prompt
     const systemPromptFlag = systemPromptPath ? '--system-prompt "$(cat "$SYSTEM_PROMPT_PATH")" ' : ''
-    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
+    // MCP config for registered MCP servers
+    const mcpConfigFlag = mcpConfigPath ? `--mcp-config "$MCP_CONFIG_PATH" ` : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${systemPromptFlag}${mcpConfigFlag}"$(cat "$PROMPT_PATH")"`
   } else {
     // Non-Claude executors: build command from getExecutorCommand() args
     // Replace the prompt in args with a file read to avoid shell escaping
@@ -904,6 +937,7 @@ export async function runHost(
   // Build script that runs executor and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
   const systemPromptVar = systemPromptPath ? `\nSYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
+  const mcpConfigVar = mcpConfigPath ? `\nMCP_CONFIG_PATH="${mcpConfigPath}"` : ''
 
   // Ephemeral agents auto-close after completion instead of dropping to interactive shell
   const postExecBlock = context.isEphemeral
@@ -922,7 +956,7 @@ exec $SHELL
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
-PROMPT_PATH="${promptPath}"${systemPromptVar}
+PROMPT_PATH="${promptPath}"${systemPromptVar}${mcpConfigVar}
 ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 echo ""
@@ -931,7 +965,7 @@ cd "${context.worktreePath}"
 (unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${executorInvocation})
 
 # Clean up script and prompt files
-rm -f "$SCRIPT_PATH" "$PROMPT_PATH"${systemPromptPath ? ' "$SYSTEM_PROMPT_PATH"' : ''}
+rm -f "$SCRIPT_PATH" "$PROMPT_PATH"${systemPromptPath ? ' "$SYSTEM_PROMPT_PATH"' : ''}${mcpConfigPath ? ' "$MCP_CONFIG_PATH"' : ''}
 ${postExecBlock}`
   fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
 
@@ -1846,7 +1880,28 @@ export function buildDevcontainerCommand(
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     // --effort high: skips the effort level prompt for automated agents (TKT-1134)
     const effortFlag = '--effort high '
-    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}"$(cat ${promptFile})"`
+    // MCP config for registered MCP servers (in container context, write to /workspace)
+    let mcpConfigFlag = ''
+    if (context.hqPath) {
+      try {
+        const fullRegistry = readToolRegistry(context.hqPath)
+        const filteredRegistry = filterRegistryByPolicy(fullRegistry, context.toolPolicy)
+        const mcpConfig = generateMcpConfig(filteredRegistry)
+        if (mcpConfig) {
+          const mcpFilename = `.prlt-mcp-config-${context.ticketId}-${Date.now()}.json`
+          const mcpHostPath = path.join(context.worktreePath, mcpFilename)
+          fs.writeFileSync(mcpHostPath, JSON.stringify(mcpConfig, null, 2), { mode: 0o644 })
+          const mcpRelativePath = path.relative(context.agentDir, context.worktreePath)
+          const mcpContainerPath = mcpRelativePath
+            ? `/workspace/${mcpRelativePath}/${mcpFilename}`
+            : `/workspace/${mcpFilename}`
+          mcpConfigFlag = `--mcp-config ${mcpContainerPath} `
+        }
+      } catch {
+        // MCP config generation is optional
+      }
+    }
+    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${mcpConfigFlag}"$(cat ${promptFile})"`
   } else if (executor === 'codex') {
     // Use Codex adapter for mode validation and deterministic command building.
     // Validates that the permission/display combination is supported before building.

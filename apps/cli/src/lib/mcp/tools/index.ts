@@ -20,6 +20,9 @@ export { registerDietTools } from './diet.js'
 export { registerLabelTools } from './label.js'
 export { registerTmuxTools } from './tmux.js'
 
+// Tool registry
+export { registerToolRegistryTools } from './tool-registry.js'
+
 // CLI passthrough tools
 export {
   registerAgentTools,
