@@ -21,7 +21,7 @@ import {
  * automatically. This is the expected behavior for testing agent flows.
  * All prompts must be bypassed with flags to avoid hanging.
  */
-describe('PMO Init Commands E2E Tests', () => {
+describe('@smoke PMO Init Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;

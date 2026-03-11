@@ -9,7 +9,7 @@ import { execInProcess } from './test-helpers.js';
  * End-to-end tests for Commit Command
  * Tests commit with various flags and options
  */
-describe('Commit Command E2E Tests', () => {
+describe('@smoke Commit Command E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
 

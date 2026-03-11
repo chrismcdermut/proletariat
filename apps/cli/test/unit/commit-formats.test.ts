@@ -4,7 +4,7 @@ import { expect } from 'chai';
 // Since COMMIT_FORMATS is exported, we can test the format functions
 import { COMMIT_FORMATS, DEFAULT_COMMIT_FORMAT } from '../../src/commands/commit.js';
 
-describe('Commit Formats Unit Tests', () => {
+describe('@smoke Commit Formats Unit Tests', () => {
   const fullContext = {
     type: 'feat',
     ticketId: 'TKT-123',

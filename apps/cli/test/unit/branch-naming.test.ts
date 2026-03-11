@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { generateBranchName, getBranchType, CATEGORY_TO_BRANCH_TYPE } from '../../src/lib/execution/types.js';
 import { validateBranchName } from '../../src/lib/branch/index.js';
 
-describe('Branch Naming', () => {
+describe('@smoke Branch Naming', () => {
   describe('generateBranchName', () => {
     it('generates branch with ticket ID first, then type/owner/agent/slug', () => {
       const branch = generateBranchName('TKT-001', 'Implement authentication', 'chris', 'altman');

@@ -5,7 +5,7 @@ import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 
-describe('PMO SQLite Storage', () => {
+describe('@smoke PMO SQLite Storage', () => {
   let testDir: string;
   let storage: SQLiteStorage;
   const projectId = 'default';

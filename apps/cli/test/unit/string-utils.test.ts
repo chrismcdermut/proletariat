@@ -1,7 +1,7 @@
 import { expect } from 'chai'
 import { visualPadEnd } from '../../src/lib/string-utils.js'
 
-describe('string-utils', () => {
+describe('@smoke string-utils', () => {
   describe('visualPadEnd', () => {
     it('pads plain ASCII strings like normal padEnd', () => {
       expect(visualPadEnd('hello', 10)).to.equal('hello     ')

@@ -8,7 +8,7 @@ import {
   type JsonFlags,
 } from '../../src/lib/prompt-json.js';
 
-describe('prompt-json', () => {
+describe('@smoke prompt-json', () => {
   describe('isNonTTY', () => {
     it('returns true when stdout is not a TTY', () => {
       const originalIsTTY = process.stdout.isTTY;
