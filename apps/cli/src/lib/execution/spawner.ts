@@ -36,6 +36,7 @@ import {
   DEFAULT_EXECUTION_CONFIG,
 } from './types.js'
 import { Ticket } from '../pmo/types.js'
+import { resolveAndAttachToolContext } from '../tools/resolve.js'
 
 // =============================================================================
 // Git Utilities
@@ -424,6 +425,11 @@ export async function spawnAgentForTicket(
   // Set the execution environment on the context so prompt builders can include
   // environment-specific guidance (TKT-035: Docker vs prlt CLI confusion)
   context.executionEnvironment = environment
+
+  // TKT-083: Load tool registry and resolve tool context for this agent
+  if (hqPath) {
+    resolveAndAttachToolContext(context, hqPath, agentName)
+  }
 
   const displayMode: DisplayMode = options.displayMode || 'terminal'
   const permissionMode: PermissionMode = (options.skipPermissions ?? false) ? 'danger' : 'safe'

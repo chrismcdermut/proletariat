@@ -184,6 +184,13 @@ export interface ExecutionContext {
   executionEnvironment?: ExecutionEnvironment // 'devcontainer', 'host', 'docker', 'vm'
   // Connected integrations (for prompt injection)
   connectedIntegrations?: string[] // e.g. ['asana', 'linear'] — only integrations that are configured
+  // Tool registry context (resolved MCP servers and CLI tools for this agent)
+  toolContext?: {
+    mcpServers: Array<{ name: string; url?: string; command?: string; args?: string[]; auth?: string; description?: string }>
+    cliTools: Array<{ name: string; command: string; description?: string; available: boolean }>
+  }
+  // Path to generated mcp-config.json for Claude Code --mcp-config flag
+  mcpConfigPath?: string
 }
 
 // =============================================================================

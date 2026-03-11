@@ -25,6 +25,7 @@ import { getSetTitleCommands } from '../terminal.js'
 import { readDevcontainerJson, generateOrchestratorDockerfile } from './devcontainer.js'
 import type { OrchestratorDockerOptions } from './devcontainer.js'
 import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError } from './codex-adapter.js'
+import { buildToolsPromptSection } from '../tools/prompt.js'
 
 // =============================================================================
 // Terminal Title Helpers
@@ -832,6 +833,14 @@ function buildPrompt(context: ExecutionContext): string {
     prompt += `\n${integrationSection}`
   }
 
+  // Tool context (TKT-083): tell agent what external tools are available
+  if (context.toolContext) {
+    const toolsSection = buildToolsPromptSection(context.toolContext)
+    if (toolsSection) {
+      prompt += `\n${toolsSection}\n`
+    }
+  }
+
   // Additional instructions from --message flag (appended to any action)
   if (context.customMessage) {
     prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
@@ -995,7 +1004,9 @@ export async function runHost(
     // TKT-053: Disable plan mode for background agents — prevents silent stalls
     // when there's no user to approve the plan mode transition
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
-    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
+    // TKT-083: Pass MCP config for registered MCP servers
+    const mcpConfigFlag = context.mcpConfigPath ? `--mcp-config "${context.mcpConfigPath}" ` : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${mcpConfigFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
   } else {
     // Non-Claude executors: build command from getExecutorCommand() args
     // Replace the prompt in args with a file read to avoid shell escaping

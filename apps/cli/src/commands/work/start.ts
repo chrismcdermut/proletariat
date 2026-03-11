@@ -81,6 +81,7 @@ import {
   getConnectedIntegrations,
 } from '../../lib/work-source/index.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
+import { resolveAndAttachToolContext } from '../../lib/tools/resolve.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -1310,6 +1311,11 @@ export default class WorkStart extends PMOCommand {
         customMessage: externalIssueContextMessage ?? flags.message,
         // Connected integrations for prompt injection
         connectedIntegrations: getConnectedIntegrations(db),
+      }
+
+      // TKT-083: Resolve tool registry and attach to context
+      if (hqPath) {
+        resolveAndAttachToolContext(context, hqPath, assignedAgent, selectedAction?.id)
       }
 
       // Check if agent has devcontainer config
@@ -2736,6 +2742,11 @@ export default class WorkStart extends PMOCommand {
       modifiesCode: defaultAction?.modifiesCode ?? true,
       // Connected integrations for prompt injection
       connectedIntegrations: getConnectedIntegrations(db),
+    }
+
+    // TKT-083: Resolve tool registry and attach to context
+    if (workspaceInfo.path) {
+      resolveAndAttachToolContext(context, workspaceInfo.path, agentName, defaultAction?.id)
     }
 
     // Use devcontainer by default if available
