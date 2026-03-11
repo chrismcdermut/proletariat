@@ -981,7 +981,8 @@ export async function runHost(
 
   // Build the executor command using getExecutorCommand() output
   // For Claude Code, we also support outputMode and additional flags
-  // For non-Claude executors, we use the command as-is from getExecutorCommand()
+  // For Codex, we use the codex adapter for deterministic command building (TKT-080)
+  // For other executors, we use the command as-is from getExecutorCommand()
   let executorInvocation: string
   if (isClaudeExecutor(executor)) {
     // Build flags based on config - Claude-specific flags
@@ -996,11 +997,20 @@ export async function runHost(
     // when there's no user to approve the plan mode transition
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
+  } else if (executor === 'codex') {
+    // TKT-080: Use Codex adapter for deterministic command building.
+    // Uses PLACEHOLDER pattern for reliable prompt replacement (same as devcontainer runner).
+    const codexPermission: PermissionMode = config.permissionMode
+    const codexContext = resolveCodexExecutionContext(displayMode, config.outputMode)
+    const codexResult = getCodexCommand('PLACEHOLDER', codexPermission, codexContext)
+    const argsStr = codexResult.args.map(a => a === 'PLACEHOLDER' ? '"$(cat "$PROMPT_PATH")"' : a).join(' ')
+    executorInvocation = `${codexResult.cmd} ${argsStr}`
   } else {
-    // Non-Claude executors: build command from getExecutorCommand() args
-    // Replace the prompt in args with a file read to avoid shell escaping
-    const argsWithFile = args.map(a => a === prompt ? '"$(cat "$PROMPT_PATH")"' : `"${a}"`)
-    executorInvocation = `${cmd} ${argsWithFile.join(' ')}`
+    // Non-Claude, non-Codex executors: build command from getExecutorCommand() args
+    // Use PLACEHOLDER for reliable prompt replacement instead of fragile string comparison
+    const { cmd: execCmd, args: execArgs } = getExecutorCommand(executor, 'PLACEHOLDER', skipPermissions)
+    const argsWithFile = execArgs.map(a => a === 'PLACEHOLDER' ? '"$(cat "$PROMPT_PATH")"' : `"${a}"`)
+    executorInvocation = `${execCmd} ${argsWithFile.join(' ')}`
   }
 
   // Build script that runs executor and keeps shell open after completion
