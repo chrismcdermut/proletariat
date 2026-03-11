@@ -671,9 +671,11 @@ export async function promptExecutionSettings(
   // Prompt for permissions mode (unless flag override is provided)
   let resolvedPermissionMode: PermissionMode = options.permissionMode ?? 'safe'
   if (options.permissionMode === undefined) {
-    const containerNote = (environment === 'devcontainer' || environment === 'docker')
+    const isolationNote = (environment === 'devcontainer' || environment === 'docker')
       ? ' (container provides additional isolation)'
-      : ''
+      : environment === 'sandbox'
+        ? ' (srt sandbox provides filesystem + network isolation)'
+        : ''
     const permissionChoices = [
       { name: '🔒 safe   - Requires approval for dangerous operations (recommended)', value: 'safe' },
       { name: '⚠️  danger - Skip permission checks (--dangerously-skip-permissions)', value: 'danger' },
@@ -682,7 +684,7 @@ export async function promptExecutionSettings(
     // In JSON mode, output the permissions prompt
     if (isJsonMode && jsonMode) {
       outputPromptAsJson(
-        buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'safe'),
+        buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${isolationNote}:`, permissionChoices, 'safe'),
         createMetadata(jsonMode.commandName, jsonMode.flags)
       )
     }
@@ -691,7 +693,7 @@ export async function promptExecutionSettings(
       {
         type: 'list',
         name: 'permissionMode',
-        message: `Permission mode for Claude Code${containerNote}:`,
+        message: `Permission mode for Claude Code${isolationNote}:`,
         choices: permissionChoices,
         default: 'safe',
       },
