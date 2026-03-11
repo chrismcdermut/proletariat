@@ -182,6 +182,8 @@ export interface ExecutionContext {
   hqName?: string // HQ workspace name (used in orchestrator prompt)
   // Execution environment (where the agent is running)
   executionEnvironment?: ExecutionEnvironment // 'devcontainer', 'host', 'docker', 'vm'
+  // Connected integrations (for prompt injection)
+  connectedIntegrations?: string[] // e.g. ['asana', 'linear'] — only integrations that are configured
 }
 
 // =============================================================================

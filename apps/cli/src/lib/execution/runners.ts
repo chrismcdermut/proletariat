@@ -457,6 +457,96 @@ export function runExecutorPreflight(
 }
 
 // =============================================================================
+// Integration Commands — Dynamic Prompt Section
+// =============================================================================
+
+/**
+ * Integration command definitions: commands available for each external integration.
+ * Only included in prompts when the integration is actually connected.
+ */
+interface IntegrationCommandSet {
+  provider: string       // e.g. 'asana', 'linear'
+  displayName: string    // e.g. 'Asana', 'Linear'
+  commands: string[]     // Command descriptions
+}
+
+const INTEGRATION_COMMANDS: IntegrationCommandSet[] = [
+  {
+    provider: 'asana',
+    displayName: 'Asana',
+    commands: [
+      'prlt asana connect — authenticate with Asana',
+      'prlt asana sync --ticket TKT-XXX --create-missing --project <gid> — sync a PMO ticket to Asana',
+      'prlt asana import — import Asana tasks into PMO',
+    ],
+  },
+  {
+    provider: 'linear',
+    displayName: 'Linear',
+    commands: [
+      'prlt linear connect — authenticate with Linear',
+      'prlt linear sync --ticket TKT-XXX --create-missing — sync a PMO ticket to Linear',
+      'prlt linear import — import Linear issues into PMO',
+    ],
+  },
+  {
+    provider: 'jira',
+    displayName: 'Jira',
+    commands: [
+      'prlt jira connect — authenticate with Jira',
+      'prlt jira sync --ticket TKT-XXX --create-missing — sync a PMO ticket to Jira',
+      'prlt jira import — import Jira issues into PMO',
+    ],
+  },
+  {
+    provider: 'shortcut',
+    displayName: 'Shortcut',
+    commands: [
+      'prlt shortcut connect — authenticate with Shortcut',
+      'prlt shortcut sync --ticket TKT-XXX --create-missing — sync a PMO ticket to Shortcut',
+      'prlt shortcut import — import Shortcut stories into PMO',
+    ],
+  },
+  {
+    provider: 'monday',
+    displayName: 'Monday.com',
+    commands: [
+      'prlt monday connect — authenticate with Monday.com',
+      'prlt monday sync --ticket TKT-XXX --create-missing — sync a PMO ticket to Monday.com',
+    ],
+  },
+]
+
+/**
+ * Build the integration commands section for agent prompts.
+ * Only includes integrations that are actually connected/configured.
+ * Returns empty string if no integrations are connected.
+ */
+function buildIntegrationCommandsSection(connectedIntegrations?: string[]): string {
+  if (!connectedIntegrations || connectedIntegrations.length === 0) return ''
+
+  const connected = INTEGRATION_COMMANDS.filter(ic =>
+    connectedIntegrations.includes(ic.provider)
+  )
+  if (connected.length === 0) return ''
+
+  let section = `## Integration Commands\n\n`
+  section += `The following external integrations are connected. Use these prlt commands to interact with them.\n\n`
+
+  for (const integration of connected) {
+    section += `### ${integration.displayName}\n`
+    for (const cmd of integration.commands) {
+      section += `- \`${cmd.split(' — ')[0]}\` — ${cmd.split(' — ')[1] || ''}\n`
+    }
+    section += '\n'
+  }
+
+  section += `**ANTI-PATTERN:** Never use curl, raw API calls, or shell scripts to interact with external services (Asana, Linear, Jira, Shortcut, Monday.com, etc.). Always use the corresponding \`prlt\` commands.\n\n`
+
+  return section
+}
+
+// =============================================================================
 // Orchestrator Prompt — Dynamic Command Registry
 // =============================================================================
 
@@ -620,6 +710,9 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
   // Anti-patterns (dynamically generated)
   prompt += buildOrchestratorAntiPatterns()
 
+  // Integration commands (only for connected integrations)
+  prompt += buildIntegrationCommandsSection(context.connectedIntegrations)
+
   // Workflow
   prompt += `## Workflow\n`
   prompt += `- Squash merge only: \`gh pr merge --squash\`\n`
@@ -732,6 +825,12 @@ function buildPrompt(context: ExecutionContext): string {
 
   // Note: Branch setup (fetch + checkout/create) is now handled programmatically
   // in work/start.ts before the agent spawns, so no prompt instructions needed
+
+  // Integration commands (only for connected integrations)
+  const integrationSection = buildIntegrationCommandsSection(context.connectedIntegrations)
+  if (integrationSection) {
+    prompt += `\n${integrationSection}`
+  }
 
   // Additional instructions from --message flag (appended to any action)
   if (context.customMessage) {

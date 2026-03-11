@@ -3,6 +3,7 @@ import { loadAsanaConfig } from '../asana/config.js'
 import { loadLinearConfig } from '../linear/config.js'
 import { loadJiraConfig } from '../jira/config.js'
 import { loadShortcutConfig } from '../shortcut/config.js'
+import { loadMondayConfig } from '../monday/config.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 const ACTIVE_SOURCE_KEY = 'work.active_source'
@@ -118,4 +119,20 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
   }
 
   return Array.from(providers.values())
+}
+
+/**
+ * Get a list of connected integration provider names (excluding 'pmo').
+ * Used to dynamically inject integration commands into agent prompts.
+ */
+export function getConnectedIntegrations(db: Database.Database): string[] {
+  const integrations: string[] = []
+
+  if (loadAsanaConfig(db)) integrations.push('asana')
+  if (loadLinearConfig(db)) integrations.push('linear')
+  if (loadJiraConfig(db)) integrations.push('jira')
+  if (loadShortcutConfig(db)) integrations.push('shortcut')
+  if (loadMondayConfig(db)) integrations.push('monday')
+
+  return integrations
 }
