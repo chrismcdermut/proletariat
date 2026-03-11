@@ -19,6 +19,8 @@ import {
   ExecutionContext,
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
+  normalizeEnvironment,
+  isSrtInstalled,
 } from './types.js'
 import { getSetTitleCommands } from '../terminal.js'
 import { readDevcontainerJson, generateOrchestratorDockerfile } from './devcontainer.js'
@@ -478,12 +480,23 @@ function buildEnvironmentContext(context: ExecutionContext): string {
     section += `- Start/stop containers: \`prlt docker start/stop <agent>\`\n\n`
     section += `Available MCP tools for container management: \`docker_status\`, \`docker_list\`, \`docker_start\`, \`docker_stop\`, \`docker_logs\`\n`
     section += `Available MCP tools for agent management: \`agent_list\`, \`agent_status\`, \`agent_add\`, \`agent_remove\`\n\n`
+  } else if (env === 'sandbox') {
+    section += `You are running inside a sandboxed environment (srt).\n\n`
+    section += `**Filesystem access is restricted:**\n`
+    section += `- Read/write: your agent worktree only\n`
+    section += `- Read-only: repository source\n`
+    section += `- No access to home directory or other system paths\n\n`
+    section += `**Network access is restricted** to allowed domains only.\n\n`
+    section += `Use \`prlt\` commands for all orchestration tasks.\n\n`
   } else if (env === 'host') {
     section += `You are running directly on the host machine.\n\n`
     section += `While \`docker\` commands may be available, prefer \`prlt\` commands for all orchestration tasks:\n`
     section += `- Spawn agents: \`prlt work start <ticket-id>\` (not \`docker run\`)\n`
     section += `- Manage containers: \`prlt docker list/status/start/stop/logs\`\n`
     section += `- Manage agents: \`prlt agent list/status/add/remove\`\n\n`
+  } else if (env === 'cloud' || env === 'vm') {
+    section += `You are running on a remote cloud machine.\n\n`
+    section += `Use \`prlt\` commands for all orchestration tasks.\n\n`
   }
 
   return section
@@ -759,12 +772,16 @@ export type Runner = (
  * - Always creates a host tmux session for session persistence
  * - displayMode controls whether to open a terminal tab attached to the session
  * - User can reattach with `prlt session attach` if tab is closed
+ *
+ * @param sandboxWrap - Optional function that wraps the executor invocation string
+ *   with a sandbox command (e.g., srt). Used by the sandbox runner.
  */
 export async function runHost(
   context: ExecutionContext,
   executor: ExecutorType,
   config: ExecutionConfig,
-  displayMode: DisplayMode = 'terminal'
+  displayMode: DisplayMode = 'terminal',
+  sandboxWrap?: (executorInvocation: string) => { wrappedCmd: string; startBanner: string }
 ): Promise<RunnerResult> {
   // Session name: {ticketId}-{action} (e.g., TKT-347-implement)
   const sessionName = buildTmuxWindowName(context)
@@ -855,16 +872,24 @@ echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec $SHELL
 `
 
+  // Apply sandbox wrapper if provided (srt wraps the executor invocation)
+  const { finalInvocation, banner } = sandboxWrap
+    ? (() => {
+        const wrapped = sandboxWrap(executorInvocation)
+        return { finalInvocation: wrapped.wrappedCmd, banner: wrapped.startBanner }
+      })()
+    : { finalInvocation: executorInvocation, banner: `🚀 Starting: ${sessionName}` }
+
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
 PROMPT_PATH="${promptPath}"${systemPromptVar}
 ${setTitleCmds}
-echo "🚀 Starting: ${sessionName}"
+echo "${banner}"
 echo ""
 cd "${context.worktreePath}"
 # Run executor in subshell with CLAUDECODE unset (prevents nested session error)
-(unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${executorInvocation})
+(unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${finalInvocation})
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"${systemPromptPath ? ' "$SYSTEM_PROMPT_PATH"' : ''}
@@ -3149,6 +3174,118 @@ export async function runVm(
 }
 
 // =============================================================================
+// Sandbox Runner - srt-based filesystem + network isolation on host
+// =============================================================================
+
+/**
+ * Default network domains allowed in sandbox mode.
+ * These are always permitted in addition to user-configured domains.
+ */
+const SANDBOX_DEFAULT_NETWORK_DOMAINS = [
+  'github.com',
+  'api.github.com',
+  'api.anthropic.com',
+  'registry.npmjs.org',
+  'registry.yarnpkg.com',
+]
+
+/**
+ * Build the srt command prefix for sandboxed execution.
+ *
+ * srt wraps a child process with OS-level filesystem and network restrictions:
+ * - macOS: sandbox-exec profiles
+ * - Linux: bubblewrap (bwrap)
+ *
+ * Filesystem policy (read-restriction philosophy from claude-code-sandbox):
+ * - Read/write: agent worktree (agents/temp/<agent>/)
+ * - Read-only: repository source root
+ * - Read-only: extra allowedReadPaths from config
+ * - Deny: everything else (home dir, system dirs, etc.)
+ *
+ * Network policy:
+ * - Allow: configured domains (merged from sandbox.networkDomains + firewall.allowlistDomains)
+ * - Deny: everything else
+ */
+function buildSrtPrefix(
+  context: ExecutionContext,
+  config: ExecutionConfig,
+): string {
+  const parts: string[] = ['srt']
+
+  // Filesystem: read-write for agent worktree
+  parts.push(`--allow-read-write '${context.worktreePath}'`)
+
+  // Filesystem: allow read-write for extra configured paths
+  for (const p of config.sandbox.allowedWritePaths) {
+    parts.push(`--allow-read-write '${p}'`)
+  }
+
+  // Filesystem: read-only for repo source (parent of agent dir, or agentDir itself)
+  const repoRoot = path.dirname(path.dirname(context.agentDir)) // e.g., agents/temp/../.. = repo root
+  if (repoRoot !== context.worktreePath) {
+    parts.push(`--allow-read '${repoRoot}'`)
+  }
+
+  // Filesystem: read-only for extra configured paths
+  for (const p of config.sandbox.allowedReadPaths) {
+    parts.push(`--allow-read '${p}'`)
+  }
+
+  // Allow read/write for temp dirs (needed for script files)
+  parts.push(`--allow-read-write '${os.tmpdir()}'`)
+  if (context.hqPath) {
+    const scriptsDir = path.join(context.hqPath, '.proletariat', 'scripts')
+    parts.push(`--allow-read-write '${scriptsDir}'`)
+  }
+
+  // Network: merge sandbox-specific + firewall allowlist + defaults
+  const allDomains = new Set<string>([
+    ...SANDBOX_DEFAULT_NETWORK_DOMAINS,
+    ...config.sandbox.networkDomains,
+    ...config.firewall.allowlistDomains,
+  ])
+  for (const domain of allDomains) {
+    parts.push(`--allow-network '${domain}'`)
+  }
+
+  parts.push('--')
+  return parts.join(' ')
+}
+
+/**
+ * Run agent inside srt sandbox on the host machine.
+ * Delegates to runHost with an srt sandbox wrapper.
+ *
+ * The srt binary wraps the executor invocation with filesystem and network
+ * restrictions using OS-level primitives (macOS sandbox-exec, Linux bubblewrap).
+ */
+export async function runSandbox(
+  context: ExecutionContext,
+  executor: ExecutorType,
+  config: ExecutionConfig,
+  displayMode: DisplayMode = 'terminal'
+): Promise<RunnerResult> {
+  // Verify srt is installed
+  if (!isSrtInstalled()) {
+    return {
+      success: false,
+      error: 'srt (sandbox-runtime) is not installed.\n' +
+        'Install it from: https://github.com/anthropic-experimental/sandbox-runtime\n' +
+        'Or use "host" environment instead.',
+    }
+  }
+
+  const srtPrefix = buildSrtPrefix(context, config)
+  const sessionName = buildSessionName(context)
+
+  // Delegate to runHost with srt wrapper
+  return runHost(context, executor, config, displayMode, (executorInvocation) => ({
+    wrappedCmd: `${srtPrefix} bash -c '${executorInvocation.replace(/'/g, "'\\''")}'`,
+    startBanner: `🔒 Starting in sandbox (srt): ${sessionName}`,
+  }))
+}
+
+// =============================================================================
 // Runner Dispatcher
 // =============================================================================
 
@@ -3159,28 +3296,36 @@ export async function runExecution(
   config: ExecutionConfig = DEFAULT_EXECUTION_CONFIG,
   options?: { host?: string; displayMode?: DisplayMode; sessionManager?: SessionManager }
 ): Promise<RunnerResult> {
+  // Normalize deprecated 'vm' → 'cloud'
+  const env = normalizeEnvironment(environment)
+
   // Ensure context knows its execution environment (TKT-035)
   if (!context.executionEnvironment) {
-    context.executionEnvironment = environment
+    context.executionEnvironment = env
   }
 
-  // Ensure tmux server has keychain access for OAuth (host only)
+  // Ensure tmux server has keychain access for OAuth (host and sandbox only)
   // Docker uses claude-credentials volume, devcontainer runs inside container
-  if (environment === 'host') {
+  if (env === 'host' || env === 'sandbox') {
     await ensureTmuxServerHasKeychainAccess()
   }
 
-  switch (environment) {
+  switch (env) {
     case 'devcontainer':
       return runDevcontainer(context, executor, config, options?.displayMode, options?.sessionManager)
     case 'host':
       // Host uses tmux for session persistence (same as devcontainer)
       return runHost(context, executor, config, options?.displayMode)
+    case 'sandbox':
+      return runSandbox(context, executor, config, options?.displayMode)
     case 'docker':
       return runDocker(context, executor, config)
+    case 'cloud':
+      return runVm(context, executor, config, options?.host)
     case 'vm':
+      // Should never reach here after normalizeEnvironment, but handle gracefully
       return runVm(context, executor, config, options?.host)
     default:
-      return { success: false, error: `Unknown execution environment: ${environment}` }
+      return { success: false, error: `Unknown execution environment: ${env}` }
   }
 }
