@@ -2,7 +2,7 @@
 /**
  * Execution Runners
  *
- * Implementations for each execution environment (devcontainer, host, docker, vm).
+ * Implementations for each execution environment (host, sandbox, devcontainer, docker, cloud).
  */
 
 import { spawn, execSync } from 'node:child_process'
@@ -20,6 +20,7 @@ import {
   ExecutionContext,
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
+  normalizeEnvironment,
 } from './types.js'
 import { getSetTitleCommands } from '../terminal.js'
 import { readDevcontainerJson, generateOrchestratorDockerfile } from './devcontainer.js'
@@ -445,11 +446,13 @@ export function runExecutorPreflight(
   executor: ExecutorType,
   options?: { containerId?: string }
 ): PreflightResult {
-  if (environment === 'host') {
+  const env = normalizeEnvironment(environment)
+
+  if (env === 'host' || env === 'sandbox') {
     return checkExecutorOnHost(executor)
   }
 
-  if (environment === 'devcontainer' && options?.containerId) {
+  if (env === 'devcontainer' && options?.containerId) {
     return checkExecutorInContainer(executor, options.containerId)
   }
 
@@ -1052,16 +1055,26 @@ echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec $SHELL
 `
 
+  // Wrap with srt sandbox if running in sandbox environment
+  let finalInvocation = executorInvocation
+  if (context.executionEnvironment === 'sandbox') {
+    // Build the srt wrapper command
+    // The inner command is the executor invocation that reads from PROMPT_PATH
+    const srtCmd = buildSrtCommand(`bash -c '${executorInvocation.replace(/'/g, "'\\''")}'`, context, config)
+    finalInvocation = srtCmd
+  }
+
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
 PROMPT_PATH="${promptPath}"${systemPromptVar}
 ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
+${context.executionEnvironment === 'sandbox' ? 'echo "🔒 Running in srt sandbox (filesystem + network isolation)"' : ''}
 echo ""
 cd "${context.worktreePath}"
 # Run executor in subshell with CLAUDECODE unset (prevents nested session error)
-(unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${executorInvocation})
+(unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${finalInvocation})
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"${systemPromptPath ? ' "$SYSTEM_PROMPT_PATH"' : ''}
@@ -3292,26 +3305,158 @@ exec $SHELL
 }
 
 // =============================================================================
-// VM Runner
+// Sandbox Utilities
 // =============================================================================
 
-export async function runVm(
+/**
+ * Check if srt (sandbox-runtime) is installed on the host.
+ */
+export function isSrtInstalled(): boolean {
+  try {
+    execSync('which srt', { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Build the srt command with filesystem and network restrictions.
+ *
+ * Filesystem policy (read-restriction philosophy from claude-code-sandbox):
+ * - Read/write: agent worktree directory
+ * - Read-only: repo source (if different from worktree)
+ * - Read-only: additional configured read paths
+ * - Deny: home directory, system paths, other repos
+ *
+ * Network policy:
+ * - Allow: configured domains (GitHub, Anthropic API, npm registries, etc.)
+ * - Deny: everything else
+ */
+export function buildSrtCommand(
+  innerCommand: string,
+  context: ExecutionContext,
+  config: ExecutionConfig,
+): string {
+  const args: string[] = ['srt']
+
+  // Filesystem: always allow read/write to agent worktree
+  args.push(`--fs-write=${context.worktreePath}`)
+
+  // Allow read/write to the agent directory (parent of worktree, contains .devcontainer etc.)
+  if (context.agentDir && context.agentDir !== context.worktreePath) {
+    args.push(`--fs-write=${context.agentDir}`)
+  }
+
+  // Allow read/write to HQ scripts directory (for temp script files)
+  if (context.hqPath) {
+    const scriptsDir = path.join(context.hqPath, '.proletariat', 'scripts')
+    args.push(`--fs-write=${scriptsDir}`)
+  }
+
+  // Allow read access to additional configured paths
+  for (const readPath of config.sandbox.allowReadPaths) {
+    args.push(`--fs-read=${readPath}`)
+  }
+
+  // Allow write access to additional configured paths
+  for (const writePath of config.sandbox.allowWritePaths) {
+    args.push(`--fs-write=${writePath}`)
+  }
+
+  // Allow read to temp directory (needed for script execution)
+  args.push(`--fs-write=${os.tmpdir()}`)
+
+  // Network: merge sandbox domains with firewall allowlist
+  const allDomains = new Set([
+    ...config.sandbox.networkDomains,
+    ...config.firewall.allowlistDomains,
+  ])
+  for (const domain of allDomains) {
+    args.push(`--net-allow=${domain}`)
+  }
+
+  // The inner command to execute inside the sandbox
+  args.push('--')
+  args.push(innerCommand)
+
+  return args.join(' ')
+}
+
+// =============================================================================
+// Sandbox Runner - srt-based sandbox on host
+// =============================================================================
+
+/**
+ * Run command in an srt sandbox on the host machine.
+ * Uses the same tmux session approach as the host runner, but wraps the
+ * executor command with srt for filesystem and network isolation.
+ *
+ * Falls back to host runner with warning if srt is not installed.
+ */
+export async function runSandbox(
+  context: ExecutionContext,
+  executor: ExecutorType,
+  config: ExecutionConfig,
+  displayMode: DisplayMode = 'terminal'
+): Promise<RunnerResult> {
+  // Check if srt is installed
+  if (!isSrtInstalled()) {
+    if (config.sandbox.fallbackToHost) {
+      // Log warning via stderr (will be visible in terminal)
+      process.stderr.write(
+        '\x1b[33m⚠️  srt (sandbox-runtime) not installed. Falling back to host execution.\n' +
+        '   Install srt for filesystem + network isolation: https://github.com/anthropic-experimental/sandbox-runtime\x1b[0m\n'
+      )
+      // Fall back to host runner
+      return runHost(context, executor, config, displayMode)
+    }
+    return {
+      success: false,
+      error: 'srt (sandbox-runtime) is not installed.\n\n' +
+        'Install it from: https://github.com/anthropic-experimental/sandbox-runtime\n' +
+        'Or set sandbox.fallbackToHost to true in execution config to fall back to host.',
+    }
+  }
+
+  // Delegate to host runner — the sandbox wrapping happens at the script level
+  // We set a flag on context so the host runner knows to wrap with srt
+  const sandboxContext: ExecutionContext = {
+    ...context,
+    executionEnvironment: 'sandbox',
+  }
+
+  return runHost(sandboxContext, executor, config, displayMode)
+}
+
+// =============================================================================
+// Cloud Runner (was VM Runner)
+// =============================================================================
+
+/**
+ * Run command on a remote machine (cloud) via SSH.
+ * Formerly 'runVm' — renamed to reflect the simplified environment hierarchy.
+ * Uses cloud config with fallback to legacy vm config for backwards compatibility.
+ */
+export async function runCloud(
   context: ExecutionContext,
   executor: ExecutorType,
   config: ExecutionConfig,
   host?: string
 ): Promise<RunnerResult> {
-  const targetHost = host || config.vm.defaultHost
+  // Use cloud config, fall back to vm config for backwards compatibility
+  const cloudConfig = config.cloud?.defaultHost ? config.cloud : config.vm
+  const targetHost = host || cloudConfig.defaultHost
   if (!targetHost) {
     return {
       success: false,
-      error: 'No VM host specified. Use --host or configure execution.vm.default_host',
+      error: 'No cloud host specified. Use --host or configure execution.cloud.default_host',
     }
   }
 
   const prompt = buildPrompt(context)
-  const user = config.vm.user
-  const keyPath = config.vm.keyPath
+  const user = cloudConfig.user
+  const keyPath = cloudConfig.keyPath
   const remoteWorkspace = `/workspace/${context.agentName}`
 
   try {
@@ -3322,7 +3467,7 @@ export async function runVm(
     }
 
     // Sync worktree to remote
-    if (config.vm.syncMethod === 'rsync') {
+    if (cloudConfig.syncMethod === 'rsync') {
       let rsyncCmd = `rsync -avz`
       if (keyPath) {
         rsyncCmd += ` -e "ssh -i ${keyPath}"`
@@ -3336,7 +3481,7 @@ export async function runVm(
       execSync(`ssh ${sshOpts} ${user}@${targetHost} "${gitPullCmd}"`, { stdio: 'pipe' })
     }
 
-    // Validate Codex mode: VM runner is always non-tty (SSH + nohup)
+    // Validate Codex mode: Cloud runner is always non-tty (SSH + nohup)
     if (executor === 'codex') {
       const codexPermission: PermissionMode = config.permissionMode
       const modeError = validateCodexMode(codexPermission, 'non-tty')
@@ -3370,10 +3515,13 @@ export async function runVm(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Failed to execute on VM',
+      error: error instanceof Error ? error.message : 'Failed to execute on cloud',
     }
   }
 }
+
+/** @deprecated Use runCloud instead */
+export const runVm = runCloud
 
 // =============================================================================
 // Runner Dispatcher
@@ -3386,22 +3534,31 @@ export async function runExecution(
   config: ExecutionConfig = DEFAULT_EXECUTION_CONFIG,
   options?: { host?: string; displayMode?: DisplayMode; sessionManager?: SessionManager }
 ): Promise<RunnerResult> {
-  // Ensure tmux server has keychain access for OAuth (host only)
+  // Ensure context knows its execution environment
+  if (!context.executionEnvironment) {
+    context.executionEnvironment = environment
+  }
+
+  // Normalize environment (maps 'vm' -> 'cloud')
+  const normalizedEnv = normalizeEnvironment(environment)
+
+  // Ensure tmux server has keychain access for OAuth (host/sandbox only)
   // Docker uses claude-credentials volume, devcontainer runs inside container
-  if (environment === 'host') {
+  if (normalizedEnv === 'host' || normalizedEnv === 'sandbox') {
     await ensureTmuxServerHasKeychainAccess()
   }
 
-  switch (environment) {
+  switch (normalizedEnv) {
     case 'devcontainer':
       return runDevcontainer(context, executor, config, options?.displayMode, options?.sessionManager)
     case 'host':
-      // Host uses tmux for session persistence (same as devcontainer)
       return runHost(context, executor, config, options?.displayMode)
+    case 'sandbox':
+      return runSandbox(context, executor, config, options?.displayMode)
     case 'docker':
       return runDocker(context, executor, config)
-    case 'vm':
-      return runVm(context, executor, config, options?.host)
+    case 'cloud':
+      return runCloud(context, executor, config, options?.host)
     default:
       return { success: false, error: `Unknown execution environment: ${environment}` }
   }
