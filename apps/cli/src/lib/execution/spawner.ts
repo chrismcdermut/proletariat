@@ -19,7 +19,7 @@ import { pruneWorktrees, checkoutBranchSafe } from '../branch/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName } from './runners.js'
+import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName, isSrtInstalled } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
 import { type ExternalMappingProvider } from '../external-issues/types.js'
@@ -411,8 +411,13 @@ export async function spawnAgentForTicket(
       }
     }
   } else {
-    // No devcontainer configured, host is the only option
-    environment = 'host'
+    // No devcontainer configured — prefer sandbox if srt is available, otherwise host
+    if (isSrtInstalled()) {
+      environment = 'sandbox'
+      log('Using sandbox execution (srt detected). Filesystem and network restrictions active.')
+    } else {
+      environment = 'host'
+    }
   }
 
   // Set the execution environment on the context so prompt builders can include
@@ -423,8 +428,8 @@ export async function spawnAgentForTicket(
   const permissionMode: PermissionMode = (options.skipPermissions ?? false) ? 'danger' : 'safe'
 
   // Executor preflight check (TKT-1082): verify binary is available before proceeding
-  // For host environment, check immediately. For devcontainer, check happens after container start.
-  if (environment === 'host') {
+  // For host/sandbox environment, check immediately. For devcontainer, check happens after container start.
+  if (environment === 'host' || environment === 'sandbox') {
     const preflight = runExecutorPreflight(environment, executor)
     if (!preflight.ok) {
       return {

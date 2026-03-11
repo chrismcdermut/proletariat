@@ -89,8 +89,8 @@ export default class Claude extends PromptCommand {
     }),
     environment: Flags.string({
       char: 'e',
-      description: 'Where to run (devcontainer or host)',
-      options: ['devcontainer', 'host'],
+      description: 'Where to run (host, sandbox, devcontainer, cloud)',
+      options: ['host', 'sandbox', 'devcontainer', 'cloud'],
     }),
     'display-mode': Flags.string({
       char: 'd',
@@ -203,6 +203,11 @@ export default class Claude extends PromptCommand {
                 command: `prlt claude --slug "${slug}" --environment devcontainer --json`,
               },
               {
+                name: '🔒 sandbox (srt isolation on host)',
+                value: 'sandbox',
+                command: `prlt claude --slug "${slug}" --environment sandbox --json`,
+              },
+              {
                 name: '💻 host (runs directly on your machine)',
                 value: 'host',
                 command: `prlt claude --slug "${slug}" --environment host --json`,
@@ -228,6 +233,7 @@ export default class Claude extends PromptCommand {
                 name: devcontainerLabel,
                 value: 'devcontainer',
               },
+              { name: '🔒 sandbox (srt isolation on host)', value: 'sandbox' },
               { name: '💻 host (runs directly on your machine)', value: 'host' },
             ],
             default: 'devcontainer',
@@ -641,6 +647,11 @@ export default class Claude extends PromptCommand {
                   command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment devcontainer --json`,
                 },
                 {
+                  name: '🔒 sandbox (srt isolation on host)',
+                  value: 'sandbox',
+                  command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment sandbox --json`,
+                },
+                {
                   name: '💻 host (runs directly on your machine)',
                   value: 'host',
                   command: `prlt claude --project ${projectId} --title "${ticketTitle}" --environment host --json`,
@@ -667,6 +678,7 @@ export default class Claude extends PromptCommand {
                   name: devcontainerLabel,
                   value: 'devcontainer',
                 },
+                { name: '🔒 sandbox (srt isolation on host)', value: 'sandbox' },
                 { name: '💻 host (runs directly on your machine)', value: 'host' },
               ],
               default: 'devcontainer',

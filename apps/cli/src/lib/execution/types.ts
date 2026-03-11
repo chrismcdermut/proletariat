@@ -11,7 +11,7 @@
 // Three dimensions control how agent work is executed:
 //
 // 1. ExecutionEnvironment - WHERE the code runs
-//    (devcontainer, host, docker, vm)
+//    (host, sandbox, devcontainer, docker, cloud)
 //
 // 2. SessionManager - HOW the process is supervised
 //    (tmux, direct) - currently always tmux for session persistence
@@ -25,10 +25,12 @@
  * ExecutionEnvironment - Where the agent code runs.
  */
 export type ExecutionEnvironment =
+  | 'host'          // Directly on host machine (no sandbox)
+  | 'sandbox'       // srt restrictions on host (filesystem + network isolation, lightweight)
   | 'devcontainer'  // In a devcontainer (isolated, recommended)
-  | 'host'          // Directly on host machine
   | 'docker'        // In a Docker container
-  | 'vm'            // On a remote VM
+  | 'cloud'         // Remote machines (scale, GPUs, offload)
+  | 'vm'            // @deprecated — alias for 'cloud', use 'cloud' instead
 
 /**
  * SessionManager - How agent sessions are managed inside the execution environment.
@@ -118,7 +120,7 @@ export interface AgentWork {
   ticketId: string
   agentName: string
   executor: ExecutorType
-  environment: ExecutionEnvironment  // Where: devcontainer, host, docker, vm
+  environment: ExecutionEnvironment  // Where: host, sandbox, devcontainer, docker, cloud
   displayMode: DisplayMode       // How shown: terminal, background
   sessionManager?: SessionManager // How session is managed inside environment (tmux/direct)
   permissionMode: PermissionMode  // Permission mode used for this execution
@@ -181,7 +183,7 @@ export interface ExecutionContext {
   isEphemeral?: boolean // Whether this is an ephemeral agent (auto-closes session on completion)
   hqName?: string // HQ workspace name (used in orchestrator prompt)
   // Execution environment (where the agent is running)
-  executionEnvironment?: ExecutionEnvironment // 'devcontainer', 'host', 'docker', 'vm'
+  executionEnvironment?: ExecutionEnvironment // 'host', 'sandbox', 'devcontainer', 'docker', 'cloud'
 }
 
 // =============================================================================
@@ -327,6 +329,18 @@ export function generateBranchName(
 // Auth Method
 // =============================================================================
 
+/**
+ * Normalize execution environment, mapping deprecated 'vm' to 'cloud'.
+ * Emits a deprecation warning to stderr when 'vm' is used.
+ */
+export function normalizeEnvironment(env: ExecutionEnvironment): ExecutionEnvironment {
+  if (env === 'vm') {
+    process.stderr.write('⚠️  Warning: execution environment "vm" is deprecated, use "cloud" instead.\n')
+    return 'cloud'
+  }
+  return env
+}
+
 export type AuthMethod = 'oauth' | 'apikey'
 
 // =============================================================================
@@ -367,6 +381,19 @@ export interface ExecutionConfig {
   firewall: {
     allowlistDomains: string[]  // Additional domains to allow in container firewall
   }
+  sandbox: {
+    allowedReadPaths: string[]      // Extra paths the agent may read (repo source is always allowed)
+    allowedWritePaths: string[]     // Extra paths the agent may write (agent worktree is always allowed)
+    networkDomains: string[]        // Extra network domains to allow (merged with firewall.allowlistDomains)
+    denyReadPaths: string[]         // Paths explicitly denied for reads (e.g., ~/)
+  }
+  cloud: {
+    defaultHost?: string
+    user: string
+    keyPath?: string
+    syncMethod: 'rsync' | 'git'
+  }
+  /** @deprecated Use `cloud` instead. Kept for backward compatibility. */
   vm: {
     defaultHost?: string
     user: string
@@ -416,6 +443,16 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   },
   firewall: {
     allowlistDomains: [],
+  },
+  sandbox: {
+    allowedReadPaths: [],
+    allowedWritePaths: [],
+    networkDomains: [],
+    denyReadPaths: [],
+  },
+  cloud: {
+    user: 'agent',
+    syncMethod: 'git',
   },
   vm: {
     user: 'agent',

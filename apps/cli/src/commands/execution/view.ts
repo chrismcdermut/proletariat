@@ -282,12 +282,15 @@ function getStatusDisplay(status: string): string {
 
 function getEnvironmentIcon(environment: string): string {
   switch (environment) {
-    case 'devcontainer':
-      return '🐳'
     case 'host':
       return '💻'
+    case 'sandbox':
+      return '🔒'
+    case 'devcontainer':
+      return '🐳'
     case 'docker':
       return '📦'
+    case 'cloud':
     case 'vm':
       return '☁️'
     default:

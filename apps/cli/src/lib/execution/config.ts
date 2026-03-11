@@ -39,6 +39,14 @@ const CONFIG_KEYS = {
   dockerMemory: 'execution.docker.memory',
   dockerCpus: 'execution.docker.cpus',
   firewallAllowlistDomains: 'execution.firewall.allowlist_domains',
+  sandboxAllowedReadPaths: 'execution.sandbox.allowed_read_paths',
+  sandboxAllowedWritePaths: 'execution.sandbox.allowed_write_paths',
+  sandboxNetworkDomains: 'execution.sandbox.network_domains',
+  sandboxDenyReadPaths: 'execution.sandbox.deny_read_paths',
+  cloudDefaultHost: 'execution.cloud.default_host',
+  cloudUser: 'execution.cloud.user',
+  cloudKeyPath: 'execution.cloud.key_path',
+  cloudSyncMethod: 'execution.cloud.sync_method',
   vmDefaultHost: 'execution.vm.default_host',
   vmUser: 'execution.vm.user',
   vmKeyPath: 'execution.vm.key_path',
@@ -196,22 +204,91 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     config.firewall = { ...config.firewall, allowlistDomains: parsed }
   }
 
-  // Load VM settings
+  // Load sandbox settings
+  const sandboxAllowedReadPaths = getSetting(db, CONFIG_KEYS.sandboxAllowedReadPaths)
+  if (sandboxAllowedReadPaths) {
+    try {
+      const parsed = JSON.parse(sandboxAllowedReadPaths)
+      if (Array.isArray(parsed)) {
+        config.sandbox = { ...config.sandbox, allowedReadPaths: parsed.filter((p): p is string => typeof p === 'string') }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+  const sandboxAllowedWritePaths = getSetting(db, CONFIG_KEYS.sandboxAllowedWritePaths)
+  if (sandboxAllowedWritePaths) {
+    try {
+      const parsed = JSON.parse(sandboxAllowedWritePaths)
+      if (Array.isArray(parsed)) {
+        config.sandbox = { ...config.sandbox, allowedWritePaths: parsed.filter((p): p is string => typeof p === 'string') }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+  const sandboxNetworkDomains = getSetting(db, CONFIG_KEYS.sandboxNetworkDomains)
+  if (sandboxNetworkDomains) {
+    try {
+      const parsed = JSON.parse(sandboxNetworkDomains)
+      if (Array.isArray(parsed)) {
+        config.sandbox = { ...config.sandbox, networkDomains: parsed.filter((d): d is string => typeof d === 'string') }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+  const sandboxDenyReadPaths = getSetting(db, CONFIG_KEYS.sandboxDenyReadPaths)
+  if (sandboxDenyReadPaths) {
+    try {
+      const parsed = JSON.parse(sandboxDenyReadPaths)
+      if (Array.isArray(parsed)) {
+        config.sandbox = { ...config.sandbox, denyReadPaths: parsed.filter((p): p is string => typeof p === 'string') }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  // Load cloud settings (new name for VM)
+  const cloudDefaultHost = getSetting(db, CONFIG_KEYS.cloudDefaultHost)
+  if (cloudDefaultHost) {
+    config.cloud = { ...config.cloud, defaultHost: cloudDefaultHost }
+  }
+  const cloudUser = getSetting(db, CONFIG_KEYS.cloudUser)
+  if (cloudUser) {
+    config.cloud = { ...config.cloud, user: cloudUser }
+  }
+  const cloudKeyPath = getSetting(db, CONFIG_KEYS.cloudKeyPath)
+  if (cloudKeyPath) {
+    config.cloud = { ...config.cloud, keyPath: cloudKeyPath }
+  }
+  const cloudSyncMethod = getSetting(db, CONFIG_KEYS.cloudSyncMethod)
+  if (cloudSyncMethod) {
+    config.cloud = { ...config.cloud, syncMethod: cloudSyncMethod as 'rsync' | 'git' }
+  }
+
+  // Load VM settings (deprecated, kept for backward compat)
   const vmDefaultHost = getSetting(db, CONFIG_KEYS.vmDefaultHost)
   if (vmDefaultHost) {
     config.vm = { ...config.vm, defaultHost: vmDefaultHost }
+    // Also populate cloud if cloud-specific settings are not set
+    if (!cloudDefaultHost) {
+      config.cloud = { ...config.cloud, defaultHost: vmDefaultHost }
+    }
   }
   const vmUser = getSetting(db, CONFIG_KEYS.vmUser)
   if (vmUser) {
     config.vm = { ...config.vm, user: vmUser }
+    if (!cloudUser) {
+      config.cloud = { ...config.cloud, user: vmUser }
+    }
   }
   const vmKeyPath = getSetting(db, CONFIG_KEYS.vmKeyPath)
   if (vmKeyPath) {
     config.vm = { ...config.vm, keyPath: vmKeyPath }
+    if (!cloudKeyPath) {
+      config.cloud = { ...config.cloud, keyPath: vmKeyPath }
+    }
   }
   const vmSyncMethod = getSetting(db, CONFIG_KEYS.vmSyncMethod)
   if (vmSyncMethod) {
     config.vm = { ...config.vm, syncMethod: vmSyncMethod as 'rsync' | 'git' }
+    if (!cloudSyncMethod) {
+      config.cloud = { ...config.cloud, syncMethod: vmSyncMethod as 'rsync' | 'git' }
+    }
   }
 
   return config

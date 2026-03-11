@@ -2,7 +2,7 @@
 /**
  * Execution Runners
  *
- * Implementations for each execution environment (devcontainer, host, docker, vm).
+ * Implementations for each execution environment (host, sandbox, devcontainer, docker, cloud).
  */
 
 import { spawn, execSync } from 'node:child_process'
@@ -20,6 +20,7 @@ import {
   ExecutionContext,
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
+  normalizeEnvironment,
 } from './types.js'
 import { getSetTitleCommands } from '../terminal.js'
 import { readDevcontainerJson, generateOrchestratorDockerfile } from './devcontainer.js'
@@ -445,7 +446,7 @@ export function runExecutorPreflight(
   executor: ExecutorType,
   options?: { containerId?: string }
 ): PreflightResult {
-  if (environment === 'host') {
+  if (environment === 'host' || environment === 'sandbox') {
     return checkExecutorOnHost(executor)
   }
 
@@ -810,6 +811,143 @@ export type Runner = (
   config: ExecutionConfig
 ) => Promise<RunnerResult>
 
+
+// =============================================================================
+// Terminal Tab Opener — shared by Host and Sandbox runners
+// =============================================================================
+
+/**
+ * Open a terminal tab attached to a tmux session.
+ * Handles iTerm (non-CC), Ghostty, WezTerm, Kitty, Alacritty, and Terminal.app.
+ */
+function openTerminalWithTmuxAttach(
+  terminalApp: TerminalApp,
+  sessionName: string,
+  windowTitle: string,
+  attachCmd: string,
+  openInBackground: boolean
+): void {
+  switch (terminalApp) {
+    case 'iTerm':
+      if (openInBackground) {
+        execSync(`osascript -e '
+          tell application "System Events"
+            set frontApp to name of first application process whose frontmost is true
+            set frontAppBundle to bundle identifier of first application process whose frontmost is true
+          end tell
+          tell application "iTerm"
+            if (count of windows) = 0 then
+              create window with default profile
+              delay 0.3
+              tell current session of current window
+                set name to "${windowTitle}"
+                write text "${attachCmd}"
+              end tell
+            else
+              tell current window
+                set newTab to (create tab with default profile)
+                delay 0.3
+                tell current session of newTab
+                  set name to "${windowTitle}"
+                  write text "${attachCmd}"
+                end tell
+              end tell
+            end if
+          end tell
+          delay 0.2
+          tell application "System Events"
+            set frontmost of process frontApp to true
+          end tell
+          delay 0.1
+          do shell script "open -b " & quoted form of frontAppBundle
+        '`)
+      } else {
+        execSync(`osascript -e '
+          tell application "iTerm"
+            activate
+            if (count of windows) = 0 then
+              create window with default profile
+              delay 0.3
+              tell current session of current window
+                set name to "${windowTitle}"
+                write text "${attachCmd}"
+              end tell
+            else
+              tell current window
+                set newTab to (create tab with default profile)
+                delay 0.3
+                tell current session of newTab
+                  set name to "${windowTitle}"
+                  write text "${attachCmd}"
+                end tell
+              end tell
+            end if
+          end tell
+        '`)
+      }
+      break
+    case 'Ghostty':
+      execSync(`osascript -e '
+        tell application "Ghostty"
+          activate
+        end tell
+        tell application "System Events"
+          tell process "Ghostty"
+            keystroke "t" using command down
+            delay 0.3
+            keystroke "${attachCmd}"
+            keystroke return
+          end tell
+        end tell
+      '`)
+      break
+    case 'WezTerm':
+      execSync(`wezterm cli spawn --new-window -- bash -c '${attachCmd}'`)
+      break
+    case 'Kitty':
+      execSync(`kitty @ launch --type=tab -- bash -c '${attachCmd}'`)
+      break
+    case 'Alacritty':
+      execSync(`osascript -e '
+        tell application "Alacritty"
+          activate
+        end tell
+        tell application "System Events"
+          tell process "Alacritty"
+            keystroke "n" using command down
+            delay 0.3
+            keystroke "${attachCmd}"
+            keystroke return
+          end tell
+        end tell
+      '`)
+      break
+    case 'Terminal':
+    default:
+      if (openInBackground) {
+        execSync(`osascript -e '
+          tell application "Terminal"
+            do script "${attachCmd}"
+            set custom title of front window to "${windowTitle}"
+          end tell
+        '`)
+      } else {
+        execSync(`osascript -e '
+          tell application "Terminal"
+            activate
+            tell application "System Events"
+              tell process "Terminal"
+                keystroke "t" using command down
+              end tell
+            end tell
+            delay 0.3
+            do script "${attachCmd}" in front window
+          end tell
+        '`)
+      }
+      break
+  }
+}
 
 // =============================================================================
 // Host Runner - Host execution with tmux session persistence
@@ -3099,9 +3237,316 @@ exec $SHELL
 }
 
 // =============================================================================
-// VM Runner
+// Sandbox Utilities
 // =============================================================================
 
+/**
+ * Check if Anthropic srt (sandbox-runtime) is installed.
+ */
+export function isSrtInstalled(): boolean {
+  try {
+    execSync('command -v srt', { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Build srt arguments for sandbox execution.
+ *
+ * Combines filesystem and network restrictions using srt's CLI flags:
+ * - Filesystem: allow read/write in agent worktree, read-only for repo source,
+ *   deny reads of home directory and other sensitive paths.
+ * - Network: allow specific domains (GitHub, Anthropic API, npm registries,
+ *   plus user-configured allowlist).
+ */
+function buildSrtArgs(
+  context: ExecutionContext,
+  config: ExecutionConfig,
+): string[] {
+  const args: string[] = []
+
+  // --- Filesystem restrictions ---
+
+  // Always allow read/write to the agent worktree
+  args.push('--allow-read-write', context.worktreePath)
+
+  // Allow read/write to agent directory (may differ from worktree for multi-repo setups)
+  if (context.agentDir !== context.worktreePath) {
+    args.push('--allow-read-write', context.agentDir)
+  }
+
+  // Extra allowed write paths from config
+  for (const p of config.sandbox.allowedWritePaths) {
+    args.push('--allow-read-write', p)
+  }
+
+  // Extra allowed read paths from config
+  for (const p of config.sandbox.allowedReadPaths) {
+    args.push('--allow-read', p)
+  }
+
+  // Deny reads to home directory and other sensitive paths (data exfiltration prevention)
+  const homeDir = os.homedir()
+  const defaultDenyPaths = [homeDir, '/etc', '/var']
+  const denyPaths = [...new Set([...defaultDenyPaths, ...config.sandbox.denyReadPaths])]
+  for (const p of denyPaths) {
+    args.push('--deny-read', p)
+  }
+
+  // --- Network restrictions ---
+
+  // Default allowed domains for agent work
+  const defaultDomains = [
+    'github.com',
+    'api.github.com',
+    'api.anthropic.com',
+    'registry.npmjs.org',
+    'registry.yarnpkg.com',
+  ]
+
+  // Merge: default + firewall allowlist + sandbox-specific domains
+  const allDomains = [
+    ...new Set([
+      ...defaultDomains,
+      ...config.firewall.allowlistDomains,
+      ...config.sandbox.networkDomains,
+    ]),
+  ]
+
+  for (const domain of allDomains) {
+    args.push('--allow-net', domain)
+  }
+
+  return args
+}
+
+// =============================================================================
+// Sandbox Runner - srt-based host isolation
+// =============================================================================
+
+/**
+ * Run command on host with srt sandbox restrictions.
+ *
+ * Uses Anthropic's sandbox-runtime (srt) to restrict:
+ * - Filesystem: agent can only read/write its worktree; home directory is denied
+ * - Network: only configured domains are accessible
+ *
+ * Falls back to host execution if srt is not installed.
+ */
+export async function runSandbox(
+  context: ExecutionContext,
+  executor: ExecutorType,
+  config: ExecutionConfig,
+  displayMode: DisplayMode = 'terminal'
+): Promise<RunnerResult> {
+  if (!isSrtInstalled()) {
+    process.stderr.write('⚠️  srt (sandbox-runtime) not found. Falling back to host execution.\n')
+    process.stderr.write('   Install srt for lightweight sandboxing: https://github.com/anthropic-experimental/sandbox-runtime\n')
+    return runHost(context, executor, config, displayMode)
+  }
+
+  // Session name: {ticketId}-{action} (e.g., TKT-347-implement)
+  const sessionName = buildTmuxWindowName(context)
+  const windowTitle = buildWindowTitle(context)
+
+  const prompt = buildPrompt(context)
+  const skipPermissions = config.permissionMode === 'danger'
+
+  // Validate Codex mode combination before proceeding
+  if (executor === 'codex') {
+    const codexPermission: PermissionMode = config.permissionMode
+    const codexContext = resolveCodexExecutionContext(displayMode, config.outputMode)
+    const modeError = validateCodexMode(codexPermission, codexContext)
+    if (modeError) {
+      return { success: false, error: modeError.message }
+    }
+  }
+
+  const { cmd, args: executorArgs } = getExecutorCommand(executor, prompt, skipPermissions)
+
+  // Build srt wrapping arguments
+  const srtArgs = buildSrtArgs(context, config)
+
+  // Write command to temp script to avoid shell escaping issues
+  const baseDir = context.hqPath
+    ? path.join(context.hqPath, '.proletariat', 'scripts')
+    : path.join(os.homedir(), '.proletariat', 'scripts')
+  fs.mkdirSync(baseDir, { recursive: true })
+
+  const timestamp = Date.now()
+  const scriptPath = path.join(baseDir, `exec-${context.ticketId}-${timestamp}.sh`)
+  const promptPath = path.join(baseDir, `prompt-${context.ticketId}-${timestamp}.txt`)
+
+  // Write prompt file
+  let systemPromptPath: string | null = null
+  if (context.isOrchestrator && isClaudeExecutor(executor)) {
+    const systemPrompt = buildOrchestratorSystemPrompt(context)
+    systemPromptPath = path.join(baseDir, `system-prompt-${context.ticketId}-${timestamp}.txt`)
+    fs.writeFileSync(systemPromptPath, systemPrompt, { mode: 0o644 })
+    const userMessage = context.actionPrompt
+      || 'You are now running as the orchestrator. Check the board status and report what you see.'
+    fs.writeFileSync(promptPath, userMessage, { mode: 0o644 })
+  } else {
+    fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
+  }
+
+  // Build executor invocation (same as host runner, but wrapped with srt)
+  let executorInvocation: string
+  if (isClaudeExecutor(executor)) {
+    const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
+    const printFlag = config.outputMode === 'print' ? '-p ' : ''
+    const effortFlag = skipPermissions ? '--effort high ' : ''
+    const systemPromptFlag = systemPromptPath ? '--system-prompt "$(cat "$SYSTEM_PROMPT_PATH")" ' : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
+  } else {
+    const argsWithFile = executorArgs.map(a => a === prompt ? '"$(cat "$PROMPT_PATH")"' : `"${a}"`)
+    executorInvocation = `${cmd} ${argsWithFile.join(' ')}`
+  }
+
+  // Wrap the executor invocation with srt
+  const srtArgsStr = srtArgs.map(a => `"${a}"`).join(' ')
+  const sandboxedInvocation = `srt ${srtArgsStr} -- ${executorInvocation}`
+
+  // Build script
+  const setTitleCmds = getSetTitleCommands(windowTitle)
+  const systemPromptVar = systemPromptPath ? `\nSYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
+
+  const postExecBlock = context.isEphemeral
+    ? `
+echo ""
+echo "Ephemeral agent work complete. Session will auto-close in 5s..."
+sleep 5
+exit 0
+`
+    : `
+echo ""
+echo "Agent work complete. Press Enter to close or run more commands."
+exec $SHELL
+`
+
+  const scriptContent = `#!/bin/bash
+# Auto-generated sandbox script for ticket ${context.ticketId}
+SCRIPT_PATH="${scriptPath}"
+PROMPT_PATH="${promptPath}"${systemPromptVar}
+${setTitleCmds}
+echo "Starting (sandbox): ${sessionName}"
+echo ""
+cd "${context.worktreePath}"
+# Run executor under srt sandbox with CLAUDECODE unset (prevents nested session error)
+(unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${sandboxedInvocation})
+
+# Clean up script and prompt files
+rm -f "$SCRIPT_PATH" "$PROMPT_PATH"${systemPromptPath ? ' "$SYSTEM_PROMPT_PATH"' : ''}
+${postExecBlock}`
+  fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 })
+
+  try {
+    // Check if tmux is available
+    execSync('which tmux', { stdio: 'pipe' })
+
+    const terminalApp = config.terminal.app
+    const useControlMode = shouldUseControlMode(terminalApp, config.tmux.controlMode)
+
+    // Create tmux session (same as host runner)
+    const mouseOption = buildTmuxMouseOption(useControlMode)
+    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+
+    try {
+      execSync(tmuxCmd, { stdio: 'pipe' })
+    } catch (error) {
+      return {
+        success: false,
+        error: `Failed to create tmux session: ${error instanceof Error ? error.message : error}`,
+      }
+    }
+
+    // Handle display modes (background / foreground / terminal)
+    if (displayMode === 'background') {
+      return {
+        success: true,
+        sessionId: sessionName,
+      }
+    }
+
+    if (displayMode === 'foreground') {
+      try {
+        const fgTmuxAttach = buildTmuxAttachCommand(false)
+        execSync(`clear && ${fgTmuxAttach} -t "${sessionName}"`, { stdio: 'inherit' })
+        return {
+          success: true,
+          sessionId: sessionName,
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: `Failed to attach to tmux session: ${error instanceof Error ? error.message : error}`,
+        }
+      }
+    }
+
+    // Terminal mode: delegate to the same terminal tab opening logic as host runner
+    // (reuse the host runner's terminal opening code via the same pattern)
+    const tmuxAttach = buildTmuxAttachCommand(useControlMode)
+    const attachCmd = `clear && ${tmuxAttach} -t \\"${sessionName}\\"`
+
+    if (terminalApp === 'iTerm' && useControlMode) {
+      configureITermTmuxWindowMode(config.tmux.windowMode)
+      const openInBackground = config.terminal.openInBackground ?? true
+      if (openInBackground) {
+        execSync(`osascript -e '
+          set frontApp to path to frontmost application as text
+          tell application "iTerm"
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "tmux -u -CC attach -d -t \\"${sessionName}\\""
+              end tell
+            end tell
+          end tell
+          tell application frontApp to activate
+        '`)
+      } else {
+        execSync(`osascript -e '
+          tell application "iTerm"
+            activate
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "tmux -u -CC attach -d -t \\"${sessionName}\\""
+              end tell
+            end tell
+          end tell
+        '`)
+      }
+      return {
+        success: true,
+        sessionId: sessionName,
+      }
+    }
+
+    // For non-iTerm or non-CC mode, open a terminal attached to the tmux session
+    // This mirrors the host runner's terminal opening logic
+    openTerminalWithTmuxAttach(terminalApp, sessionName, windowTitle, attachCmd, config.terminal.openInBackground ?? true)
+
+    return {
+      success: true,
+      sessionId: sessionName,
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start sandbox execution',
+    }
+  }
+}
+
+// =============================================================================
+// Cloud Runner (formerly VM)
+// =============================================================================
+
+/** @deprecated Use runCloud instead */
 export async function runVm(
   context: ExecutionContext,
   executor: ExecutorType,
@@ -3181,6 +3626,29 @@ export async function runVm(
   }
 }
 
+/**
+ * Run command on a remote cloud machine (renamed from VM).
+ * Delegates to the same implementation as runVm.
+ */
+export async function runCloud(
+  context: ExecutionContext,
+  executor: ExecutorType,
+  config: ExecutionConfig,
+  host?: string
+): Promise<RunnerResult> {
+  // Cloud runner uses the same config section, falling back to vm for compat
+  const targetHost = host || config.cloud.defaultHost || config.vm.defaultHost
+  const cloudConfig = { ...config }
+  // Merge cloud config into vm for the underlying implementation
+  cloudConfig.vm = {
+    defaultHost: targetHost,
+    user: config.cloud.user || config.vm.user,
+    keyPath: config.cloud.keyPath || config.vm.keyPath,
+    syncMethod: config.cloud.syncMethod || config.vm.syncMethod,
+  }
+  return runVm(context, executor, cloudConfig, targetHost)
+}
+
 // =============================================================================
 // Runner Dispatcher
 // =============================================================================
@@ -3198,17 +3666,26 @@ export async function runExecution(
     await ensureTmuxServerHasKeychainAccess()
   }
 
-  switch (environment) {
-    case 'devcontainer':
-      return runDevcontainer(context, executor, config, options?.displayMode, options?.sessionManager)
+  // Normalize deprecated 'vm' to 'cloud'
+  const env = normalizeEnvironment(environment)
+
+  switch (env) {
     case 'host':
       // Host uses tmux for session persistence (same as devcontainer)
       return runHost(context, executor, config, options?.displayMode)
+    case 'sandbox':
+      // Sandbox: srt restrictions on host (falls back to host if srt not installed)
+      return runSandbox(context, executor, config, options?.displayMode)
+    case 'devcontainer':
+      return runDevcontainer(context, executor, config, options?.displayMode, options?.sessionManager)
     case 'docker':
       return runDocker(context, executor, config)
+    case 'cloud':
+      return runCloud(context, executor, config, options?.host)
     case 'vm':
+      // Should not reach here after normalization, but kept for safety
       return runVm(context, executor, config, options?.host)
     default:
-      return { success: false, error: `Unknown execution environment: ${environment}` }
+      return { success: false, error: `Unknown execution environment: ${env}` }
   }
 }

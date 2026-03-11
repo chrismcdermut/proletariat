@@ -69,8 +69,8 @@ export default class QA extends PromptCommand {
     }),
     environment: Flags.string({
       char: 'e',
-      description: 'Where to run (devcontainer or host)',
-      options: ['devcontainer', 'host'],
+      description: 'Where to run (host, sandbox, devcontainer, cloud)',
+      options: ['host', 'sandbox', 'devcontainer', 'cloud'],
     }),
     'display-mode': Flags.string({
       char: 'd',

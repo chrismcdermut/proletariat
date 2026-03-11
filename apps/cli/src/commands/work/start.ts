@@ -283,7 +283,10 @@ export default class WorkStart extends PMOCommand {
       default: false,
     }),
     'vm-host': Flags.string({
-      description: 'VM host for vm mode',
+      description: 'Cloud/VM host for cloud mode (deprecated: use --cloud-host)',
+    }),
+    'cloud-host': Flags.string({
+      description: 'Cloud host for cloud mode',
     }),
     'run-on-host': Flags.boolean({
       description: 'Run on host even if devcontainer exists (bypasses sandbox)',
@@ -2204,7 +2207,7 @@ export default class WorkStart extends PMOCommand {
       }
       const sessionManager = (flags.session || 'tmux') as SessionManager
       const result = await runExecution(environment, context, executor, executionConfig, {
-        host: flags['vm-host'],
+        host: flags['cloud-host'] || flags['vm-host'],
         displayMode,
         sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
       })
@@ -2353,7 +2356,7 @@ export default class WorkStart extends PMOCommand {
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     db: Database.Database,
     executionStorage: ExecutionStorage,
-    flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string; json?: boolean }
+    flags: { display?: string; executor?: string; 'vm-host'?: string; 'cloud-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string; json?: boolean }
   ): Promise<void> {
     const batchJsonMode = shouldOutputJson(flags as { json?: boolean })
     const batchJsonModeConfig = batchJsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work start' } : null

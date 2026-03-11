@@ -257,10 +257,15 @@ export default class ExecutionStop extends PMOCommand {
           }
           return true
 
+        case 'sandbox':
+          // Sandbox runs on host with srt; stop tmux session same as host
+          return true
+
+        case 'cloud':
         case 'vm':
           if (execution.host && execution.sessionId) {
             this.warn(
-              `Cannot automatically stop VM execution. SSH to ${execution.host} and stop manually.`
+              `Cannot automatically stop cloud execution. SSH to ${execution.host} and stop manually.`
             )
           }
           return true

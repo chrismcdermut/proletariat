@@ -164,7 +164,7 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
     {
       ticket_id: z.string().describe('Ticket ID to start work on'),
       agent: z.string().optional().describe('Agent name to assign (defaults to creating an ephemeral agent)'),
-      environment: z.enum(['devcontainer', 'host']).optional().describe('Execution environment (default: devcontainer if available)'),
+      environment: z.enum(['devcontainer', 'host', 'sandbox', 'cloud']).optional().describe('Execution environment (default: sandbox if srt available, devcontainer if Docker available, host otherwise)'),
       display_mode: z.enum(['background', 'terminal']).optional().describe('Display mode (default: background — MCP runs headless)'),
       skip_permissions: z.boolean().optional().describe('Skip permission prompts (danger mode, default: false)'),
       create_pr: z.boolean().optional().describe('Create PR when work is ready (default: false)'),
@@ -282,7 +282,7 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
       ticket_id: z.string().describe('Ticket ID to review'),
       max_cycles: z.number().optional().describe('Maximum review-fix cycles (default: 3)'),
       skip_permissions: z.boolean().optional().describe('Skip permission prompts (default: false)'),
-      environment: z.enum(['devcontainer', 'host']).optional().describe('Execution environment (default: devcontainer)'),
+      environment: z.enum(['devcontainer', 'host', 'sandbox', 'cloud']).optional().describe('Execution environment (default: devcontainer)'),
     },
     async (params) => {
       try {
@@ -331,7 +331,7 @@ export function registerWorkTools(server: McpServer, ctx: McpToolContext): void 
       skip_permissions: z.boolean().optional().describe('Skip permission prompts — danger mode (default: false)'),
       create_pr: z.boolean().optional().describe('Create PR when work is ready (default: false)'),
       agent: z.string().optional().describe('Agent name to use (default: ephemeral agent created on-demand)'),
-      environment: z.enum(['devcontainer', 'host']).optional().describe('Execution environment (default: devcontainer if available)'),
+      environment: z.enum(['devcontainer', 'host', 'sandbox', 'cloud']).optional().describe('Execution environment (default: sandbox if srt available, devcontainer if Docker available, host otherwise)'),
     },
     async (params) => {
       try {
