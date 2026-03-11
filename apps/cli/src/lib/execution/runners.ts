@@ -446,7 +446,7 @@ export function runExecutorPreflight(
   executor: ExecutorType,
   options?: { containerId?: string }
 ): PreflightResult {
-  if (environment === 'host') {
+  if (environment === 'host' || environment === 'sandbox') {
     return checkExecutorOnHost(executor)
   }
 

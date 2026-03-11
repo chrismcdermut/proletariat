@@ -4,6 +4,8 @@
  * Types for agent execution and runtime management.
  */
 
+import { execSync } from 'node:child_process'
+
 // =============================================================================
 // Execution Data Models
 // =============================================================================
@@ -421,7 +423,6 @@ export function normalizeEnvironment(env: ExecutionEnvironment): ExecutionEnviro
  */
 export function isSrtInstalled(): boolean {
   try {
-    const { execSync } = require('node:child_process')
     execSync('command -v srt', { stdio: 'pipe' })
     return true
   } catch {
