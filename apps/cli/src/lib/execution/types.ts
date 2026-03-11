@@ -11,7 +11,7 @@
 // Three dimensions control how agent work is executed:
 //
 // 1. ExecutionEnvironment - WHERE the code runs
-//    (devcontainer, host, docker, vm)
+//    (host, sandbox, devcontainer, docker, cloud)
 //
 // 2. SessionManager - HOW the process is supervised
 //    (tmux, direct) - currently always tmux for session persistence
@@ -23,12 +23,17 @@
 
 /**
  * ExecutionEnvironment - Where the agent code runs.
+ *
+ * Hierarchy (least to most isolation):
+ *   host → sandbox → container (devcontainer/docker) → cloud
  */
 export type ExecutionEnvironment =
+  | 'host'          // Directly on host machine (full access, no sandbox)
+  | 'sandbox'       // srt restrictions on host (filesystem + network isolation, lightweight)
   | 'devcontainer'  // In a devcontainer (isolated, recommended)
-  | 'host'          // Directly on host machine
   | 'docker'        // In a Docker container
-  | 'vm'            // On a remote VM
+  | 'cloud'         // Remote machines (scale, GPUs, offload)
+  | 'vm'            // @deprecated — alias for 'cloud', use 'cloud' instead
 
 /**
  * SessionManager - How agent sessions are managed inside the execution environment.
@@ -181,7 +186,7 @@ export interface ExecutionContext {
   isEphemeral?: boolean // Whether this is an ephemeral agent (auto-closes session on completion)
   hqName?: string // HQ workspace name (used in orchestrator prompt)
   // Execution environment (where the agent is running)
-  executionEnvironment?: ExecutionEnvironment // 'devcontainer', 'host', 'docker', 'vm'
+  executionEnvironment?: ExecutionEnvironment // 'host', 'sandbox', 'devcontainer', 'docker', 'cloud'
 }
 
 // =============================================================================
@@ -367,6 +372,18 @@ export interface ExecutionConfig {
   firewall: {
     allowlistDomains: string[]  // Additional domains to allow in container firewall
   }
+  sandbox: {
+    allowedReadPaths: string[]   // Extra paths srt may read (repo source is always allowed)
+    allowedWritePaths: string[]  // Extra paths srt may write (agent worktree is always allowed)
+    networkDomains: string[]     // Extra network domains to allow (merged with firewall.allowlistDomains)
+  }
+  cloud: {
+    defaultHost?: string
+    user: string
+    keyPath?: string
+    syncMethod: 'rsync' | 'git'
+  }
+  /** @deprecated Use `cloud` instead. Kept for backward compatibility. */
   vm: {
     defaultHost?: string
     user: string
@@ -385,6 +402,31 @@ export function extractTicketFromSession(sessionName: string | null | undefined)
   const name = sessionName.replace(/^prlt-/, '')
   const match = name.match(/^(TKT-\d+)/)
   return match ? match[1] : undefined
+}
+
+/**
+ * Normalize execution environment: maps deprecated 'vm' to 'cloud'.
+ * Emits a deprecation warning to stderr when 'vm' is used.
+ */
+export function normalizeEnvironment(env: ExecutionEnvironment): ExecutionEnvironment {
+  if (env === 'vm') {
+    process.stderr.write(`⚠️  'vm' execution environment is deprecated — use 'cloud' instead.\n`)
+    return 'cloud'
+  }
+  return env
+}
+
+/**
+ * Check if srt (sandbox-runtime) binary is installed on the host.
+ */
+export function isSrtInstalled(): boolean {
+  try {
+    const { execSync } = require('node:child_process')
+    execSync('command -v srt', { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
 }
 
 export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
@@ -416,6 +458,15 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   },
   firewall: {
     allowlistDomains: [],
+  },
+  sandbox: {
+    allowedReadPaths: [],
+    allowedWritePaths: [],
+    networkDomains: [],
+  },
+  cloud: {
+    user: 'agent',
+    syncMethod: 'git',
   },
   vm: {
     user: 'agent',
