@@ -23,7 +23,7 @@ import {
  * - Each choice includes command field for agent navigation
  * - Flag-based execution bypasses prompts correctly
  */
-describe('Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
+describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', () => {
 
   // ================================================================
   // CLAUDE COMMAND TESTS

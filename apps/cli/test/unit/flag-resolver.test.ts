@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { FlagResolver, shouldOutputJson } from '../../src/lib/flags/index.js';
 
-describe('FlagResolver', () => {
+describe('@smoke FlagResolver', () => {
   describe('constructor', () => {
     it('should create resolver with initial flags', () => {
       const resolver = new FlagResolver({

@@ -6,6 +6,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      test_tier:
+        description: 'Test tier to run'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - smoke
+          - standard
+          - full
 
 # Cancel in-progress runs when a new commit is pushed to the same branch/PR.
 # This prevents wasted CI minutes when iterating on a PR.
@@ -22,7 +32,13 @@ concurrency:
 # - A verification step runs `require('better-sqlite3')` before tests to fail fast with
 #   clear diagnostics if the native binding is missing or incompatible.
 
-# Change-detection scoping:
+# Test tier system:
+# - smoke: fast subset (~14 tagged tests) for quick PR feedback (<3 min)
+# - standard: current scoped test set (change-detection based)
+# - full: everything including slow integration tests
+# PR events default to smoke tier; push to main runs full; workflow_dispatch is selectable.
+#
+# Change-detection scoping (used for standard/full tiers):
 # - docs-only PRs skip all test suites entirely
 # - Scoped source changes (pmo, execution) run only affected unit + e2e subsets
 # - Core/runtime changes (database, shared lib, config files) trigger the full suite
@@ -36,11 +52,29 @@ jobs:
       run_tests: ${{ steps.classify.outputs.run_tests }}
       scope: ${{ steps.classify.outputs.scope }}
       reason: ${{ steps.classify.outputs.reason }}
-      e2e_shards: ${{ steps.classify.outputs.e2e_shards }}
+      e2e_shards: ${{ steps.resolve-shards.outputs.e2e_shards }}
+      test_tier: ${{ steps.tier.outputs.test_tier }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Determine test tier
+        id: tier
+        shell: bash
+        run: |
+          # workflow_dispatch: use the selected tier (default: full)
+          # pull_request: smoke tier for fast feedback
+          # push to main: always full
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TIER="${{ github.event.inputs.test_tier || 'full' }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TIER="smoke"
+          else
+            TIER="full"
+          fi
+          echo "test_tier=$TIER" >> "$GITHUB_OUTPUT"
+          echo "Test tier: $TIER"
 
       - name: Fetch base branch
         if: github.event_name == 'pull_request'
@@ -194,6 +228,23 @@ jobs:
             echo "reason=Skipped: only ${PARTS:-non-code} files changed — no test suites needed" >> "$GITHUB_OUTPUT"
           fi
 
+      # When smoke tier is active, collapse all e2e shards into a single "smoke" shard
+      # to avoid running the same @smoke grep across multiple parallel jobs.
+      - name: Resolve e2e shards for tier
+        id: resolve-shards
+        shell: bash
+        run: |
+          TIER="${{ steps.tier.outputs.test_tier }}"
+          SHARDS='${{ steps.classify.outputs.e2e_shards }}'
+
+          if [[ "$TIER" == "smoke" && "$SHARDS" != "[]" ]]; then
+            echo 'e2e_shards=["smoke"]' >> "$GITHUB_OUTPUT"
+            echo "Collapsed shards to single smoke shard"
+          else
+            echo "e2e_shards=$SHARDS" >> "$GITHUB_OUTPUT"
+            echo "Using original shards: $SHARDS"
+          fi
+
   build:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.run_tests == 'true'
@@ -338,9 +389,19 @@ jobs:
 
       - name: Run unit tests
         working-directory: apps/cli
+        env:
+          TEST_TIER: ${{ needs.detect-changes.outputs.test_tier }}
         run: |
           SCOPE="${{ needs.detect-changes.outputs.scope }}"
-          echo "Unit test scope: $SCOPE"
+          TIER="${TEST_TIER}"
+          echo "Unit test scope: $SCOPE | tier: $TIER"
+
+          # Smoke tier: run only @smoke-tagged tests regardless of scope
+          if [[ "$TIER" == "smoke" ]]; then
+            echo "Running smoke unit tests (@smoke tagged)"
+            pnpm test:smoke:unit
+            exit 0
+          fi
 
           case "$SCOPE" in
             full)
@@ -369,10 +430,12 @@ jobs:
       # TKT-1169: Codex spawn smoke tests run as a dedicated step so failures
       # are immediately visible. Any Codex command contract change will fail here.
       # Only runs for execution or full scope since codex is in the execution domain.
+      # Skipped during smoke tier to keep PR checks fast.
       - name: Codex spawn smoke checks
         if: |
-          needs.detect-changes.outputs.scope == 'full' ||
-          needs.detect-changes.outputs.scope == 'execution'
+          needs.detect-changes.outputs.test_tier != 'smoke' &&
+          (needs.detect-changes.outputs.scope == 'full' ||
+          needs.detect-changes.outputs.scope == 'execution')
         run: pnpm --filter @proletariat/cli mocha --forbid-only "test/unit/codex-spawn-smoke.test.ts"
 
   e2e-tests:
@@ -457,9 +520,19 @@ jobs:
 
       - name: Run e2e tests (${{ matrix.shard }})
         working-directory: apps/cli
+        env:
+          TEST_TIER: ${{ needs.detect-changes.outputs.test_tier }}
         run: |
           SHARD="${{ matrix.shard }}"
-          echo "E2E shard: $SHARD"
+          TIER="${TEST_TIER}"
+          echo "E2E shard: $SHARD | tier: $TIER"
+
+          # Smoke tier: run only @smoke-tagged e2e tests (single shard)
+          if [[ "$TIER" == "smoke" ]]; then
+            echo "Running smoke e2e tests (@smoke tagged)"
+            pnpm test:smoke:e2e
+            exit 0
+          fi
 
           case "$SHARD" in
             pmo)
@@ -539,12 +612,14 @@ jobs:
         run: |
           SCOPE="${{ needs.detect-changes.outputs.scope }}"
           REASON="${{ needs.detect-changes.outputs.reason }}"
+          TIER="${{ needs.detect-changes.outputs.test_tier }}"
           BUILD="${{ needs.build.result }}"
           UNIT="${{ needs.unit-tests.result }}"
           E2E="${{ needs.e2e-tests.result }}"
 
           echo "## CI Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Tier:** \`$TIER\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Scope:** \`$SCOPE\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Reason:** $REASON" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -559,6 +634,7 @@ jobs:
 
           echo ""
           echo "=== CI Results ==="
+          echo "Tier: $TIER"
           echo "Scope: $SCOPE"
           echo "Reason: $REASON"
           echo "E2E shards: ${{ needs.detect-changes.outputs.e2e_shards }}"

@@ -12,7 +12,7 @@ import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
  * Uses savepoint-based isolation: DB created once, each test wrapped in
  * SAVEPOINT/ROLLBACK for fast, isolated test execution.
  */
-describe('ExecutionStorage', () => {
+describe('@smoke ExecutionStorage', () => {
   let fastDb: FastTestDb
   let db: Database.Database
   let storage: ExecutionStorage

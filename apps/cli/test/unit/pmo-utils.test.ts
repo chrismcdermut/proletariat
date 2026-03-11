@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { slugify, formatDate, formatTimestamp, parseDate, deepClone, arraysEqual, DEFAULT_WORK_COLUMNS, getWorkColumnSetting } from '../../src/lib/pmo/utils.js';
 import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js';
 
-describe('PMO Utils', () => {
+describe('@smoke PMO Utils', () => {
   describe('slugify', () => {
     it('converts string to lowercase', () => {
       expect(slugify('Hello World')).to.equal('hello-world');
