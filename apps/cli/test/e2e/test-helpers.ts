@@ -22,6 +22,7 @@ import { runCommand } from '@oclif/test';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
+import { getOrCreatePMOTemplate, getOrCreateWorkspaceTemplate } from '../setup/template-db.js';
 
 /**
  * Error type for execSync failures, which include stdout/stderr from the child process.
@@ -179,14 +180,14 @@ const T = PMO_TABLES;
  * @returns Database instance with production schema initialized
  */
 export function setupProductionSchema(dbPath: string, pmoPath: string): Database.Database {
+  // Copy cached template (~1ms) instead of running full initialization (~100-200ms)
+  const templatePath = getOrCreatePMOTemplate();
+  fs.copyFileSync(templatePath, dbPath);
+
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
 
-  // Initialize PMO tables using production schema and seeding
-  // This runs migrations, creates tables, and seeds builtin data
-  initializePMOTables(db);
-
-  // Store PMO path in settings
+  // Store test-specific PMO path in settings
   db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
 
   return db;
@@ -215,13 +216,14 @@ export function setupWorkspaceSchema(
     hasPmo?: boolean;
   } = {}
 ): Database.Database {
+  // Copy cached template (~1ms) instead of running schema creation
+  const templatePath = getOrCreateWorkspaceTemplate();
+  fs.copyFileSync(templatePath, dbPath);
+
   const db = new Database(dbPath);
   db.pragma('foreign_keys = ON');
 
-  // Create workspace tables using production schema
-  db.exec(CREATE_TABLES_SQL);
-
-  // Insert default workspace row
+  // Insert test-specific workspace row
   const type = options.type ?? 'hq';
   const workspaceName = options.workspaceName ?? 'test-workspace';
   const hasPmo = options.hasPmo ?? false;
