@@ -10,11 +10,13 @@
 import { execSync } from 'node:child_process'
 import type { AgentRunner } from './agent-runner.js'
 import { ClaudeCodeRunner } from './claude-code-runner.js'
+import { CodexRunner } from './codex-runner.js'
 import { EventEmittingRunner } from '../events/emitting-runner.js'
 
 // Re-export interface and types for consumers
 export type { AgentRunner, AgentSession, SpawnConfig } from './agent-runner.js'
 export { ClaudeCodeRunner } from './claude-code-runner.js'
+export { CodexRunner } from './codex-runner.js'
 export { createClaudeCodeSession } from './claude-code-runner.js'
 
 // =============================================================================
@@ -37,12 +39,12 @@ const RUNNER_DEFINITIONS: Array<{
     binary: 'claude',
     create: () => new ClaudeCodeRunner(),
   },
+  {
+    name: 'codex',
+    binary: 'codex',
+    create: () => new CodexRunner(),
+  },
   // Future runners — uncomment when implemented:
-  // {
-  //   name: 'codex',
-  //   binary: 'codex',
-  //   create: () => new CodexRunner(),
-  // },
   // {
   //   name: 'pi',
   //   binary: 'pi',

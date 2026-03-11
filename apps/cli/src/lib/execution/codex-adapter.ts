@@ -5,27 +5,27 @@
  * Validates that the requested combination is supported and returns a deterministic
  * command configuration.
  *
- * ## Codex Mode Mapping
+ * ## Codex Mode Mapping (v0.104.0+)
  *
  * Codex has two permission modes:
- *   - `--yolo`    (danger): Execute commands autonomously without approval prompts
- *   - (default)   (safe):   Prompt the user for approval before running commands
+ *   - `--dangerously-bypass-approvals-and-sandbox` (danger): Skip all approval prompts and sandboxing
+ *   - `--full-auto` (safe): Sandboxed auto-execution (-a on-request, --sandbox workspace-write)
  *
  * Codex execution contexts:
- *   - Interactive terminal: User is watching in a TTY (terminal tab, foreground tmux)
- *   - Background/detached:  Running in a tmux session, no direct TTY attached at start
- *   - Non-TTY:              Piped output, CI, Docker detached — no TTY available
+ *   - Interactive terminal: `codex` (TUI mode, user is watching in a TTY)
+ *   - Background/detached:  `codex` in tmux session (tmux provides a PTY)
+ *   - Non-TTY:              `codex exec` subcommand (no TUI, non-interactive)
  *
  * ## Supported Combinations
  *
- * | Permission | Context       | Supported | Notes                                    |
- * |------------|---------------|-----------|------------------------------------------|
- * | danger     | interactive   | Yes       | `codex --yolo "..."`                     |
- * | danger     | background    | Yes       | `codex --yolo "..."`                     |
- * | danger     | non-tty       | Yes       | `codex --yolo "..."`                     |
- * | safe       | interactive   | Yes       | `codex "..."` (user can approve)         |
- * | safe       | background    | No        | Cannot prompt for approval in background |
- * | safe       | non-tty       | No        | Cannot prompt for approval without TTY   |
+ * | Permission | Context       | Supported | Notes                                                      |
+ * |------------|---------------|-----------|------------------------------------------------------------|
+ * | danger     | interactive   | Yes       | `codex --dangerously-bypass-approvals-and-sandbox "..."`    |
+ * | danger     | background    | Yes       | `codex --dangerously-bypass-approvals-and-sandbox "..."`    |
+ * | danger     | non-tty       | Yes       | `codex exec --dangerously-bypass-approvals-and-sandbox "..."` |
+ * | safe       | interactive   | Yes       | `codex --full-auto "..."` (sandboxed auto)                 |
+ * | safe       | background    | No        | Cannot prompt for approval in background                   |
+ * | safe       | non-tty       | No        | Cannot prompt for approval without TTY                     |
  */
 
 import type { DisplayMode, OutputMode, PermissionMode } from './types.js'
@@ -67,13 +67,13 @@ function buildModeErrorMessage(permissionMode: PermissionMode, executionContext:
   if (permissionMode === 'safe' && executionContext === 'background') {
     return (
       `Codex safe mode cannot run in background: Codex needs a TTY to prompt for approval. ` +
-      `Either use danger mode (--yolo) for background execution, or run in a terminal where you can interact with Codex.`
+      `Either use danger mode (--dangerously-bypass-approvals-and-sandbox) for background execution, or run in a terminal where you can interact with Codex.`
     )
   }
   if (permissionMode === 'safe' && executionContext === 'non-tty') {
     return (
       `Codex safe mode requires an interactive terminal: Codex needs a TTY to prompt for approval. ` +
-      `Either use danger mode (--yolo) for non-interactive execution, or run in a terminal where you can interact with Codex.`
+      `Either use danger mode (--dangerously-bypass-approvals-and-sandbox) for non-interactive execution, or run in a terminal where you can interact with Codex.`
     )
   }
   return `Unsupported Codex mode combination: permission=${permissionMode}, context=${executionContext}`
@@ -89,8 +89,8 @@ function buildModeErrorMessage(permissionMode: PermissionMode, executionContext:
 export interface CodexCommandResult {
   cmd: 'codex'
   args: string[]
-  /** Whether --yolo (autonomous mode) is active */
-  yolo: boolean
+  /** Whether danger mode (--dangerously-bypass-approvals-and-sandbox) is active */
+  dangerMode: boolean
   /** The resolved execution context */
   executionContext: CodexExecutionContext
 }
@@ -176,11 +176,20 @@ export function getCodexCommand(
     throw error
   }
 
-  const yolo = permissionMode === 'danger'
+  const dangerMode = permissionMode === 'danger'
   const args: string[] = []
 
-  if (yolo) {
-    args.push('--yolo')
+  // Non-TTY context uses `codex exec` subcommand (non-interactive, no TUI)
+  if (executionContext === 'non-tty') {
+    args.push('exec')
+  }
+
+  if (dangerMode) {
+    // Full danger mode: skip all approval prompts and sandboxing
+    args.push('--dangerously-bypass-approvals-and-sandbox')
+  } else {
+    // Safe mode: sandboxed auto-execution (model decides when to ask, workspace-write sandbox)
+    args.push('--full-auto')
   }
 
   // Codex CLI expects the initial prompt as a positional argument.
@@ -189,7 +198,7 @@ export function getCodexCommand(
   return {
     cmd: 'codex',
     args,
-    yolo,
+    dangerMode,
     executionContext,
   }
 }
