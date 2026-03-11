@@ -170,9 +170,9 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
     })
   })
 
-  describe('Codex in VM runtime', () => {
-    it('should use codex binary for VM', () => {
-      const result = getExecutorCommand('codex', 'vm work', true)
+  describe('Codex in cloud/VM runtime', () => {
+    it('should use codex binary for cloud', () => {
+      const result = getExecutorCommand('codex', 'cloud work', true)
       expect(result.cmd).to.equal('codex')
     })
   })

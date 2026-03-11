@@ -297,6 +297,42 @@ describe('Execution Config', () => {
       expect(config.vm.keyPath).to.equal('/home/user/.ssh/id_rsa');
       expect(config.vm.syncMethod).to.equal('rsync');
     });
+
+    it('round-trips cloud settings through load', () => {
+      saveExecutionSetting(db, 'cloudDefaultHost', '10.0.0.5');
+      saveExecutionSetting(db, 'cloudUser', 'agent');
+      saveExecutionSetting(db, 'cloudKeyPath', '/home/user/.ssh/cloud_key');
+      saveExecutionSetting(db, 'cloudSyncMethod', 'git');
+
+      const config = loadExecutionConfig(db);
+      expect(config.cloud.defaultHost).to.equal('10.0.0.5');
+      expect(config.cloud.user).to.equal('agent');
+      expect(config.cloud.keyPath).to.equal('/home/user/.ssh/cloud_key');
+      expect(config.cloud.syncMethod).to.equal('git');
+    });
+
+    it('falls back VM settings to cloud when cloud-specific not set', () => {
+      saveExecutionSetting(db, 'vmDefaultHost', '192.168.1.100');
+      saveExecutionSetting(db, 'vmUser', 'deploy');
+
+      const config = loadExecutionConfig(db);
+      // Cloud should inherit from VM when no cloud-specific settings
+      expect(config.cloud.defaultHost).to.equal('192.168.1.100');
+      expect(config.cloud.user).to.equal('deploy');
+    });
+
+    it('round-trips sandbox settings through load', () => {
+      saveExecutionSetting(db, 'sandboxAllowedReadPaths', JSON.stringify(['/opt/shared']));
+      saveExecutionSetting(db, 'sandboxAllowedWritePaths', JSON.stringify(['/tmp/work']));
+      saveExecutionSetting(db, 'sandboxNetworkDomains', JSON.stringify(['custom-api.example.com']));
+      saveExecutionSetting(db, 'sandboxDenyReadPaths', JSON.stringify(['/secrets']));
+
+      const config = loadExecutionConfig(db);
+      expect(config.sandbox.allowedReadPaths).to.deep.equal(['/opt/shared']);
+      expect(config.sandbox.allowedWritePaths).to.deep.equal(['/tmp/work']);
+      expect(config.sandbox.networkDomains).to.deep.equal(['custom-api.example.com']);
+      expect(config.sandbox.denyReadPaths).to.deep.equal(['/secrets']);
+    });
   });
 
   describe('getCreatePrDefault / saveCreatePrDefault', () => {
