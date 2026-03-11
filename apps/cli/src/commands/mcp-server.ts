@@ -28,7 +28,6 @@ import {
   registerTicketTools,
   registerProjectTools,
   registerBoardTools,
-  registerSpecTools,
   registerEpicTools,
   registerWorkTools,
   registerWorkflowTools,
@@ -128,7 +127,6 @@ export default class McpServerCommand extends Command {
     registerTicketTools(server, ctx)
     registerProjectTools(server, ctx)
     registerBoardTools(server, ctx)
-    registerSpecTools(server, ctx)
     registerEpicTools(server, ctx)
     registerWorkTools(server, ctx)
     registerWorkflowTools(server, ctx)
