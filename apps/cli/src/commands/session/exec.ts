@@ -2,15 +2,8 @@ import { Args, Flags } from '@oclif/core'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
-import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
-import {
-  getHostTmuxSessionNames,
-  getContainerTmuxSessionMap,
-  findContainerSessionsByPrefix,
-  findSessionForExecution,
-} from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
