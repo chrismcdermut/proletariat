@@ -16,6 +16,11 @@ import type { DisplayMode, OutputMode, PermissionMode } from '../../src/lib/exec
  * Verifies that Codex executor behavior is deterministic by permission mode
  * and execution context, and that unsupported combinations fail with
  * actionable error messages.
+ *
+ * Updated for Codex v0.104.0 flags (TKT-080):
+ *   - danger mode: --dangerously-bypass-approvals-and-sandbox
+ *   - safe mode: --full-auto
+ *   - non-tty: codex exec subcommand
  */
 describe('Codex Runtime Adapter (TKT-1167)', () => {
   const testPrompt = 'Implement the feature described in the ticket'
@@ -118,35 +123,35 @@ describe('Codex Runtime Adapter (TKT-1167)', () => {
 
   describe('getCodexCommand', () => {
     describe('danger mode', () => {
-      it('should return codex --yolo <prompt> for danger + interactive', () => {
+      it('should return codex --dangerously-bypass-approvals-and-sandbox <prompt> for danger + interactive', () => {
         const result = getCodexCommand(testPrompt, 'danger', 'interactive')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', testPrompt])
-        expect(result.yolo).to.be.true
+        expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', testPrompt])
+        expect(result.dangerMode).to.be.true
         expect(result.executionContext).to.equal('interactive')
       })
 
-      it('should return codex --yolo <prompt> for danger + background', () => {
+      it('should return codex --dangerously-bypass-approvals-and-sandbox <prompt> for danger + background', () => {
         const result = getCodexCommand(testPrompt, 'danger', 'background')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', testPrompt])
-        expect(result.yolo).to.be.true
+        expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', testPrompt])
+        expect(result.dangerMode).to.be.true
       })
 
-      it('should return codex --yolo <prompt> for danger + non-tty', () => {
+      it('should return codex exec --dangerously-bypass-approvals-and-sandbox <prompt> for danger + non-tty', () => {
         const result = getCodexCommand(testPrompt, 'danger', 'non-tty')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', testPrompt])
-        expect(result.yolo).to.be.true
+        expect(result.args).to.deep.equal(['exec', '--dangerously-bypass-approvals-and-sandbox', testPrompt])
+        expect(result.dangerMode).to.be.true
       })
     })
 
     describe('safe mode', () => {
-      it('should return codex <prompt> (no --yolo) for safe + interactive', () => {
+      it('should return codex --full-auto <prompt> for safe + interactive', () => {
         const result = getCodexCommand(testPrompt, 'safe', 'interactive')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal([testPrompt])
-        expect(result.yolo).to.be.false
+        expect(result.args).to.deep.equal(['--full-auto', testPrompt])
+        expect(result.dangerMode).to.be.false
         expect(result.executionContext).to.equal('interactive')
       })
 
@@ -210,7 +215,7 @@ describe('Codex Runtime Adapter (TKT-1167)', () => {
       it('should handle empty prompts', () => {
         const result = getCodexCommand('', 'danger', 'interactive')
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', ''])
+        expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', ''])
       })
     })
   })
@@ -220,16 +225,16 @@ describe('Codex Runtime Adapter (TKT-1167)', () => {
   // ===========================================================================
 
   describe('getCodexCommandFromConfig', () => {
-    it('should map sandboxed=false to danger mode with --yolo', () => {
+    it('should map sandboxed=false to danger mode with --dangerously-bypass-approvals-and-sandbox', () => {
       const result = getCodexCommandFromConfig(testPrompt, false, 'terminal', 'interactive')
-      expect(result.yolo).to.be.true
-      expect(result.args).to.include('--yolo')
+      expect(result.dangerMode).to.be.true
+      expect(result.args).to.include('--dangerously-bypass-approvals-and-sandbox')
     })
 
-    it('should map sandboxed=true to safe mode without --yolo', () => {
+    it('should map sandboxed=true to safe mode with --full-auto', () => {
       const result = getCodexCommandFromConfig(testPrompt, true, 'terminal', 'interactive')
-      expect(result.yolo).to.be.false
-      expect(result.args).to.not.include('--yolo')
+      expect(result.dangerMode).to.be.false
+      expect(result.args).to.include('--full-auto')
     })
 
     it('should throw for sandboxed=true + background display', () => {
@@ -240,7 +245,7 @@ describe('Codex Runtime Adapter (TKT-1167)', () => {
     it('should succeed for sandboxed=false + background display', () => {
       const result = getCodexCommandFromConfig(testPrompt, false, 'background', 'interactive')
       expect(result.cmd).to.equal('codex')
-      expect(result.yolo).to.be.true
+      expect(result.dangerMode).to.be.true
     })
 
     it('should throw for sandboxed=true + print output mode', () => {
@@ -251,13 +256,13 @@ describe('Codex Runtime Adapter (TKT-1167)', () => {
     it('should succeed for sandboxed=false + print output mode', () => {
       const result = getCodexCommandFromConfig(testPrompt, false, 'terminal', 'print')
       expect(result.cmd).to.equal('codex')
-      expect(result.yolo).to.be.true
+      expect(result.dangerMode).to.be.true
     })
 
     it('should use default displayMode=terminal and outputMode=interactive', () => {
       const result = getCodexCommandFromConfig(testPrompt, true)
       expect(result.cmd).to.equal('codex')
-      expect(result.yolo).to.be.false
+      expect(result.dangerMode).to.be.false
       expect(result.executionContext).to.equal('interactive')
     })
   })

@@ -60,17 +60,17 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     })
 
     describe('codex executor', () => {
-      it('should return codex command with --yolo and positional prompt in danger mode', () => {
+      it('should return codex command with --dangerously-bypass-approvals-and-sandbox and positional prompt in danger mode', () => {
         const result = getExecutorCommand('codex', testPrompt, true)
         expect(result.cmd).to.equal('codex')
-        expect(result.args).to.deep.equal(['--yolo', testPrompt])
+        expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', testPrompt])
       })
 
       it('should map skipPermissions=false to safe command (prompt only)', () => {
         const withSkip = getExecutorCommand('codex', testPrompt, true)
         const withoutSkip = getExecutorCommand('codex', testPrompt, false)
-        expect(withSkip.args).to.deep.equal(['--yolo', testPrompt])
-        expect(withoutSkip.args).to.deep.equal([testPrompt])
+        expect(withSkip.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', testPrompt])
+        expect(withoutSkip.args).to.deep.equal(['--full-auto', testPrompt])
       })
 
       it('should not include claude-specific flags', () => {
@@ -114,7 +114,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor (not hardcoded claude)', () => {
       const result = getExecutorCommand('codex', 'build the feature')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', 'build the feature'])
+      expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', 'build the feature'])
     })
 
     it('should still use claude for claude-code executor in Docker', () => {
@@ -131,7 +131,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should use codex binary for codex executor on VM', () => {
       const result = getExecutorCommand('codex', 'implement on VM')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', 'implement on VM'])
+      expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', 'implement on VM'])
     })
 
   })
@@ -180,7 +180,7 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
     it('should handle empty prompts', () => {
       const result = getExecutorCommand('codex', '')
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', ''])
+      expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', ''])
     })
   })
 
@@ -205,19 +205,19 @@ describe('Codex Runtime Behavior (TKT-1083)', () => {
   describe('Codex CLI flag contract', () => {
     it('should pass prompt as positional argument in danger mode', () => {
       const result = getExecutorCommand('codex', 'build the feature', true)
-      expect(result.args).to.include('--yolo')
-      expect(result.args).to.deep.equal(['--yolo', 'build the feature'])
+      expect(result.args).to.include('--dangerously-bypass-approvals-and-sandbox')
+      expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', 'build the feature'])
     })
 
     it('should pass prompt as positional argument in safe mode', () => {
       const result = getExecutorCommand('codex', 'implement feature', false)
-      expect(result.args).to.deep.equal(['implement feature'])
+      expect(result.args).to.deep.equal(['--full-auto', 'implement feature'])
     })
 
-    it('should use --yolo for danger mode', () => {
+    it('should use --dangerously-bypass-approvals-and-sandbox for danger mode', () => {
       const result = getExecutorCommand('codex', 'test prompt', true)
-      expect(result.args).to.include('--yolo')
-      expect(result.args).to.deep.equal(['--yolo', 'test prompt'])
+      expect(result.args).to.include('--dangerously-bypass-approvals-and-sandbox')
+      expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', 'test prompt'])
     })
   })
 

@@ -6,8 +6,8 @@ import {
 } from '../../src/lib/execution/runners.js'
 import type { ExecutionContext, ExecutorType, PermissionMode } from '../../src/lib/execution/types.js'
 
-// Codex CLI supported flags — maintained here for contract testing
-const CODEX_SUPPORTED_FLAGS = ['--yolo'] as const
+// Codex CLI supported flags (v0.104.0+) — maintained here for contract testing
+const CODEX_SUPPORTED_FLAGS = ['--dangerously-bypass-approvals-and-sandbox', '--full-auto'] as const
 
 /**
  * Codex Spawn Smoke Tests (TKT-1169)
@@ -16,9 +16,10 @@ const CODEX_SUPPORTED_FLAGS = ['--yolo'] as const
  * Any change to the Codex command generation MUST be accompanied by updates
  * to these tests — CI will fail otherwise.
  *
- * Contract:
+ * Contract (v0.104.0+):
  *   - Prompt is passed as a positional argument
- *   - Autonomous mode uses --yolo
+ *   - Danger mode uses --dangerously-bypass-approvals-and-sandbox
+ *   - Safe mode uses --full-auto
  *   - Only flags in CODEX_SUPPORTED_FLAGS are allowed
  */
 describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
@@ -42,8 +43,12 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
       expect(CODEX_SUPPORTED_FLAGS.length).to.be.greaterThan(0)
     })
 
-    it('should include --yolo in supported flags', () => {
-      expect(CODEX_SUPPORTED_FLAGS).to.include('--yolo')
+    it('should include --dangerously-bypass-approvals-and-sandbox in supported flags', () => {
+      expect(CODEX_SUPPORTED_FLAGS).to.include('--dangerously-bypass-approvals-and-sandbox')
+    })
+
+    it('should include --full-auto in supported flags', () => {
+      expect(CODEX_SUPPORTED_FLAGS).to.include('--full-auto')
     })
 
     it('should only use supported flags in danger mode command', () => {
@@ -86,18 +91,18 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
       expect(result.cmd).to.equal('codex')
     })
 
-    it('danger mode: should produce codex --yolo <prompt>', () => {
+    it('danger mode: should produce codex --dangerously-bypass-approvals-and-sandbox <prompt>', () => {
       const prompt = 'implement the feature'
       const result = getExecutorCommand('codex', prompt, true)
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', prompt])
+      expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', prompt])
     })
 
-    it('safe mode: should produce codex <prompt>', () => {
+    it('safe mode: should produce codex --full-auto <prompt>', () => {
       const prompt = 'implement the feature'
       const result = getExecutorCommand('codex', prompt, false)
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal([prompt])
+      expect(result.args).to.deep.equal(['--full-auto', prompt])
     })
 
     it('should not contain any Claude-specific flags', () => {
@@ -136,7 +141,7 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
       )
 
       expect(command).to.include('docker exec')
-      expect(command).to.include('codex --yolo ')
+      expect(command).to.include('codex --dangerously-bypass-approvals-and-sandbox ')
       expect(command).to.not.include('--permission-mode')
       expect(command).to.not.include('--dangerously-skip-permissions')
     })
@@ -185,7 +190,7 @@ describe('Codex Spawn Smoke Tests (TKT-1169)', () => {
     it('should handle empty prompt', () => {
       const result = getExecutorCommand('codex', '', true)
       expect(result.cmd).to.equal('codex')
-      expect(result.args).to.deep.equal(['--yolo', ''])
+      expect(result.args).to.deep.equal(['--dangerously-bypass-approvals-and-sandbox', ''])
     })
 
     it('should handle prompt with special characters', () => {
