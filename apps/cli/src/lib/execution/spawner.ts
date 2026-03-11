@@ -171,6 +171,8 @@ export interface SpawnOptions {
   log?: (msg: string) => void
   /** Skip GitHub remote check */
   skipRemoteCheck?: boolean
+  /** Tool policy profile name for per-agent access control (TKT-083) */
+  toolPolicy?: string
 }
 
 export interface SpawnResult {
@@ -360,6 +362,7 @@ export async function spawnAgentForTicket(
     pmoPath,
     repoWorktrees,
     createPR: options.createPR ?? false,
+    toolPolicy: options.toolPolicy,
   }
 
   // Determine execution environment and display mode

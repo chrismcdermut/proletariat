@@ -355,6 +355,9 @@ export default class WorkStart extends PMOCommand {
       default: false,
       hidden: true,
     }),
+    'tool-policy': Flags.string({
+      description: 'Tool policy profile name for per-agent access control (e.g., code-agent, ops-agent)',
+    }),
   }
 
   private async findLinkedTicketByEnvelope(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
@@ -1281,6 +1284,8 @@ export default class WorkStart extends PMOCommand {
         pmoPath: this.pmoPath,          // PMO path for container mounting
         repoWorktrees,
         isEphemeral: isEphemeralAgent,
+        // Tool policy (TKT-083)
+        toolPolicy: flags['tool-policy'],
         // Action context
         actionId: selectedAction?.id,
         actionName: selectedAction?.name || (customPrompt ? 'Custom' : undefined),
@@ -2641,6 +2646,7 @@ export default class WorkStart extends PMOCommand {
       'no-pr'?: boolean
       executor?: string
       session?: string
+      'tool-policy'?: string
     }
   ): Promise<void> {
     const agentName = agent.name
@@ -2692,6 +2698,7 @@ export default class WorkStart extends PMOCommand {
       repoWorktrees,
       isEphemeral: workspaceInfo.agents.find(a => a.name === agentName)?.type === 'ephemeral',
       createPR: flags['create-pr'] || false,
+      toolPolicy: flags['tool-policy'],
       // Use 'implement' action for batch mode
       actionId: defaultAction?.id,
       actionName: defaultAction?.name,
