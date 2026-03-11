@@ -19,7 +19,7 @@ import { pruneWorktrees, checkoutBranchSafe } from '../branch/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName } from './runners.js'
+import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName, isSrtInstalled } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
 import { type ExternalMappingProvider } from '../external-issues/types.js'
@@ -34,6 +34,7 @@ import {
   PermissionMode,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
+  normalizeEnvironment,
 } from './types.js'
 import { Ticket } from '../pmo/types.js'
 
@@ -370,15 +371,21 @@ export async function spawnAgentForTicket(
   // fall back to host execution with a warning instead of hanging or hard-failing.
   let environment: ExecutionEnvironment
   if (options.environment) {
-    environment = options.environment
+    // Normalize 'vm' -> 'cloud' for backwards compatibility
+    environment = normalizeEnvironment(options.environment)
   } else if (hasDevcontainer && dockerStatus.available) {
     environment = 'devcontainer'
   } else if (hasDevcontainer && !dockerStatus.available) {
     if (dockerStatus.reason === 'not-installed') {
       // Docker not installed — require explicit opt-in to host (TKT-046 security check)
       if (options.runOnHost) {
-        environment = 'host'
-        log('⚠️  Running on host (--run-on-host flag set). Agent has full host access.')
+        // User explicitly opted to run on host — use sandbox if srt available
+        environment = isSrtInstalled() ? 'sandbox' : 'host'
+        if (environment === 'host') {
+          log('⚠️  Running on host (--run-on-host flag set). Agent has full host access.')
+        } else {
+          log('🔒 Running in sandbox (srt). Filesystem + network isolation active.')
+        }
       } else {
         return {
           success: false,
@@ -388,18 +395,19 @@ export async function spawnAgentForTicket(
             'For security, agents should run in Docker containers.\n' +
             'Options:\n' +
             '  1. Install Docker Desktop and try again\n' +
-            '  2. Use --run-on-host flag to run directly on your machine (bypasses sandbox)',
+            '  2. Use --run-on-host flag to run directly on your machine (bypasses container)\n' +
+            '  3. Install srt for lightweight sandbox: https://github.com/anthropic-experimental/sandbox-runtime',
         }
       }
     } else {
       // TKT-081: Docker is installed but daemon is not ready (unresponsive, 500 errors,
-      // stuck on license/login prompt, still initializing). Fall back to host with a warning.
-      environment = 'host'
-      log(`⚠️  Docker daemon not ready, falling back to host. ${dockerStatus.message}`)
+      // stuck on license/login prompt, still initializing). Fall back to sandbox/host with a warning.
+      environment = isSrtInstalled() ? 'sandbox' : 'host'
+      log(`⚠️  Docker daemon not ready, falling back to ${environment}. ${dockerStatus.message}`)
     }
   } else {
-    // No devcontainer configured, host is the only option
-    environment = 'host'
+    // No devcontainer configured — use sandbox if srt available, else host
+    environment = isSrtInstalled() ? 'sandbox' : 'host'
   }
 
   // Set the execution environment on the context so prompt builders can include
@@ -410,8 +418,8 @@ export async function spawnAgentForTicket(
   const permissionMode: PermissionMode = (options.skipPermissions ?? false) ? 'danger' : 'safe'
 
   // Executor preflight check (TKT-1082): verify binary is available before proceeding
-  // For host environment, check immediately. For devcontainer, check happens after container start.
-  if (environment === 'host') {
+  // For host/sandbox environments, check immediately. For devcontainer, check happens after container start.
+  if (environment === 'host' || environment === 'sandbox') {
     const preflight = runExecutorPreflight(environment, executor)
     if (!preflight.ok) {
       return {
