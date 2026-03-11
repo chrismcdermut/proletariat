@@ -220,11 +220,12 @@ export default class SessionPoke extends PMOCommand {
             `tmux session "${resolved.sessionId}" does not exist. The agent may have exited.`,
             createMetadata('session poke', flags),
           )
+        } else {
+          this.log('')
+          this.log(styles.error(`tmux session "${resolved.sessionId}" does not exist. The agent may have exited.`))
+          this.log(styles.muted('Use `prlt session list` to see running sessions.'))
+          this.log('')
         }
-        this.log('')
-        this.log(styles.error(`tmux session "${resolved.sessionId}" does not exist. The agent may have exited.`))
-        this.log(styles.muted('Use `prlt session list` to see running sessions.'))
-        this.log('')
         return
       }
 
@@ -235,11 +236,12 @@ export default class SessionPoke extends PMOCommand {
             `Docker container for agent "${resolved.agentName}" is not running.`,
             createMetadata('session poke', flags),
           )
+        } else {
+          this.log('')
+          this.log(styles.error(`Docker container for agent "${resolved.agentName}" is not running.`))
+          this.log(styles.muted('The container may have stopped. Check with `docker ps`.'))
+          this.log('')
         }
-        this.log('')
-        this.log(styles.error(`Docker container for agent "${resolved.agentName}" is not running.`))
-        this.log(styles.muted('The container may have stopped. Check with `docker ps`.'))
-        this.log('')
         return
       }
 
@@ -250,10 +252,11 @@ export default class SessionPoke extends PMOCommand {
           `Failed to send message to agent "${resolved.agentName}": ${errMsg}`,
           createMetadata('session poke', flags),
         )
+      } else {
+        this.log('')
+        this.log(styles.error(`Failed to send message: ${errMsg}`))
+        this.log('')
       }
-      this.log('')
-      this.log(styles.error(`Failed to send message: ${errMsg}`))
-      this.log('')
       return
     }
 

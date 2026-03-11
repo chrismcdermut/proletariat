@@ -324,17 +324,18 @@ export default class SessionRestart extends PMOCommand {
 
       sendCommand(actualSessionId, claudeCmd, containerId)
 
-      // Track restart count in execution metadata
-      // We increment restartCount by updating the error_message field with restart info
-      const currentExec = executionStorage.getExecution(match.id)
-      const restartInfo = currentExec?.errorMessage
-        ? JSON.parse(currentExec.errorMessage).restartCount || 0
-        : 0
-      const newRestartCount = restartInfo + 1
-
-      // Store restart metadata - use a non-error metadata approach
+      // Track restart — update execution status back to running
+      let newRestartCount = 1
       try {
-        // Update the execution to track restarts via a metadata convention
+        const currentExec = executionStorage.getExecution(match.id)
+        if (currentExec?.errorMessage) {
+          try {
+            const parsed = JSON.parse(currentExec.errorMessage)
+            newRestartCount = (parsed.restartCount || 0) + 1
+          } catch {
+            // errorMessage is not JSON, just count as first restart
+          }
+        }
         executionStorage.updateStatus(match.id, 'running')
       } catch {
         // Best effort tracking
