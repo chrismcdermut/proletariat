@@ -2646,14 +2646,20 @@ export async function runDocker(
 
     // Build executor command using getExecutorCommand() for correct invocation
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
 
     // For Claude Code in Docker, use --print for non-interactive output
+    // For Codex, use getCodexCommand directly with 'non-tty' context (Docker detached has no TTY)
     // Non-Claude executors use their native command format from getExecutorCommand()
     dockerCmd += ` ${config.docker.image}`
     if (isClaudeExecutor(executor)) {
+      const { cmd } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
       dockerCmd += ` ${cmd} --print '${escapedPrompt}'`
+    } else if (executor === 'codex') {
+      const codexResult = getCodexCommand(escapedPrompt, config.permissionMode, 'non-tty')
+      const argsStr = codexResult.args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
+      dockerCmd += ` ${codexResult.cmd} ${argsStr}`
     } else {
+      const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
       const argsStr = args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
       dockerCmd += ` ${cmd} ${argsStr}`
     }
@@ -3121,13 +3127,19 @@ export async function runVm(
 
     // Execute on remote using executor-appropriate command
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
 
     // Build the remote command based on executor type
+    // For Codex, use getCodexCommand directly with 'non-tty' context (SSH + nohup has no TTY)
     let remoteCmd: string
     if (isClaudeExecutor(executor)) {
+      const { cmd: executorCmd } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
       remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} --print '${escapedPrompt}'`
+    } else if (executor === 'codex') {
+      const codexResult = getCodexCommand(escapedPrompt, config.permissionMode, 'non-tty')
+      const argsStr = codexResult.args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
+      remoteCmd = `cd ${remoteWorkspace} && ${codexResult.cmd} ${argsStr}`
     } else {
+      const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
       const argsStr = executorArgs.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
       remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} ${argsStr}`
     }
