@@ -1236,26 +1236,81 @@ export function isGitHubTokenAvailable(): boolean {
 // =============================================================================
 
 /**
- * Check if Docker daemon is running.
- * Returns true if Docker is available and responsive.
- * Uses retry logic to handle slow Docker Desktop startup.
+ * Docker daemon health check result (TKT-081).
+ * Provides diagnostic info about why Docker isn't available.
  */
-export function isDockerRunning(): boolean {
-  const maxRetries = 3
-  const timeout = 10000 // 10 seconds
+export type DockerDaemonStatus = {
+  available: boolean
+  /** 'ready' | 'not-installed' | 'daemon-not-ready' */
+  reason: 'ready' | 'not-installed' | 'daemon-not-ready'
+  /** Human-readable message for logging/display */
+  message: string
+}
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      execSync('docker info', { stdio: 'pipe', timeout })
-      return true
-    } catch {
-      if (attempt === maxRetries) {
-        return false
-      }
-      // Brief pause before retry
+/**
+ * Check Docker daemon health with fast detection (TKT-081).
+ *
+ * Uses `docker ps` with a 5-second timeout to quickly detect:
+ * - Docker not installed
+ * - Docker installed but daemon unresponsive (stuck on license, initializing, 500 errors)
+ * - Docker ready
+ *
+ * Total worst-case time: ~5 seconds (single attempt with timeout).
+ */
+export function checkDockerDaemon(): DockerDaemonStatus {
+  // First: is docker even installed?
+  try {
+    execSync('which docker', { stdio: 'pipe', timeout: 3000 })
+  } catch {
+    return {
+      available: false,
+      reason: 'not-installed',
+      message: 'Docker is not installed.',
     }
   }
-  return false
+
+  // Second: is the daemon responsive? Use `docker ps` — it's lightweight and
+  // fails fast when the daemon returns 500s or hangs on GUI prompts.
+  const timeout = 5000 // 5 seconds — enough for a healthy daemon, fast fail otherwise
+  try {
+    execSync('docker ps -q --no-trunc', { stdio: 'pipe', timeout })
+    return {
+      available: true,
+      reason: 'ready',
+      message: 'Docker daemon is ready.',
+    }
+  } catch (error: unknown) {
+    // Parse the error to give actionable feedback
+    const stderr = (error as { stderr?: Buffer })?.stderr?.toString() || ''
+    const isTimeout = (error as { killed?: boolean })?.killed === true
+
+    let message: string
+    if (isTimeout) {
+      message = 'Docker daemon is not responding (timed out after 5s). Docker Desktop may be initializing or stuck — check for license/login prompts.'
+    } else if (stderr.includes('500') || stderr.includes('Internal Server Error')) {
+      message = 'Docker daemon is returning errors (500). Docker Desktop needs attention — check for license/login prompts.'
+    } else if (stderr.includes('connect') || stderr.includes('Cannot connect') || stderr.includes('Is the docker daemon running')) {
+      message = 'Docker daemon is not running. Start Docker Desktop and try again.'
+    } else {
+      message = `Docker daemon is not ready: ${stderr.trim() || 'unknown error'}. Check Docker Desktop status.`
+    }
+
+    return {
+      available: false,
+      reason: 'daemon-not-ready',
+      message,
+    }
+  }
+}
+
+/**
+ * Check if Docker daemon is running.
+ * Returns true if Docker is available and responsive.
+ *
+ * For detailed diagnostics, use checkDockerDaemon() instead.
+ */
+export function isDockerRunning(): boolean {
+  return checkDockerDaemon().available
 }
 
 /**
@@ -1318,7 +1373,7 @@ function getImageName(agentName: string): string {
  */
 export function containerExists(containerName: string): boolean {
   try {
-    execSync(`docker container inspect ${containerName}`, { stdio: 'pipe' })
+    execSync(`docker container inspect ${containerName}`, { stdio: 'pipe', timeout: 5000 })
     return true
   } catch {
     return false
@@ -1332,7 +1387,7 @@ export function isContainerRunning(containerName: string): boolean {
   try {
     const status = execSync(
       `docker container inspect -f '{{.State.Running}}' ${containerName}`,
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
     ).trim()
     return status === 'true'
   } catch {
@@ -1347,7 +1402,7 @@ export function getContainerId(containerName: string): string | null {
   try {
     const containerId = execSync(
       `docker container inspect -f '{{.Id}}' ${containerName}`,
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
     ).trim()
     return containerId ? containerId.substring(0, 12) : null
   } catch {
@@ -1386,7 +1441,7 @@ function buildDockerImage(agentDir: string, imageName: string, buildArgs: Record
  */
 function imageExists(imageName: string): boolean {
   try {
-    execSync(`docker image inspect ${imageName}`, { stdio: 'pipe' })
+    execSync(`docker image inspect ${imageName}`, { stdio: 'pipe', timeout: 5000 })
     return true
   } catch {
     return false
@@ -1658,7 +1713,7 @@ function ensureDockerContainer(
     // Container exists but is stopped - remove and recreate for fresh mounts
     console.debug(`[runners:docker] Removing stopped container ${containerName} to create fresh one`)
     try {
-      execSync(`docker rm -f ${containerName}`, { stdio: 'pipe' })
+      execSync(`docker rm -f ${containerName}`, { stdio: 'pipe', timeout: 10000 })
     } catch {
       // Ignore removal errors
     }
@@ -1909,11 +1964,12 @@ export async function runDevcontainer(
   }
 
   try {
-    // Check if Docker is running
-    if (!isDockerRunning()) {
+    // Check if Docker is running (TKT-081: fast detection with diagnostic info)
+    const dockerStatus = checkDockerDaemon()
+    if (!dockerStatus.available) {
       return {
         success: false,
-        error: 'Docker is not running. Please start Docker Desktop and try again.',
+        error: `Docker daemon is not available. ${dockerStatus.message}`,
       }
     }
 
@@ -2672,14 +2728,12 @@ export async function runDocker(
   const containerName = `work-${context.ticketId}-${Date.now()}`
 
   try {
-    // Check if docker is available
-    execSync('which docker', { stdio: 'pipe' })
-
-    // Check if Docker is running
-    if (!isDockerRunning()) {
+    // Check if docker is available and daemon is responsive (TKT-081)
+    const dockerStatus = checkDockerDaemon()
+    if (!dockerStatus.available) {
       return {
         success: false,
-        error: 'Docker is not running. Please start Docker Desktop and try again.',
+        error: `Docker daemon is not available. ${dockerStatus.message}`,
       }
     }
 
@@ -2774,11 +2828,12 @@ export async function runOrchestratorInDocker(
   const imageName = `prlt-orchestrator-${(hqName).replace(/[^a-zA-Z0-9._-]/g, '-')}:latest`
 
   try {
-    // Check Docker is running
-    if (!isDockerRunning()) {
+    // Check Docker is running (TKT-081: fast detection with diagnostic info)
+    const dockerStatus = checkDockerDaemon()
+    if (!dockerStatus.available) {
       return {
         success: false,
-        error: 'Docker is not running. Please start Docker Desktop and try again.',
+        error: `Docker daemon is not available. ${dockerStatus.message}`,
       }
     }
 

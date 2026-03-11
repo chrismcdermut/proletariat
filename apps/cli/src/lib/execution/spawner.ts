@@ -19,7 +19,7 @@ import { pruneWorktrees, checkoutBranchSafe } from '../branch/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
-import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName } from './runners.js'
+import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
 import { type ExternalMappingProvider } from '../external-issues/types.js'
@@ -382,33 +382,38 @@ export async function spawnAgentForTicket(
 
   // Determine execution environment and display mode
   const hasDevcontainer = hasDevcontainerConfig(agentDir)
-  const dockerRunning = isDockerRunning()
+  const dockerStatus = checkDockerDaemon()
 
-  // Security check: If devcontainer exists but Docker isn't running,
-  // require explicit --run-on-host flag to proceed (TKT-046)
+  // TKT-081: When Docker daemon is unresponsive (installed but not ready),
+  // fall back to host execution with a warning instead of hanging or hard-failing.
   let environment: ExecutionEnvironment
   if (options.environment) {
     environment = options.environment
-  } else if (hasDevcontainer && dockerRunning) {
+  } else if (hasDevcontainer && dockerStatus.available) {
     environment = 'devcontainer'
-  } else if (hasDevcontainer && !dockerRunning) {
-    // Devcontainer exists but Docker isn't running
-    if (options.runOnHost) {
-      // User explicitly opted to run on host
-      environment = 'host'
-      log('⚠️  Running on host (--run-on-host flag set). Agent has full host access.')
-    } else {
-      // Security: Don't silently fall back to host
-      return {
-        success: false,
-        ticketId: ticket.id,
-        agentName,
-        error: 'Docker is not running but devcontainer is configured.\n\n' +
-          'For security, agents should run in Docker containers.\n' +
-          'Options:\n' +
-          '  1. Start Docker Desktop and try again\n' +
-          '  2. Use --run-on-host flag to run directly on your machine (bypasses sandbox)',
+  } else if (hasDevcontainer && !dockerStatus.available) {
+    if (dockerStatus.reason === 'not-installed') {
+      // Docker not installed — require explicit opt-in to host (TKT-046 security check)
+      if (options.runOnHost) {
+        environment = 'host'
+        log('⚠️  Running on host (--run-on-host flag set). Agent has full host access.')
+      } else {
+        return {
+          success: false,
+          ticketId: ticket.id,
+          agentName,
+          error: 'Docker is not installed but devcontainer is configured.\n\n' +
+            'For security, agents should run in Docker containers.\n' +
+            'Options:\n' +
+            '  1. Install Docker Desktop and try again\n' +
+            '  2. Use --run-on-host flag to run directly on your machine (bypasses sandbox)',
+        }
       }
+    } else {
+      // TKT-081: Docker is installed but daemon is not ready (unresponsive, 500 errors,
+      // stuck on license/login prompt, still initializing). Fall back to host with a warning.
+      environment = 'host'
+      log(`⚠️  Docker daemon not ready, falling back to host. ${dockerStatus.message}`)
     }
   } else {
     // No devcontainer configured, host is the only option
@@ -912,4 +917,4 @@ export async function spawnForColumn(
 // Docker & GitHub Token Checks
 // =============================================================================
 
-export { isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled }
+export { isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled }
