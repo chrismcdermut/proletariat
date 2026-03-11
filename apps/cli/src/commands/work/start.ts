@@ -468,7 +468,7 @@ export default class WorkStart extends PMOCommand {
     keyResolver.addPrompt({
       flagName: 'key',
       type: 'input',
-      message: `Enter ${source === 'linear' ? 'Linear' : source === 'jira' ? 'Jira' : source === 'asana' ? 'Asana task' : source === 'shortcut' ? 'Shortcut story' : source} key:`,
+      message: `Enter ${source === 'linear' ? 'Linear' : source === 'jira' ? 'Jira' : source === 'asana' ? 'Asana task' : source === 'shortcut' ? 'Shortcut story' : source === 'trello' ? 'Trello card' : source} key:`,
       default: key,
       when: () => !key?.trim(),
       validate: (value) => (value as string).trim().length > 0 ? true : 'Issue key is required',

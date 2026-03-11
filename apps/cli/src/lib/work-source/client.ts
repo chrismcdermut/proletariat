@@ -22,6 +22,12 @@ import {
   buildShortcutTicketDescription,
   getShortcutStoryByKey,
 } from '../external-issues/shortcut.js'
+import {
+  buildTrelloMetadata,
+  buildTrelloSpawnContextMessage,
+  buildTrelloTicketDescription,
+  getTrelloCardById,
+} from '../external-issues/trello.js'
 import type { NormalizedIssueEnvelope } from '../external-issues/types.js'
 import type { WorkSourceProvider } from './config.js'
 
@@ -113,11 +119,32 @@ class ShortcutWorkSourceClient implements WorkSourceClient {
   }
 }
 
+class TrelloWorkSourceClient implements WorkSourceClient {
+  readonly provider: WorkSourceProvider = 'trello'
+
+  async fetchByKey(key: string): Promise<NormalizedIssueEnvelope | null> {
+    return getTrelloCardById({}, key)
+  }
+
+  buildTicketDescription(envelope: NormalizedIssueEnvelope): string {
+    return buildTrelloTicketDescription(envelope)
+  }
+
+  buildMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
+    return buildTrelloMetadata(envelope)
+  }
+
+  buildSpawnContextMessage(envelope: NormalizedIssueEnvelope, additionalMessage?: string): string {
+    return buildTrelloSpawnContextMessage(envelope, additionalMessage)
+  }
+}
+
 const SOURCE_CLIENTS: Partial<Record<WorkSourceProvider, WorkSourceClient>> = {
   linear: new LinearWorkSourceClient(),
   jira: new JiraWorkSourceClient(),
   asana: new AsanaWorkSourceClient(),
   shortcut: new ShortcutWorkSourceClient(),
+  trello: new TrelloWorkSourceClient(),
 }
 
 export function getWorkSourceClient(provider: WorkSourceProvider): WorkSourceClient | null {
