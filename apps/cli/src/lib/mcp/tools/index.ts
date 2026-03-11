@@ -5,7 +5,6 @@
 export { registerTicketTools } from './ticket.js'
 export { registerProjectTools } from './project.js'
 export { registerBoardTools } from './board.js'
-export { registerSpecTools } from './spec.js'
 export { registerEpicTools } from './epic.js'
 export { registerWorkTools } from './work.js'
 export { registerWorkflowTools } from './workflow.js'

@@ -4,7 +4,7 @@
 
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { Project, Column, Spec } from '../../pmo/types.js'
+import type { Project, Column } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
 import { errorResponse, strictTool } from '../helpers.js'
 
@@ -196,47 +196,4 @@ export function registerProjectTools(server: McpServer, ctx: McpToolContext): vo
     }
   )
 
-  strictTool(server,
-    'project_link_to_spec',
-    'Link project to a spec',
-    {
-      project_id: z.string().describe('Project ID'),
-      spec_id: z.string().describe('Spec ID'),
-    },
-    async (params) => {
-      try {
-        await ctx.storage.linkProjectToSpec(params.project_id, params.spec_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: 'Project linked to spec' }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'project_get_specs',
-    'Get specs linked to a project',
-    { project_id: z.string().describe('Project ID') },
-    async (params) => {
-      try {
-        const specs = await ctx.storage.getSpecsForProject(params.project_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({
-              success: true,
-              specs: specs.map((s: Spec) => ({ id: s.id, title: s.title, status: s.status })),
-            }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
 }

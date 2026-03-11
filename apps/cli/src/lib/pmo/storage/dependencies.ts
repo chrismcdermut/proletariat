@@ -1,5 +1,5 @@
 /**
- * Dependency operations for tickets, specs, and epics.
+ * Dependency operations for tickets and epics.
  */
 
 import { PMO_TABLES } from '../schema.js'
@@ -7,8 +7,6 @@ import {
   EpicDependency,
   EpicDependencyType,
   PMOError,
-  SpecDependency,
-  SpecDependencyType,
   Ticket,
   TicketDependency,
   TicketDependencyType,
@@ -176,96 +174,6 @@ export class DependencyStorage {
   async isTicketBlocked(ticketId: string): Promise<boolean> {
     const blockers = await this.getTicketBlockers(ticketId)
     return blockers.some((t) => t.status !== 'done' && t.status !== 'canceled')
-  }
-
-  // =========================================================================
-  // Spec Dependencies
-  // =========================================================================
-
-  /**
-   * Create a dependency between two specs.
-   */
-  async createSpecDependency(
-    specId: string,
-    dependsOnSpecId: string,
-    dependencyType: SpecDependencyType = 'depends_on'
-  ): Promise<SpecDependency> {
-    // Validate specs exist
-    const spec = this.ctx.db.prepare(`SELECT id FROM ${T.specs} WHERE id = ?`).get(specId)
-    if (!spec) throw new PMOError('NOT_FOUND', `Spec not found: ${specId}`)
-
-    const dependsOn = this.ctx.db.prepare(`SELECT id FROM ${T.specs} WHERE id = ?`).get(
-      dependsOnSpecId
-    )
-    if (!dependsOn) throw new PMOError('NOT_FOUND', `Spec not found: ${dependsOnSpecId}`)
-
-    try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.spec_dependencies} (spec_id, depends_on_spec_id, dependency_type)
-        VALUES (?, ?, ?)
-      `).run(specId, dependsOnSpecId, dependencyType)
-
-      return {
-        specId,
-        dependsOnSpecId,
-        dependencyType,
-        createdAt: new Date(),
-      }
-    } catch (error: unknown) {
-      if (error instanceof Error && error.message.includes('UNIQUE constraint')) {
-        throw new PMOError('CONFLICT', 'Dependency already exists')
-      }
-      if (error instanceof Error && error.message.includes('CHECK constraint')) {
-        throw new PMOError('INVALID', 'Cannot create self-dependency')
-      }
-      throw error
-    }
-  }
-
-  /**
-   * Delete a spec dependency.
-   */
-  async deleteSpecDependency(
-    specId: string,
-    dependsOnSpecId: string,
-    dependencyType?: SpecDependencyType
-  ): Promise<void> {
-    let query = `DELETE FROM ${T.spec_dependencies} WHERE spec_id = ? AND depends_on_spec_id = ?`
-    const params: unknown[] = [specId, dependsOnSpecId]
-
-    if (dependencyType) {
-      query += ' AND dependency_type = ?'
-      params.push(dependencyType)
-    }
-
-    const result = this.ctx.db.prepare(query).run(...params)
-    if (result.changes === 0) {
-      throw new PMOError('NOT_FOUND', 'Dependency not found')
-    }
-  }
-
-  /**
-   * List dependencies for a spec.
-   */
-  async listSpecDependencies(specId: string): Promise<SpecDependency[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT spec_id, depends_on_spec_id, dependency_type, created_at
-      FROM ${T.spec_dependencies}
-      WHERE spec_id = ?
-      ORDER BY created_at DESC
-    `).all(specId) as Array<{
-      spec_id: string
-      depends_on_spec_id: string
-      dependency_type: string
-      created_at: string
-    }>
-
-    return rows.map((row) => ({
-      specId: row.spec_id,
-      dependsOnSpecId: row.depends_on_spec_id,
-      dependencyType: row.dependency_type as SpecDependencyType,
-      createdAt: new Date(row.created_at),
-    }))
   }
 
   // =========================================================================

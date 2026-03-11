@@ -7,7 +7,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 
-type EntityType = 'ticket' | 'spec' | 'epic'
+type EntityType = 'ticket' | 'epic'
 
 /**
  * Infer entity type from ID prefix
@@ -15,7 +15,6 @@ type EntityType = 'ticket' | 'spec' | 'epic'
 function inferEntityType(id: string): EntityType | null {
   const upper = id.toUpperCase()
   if (upper.startsWith('TKT-')) return 'ticket'
-  if (upper.startsWith('SPEC-')) return 'spec'
   if (upper.startsWith('EPIC-')) return 'epic'
   return null
 }
@@ -26,13 +25,12 @@ export default class LinkCreate extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 --type blocks    # TKT-001 is blocked by TKT-002',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 --type relates   # TKT-001 relates to TKT-002',
-    '<%= config.bin %> <%= command.id %> SPEC-001 SPEC-002 --type depends # SPEC-001 depends on SPEC-002',
     '<%= config.bin %> <%= command.id %> EPIC-001 EPIC-002 --type blocks  # EPIC-001 is blocked by EPIC-002',
   ]
 
   static args = {
     from: Args.string({
-      description: 'Source entity ID (TKT-xxx, SPEC-xxx, or EPIC-xxx)',
+      description: 'Source entity ID (TKT-xxx or EPIC-xxx)',
       required: true,
     }),
     to: Args.string({
@@ -68,10 +66,10 @@ export default class LinkCreate extends PMOCommand {
     const toType = inferEntityType(args.to)
 
     if (!fromType) {
-      return handleError('INVALID_FROM_ID', `Cannot infer entity type from "${args.from}". Use TKT-, SPEC-, or EPIC- prefix.`)
+      return handleError('INVALID_FROM_ID', `Cannot infer entity type from "${args.from}". Use TKT- or EPIC- prefix.`)
     }
     if (!toType) {
-      return handleError('INVALID_TO_ID', `Cannot infer entity type from "${args.to}". Use TKT-, SPEC-, or EPIC- prefix.`)
+      return handleError('INVALID_TO_ID', `Cannot infer entity type from "${args.to}". Use TKT- or EPIC- prefix.`)
     }
     if (fromType !== toType) {
       return handleError('TYPE_MISMATCH', `Cannot link different entity types: ${fromType} and ${toType}`)
@@ -81,11 +79,7 @@ export default class LinkCreate extends PMOCommand {
 
     // Validate link type for entity type
     // Tickets: blocks, relates_to, duplicates
-    // Specs: depends_on, relates_to, duplicates (no blocks)
     // Epics: blocks, relates_to, duplicates (no depends)
-    if (fromType === 'spec' && linkType === 'blocks') {
-      return handleError('INVALID_LINK_TYPE', 'Specs do not support "blocks" link type. Use "depends" instead.')
-    }
     if (fromType === 'epic' && linkType === 'depends') {
       return handleError('INVALID_LINK_TYPE', 'Epics do not support "depends" link type. Use "blocks" instead.')
     }
@@ -111,19 +105,6 @@ export default class LinkCreate extends PMOCommand {
         this.log(styles.success(`\n✅ Link created: ${styles.emphasis(args.from)} → ${styles.emphasis(args.to)} (${linkType})`))
         this.log(styles.muted(`   ${ticket.title}`))
         this.log(styles.muted(`   ${linkType}: ${targetTicket.title}`))
-
-      } else if (fromType === 'spec') {
-        const spec = await this.storage.getSpec(args.from)
-        if (!spec) return handleError('FROM_NOT_FOUND', `Spec not found: ${args.from}`)
-
-        const targetSpec = await this.storage.getSpec(args.to)
-        if (!targetSpec) return handleError('TO_NOT_FOUND', `Spec not found: ${args.to}`)
-
-        await this.storage.createSpecDependency(args.from, args.to, dependencyType as 'depends_on' | 'relates_to' | 'duplicates')
-
-        this.log(styles.success(`\n✅ Link created: ${styles.emphasis(args.from)} → ${styles.emphasis(args.to)} (${linkType})`))
-        this.log(styles.muted(`   ${spec.title}`))
-        this.log(styles.muted(`   ${linkType}: ${targetSpec.title}`))
 
       } else if (fromType === 'epic') {
         const epic = await this.storage.getEpic(args.from)

@@ -458,28 +458,6 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
   )
 
   strictTool(server,
-    'ticket_link_to_spec',
-    'Link ticket to a spec',
-    {
-      ticket_id: z.string().describe('Ticket ID'),
-      spec_id: z.string().describe('Spec ID'),
-    },
-    async (params) => {
-      try {
-        await ctx.storage.linkTicketToSpec(params.ticket_id, params.spec_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: 'Ticket linked to spec' }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
     'ticket_add_blocker',
     'Add a blocking dependency',
     {

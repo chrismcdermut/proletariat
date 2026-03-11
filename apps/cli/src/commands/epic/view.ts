@@ -90,13 +90,6 @@ export default class EpicView extends PMOCommand {
     const doneTickets = tickets.filter((t: Ticket) => t.statusCategory === 'completed').length;
     const percent = tickets.length > 0 ? Math.round((doneTickets / tickets.length) * 100) : 0;
 
-    // Get linked spec if any
-    let specTitle: string | undefined;
-    if (epic.specId) {
-      const spec = await this.storage.getSpec(epic.specId);
-      specTitle = spec?.title;
-    }
-
     const projectName = await this.getProjectName(projectId);
 
     // JSON output mode
@@ -133,9 +126,6 @@ export default class EpicView extends PMOCommand {
     this.log(`Title: ${epic.title}`);
     this.log(`Project: ${projectName}`);
     this.log(`Status: ${epic.status}`);
-    if (epic.specId) {
-      this.log(`Spec: ${epic.specId}${specTitle ? ` - ${specTitle}` : ''}`);
-    }
     this.log(`Created: ${epic.createdAt.toLocaleDateString()}`);
     if (epic.description) {
       this.log(`\nDescription: ${epic.description}`);

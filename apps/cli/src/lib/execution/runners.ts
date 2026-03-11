@@ -644,10 +644,6 @@ function buildPrompt(context: ExecutionContext): string {
   if (context.epicTitle) {
     prompt += `**Epic:** ${context.epicTitle}\n`
   }
-  if (context.specId) {
-    prompt += `**Spec:** ${context.specId}${context.specTitle ? ` - ${context.specTitle}` : ''}\n`
-  }
-
   if (context.ticketDescription) {
     prompt += `\n## Description\n\n${context.ticketDescription}\n`
   }

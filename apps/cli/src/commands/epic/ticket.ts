@@ -9,14 +9,13 @@ import {
 } from '../../lib/prompt-json.js';
 
 export default class EpicTicket extends PMOCommand {
-  static description = 'Assign tickets to an epic, or link epic to a spec (parent-child)';
+  static description = 'Assign tickets to an epic (parent-child)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %> EPIC-001 TKT-001 TKT-002',
     '<%= config.bin %> <%= command.id %> EPIC-001',
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> EPIC-001 --unlink TKT-001',
-    '<%= config.bin %> <%= command.id %> EPIC-001 --spec SPEC-001',
   ];
 
   static args = {
@@ -39,22 +38,6 @@ export default class EpicTicket extends PMOCommand {
       char: 'u',
       description: 'Remove tickets from this epic instead of adding',
       default: false,
-    }),
-    spec: Flags.string({
-      char: 's',
-      description: 'Link epic to a spec (design document)',
-    }),
-    'unlink-spec': Flags.boolean({
-      description: 'Remove spec link from epic',
-      default: false,
-    }),
-    reconcile: Flags.string({
-      description: 'How to handle spec mismatch: keep (keep ticket spec), epic (use epic spec), skip',
-      options: ['keep', 'epic', 'skip'],
-    }),
-    'inherit-spec': Flags.boolean({
-      description: 'Inherit spec from epic when ticket has no spec',
-      allowNo: true,
     }),
   };
 
@@ -139,35 +122,6 @@ export default class EpicTicket extends PMOCommand {
       return handleError('EPIC_NOT_FOUND', `Epic not found: ${epicId}`);
     }
 
-    // Handle spec linking if --spec or --unlink-spec provided
-    if (flags.spec || flags['unlink-spec']) {
-      if (flags['unlink-spec']) {
-        // Unlink spec from epic
-        if (!epic.specId) {
-          this.log(styles.muted(`\nEpic ${epicId} is not linked to any spec.`));
-        } else {
-          await this.storage.updateEpic(epicId!, { specId: undefined });
-          this.log(styles.success(`\n✅ Unlinked spec from ${styles.emphasis(epicId!)} "${epic.title}"`));
-        }
-      } else {
-        // Link spec to epic
-        const spec = await this.storage.getSpec(flags.spec!);
-        if (!spec) {
-          this.error(`Spec not found: ${flags.spec}`);
-        }
-
-        await this.storage.updateEpic(epicId!, { specId: flags.spec });
-        this.log(styles.success(`\n✅ Linked ${styles.emphasis(epicId!)} "${epic.title}" to spec ${styles.emphasis(flags.spec!)}`));
-        this.log(styles.muted(`   Spec: ${spec.title}`));
-      }
-
-      // If only spec operation, exit here
-      const argvStrings = argv as string[];
-      if (argvStrings.length <= 1 && !flags.unlink) {
-        return;
-      }
-    }
-
     // Get ticket IDs from remaining argv (after epic ID)
     let ticketIds: string[] = [];
     const argvStrings = argv as string[];
@@ -244,79 +198,6 @@ export default class EpicTicket extends PMOCommand {
         if (currentEpicId) {
           const currentEpic = epics.find(e => e.id === currentEpicId);
           this.log(styles.warning(`  ${ticketId} was linked to ${currentEpic?.title || currentEpicId}, reassigning`));
-        }
-
-        // Reconciliation: Check spec consistency between ticket and epic
-        const ticketSpecId = ticket.specId;
-        const epicSpecId = epic.specId;
-
-        if (ticketSpecId && epicSpecId && ticketSpecId !== epicSpecId) {
-          // Both have specs but they differ - determine action
-          let action: string;
-
-          // Check if --reconcile flag was provided
-          if (flags.reconcile) {
-            action = flags.reconcile === 'keep' ? 'keep_ticket' : flags.reconcile === 'epic' ? 'use_epic' : 'skip';
-          } else {
-            if (!jsonMode) {
-              this.log(styles.warning(`  ⚠️  Spec mismatch: ticket has "${ticketSpecId}", epic has "${epicSpecId}"`));
-            }
-
-            const specReconcileChoices = [
-              { name: `Keep ticket spec (${ticketSpecId})`, value: 'keep_ticket', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile keep --json` },
-              { name: `Use epic spec (${epicSpecId})`, value: 'use_epic', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile epic --json` },
-              { name: 'Skip this ticket', value: 'skip', command: `prlt epic ticket ${epicId} ${ticketId} --reconcile skip --json` },
-            ];
-
-            const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
-            // eslint-disable-next-line no-await-in-loop
-            const result = await this.prompt<{ action: string }>([{
-              type: 'list',
-              name: 'action',
-              message: `Spec mismatch for ${ticketId}: ticket has "${ticketSpecId}", epic has "${epicSpecId}". How to reconcile?`,
-              choices: specReconcileChoices,
-            }], jsonModeConfig);
-            action = result.action;
-          }
-
-          if (action === 'skip') {
-            this.log(styles.muted(`  Skipping ${ticketId}`));
-            continue;
-          }
-
-          if (action === 'use_epic') {
-            // Update ticket to use epic's spec
-            await this.storage.updateTicket(ticketId, { specId: epicSpecId });
-            this.log(styles.muted(`  Updated ${ticketId} to use spec "${epicSpecId}"`));
-          }
-        } else if (!ticketSpecId && epicSpecId) {
-          // Ticket has no spec but epic does - determine if should inherit
-          let inherit: boolean;
-
-          // Check if --inherit-spec flag was provided
-          if (flags['inherit-spec'] !== undefined) {
-            inherit = flags['inherit-spec'];
-          } else {
-            const inheritChoices = [
-              { name: 'Yes', value: true, command: `prlt epic ticket ${epicId} ${ticketId} --inherit-spec --json` },
-              { name: 'No', value: false, command: `prlt epic ticket ${epicId} ${ticketId} --no-inherit-spec --json` },
-            ];
-
-            const jsonModeConfig = jsonMode ? { flags, commandName: 'epic ticket' } : null;
-            // eslint-disable-next-line no-await-in-loop
-            const result = await this.prompt<{ inherit: boolean }>([{
-              type: 'list',
-              name: 'inherit',
-              message: `${ticketId} has no spec. Inherit epic's spec "${epicSpecId}"?`,
-              choices: inheritChoices,
-            }], jsonModeConfig);
-            inherit = result.inherit;
-          }
-
-          if (inherit) {
-            await this.storage.updateTicket(ticketId, { specId: epicSpecId });
-            this.log(styles.muted(`  Assigned spec "${epicSpecId}" to ${ticketId}`));
-          }
         }
 
         await this.storage.linkTicketToEpic(ticketId, epicId!);

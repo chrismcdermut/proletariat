@@ -952,26 +952,6 @@ export interface PMOStorage {
   toggleSubtask(ticketId: string, subtaskId: string): Promise<Subtask>
   removeSubtask(ticketId: string, subtaskId: string): Promise<void>
 
-  // Spec Operations
-  createSpec(spec: Partial<Spec>): Promise<Spec>
-  getSpec(id: string): Promise<Spec | null>
-  listSpecs(filter?: SpecFilter): Promise<Spec[]>
-  updateSpec(id: string, changes: Partial<Spec>): Promise<Spec>
-  deleteSpec(id: string): Promise<void>
-  linkTicketToSpec(ticketId: string, specId: string): Promise<void>
-  unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void>
-  getTicketsForSpec(projectId: string, specId: string): Promise<Ticket[]>
-  getSpecsForTicket(ticketId: string): Promise<Spec[]>
-  addSpecDependency(specId: string, dependsOnId: string): Promise<void>
-  removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
-  getSpecDependencies(specId: string): Promise<Spec[]>
-  getSpecDependents(specId: string): Promise<Spec[]>
-  // Project-Spec associations (many-to-many, specs are global)
-  linkProjectToSpec(projectId: string, specId: string): Promise<void>
-  unlinkProjectFromSpec(projectId: string, specId: string): Promise<void>
-  getSpecsForProject(projectId: string): Promise<Spec[]>
-  getProjectsForSpec(specId: string): Promise<Project[]>
-
   // Epic Operations
   createEpic(projectId: string, epic: Partial<Epic>): Promise<Epic>
   getEpic(id: string): Promise<Epic | null>

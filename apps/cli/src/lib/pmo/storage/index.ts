@@ -36,10 +36,6 @@ import {
   Roadmap,
   RoadmapFilter,
   RoadmapProject,
-  Spec,
-  SpecDependency,
-  SpecDependencyType,
-  SpecFilter,
   StateCategory,
   Subtask,
   SyncResult,
@@ -76,7 +72,6 @@ import {
 import { ProjectStorage } from './projects.js'
 import { TicketStorage } from './tickets.js'
 import { SubtaskStorage, AcceptanceCriteriaStorage } from './subtasks.js'
-import { SpecStorage } from './specs.js'
 import { EpicStorage } from './epics.js'
 import { DependencyStorage } from './dependencies.js'
 import { StatusStorage } from './statuses.js'
@@ -101,7 +96,6 @@ export class SQLiteStorage implements PMOStorage {
   private ticketStorage: TicketStorage
   private subtaskStorage: SubtaskStorage
   private acceptanceCriteriaStorage: AcceptanceCriteriaStorage
-  private specStorage: SpecStorage
   private epicStorage: EpicStorage
   private dependencyStorage: DependencyStorage
   private statusStorage: StatusStorage
@@ -136,7 +130,6 @@ export class SQLiteStorage implements PMOStorage {
     this.ticketStorage = new TicketStorage(ctx)
     this.subtaskStorage = new SubtaskStorage(ctx)
     this.acceptanceCriteriaStorage = new AcceptanceCriteriaStorage(ctx)
-    this.specStorage = new SpecStorage(ctx)
     this.epicStorage = new EpicStorage(ctx)
     this.dependencyStorage = new DependencyStorage(ctx)
     this.statusStorage = new StatusStorage(ctx)
@@ -345,78 +338,6 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
-  // Spec Operations
-  // ===========================================================================
-
-  async createSpec(spec: Partial<Spec>): Promise<Spec> {
-    return this.specStorage.createSpec(spec)
-  }
-
-  async getSpec(id: string): Promise<Spec | null> {
-    return this.specStorage.getSpec(id)
-  }
-
-  async listSpecs(filter?: SpecFilter): Promise<Spec[]> {
-    return this.specStorage.listSpecs(filter)
-  }
-
-  async updateSpec(id: string, changes: Partial<Spec>): Promise<Spec> {
-    return this.specStorage.updateSpec(id, changes)
-  }
-
-  async deleteSpec(id: string): Promise<void> {
-    return this.specStorage.deleteSpec(id)
-  }
-
-  async linkTicketToSpec(ticketId: string, specId: string): Promise<void> {
-    return this.specStorage.linkTicketToSpec(ticketId, specId)
-  }
-
-  async unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void> {
-    return this.specStorage.unlinkTicketFromSpec(ticketId, specId)
-  }
-
-  async getTicketsForSpec(projectId: string, specId: string): Promise<Ticket[]> {
-    return this.specStorage.getTicketsForSpec(projectId, specId)
-  }
-
-  async getSpecsForTicket(ticketId: string): Promise<Spec[]> {
-    return this.specStorage.getSpecsForTicket(ticketId)
-  }
-
-  async addSpecDependency(specId: string, dependsOnId: string): Promise<void> {
-    return this.specStorage.addSpecDependency(specId, dependsOnId)
-  }
-
-  async removeSpecDependency(specId: string, dependsOnId: string): Promise<void> {
-    return this.specStorage.removeSpecDependency(specId, dependsOnId)
-  }
-
-  async getSpecDependencies(specId: string): Promise<Spec[]> {
-    return this.specStorage.getSpecDependencies(specId)
-  }
-
-  async getSpecDependents(specId: string): Promise<Spec[]> {
-    return this.specStorage.getSpecDependents(specId)
-  }
-
-  async linkProjectToSpec(projectId: string, specId: string): Promise<void> {
-    return this.specStorage.linkProjectToSpec(projectId, specId)
-  }
-
-  async unlinkProjectFromSpec(projectId: string, specId: string): Promise<void> {
-    return this.specStorage.unlinkProjectFromSpec(projectId, specId)
-  }
-
-  async getSpecsForProject(projectId: string): Promise<Spec[]> {
-    return this.specStorage.getSpecsForProject(projectId)
-  }
-
-  async getProjectsForSpec(specId: string): Promise<Project[]> {
-    return this.specStorage.getProjectsForSpec(specId)
-  }
-
-  // ===========================================================================
   // Epic Operations
   // ===========================================================================
 
@@ -490,26 +411,6 @@ export class SQLiteStorage implements PMOStorage {
 
   async isTicketBlocked(ticketId: string): Promise<boolean> {
     return this.dependencyStorage.isTicketBlocked(ticketId)
-  }
-
-  async createSpecDependency(
-    specId: string,
-    dependsOnId: string,
-    type?: SpecDependencyType
-  ): Promise<SpecDependency> {
-    return this.dependencyStorage.createSpecDependency(specId, dependsOnId, type)
-  }
-
-  async deleteSpecDependency(
-    specId: string,
-    dependsOnId: string,
-    type?: SpecDependencyType
-  ): Promise<void> {
-    return this.dependencyStorage.deleteSpecDependency(specId, dependsOnId, type)
-  }
-
-  async listSpecDependencies(specId: string): Promise<SpecDependency[]> {
-    return this.dependencyStorage.listSpecDependencies(specId)
   }
 
   async createEpicDependency(

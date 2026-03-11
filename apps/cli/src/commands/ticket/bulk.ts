@@ -39,7 +39,6 @@ export default class TicketBulk extends PMOCommand {
       { name: 'Complete multiple tickets', value: 'complete', emoji: '✅', command: `prlt ticket complete -P ${projectId} --bulk --json` },
       { name: 'Reassign tickets (change assignee)', value: 'reassign', emoji: '👤', command: `prlt ticket reassign -P ${projectId} --bulk --json` },
       { name: 'Link tickets to epic', value: 'epic', emoji: '🔗', command: `prlt ticket epic -P ${projectId} --bulk --json` },
-      { name: 'Link tickets to spec', value: 'spec', emoji: '📄', command: `prlt ticket spec -P ${projectId} --bulk --json` },
       { name: 'Move tickets to project', value: 'project', emoji: '📁', command: `prlt ticket project -P ${projectId} --bulk --json` },
       { name: 'Update tickets (priority/category)', value: 'update', emoji: '✏️ ', command: `prlt ticket update -P ${projectId} --bulk --json` },
       { name: 'Delete multiple tickets', value: 'delete', emoji: '🗑️ ', command: `prlt ticket delete -P ${projectId} --bulk --json` },
@@ -76,7 +75,6 @@ export default class TicketBulk extends PMOCommand {
         new inquirer.Separator(),
         withEmoji('reassign'),
         withEmoji('epic'),
-        withEmoji('spec'),
         withEmoji('project'),
         withEmoji('update'),
         new inquirer.Separator(),
@@ -132,12 +130,6 @@ export default class TicketBulk extends PMOCommand {
         case 'epic': {
           const { default: EpicCommand } = await import('./epic.js');
           const cmd = new EpicCommand(projectArgs, this.config);
-          await cmd.run();
-          break;
-        }
-        case 'spec': {
-          const { default: SpecCommand } = await import('./spec.js');
-          const cmd = new SpecCommand(projectArgs, this.config);
           await cmd.run();
           break;
         }

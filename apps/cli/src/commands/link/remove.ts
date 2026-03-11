@@ -7,7 +7,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 
-type EntityType = 'ticket' | 'spec' | 'epic'
+type EntityType = 'ticket' | 'epic'
 
 /**
  * Infer entity type from ID prefix
@@ -15,7 +15,6 @@ type EntityType = 'ticket' | 'spec' | 'epic'
 function inferEntityType(id: string): EntityType | null {
   const upper = id.toUpperCase()
   if (upper.startsWith('TKT-')) return 'ticket'
-  if (upper.startsWith('SPEC-')) return 'spec'
   if (upper.startsWith('EPIC-')) return 'epic'
   return null
 }
@@ -25,13 +24,12 @@ export default class LinkRemove extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002   # Remove link between tickets',
-    '<%= config.bin %> <%= command.id %> SPEC-001 SPEC-002 # Remove link between specs',
     '<%= config.bin %> <%= command.id %> EPIC-001 EPIC-002 # Remove link between epics',
   ]
 
   static args = {
     from: Args.string({
-      description: 'Source entity ID (TKT-xxx, SPEC-xxx, or EPIC-xxx)',
+      description: 'Source entity ID (TKT-xxx or EPIC-xxx)',
       required: true,
     }),
     to: Args.string({
@@ -66,10 +64,10 @@ export default class LinkRemove extends PMOCommand {
     const toType = inferEntityType(args.to)
 
     if (!fromType) {
-      return handleError('INVALID_FROM_ID', `Cannot infer entity type from "${args.from}". Use TKT-, SPEC-, or EPIC- prefix.`)
+      return handleError('INVALID_FROM_ID', `Cannot infer entity type from "${args.from}". Use TKT- or EPIC- prefix.`)
     }
     if (!toType) {
-      return handleError('INVALID_TO_ID', `Cannot infer entity type from "${args.to}". Use TKT-, SPEC-, or EPIC- prefix.`)
+      return handleError('INVALID_TO_ID', `Cannot infer entity type from "${args.to}". Use TKT- or EPIC- prefix.`)
     }
     if (fromType !== toType) {
       return handleError('TYPE_MISMATCH', `Cannot link different entity types: ${fromType} and ${toType}`)
@@ -93,18 +91,6 @@ export default class LinkRemove extends PMOCommand {
 
         this.log(styles.success(`\n✅ Link removed: ${styles.emphasis(args.from)} → ${styles.emphasis(args.to)}`))
         this.log(styles.muted(`   ${ticket.title} no longer linked to ${targetTicket.title}`))
-
-      } else if (fromType === 'spec') {
-        const spec = await this.storage.getSpec(args.from)
-        if (!spec) return handleError('FROM_NOT_FOUND', `Spec not found: ${args.from}`)
-
-        const targetSpec = await this.storage.getSpec(args.to)
-        if (!targetSpec) return handleError('TO_NOT_FOUND', `Spec not found: ${args.to}`)
-
-        await this.storage.deleteSpecDependency(args.from, args.to, dependencyType as 'depends_on' | 'relates_to' | 'duplicates' | undefined)
-
-        this.log(styles.success(`\n✅ Link removed: ${styles.emphasis(args.from)} → ${styles.emphasis(args.to)}`))
-        this.log(styles.muted(`   ${spec.title} no longer linked to ${targetSpec.title}`))
 
       } else if (fromType === 'epic') {
         const epic = await this.storage.getEpic(args.from)
