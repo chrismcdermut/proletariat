@@ -141,6 +141,23 @@ CREATE TABLE IF NOT EXISTS workspace_settings (
   value TEXT NOT NULL
 );
 
+-- Media items (videos, audio files with preprocessed assets)
+CREATE TABLE IF NOT EXISTS media_items (
+  name TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  source_path TEXT,
+  media_type TEXT NOT NULL DEFAULT 'video' CHECK (media_type IN ('video', 'audio')),
+  duration_seconds REAL,
+  resolution TEXT,
+  frame_count INTEGER NOT NULL DEFAULT 0,
+  has_transcript INTEGER NOT NULL DEFAULT 0,
+  frame_interval INTEGER NOT NULL DEFAULT 30,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'ready', 'error')),
+  error_message TEXT,
+  added_at TEXT NOT NULL,
+  processed_at TEXT
+);
+
 -- =============================================================================
 -- Indexes
 -- =============================================================================
@@ -294,6 +311,32 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
     }
   } catch {
     // Ignore migration errors - table might not exist yet or column already exists
+  }
+
+  // Migration: create media_items table (TKT-077)
+  try {
+    const mediaTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='media_items'").get();
+    if (!mediaTableExists) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS media_items (
+          name TEXT PRIMARY KEY,
+          path TEXT NOT NULL,
+          source_path TEXT,
+          media_type TEXT NOT NULL DEFAULT 'video' CHECK (media_type IN ('video', 'audio')),
+          duration_seconds REAL,
+          resolution TEXT,
+          frame_count INTEGER NOT NULL DEFAULT 0,
+          has_transcript INTEGER NOT NULL DEFAULT 0,
+          frame_interval INTEGER NOT NULL DEFAULT 30,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'ready', 'error')),
+          error_message TEXT,
+          added_at TEXT NOT NULL,
+          processed_at TEXT
+        )
+      `);
+    }
+  } catch {
+    // Ignore migration errors
   }
 
   // Migration: add position column to pmo_tickets table (TKT-965)
@@ -1205,5 +1248,158 @@ export function addThemeNames(workspacePath: string, themeId: string, names: str
   });
 
   transaction();
+  db.close();
+}
+
+// =============================================================================
+// Media Item Operations (TKT-077)
+// =============================================================================
+
+export interface MediaItem {
+  name: string;
+  path: string;
+  source_path: string | null;
+  media_type: 'video' | 'audio';
+  duration_seconds: number | null;
+  resolution: string | null;
+  frame_count: number;
+  has_transcript: boolean;
+  frame_interval: number;
+  status: 'pending' | 'processing' | 'ready' | 'error';
+  error_message: string | null;
+  added_at: string;
+  processed_at: string | null;
+}
+
+/**
+ * Add a media item to the database
+ */
+export function addMediaItemToDatabase(
+  workspacePath: string,
+  item: { name: string; path: string; source_path?: string; media_type: 'video' | 'audio'; frame_interval?: number }
+): void {
+  const db = openWorkspaceDatabase(workspacePath);
+  db.prepare(`
+    INSERT OR REPLACE INTO media_items (name, path, source_path, media_type, frame_interval, added_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(item.name, item.path, item.source_path || null, item.media_type, item.frame_interval || 30, new Date().toISOString());
+  db.close();
+}
+
+/**
+ * Update media item after preprocessing
+ */
+export function updateMediaItemStatus(
+  workspacePath: string,
+  name: string,
+  updates: {
+    status: 'pending' | 'processing' | 'ready' | 'error';
+    duration_seconds?: number;
+    resolution?: string;
+    frame_count?: number;
+    has_transcript?: boolean;
+    error_message?: string;
+  }
+): void {
+  const db = openWorkspaceDatabase(workspacePath);
+
+  const sets: string[] = ['status = ?'];
+  const values: (string | number | null)[] = [updates.status];
+
+  if (updates.duration_seconds !== undefined) {
+    sets.push('duration_seconds = ?');
+    values.push(updates.duration_seconds);
+  }
+  if (updates.resolution !== undefined) {
+    sets.push('resolution = ?');
+    values.push(updates.resolution);
+  }
+  if (updates.frame_count !== undefined) {
+    sets.push('frame_count = ?');
+    values.push(updates.frame_count);
+  }
+  if (updates.has_transcript !== undefined) {
+    sets.push('has_transcript = ?');
+    values.push(updates.has_transcript ? 1 : 0);
+  }
+  if (updates.error_message !== undefined) {
+    sets.push('error_message = ?');
+    values.push(updates.error_message);
+  }
+  if (updates.status === 'ready' || updates.status === 'error') {
+    sets.push('processed_at = ?');
+    values.push(new Date().toISOString());
+  }
+
+  values.push(name);
+  db.prepare(`UPDATE media_items SET ${sets.join(', ')} WHERE name = ?`).run(...values);
+  db.close();
+}
+
+/**
+ * Get all media items in workspace
+ */
+export function getWorkspaceMediaItems(workspacePath: string): MediaItem[] {
+  const db = openWorkspaceDatabase(workspacePath);
+  const rows = db.prepare('SELECT * FROM media_items ORDER BY added_at').all() as Array<{
+    name: string;
+    path: string;
+    source_path: string | null;
+    media_type: string;
+    duration_seconds: number | null;
+    resolution: string | null;
+    frame_count: number;
+    has_transcript: number;
+    frame_interval: number;
+    status: string;
+    error_message: string | null;
+    added_at: string;
+    processed_at: string | null;
+  }>;
+  db.close();
+  return rows.map(row => ({
+    ...row,
+    media_type: row.media_type as 'video' | 'audio',
+    has_transcript: Boolean(row.has_transcript),
+    status: row.status as MediaItem['status'],
+  }));
+}
+
+/**
+ * Get a single media item by name
+ */
+export function getMediaItem(workspacePath: string, name: string): MediaItem | null {
+  const db = openWorkspaceDatabase(workspacePath);
+  const row = db.prepare('SELECT * FROM media_items WHERE name = ?').get(name) as {
+    name: string;
+    path: string;
+    source_path: string | null;
+    media_type: string;
+    duration_seconds: number | null;
+    resolution: string | null;
+    frame_count: number;
+    has_transcript: number;
+    frame_interval: number;
+    status: string;
+    error_message: string | null;
+    added_at: string;
+    processed_at: string | null;
+  } | undefined;
+  db.close();
+  if (!row) return null;
+  return {
+    ...row,
+    media_type: row.media_type as 'video' | 'audio',
+    has_transcript: Boolean(row.has_transcript),
+    status: row.status as MediaItem['status'],
+  };
+}
+
+/**
+ * Remove a media item from the database
+ */
+export function removeMediaItemFromDatabase(workspacePath: string, name: string): void {
+  const db = openWorkspaceDatabase(workspacePath);
+  db.prepare('DELETE FROM media_items WHERE name = ?').run(name);
   db.close();
 }
