@@ -3,21 +3,24 @@
  *
  * Tests that AI agents can navigate through template commands using --machine flag,
  * following the command field in each choice to reach the desired action.
+ *
+ * Uses template DB approach: schema initialized once, copied per test.
  */
 
 import { expect } from 'chai';
 import {
-  createTestEnvironment,
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  setupProductionSchema,
+  setupProductionSchemaOnDb,
   createTestProject,
   findChoice,
   execInProcess,
   hasContextError,
   extractJson,
+  createTemplateTestEnvironment,
   type TestEnvironment,
+  type TemplateTestEnvironment,
   type AgentPromptResponse,
 } from './test-helpers.js';
 import Database from 'better-sqlite3';
@@ -33,20 +36,30 @@ async function agentExec(cmd: string): Promise<AgentPromptResponse | null> {
 }
 
 describe('Template Commands - Agent Flow E2E Tests', () => {
+  let template: TemplateTestEnvironment;
   let env: TestEnvironment;
   let db: Database.Database;
 
+  before(() => {
+    template = createTemplateTestEnvironment('template-agent-', (db, pmoPath) => {
+      setupProductionSchemaOnDb(db, pmoPath);
+      createTestProject(db);
+    });
+  });
+
   beforeEach(() => {
-    env = createTestEnvironment('template-agent-');
-    db = setupProductionSchema(env.dbPath, env.pmoPath);
+    ({ env, db } = template.createInstance());
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
-    createTestProject(db);
   });
 
   afterEach(() => {
     if (db) db.close();
     cleanupTestEnvironment(env);
+  });
+
+  after(() => {
+    template.cleanup();
   });
 
   describe('template index - menu navigation with --machine', () => {

@@ -2,17 +2,18 @@
 import { expect } from 'chai';
 import Database from 'better-sqlite3';
 import {
-  createTestEnvironment,
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
   execInProcess,
-  setupProductionSchema,
+  setupProductionSchemaOnDb,
   createTestProject,
   createTestWorkflow,
   addTestWorkflowStatus,
   createTestTicket,
+  createTemplateTestEnvironment,
   type TestEnvironment,
+  type TemplateTestEnvironment,
 } from './test-helpers.js';
 
 /**
@@ -47,20 +48,23 @@ function extractJson<T>(output: string): T {
  * 2. JSON output includes proper prompt schema
  * 3. Flag accumulation works correctly in choices
  * 4. Full agent flows work end-to-end
+ *
+ * Uses template DB approach: schema initialized once, copied per test.
  */
 describe('Workflow Commands JSON Mode', () => {
+  let template: TemplateTestEnvironment;
   let env: TestEnvironment;
   let db: Database.Database;
 
+  before(() => {
+    template = createTemplateTestEnvironment('workflow-json-', (db, pmoPath) => {
+      setupProductionSchemaOnDb(db, pmoPath);
+      createTestProject(db, { id: 'test-project', name: 'Test Project' });
+    });
+  });
+
   beforeEach(() => {
-    env = createTestEnvironment('workflow-json-');
-
-    // Use production schema - includes all builtin workflows, phases, actions, etc.
-    db = setupProductionSchema(env.dbPath, env.pmoPath);
-
-    // Create test project using production 'default' workflow
-    createTestProject(db, { id: 'test-project', name: 'Test Project' });
-
+    ({ env, db } = template.createInstance());
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
   });
@@ -68,6 +72,10 @@ describe('Workflow Commands JSON Mode', () => {
   afterEach(() => {
     if (db) db.close();
     cleanupTestEnvironment(env);
+  });
+
+  after(() => {
+    template.cleanup();
   });
 
   // Helper functions now use shared test-helpers.ts utilities:

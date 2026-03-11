@@ -3,14 +3,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import {
-  createTestEnvironment,
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  setupProductionSchema,
+  setupProductionSchemaOnDb,
   createTestProject,
   execInProcess,
+  createTemplateTestEnvironment,
   type TestEnvironment,
+  type TemplateTestEnvironment,
 } from './test-helpers.js';
 
 /**
@@ -20,17 +21,23 @@ import {
  * - Reading description from a markdown file
  * - Mutual exclusion with --description flag
  * - Error handling for missing/unreadable files
+ *
+ * Uses template DB approach: schema initialized once, copied per test.
  */
 describe('ticket create --description-file', () => {
+  let template: TemplateTestEnvironment;
   let env: TestEnvironment;
   let db: Database.Database;
 
+  before(() => {
+    template = createTemplateTestEnvironment('ticket-desc-file-', (db, pmoPath) => {
+      setupProductionSchemaOnDb(db, pmoPath);
+      createTestProject(db, { id: 'test-project', name: 'Test Project', description: 'Test project' });
+    });
+  });
+
   beforeEach(() => {
-    env = createTestEnvironment('ticket-desc-file-');
-
-    db = setupProductionSchema(env.dbPath, env.pmoPath);
-    createTestProject(db, { id: 'test-project', name: 'Test Project', description: 'Test project' });
-
+    ({ env, db } = template.createInstance());
     createHQConfig(env.proletariatDir);
     createPMODirectories(env.pmoPath, 'test-project');
   });
@@ -38,6 +45,10 @@ describe('ticket create --description-file', () => {
   afterEach(() => {
     if (db) db.close();
     cleanupTestEnvironment(env);
+  });
+
+  after(() => {
+    template.cleanup();
   });
 
   it('should create ticket with description read from a file', async () => {

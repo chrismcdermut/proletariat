@@ -474,6 +474,291 @@ export function createTestEpic(
   return id;
 }
 
+// =============================================================================
+// Fast Test Helpers (Savepoint-Based Isolation)
+// =============================================================================
+// These helpers eliminate per-test database creation overhead by using a single
+// in-memory database per test file with SQLite SAVEPOINT/ROLLBACK for isolation.
+//
+// Performance savings per test:
+//   - fs.mkdtempSync:           ~5ms   (eliminated)
+//   - new Database():           ~10ms  (eliminated)
+//   - setupProductionSchema():  ~100-200ms (eliminated)
+//   - fs.rmSync:                ~5ms   (eliminated)
+//   Total: ~120-220ms saved per test
+//
+// Usage:
+//   let fastDb: FastTestDb;
+//
+//   before(() => {
+//     fastDb = createFastTestDb((db) => {
+//       setupProductionSchemaOnDb(db, '/tmp/pmo');
+//     });
+//   });
+//
+//   beforeEach(() => { fastDb.savepoint(); });
+//   afterEach(() => { fastDb.rollback(); });
+//   after(() => { fastDb.close(); });
+//
+// For tests that need both filesystem and DB isolation:
+//   let env: FastTestEnvironment;
+//
+//   before(() => {
+//     env = createFastTestEnvironment('my-test-', (db, pmoPath) => {
+//       setupProductionSchemaOnDb(db, pmoPath);
+//     });
+//   });
+//
+//   beforeEach(() => { env.savepoint(); });
+//   afterEach(() => { env.rollback(); });
+//   after(() => { env.cleanup(); });
+// =============================================================================
+
+/**
+ * A fast test database that uses SAVEPOINT/ROLLBACK for per-test isolation.
+ */
+export interface FastTestDb {
+  /** The shared database instance */
+  db: Database.Database;
+  /** Call in beforeEach to create a savepoint before the test */
+  savepoint(): void;
+  /** Call in afterEach to rollback changes made during the test */
+  rollback(): void;
+  /** Call in afterAll/after to close the database */
+  close(): void;
+}
+
+/**
+ * Creates a fast, savepoint-isolated test database.
+ *
+ * The database is created once (in-memory) and the setup function runs once.
+ * Each test uses SAVEPOINT/ROLLBACK to isolate changes without recreating the DB.
+ *
+ * @param setup - Function to initialize the database schema and seed data
+ * @returns FastTestDb with savepoint/rollback/close methods
+ */
+export function createFastTestDb(setup: (db: Database.Database) => void): FastTestDb {
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  setup(db);
+
+  return {
+    db,
+    savepoint: () => db.exec('SAVEPOINT test_savepoint'),
+    rollback: () => {
+      db.exec('ROLLBACK TO test_savepoint');
+      db.exec('RELEASE SAVEPOINT test_savepoint');
+    },
+    close: () => db.close(),
+  };
+}
+
+/**
+ * A fast test environment with both filesystem and savepoint-isolated database.
+ */
+export interface FastTestEnvironment extends TestEnvironment {
+  /** The shared database instance */
+  db: Database.Database;
+  /** Call in beforeEach to create a savepoint before the test */
+  savepoint(): void;
+  /** Call in afterEach to rollback changes made during the test */
+  rollback(): void;
+  /** Call in after/afterAll to close DB, restore cwd, and remove temp files */
+  cleanup(): void;
+}
+
+/**
+ * Creates a fast test environment with filesystem dirs and a savepoint-isolated database.
+ *
+ * The temp directory, database, and schema are created once. Each test uses
+ * SAVEPOINT/ROLLBACK for DB isolation. The filesystem is shared across tests
+ * (only DB changes are rolled back).
+ *
+ * @param prefix - Prefix for the temp directory name
+ * @param setup - Function to initialize the database schema and seed data.
+ *                Receives the db instance and the pmoPath.
+ * @returns FastTestEnvironment with savepoint/rollback/cleanup methods
+ */
+export function createFastTestEnvironment(
+  prefix: string,
+  setup: (db: Database.Database, pmoPath: string) => void
+): FastTestEnvironment {
+  const originalCwd = process.cwd();
+  const testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  process.chdir(testDir);
+
+  const proletariatDir = path.join(testDir, '.proletariat');
+  fs.mkdirSync(proletariatDir, { recursive: true });
+
+  const dbPath = path.join(proletariatDir, 'workspace.db');
+  const pmoPath = path.join(testDir, 'pmo');
+
+  // Create in-memory database (dbPath is kept for compatibility but DB is in-memory)
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  setup(db, pmoPath);
+
+  return {
+    testDir,
+    dbPath,
+    pmoPath,
+    proletariatDir,
+    originalCwd,
+    db,
+    savepoint: () => db.exec('SAVEPOINT test_savepoint'),
+    rollback: () => {
+      db.exec('ROLLBACK TO test_savepoint');
+      db.exec('RELEASE SAVEPOINT test_savepoint');
+    },
+    cleanup: () => {
+      db.close();
+      process.chdir(originalCwd);
+      if (fs.existsSync(testDir)) {
+        fs.rmSync(testDir, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
+/**
+ * Sets up the production PMO schema on an existing database instance.
+ *
+ * Unlike setupProductionSchema() which creates a new Database from a file path,
+ * this function works on an already-open database (e.g., in-memory databases
+ * used by the fast test helpers).
+ *
+ * @param db - Existing database instance
+ * @param pmoPath - Path to the PMO directory (stored in settings)
+ */
+export function setupProductionSchemaOnDb(db: Database.Database, pmoPath: string): void {
+  db.pragma('foreign_keys = ON');
+  initializePMOTables(db);
+  db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
+}
+
+/**
+ * Sets up the workspace schema on an existing database instance.
+ *
+ * Unlike setupWorkspaceSchema() which creates a new Database from a file path,
+ * this function works on an already-open database.
+ *
+ * @param db - Existing database instance
+ * @param options - Workspace configuration options
+ */
+export function setupWorkspaceSchemaOnDb(
+  db: Database.Database,
+  options: {
+    type?: 'hq' | 'workspace';
+    workspaceName?: string;
+    hasPmo?: boolean;
+  } = {}
+): void {
+  db.exec(CREATE_TABLES_SQL);
+
+  const type = options.type ?? 'hq';
+  const workspaceName = options.workspaceName ?? 'test-workspace';
+  const hasPmo = options.hasPmo ?? false;
+  db.prepare(`
+    INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+    VALUES (1, ?, ?, ?, datetime('now'))
+  `).run(type, workspaceName, hasPmo ? 1 : 0);
+}
+
+// =============================================================================
+// Template DB Helpers (for E2E tests that use execInProcess)
+// =============================================================================
+// E2E tests that run CLI commands (via execInProcess) need file-based databases
+// because the CLI commands open their own DB connections. SQLite savepoints are
+// per-connection, so they can't isolate across connections.
+//
+// The template approach: initialize the schema once into a template DB file,
+// then copy it for each test. This replaces the expensive schema initialization
+// (~100-200ms) with a fast file copy (~1-5ms).
+//
+// Usage:
+//   let template: TemplateTestEnvironment;
+//
+//   before(() => {
+//     template = createTemplateTestEnvironment('my-test-', (db, pmoPath) => {
+//       setupProductionSchemaOnDb(db, pmoPath);
+//       createTestProject(db, { id: 'default', name: 'Test Project' });
+//     });
+//   });
+//
+//   let env: TestEnvironment;
+//   let db: Database.Database;
+//
+//   beforeEach(() => {
+//     ({ env, db } = template.createInstance());
+//   });
+//
+//   afterEach(() => {
+//     db.close();
+//     cleanupTestEnvironment(env);
+//   });
+//
+//   after(() => {
+//     template.cleanup();
+//   });
+// =============================================================================
+
+/**
+ * A template test environment that can spawn per-test instances cheaply.
+ */
+export interface TemplateTestEnvironment {
+  /** Creates a new test instance by copying the template DB. Returns env and open db. */
+  createInstance(): { env: TestEnvironment; db: Database.Database };
+  /** Call in after/afterAll to clean up the template. */
+  cleanup(): void;
+}
+
+/**
+ * Creates a template test environment with a pre-initialized database.
+ *
+ * The template database is created once with full schema and seed data.
+ * Each call to createInstance() copies the template to a fresh test directory,
+ * eliminating the expensive schema initialization per test.
+ *
+ * @param prefix - Prefix for temp directory names
+ * @param setup - Function to initialize the template database schema and seed data
+ * @returns TemplateTestEnvironment with createInstance() and cleanup() methods
+ */
+export function createTemplateTestEnvironment(
+  prefix: string,
+  setup: (db: Database.Database, pmoPath: string) => void
+): TemplateTestEnvironment {
+  // Create the template database
+  const templateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}template-`)));
+  const templateProletariatDir = path.join(templateDir, '.proletariat');
+  fs.mkdirSync(templateProletariatDir, { recursive: true });
+  const templateDbPath = path.join(templateProletariatDir, 'workspace.db');
+  const templatePmoPath = path.join(templateDir, 'pmo');
+
+  const templateDb = new Database(templateDbPath);
+  templateDb.pragma('foreign_keys = ON');
+  setup(templateDb, templatePmoPath);
+  templateDb.close();
+
+  return {
+    createInstance(): { env: TestEnvironment; db: Database.Database } {
+      const env = createTestEnvironment(prefix);
+      // Copy the template DB file instead of running schema init
+      fs.copyFileSync(templateDbPath, env.dbPath);
+      const db = new Database(env.dbPath);
+      db.pragma('foreign_keys = ON');
+      db.pragma('busy_timeout = 5000');
+      // Update pmo_path to point to this instance's directory (template DB has the template dir's path)
+      db.prepare(`UPDATE ${T.settings} SET value = ? WHERE key = 'pmo_path'`).run(env.pmoPath);
+      return { env, db };
+    },
+    cleanup(): void {
+      if (fs.existsSync(templateDir)) {
+        fs.rmSync(templateDir, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 /**
  * Gets the default status ID for a workflow.
  * Useful for creating tickets with the correct status_id.

@@ -1,9 +1,7 @@
 import { expect } from 'chai';
-import * as os from 'node:os';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import { slugify, formatDate, formatTimestamp, parseDate, deepClone, arraysEqual, DEFAULT_WORK_COLUMNS, getWorkColumnSetting } from '../../src/lib/pmo/utils.js';
+import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js';
 
 describe('PMO Utils', () => {
   describe('slugify', () => {
@@ -134,26 +132,31 @@ describe('PMO Utils', () => {
   });
 
   describe('getWorkColumnSetting', () => {
-    let testDir: string;
+    let fastDb: FastTestDb;
     let db: Database.Database;
 
+    before(() => {
+      fastDb = createFastTestDb((db) => {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS pmo_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+          );
+        `);
+      });
+      db = fastDb.db;
+    });
+
     beforeEach(() => {
-      testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-utils-test-'));
-      const dbPath = path.join(testDir, 'test.db');
-      db = new Database(dbPath);
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS pmo_settings (
-          key TEXT PRIMARY KEY,
-          value TEXT NOT NULL
-        );
-      `);
+      fastDb.savepoint();
     });
 
     afterEach(() => {
-      db.close();
-      if (fs.existsSync(testDir)) {
-        fs.rmSync(testDir, { recursive: true, force: true });
-      }
+      fastDb.rollback();
+    });
+
+    after(() => {
+      fastDb.close();
     });
 
     it('returns default Review column for review type when not configured', () => {

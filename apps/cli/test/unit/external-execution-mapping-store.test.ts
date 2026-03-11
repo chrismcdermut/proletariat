@@ -1,27 +1,33 @@
 import { expect } from 'chai'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
-import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { ExternalExecutionMappingStore } from '../../src/lib/external-issues/mapping-store.js'
+import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
 
 describe('ExternalExecutionMappingStore', () => {
-  let testDir: string
+  let fastDb: FastTestDb
   let db: Database.Database
   let store: ExternalExecutionMappingStore
 
+  before(() => {
+    fastDb = createFastTestDb((db) => {
+      // Initialize tables by creating a throwaway store instance
+      // This ensures tables exist before any savepoints are created
+      new ExternalExecutionMappingStore(db)
+    })
+    db = fastDb.db
+  })
+
   beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'external-mapping-test-'))
-    db = new Database(path.join(testDir, 'test.db'))
-    db.pragma('foreign_keys = ON')
+    fastDb.savepoint()
     store = new ExternalExecutionMappingStore(db)
   })
 
   afterEach(() => {
-    db.close()
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true })
-    }
+    fastDb.rollback()
+  })
+
+  after(() => {
+    fastDb.close()
   })
 
   it('enforces unique key on (provider, external_id) via idempotent upsert', () => {

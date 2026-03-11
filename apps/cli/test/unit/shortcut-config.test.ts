@@ -1,22 +1,34 @@
 import { expect } from 'chai'
 import Database from 'better-sqlite3'
 import { isShortcutConfigured, loadShortcutConfig, saveShortcutConfig, clearShortcutConfig, getShortcutApiToken } from '../../src/lib/shortcut/config.js'
+import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
 
 describe('Shortcut config', () => {
+  let fastDb: FastTestDb
   let db: Database.Database
 
+  before(() => {
+    fastDb = createFastTestDb((db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT
+        )
+      `)
+    })
+    db = fastDb.db
+  })
+
   beforeEach(() => {
-    db = new Database(':memory:')
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS workspace_settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
-      )
-    `)
+    fastDb.savepoint()
   })
 
   afterEach(() => {
-    db.close()
+    fastDb.rollback()
+  })
+
+  after(() => {
+    fastDb.close()
   })
 
   describe('isShortcutConfigured', () => {
