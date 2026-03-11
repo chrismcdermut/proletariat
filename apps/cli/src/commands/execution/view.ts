@@ -288,6 +288,9 @@ function getEnvironmentIcon(environment: string): string {
       return '💻'
     case 'docker':
       return '📦'
+    case 'sandbox':
+      return '🔒'
+    case 'cloud':
     case 'vm':
       return '☁️'
     default:

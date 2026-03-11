@@ -33,6 +33,8 @@ import {
   PermissionMode,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
+  normalizeEnvironment,
+  isSrtInstalled,
 } from './types.js'
 import { Ticket } from '../pmo/types.js'
 
@@ -388,15 +390,21 @@ export async function spawnAgentForTicket(
   // require explicit --run-on-host flag to proceed (TKT-046)
   let environment: ExecutionEnvironment
   if (options.environment) {
-    environment = options.environment
+    // Normalize deprecated 'vm' → 'cloud'
+    environment = normalizeEnvironment(options.environment)
   } else if (hasDevcontainer && dockerRunning) {
     environment = 'devcontainer'
   } else if (hasDevcontainer && !dockerRunning) {
     // Devcontainer exists but Docker isn't running
     if (options.runOnHost) {
-      // User explicitly opted to run on host
-      environment = 'host'
-      log('⚠️  Running on host (--run-on-host flag set). Agent has full host access.')
+      // User explicitly opted to run on host — use sandbox if srt is available
+      if (isSrtInstalled()) {
+        environment = 'sandbox'
+        log('🔒 Running in sandbox (srt) — filesystem and network restrictions active.')
+      } else {
+        environment = 'host'
+        log('⚠️  Running on host (--run-on-host flag set). Agent has full host access.')
+      }
     } else {
       // Security: Don't silently fall back to host
       return {
@@ -411,8 +419,13 @@ export async function spawnAgentForTicket(
       }
     }
   } else {
-    // No devcontainer configured, host is the only option
-    environment = 'host'
+    // No devcontainer configured — use sandbox if srt is available, otherwise host
+    if (isSrtInstalled()) {
+      environment = 'sandbox'
+      log('🔒 Running in sandbox (srt) — filesystem and network restrictions active.')
+    } else {
+      environment = 'host'
+    }
   }
 
   // Set the execution environment on the context so prompt builders can include
@@ -423,8 +436,8 @@ export async function spawnAgentForTicket(
   const permissionMode: PermissionMode = (options.skipPermissions ?? false) ? 'danger' : 'safe'
 
   // Executor preflight check (TKT-1082): verify binary is available before proceeding
-  // For host environment, check immediately. For devcontainer, check happens after container start.
-  if (environment === 'host') {
+  // For host/sandbox environment, check immediately. For devcontainer, check happens after container start.
+  if (environment === 'host' || environment === 'sandbox') {
     const preflight = runExecutorPreflight(environment, executor)
     if (!preflight.ok) {
       return {

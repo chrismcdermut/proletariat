@@ -7,7 +7,7 @@
 
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod, PermissionMode } from './types.js'
+import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod, PermissionMode, normalizeEnvironment } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
 import {
   shouldOutputJson,
@@ -39,6 +39,13 @@ const CONFIG_KEYS = {
   dockerMemory: 'execution.docker.memory',
   dockerCpus: 'execution.docker.cpus',
   firewallAllowlistDomains: 'execution.firewall.allowlist_domains',
+  sandboxAllowedReadPaths: 'execution.sandbox.allowed_read_paths',
+  sandboxAllowedWritePaths: 'execution.sandbox.allowed_write_paths',
+  sandboxNetworkDomains: 'execution.sandbox.network_domains',
+  cloudDefaultHost: 'execution.cloud.default_host',
+  cloudUser: 'execution.cloud.user',
+  cloudKeyPath: 'execution.cloud.key_path',
+  cloudSyncMethod: 'execution.cloud.sync_method',
   vmDefaultHost: 'execution.vm.default_host',
   vmUser: 'execution.vm.user',
   vmKeyPath: 'execution.vm.key_path',
@@ -94,10 +101,10 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     config.shell = shell as Shell
   }
 
-  // Load default environment
+  // Load default environment (normalize deprecated 'vm' → 'cloud')
   const defaultEnvironment = getSetting(db, CONFIG_KEYS.defaultMode)
   if (defaultEnvironment) {
-    config.defaultEnvironment = defaultEnvironment as ExecutionConfig['defaultEnvironment']
+    config.defaultEnvironment = normalizeEnvironment(defaultEnvironment as ExecutionEnvironment)
   }
 
   // Load default executor
@@ -196,22 +203,63 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
     config.firewall = { ...config.firewall, allowlistDomains: parsed }
   }
 
-  // Load VM settings
+  // Load sandbox settings
+  const sandboxAllowedReadPaths = getSetting(db, CONFIG_KEYS.sandboxAllowedReadPaths)
+  if (sandboxAllowedReadPaths) {
+    try {
+      const parsed = JSON.parse(sandboxAllowedReadPaths)
+      if (Array.isArray(parsed)) {
+        config.sandbox = { ...config.sandbox, allowedReadPaths: parsed.filter((p): p is string => typeof p === 'string') }
+      }
+    } catch { /* ignore */ }
+  }
+  const sandboxAllowedWritePaths = getSetting(db, CONFIG_KEYS.sandboxAllowedWritePaths)
+  if (sandboxAllowedWritePaths) {
+    try {
+      const parsed = JSON.parse(sandboxAllowedWritePaths)
+      if (Array.isArray(parsed)) {
+        config.sandbox = { ...config.sandbox, allowedWritePaths: parsed.filter((p): p is string => typeof p === 'string') }
+      }
+    } catch { /* ignore */ }
+  }
+  const sandboxNetworkDomains = getSetting(db, CONFIG_KEYS.sandboxNetworkDomains)
+  if (sandboxNetworkDomains) {
+    try {
+      const parsed = JSON.parse(sandboxNetworkDomains)
+      if (Array.isArray(parsed)) {
+        config.sandbox = { ...config.sandbox, networkDomains: parsed.filter((d): d is string => typeof d === 'string') }
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Load cloud settings (also populates legacy vm config for backward compat)
+  const cloudDefaultHost = getSetting(db, CONFIG_KEYS.cloudDefaultHost)
   const vmDefaultHost = getSetting(db, CONFIG_KEYS.vmDefaultHost)
-  if (vmDefaultHost) {
-    config.vm = { ...config.vm, defaultHost: vmDefaultHost }
+  const effectiveHost = cloudDefaultHost || vmDefaultHost
+  if (effectiveHost) {
+    config.cloud = { ...config.cloud, defaultHost: effectiveHost }
+    config.vm = { ...config.vm, defaultHost: effectiveHost }
   }
+  const cloudUser = getSetting(db, CONFIG_KEYS.cloudUser)
   const vmUser = getSetting(db, CONFIG_KEYS.vmUser)
-  if (vmUser) {
-    config.vm = { ...config.vm, user: vmUser }
+  const effectiveUser = cloudUser || vmUser
+  if (effectiveUser) {
+    config.cloud = { ...config.cloud, user: effectiveUser }
+    config.vm = { ...config.vm, user: effectiveUser }
   }
+  const cloudKeyPath = getSetting(db, CONFIG_KEYS.cloudKeyPath)
   const vmKeyPath = getSetting(db, CONFIG_KEYS.vmKeyPath)
-  if (vmKeyPath) {
-    config.vm = { ...config.vm, keyPath: vmKeyPath }
+  const effectiveKeyPath = cloudKeyPath || vmKeyPath
+  if (effectiveKeyPath) {
+    config.cloud = { ...config.cloud, keyPath: effectiveKeyPath }
+    config.vm = { ...config.vm, keyPath: effectiveKeyPath }
   }
+  const cloudSyncMethod = getSetting(db, CONFIG_KEYS.cloudSyncMethod)
   const vmSyncMethod = getSetting(db, CONFIG_KEYS.vmSyncMethod)
-  if (vmSyncMethod) {
-    config.vm = { ...config.vm, syncMethod: vmSyncMethod as 'rsync' | 'git' }
+  const effectiveSyncMethod = cloudSyncMethod || vmSyncMethod
+  if (effectiveSyncMethod) {
+    config.cloud = { ...config.cloud, syncMethod: effectiveSyncMethod as 'rsync' | 'git' }
+    config.vm = { ...config.vm, syncMethod: effectiveSyncMethod as 'rsync' | 'git' }
   }
 
   return config

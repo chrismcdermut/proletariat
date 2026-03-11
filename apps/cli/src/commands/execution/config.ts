@@ -217,10 +217,11 @@ export default class ExecutionConfig extends PMOCommand {
     switch (setting) {
       case 'defaultEnvironment': {
         const envChoices = [
-          { name: 'host - Run directly on host machine', value: 'host', command: 'prlt execution config --set "defaultEnvironment host" --json' },
+          { name: 'host - Run directly on host machine (full access)', value: 'host', command: 'prlt execution config --set "defaultEnvironment host" --json' },
+          { name: 'sandbox - srt isolation on host (filesystem + network restrictions)', value: 'sandbox', command: 'prlt execution config --set "defaultEnvironment sandbox" --json' },
           { name: 'devcontainer - Run in a devcontainer (isolated)', value: 'devcontainer', command: 'prlt execution config --set "defaultEnvironment devcontainer" --json' },
           { name: 'docker - Run in a Docker container', value: 'docker', command: 'prlt execution config --set "defaultEnvironment docker" --json' },
-          { name: 'vm - Run on a remote VM', value: 'vm', command: 'prlt execution config --set "defaultEnvironment vm" --json' },
+          { name: 'cloud - Run on a remote machine', value: 'cloud', command: 'prlt execution config --set "defaultEnvironment cloud" --json' },
         ]
         const { newEnv } = await this.prompt<{ newEnv: string }>([
           {
@@ -372,7 +373,7 @@ export default class ExecutionConfig extends PMOCommand {
 
     // Define valid values for each config key
     const VALID_VALUES: Record<string, string[]> = {
-      defaultenvironment: ['host', 'devcontainer', 'docker', 'vm'],
+      defaultenvironment: ['host', 'sandbox', 'devcontainer', 'docker', 'cloud', 'vm'],
       outputmode: ['interactive', 'print'],
       permissionmode: ['safe', 'danger'],
       'terminal.app': ['Terminal', 'iTerm', 'Alacritty', 'Ghostty', 'Kitty', 'tmux', 'Warp', 'WezTerm'],
