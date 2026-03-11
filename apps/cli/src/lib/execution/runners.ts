@@ -2767,11 +2767,29 @@ export async function runDocker(
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
     const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
 
+    // Generate MCP config for Docker container
+    let dockerMcpConfigFlag = ''
+    if (context.hqPath && isClaudeExecutor(executor)) {
+      try {
+        const fullRegistry = readToolRegistry(context.hqPath)
+        const filteredRegistry = filterRegistryByPolicy(fullRegistry, context.toolPolicy)
+        const mcpConfig = generateMcpConfig(filteredRegistry)
+        if (mcpConfig) {
+          const mcpFilename = `.prlt-mcp-config-${context.ticketId}-${Date.now()}.json`
+          const mcpHostPath = path.join(context.worktreePath, mcpFilename)
+          fs.writeFileSync(mcpHostPath, JSON.stringify(mcpConfig, null, 2), { mode: 0o644 })
+          dockerMcpConfigFlag = ` --mcp-config /workspace/${mcpFilename}`
+        }
+      } catch {
+        // MCP config generation is optional
+      }
+    }
+
     // For Claude Code in Docker, use --print for non-interactive output
     // Non-Claude executors use their native command format from getExecutorCommand()
     dockerCmd += ` ${config.docker.image}`
     if (isClaudeExecutor(executor)) {
-      dockerCmd += ` ${cmd} --print '${escapedPrompt}'`
+      dockerCmd += ` ${cmd} --print${dockerMcpConfigFlag} '${escapedPrompt}'`
     } else {
       const argsStr = args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
       dockerCmd += ` ${cmd} ${argsStr}`
