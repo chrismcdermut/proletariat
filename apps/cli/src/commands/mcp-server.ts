@@ -48,6 +48,7 @@ import {
   registerBranchTools,
   registerGitHubTools,
   registerInitTools,
+  registerSessionTools,
   registerUtilityTools,
 } from '../lib/mcp/index.js'
 
@@ -148,6 +149,7 @@ export default class McpServerCommand extends Command {
     registerBranchTools(server, ctx)
     registerGitHubTools(server, ctx)
     registerInitTools(server, ctx)
+    registerSessionTools(server, ctx)
     registerUtilityTools(server, ctx)
 
     // Connect via stdio transport

@@ -31,9 +31,12 @@ export default class Session extends PMOCommand {
       message: 'Session Management - What would you like to do?',
       choices: [
         { name: 'List active sessions', value: 'list', command: 'prlt session list --json' },
+        { name: 'Inspect agent status', value: 'inspect', command: 'prlt session inspect --json' },
         { name: 'Create a new session', value: 'create', command: 'prlt session create --json' },
         { name: 'Attach to a session', value: 'attach', command: 'prlt session attach --json' },
         { name: 'Peek at agent output', value: 'peek', command: 'prlt session peek --json' },
+        { name: 'Execute command in agent context', value: 'exec', command: 'prlt session exec --json' },
+        { name: 'Restart a stuck agent', value: 'restart', command: 'prlt session restart --json' },
         { name: 'Check agent health', value: 'health', command: 'prlt session health --json' },
         { name: 'Poke a running agent', value: 'poke', command: 'prlt session poke --json' },
         { name: 'Prune stale sessions', value: 'prune', command: 'prlt session prune --json' },
@@ -50,6 +53,9 @@ export default class Session extends PMOCommand {
       case 'list':
         await this.config.runCommand('session:list', [])
         break
+      case 'inspect':
+        await this.config.runCommand('session:inspect', [])
+        break
       case 'create':
         await this.config.runCommand('session:create', [])
         break
@@ -58,6 +64,12 @@ export default class Session extends PMOCommand {
         break
       case 'peek':
         await this.config.runCommand('session:peek', [])
+        break
+      case 'exec':
+        await this.config.runCommand('session:exec', [])
+        break
+      case 'restart':
+        await this.config.runCommand('session:restart', [])
         break
       case 'health':
         await this.config.runCommand('session:health', [])

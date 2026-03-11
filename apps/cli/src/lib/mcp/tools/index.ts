@@ -28,5 +28,6 @@ export {
   registerBranchTools,
   registerGitHubTools,
   registerInitTools,
+  registerSessionTools,
   registerUtilityTools,
 } from './cli-passthrough.js'
