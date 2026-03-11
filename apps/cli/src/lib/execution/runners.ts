@@ -25,6 +25,7 @@ import { getSetTitleCommands } from '../terminal.js'
 import { readDevcontainerJson, generateOrchestratorDockerfile } from './devcontainer.js'
 import type { OrchestratorDockerOptions } from './devcontainer.js'
 import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError } from './codex-adapter.js'
+import { resolveToolsForSpawn } from '../tool-registry/index.js'
 
 // =============================================================================
 // Terminal Title Helpers
@@ -734,6 +735,18 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
   prompt += `- After merging: subsequent PRs from parallel agents will need rebase\n`
   prompt += `- Kill stale sessions after their PRs are merged\n\n`
 
+  // Tool registry (TKT-083): inject available tools into orchestrator prompt
+  if (context.hqPath) {
+    const toolsResult = resolveToolsForSpawn(
+      context.hqPath,
+      context.toolPolicy,
+      path.join(context.hqPath, '.proletariat', 'scripts')
+    )
+    if (toolsResult.promptSection) {
+      prompt += toolsResult.promptSection
+    }
+  }
+
   // Load .orchestrator-context.md from HQ root if it exists
   if (context.hqPath) {
     const contextFilePath = path.join(context.hqPath, '.orchestrator-context.md')
@@ -852,6 +865,18 @@ function buildPrompt(context: ExecutionContext): string {
   // Additional instructions from --message flag (appended to any action)
   if (context.customMessage) {
     prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
+  }
+
+  // Tool registry (TKT-083): inject available tools into agent prompt
+  if (context.hqPath) {
+    const toolsResult = resolveToolsForSpawn(
+      context.hqPath,
+      context.toolPolicy,
+      path.join(context.hqPath, '.proletariat', 'scripts')
+    )
+    if (toolsResult.promptSection) {
+      prompt += `\n${toolsResult.promptSection}`
+    }
   }
 
   // END HOOK - Action-specific completion instructions
@@ -1000,6 +1025,17 @@ export async function runHost(
     fs.writeFileSync(promptPath, prompt, { mode: 0o644 })
   }
 
+  // Tool registry (TKT-083): generate MCP config for Claude Code
+  let mcpConfigPath: string | null = null
+  if (context.hqPath && isClaudeExecutor(executor)) {
+    const toolsResult = resolveToolsForSpawn(
+      context.hqPath,
+      context.toolPolicy,
+      baseDir
+    )
+    mcpConfigPath = toolsResult.mcpConfigPath
+  }
+
   // Build the executor command using getExecutorCommand() output
   // For Claude Code, we also support outputMode and additional flags
   // For Codex, we use the codex adapter for deterministic command building (TKT-080)
@@ -1017,7 +1053,9 @@ export async function runHost(
     // TKT-053: Disable plan mode for background agents — prevents silent stalls
     // when there's no user to approve the plan mode transition
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
-    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
+    // Tool registry (TKT-083): pass MCP config to Claude Code via --mcp-config flag
+    const mcpConfigFlag = mcpConfigPath ? `--mcp-config "${mcpConfigPath}" ` : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}${mcpConfigFlag}"$(cat "$PROMPT_PATH")"`
   } else if (executor === 'codex') {
     // TKT-080: Use Codex adapter for deterministic command building.
     // Uses PLACEHOLDER pattern for reliable prompt replacement (same as devcontainer runner).
@@ -2014,7 +2052,8 @@ export function buildDevcontainerCommand(
   containerId?: string,
   outputMode: OutputMode = 'interactive',
   permissionMode: PermissionMode = 'safe',
-  displayMode: DisplayMode = 'terminal'
+  displayMode: DisplayMode = 'terminal',
+  mcpConfigFile?: string
 ): string {
   // Calculate the relative path from agentDir to worktreePath for cd
   const relativePath = path.relative(context.agentDir, context.worktreePath)
@@ -2036,7 +2075,9 @@ export function buildDevcontainerCommand(
     const effortFlag = '--effort high '
     // TKT-053: Disable plan mode for background agents — prevents silent stalls
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
-    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}"$(cat ${promptFile})"`
+    // Tool registry (TKT-083): pass MCP config to Claude Code via --mcp-config flag
+    const mcpConfigFlag = mcpConfigFile ? `--mcp-config ${mcpConfigFile} ` : ''
+    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${mcpConfigFlag}"$(cat ${promptFile})"`
   } else if (executor === 'codex') {
     // Use Codex adapter for mode validation and deterministic command building.
     // Validates that the permission/display combination is supported before building.
@@ -2142,6 +2183,21 @@ export async function runDevcontainer(
     // Write prompt to file in worktree (accessible by container)
     const { hostPath: promptHostPath, containerPath: promptFile } = writePromptFile(context)
 
+    // Tool registry (TKT-083): generate MCP config file for container
+    let mcpConfigContainerPath: string | undefined
+    if (context.hqPath && isClaudeExecutor(executor)) {
+      const toolsResult = resolveToolsForSpawn(
+        context.hqPath,
+        context.toolPolicy,
+        context.worktreePath
+      )
+      if (toolsResult.mcpConfigPath) {
+        // Map host path to container path
+        const relativeMcp = path.relative(context.agentDir, toolsResult.mcpConfigPath)
+        mcpConfigContainerPath = `/workspace/${relativeMcp}`
+      }
+    }
+
     // Inject fresh GitHub token into container (containers may be reused with stale/empty tokens)
     // This ensures git push works even if the container was created before token was available
     const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
@@ -2158,7 +2214,7 @@ export async function runDevcontainer(
 
     // Build the docker exec command (just runs claude directly)
     // tmux session setup is handled by runDevcontainerInTmux, not buildDevcontainerCommand
-    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId, config.outputMode, config.permissionMode, displayMode)
+    const devcontainerCmd = buildDevcontainerCommand(context, executor, promptFile, containerId, config.outputMode, config.permissionMode, displayMode, mcpConfigContainerPath)
 
     // Execute based on display mode
     // When sessionManager is 'tmux', always use tmux inside container for session persistence
