@@ -340,6 +340,10 @@ export default class WorkStart extends PMOCommand {
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
     }),
+    'session-action': Flags.string({
+      description: 'Action when existing session found (attach, spawn, kill, cancel). Skips interactive menu.',
+      options: ['attach', 'spawn', 'kill', 'cancel'],
+    }),
     yes: Flags.boolean({
       char: 'y',
       description: 'Skip confirmation prompt (for non-TTY/scripted execution)',
@@ -829,7 +833,7 @@ export default class WorkStart extends PMOCommand {
           commandName: 'work start',
           baseCommand: `prlt work start ${ticketId}`,
           jsonMode,
-          flags: {},
+          flags: flags['session-action'] ? { sessionAction: flags['session-action'] } : {},
         })
 
         sessionResolver.addPrompt({
