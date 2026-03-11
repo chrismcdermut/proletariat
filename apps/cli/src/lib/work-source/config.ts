@@ -3,11 +3,12 @@ import { loadAsanaConfig } from '../asana/config.js'
 import { loadLinearConfig } from '../linear/config.js'
 import { loadJiraConfig } from '../jira/config.js'
 import { loadShortcutConfig } from '../shortcut/config.js'
+import { loadTrelloConfig } from '../trello/config.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 const ACTIVE_SOURCE_KEY = 'work.active_source'
 
-export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'monday'] as const
+export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'monday', 'trello'] as const
 export type WorkSourceProvider = typeof WORK_SOURCE_PROVIDERS[number]
 
 export interface WorkSourceRef {
@@ -114,6 +115,14 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
     providers.set('shortcut', {
       provider: 'shortcut',
       context: shortcutConfig.workspaceSlug ?? undefined,
+    })
+  }
+
+  const trelloConfig = loadTrelloConfig(db)
+  if (trelloConfig) {
+    providers.set('trello', {
+      provider: 'trello',
+      context: trelloConfig.boardId ?? undefined,
     })
   }
 

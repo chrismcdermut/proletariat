@@ -526,6 +526,23 @@ export class AsanaIssueAdapter implements ExternalIssueAdapter {
   }
 }
 
+function normalizeTrelloLabels(rawLabels: unknown): string[] {
+  if (!Array.isArray(rawLabels)) {
+    return []
+  }
+  return rawLabels
+    .map((label) => {
+      if (typeof label === 'string') {
+        return asString(label)
+      }
+      if (typeof label === 'object' && label !== null) {
+        return asString((label as Record<string, unknown>).name)
+      }
+      return undefined
+    })
+    .filter((label): label is string => typeof label === 'string')
+}
+
 function normalizeShortcutPriority(labels: string[]): string | null {
   const priorityLabel = labels.find(l => /^P[0-3]$/i.test(l))
   return priorityLabel ? priorityLabel.toUpperCase() : null
@@ -561,6 +578,92 @@ export class ShortcutIssueAdapter implements ExternalIssueAdapter {
       project_key: data.group_id ? String(data.group_id) : 'DEFAULT',
       assignee: null,
       item_type: asNullableString(data.story_type),
+      raw: data,
+    }
+
+    return ensureNormalized(this.source, envelope)
+  }
+
+  async fetchByKey(key: string): Promise<IssueEnvelope> {
+    const fetchIssueByKey = getFetchByKeyOrThrow(this.source, this.fetchByKeyImpl)
+    const raw = await fetchIssueByKey(key)
+    return this.normalize(raw)
+  }
+
+  async fetchByQuery(query: Record<string, unknown>): Promise<IssueEnvelope[]> {
+    const fetchIssuesByQuery = getFetchByQueryOrThrow(this.source, this.fetchByQueryImpl)
+    const rawIssues = await fetchIssuesByQuery(query)
+    return rawIssues.map((raw) => this.normalize(raw))
+  }
+
+  persistMapping(
+    store: ExternalExecutionMappingStore,
+    envelope: IssueEnvelope,
+    params?: { executionId?: string; prUrl?: string; lastSyncedAt?: Date; lastSpawnedAt?: Date }
+  ): ExternalExecutionMapping {
+    return store.upsertMapping({
+      provider: this.source,
+      externalId: envelope.external_id,
+      externalKey: envelope.external_key,
+      canonicalUrl: envelope.url,
+      latestStateSnapshot: {
+        status: envelope.status,
+        priority: envelope.priority,
+        assignee: envelope.assignee,
+        projectKey: envelope.project_key,
+      },
+      executionId: params?.executionId,
+      prUrl: params?.prUrl,
+      lastSyncedAt: params?.lastSyncedAt,
+      lastSpawnedAt: params?.lastSpawnedAt,
+    })
+  }
+
+  readMappingByExternalId(store: ExternalExecutionMappingStore, externalId: string): ExternalExecutionMapping | null {
+    return store.getByExternalId(this.source, externalId)
+  }
+
+  readMappingsByExecutionId(store: ExternalExecutionMappingStore, executionId: string): ExternalExecutionMapping[] {
+    return store.findByExecutionId(executionId).filter((mapping) => mapping.provider === this.source)
+  }
+}
+
+function normalizeTrelloPriority(labels: string[]): string | null {
+  const priorityLabel = labels.find(l => /^P[0-3]$/i.test(l))
+  return priorityLabel ? priorityLabel.toUpperCase() : null
+}
+
+export class TrelloIssueAdapter implements ExternalIssueAdapter {
+  readonly source = 'trello' as const
+
+  private readonly fetchByKeyImpl?: FetchIssueByKey
+  private readonly fetchByQueryImpl?: FetchIssuesByQuery
+
+  constructor(fetchers: AdapterFetchers = {}) {
+    this.fetchByKeyImpl = fetchers.fetchByKey
+    this.fetchByQueryImpl = fetchers.fetchByQuery
+  }
+
+  normalize(raw: unknown): IssueEnvelope {
+    const data = asRecord(raw)
+    const cardId = data.id !== undefined ? String(data.id) : asString(data.id)
+    const shortLink = asString(data.shortLink)
+    const externalKey = shortLink ? `trello-${shortLink}` : `trello-${cardId}`
+    const labels = normalizeTrelloLabels(data.labels)
+
+    const envelope = {
+      source: this.source,
+      external_id: cardId,
+      external_key: externalKey,
+      title: asString(data.name),
+      description: typeof data.desc === 'string' ? data.desc : '',
+      labels,
+      priority: normalizeTrelloPriority(labels),
+      status: data.closed === true ? 'Closed' : 'Open',
+      url: asString(data.url),
+      project_key: data.idBoard ? String(data.idBoard) : 'DEFAULT',
+      assignee: null,
+      item_type: 'card',
       raw: data,
     }
 

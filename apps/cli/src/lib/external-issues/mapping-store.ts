@@ -49,7 +49,7 @@ export class ExternalExecutionMappingStore {
   private ensureTables(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS ${T.external_execution_map} (
-        provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'monday', 'pmo')),
+        provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'monday', 'pmo', 'trello')),
         external_id TEXT NOT NULL,
         external_key TEXT,
         canonical_url TEXT,

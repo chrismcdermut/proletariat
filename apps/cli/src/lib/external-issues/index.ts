@@ -44,6 +44,7 @@ export {
   JiraIssueAdapter,
   AsanaIssueAdapter,
   ShortcutIssueAdapter,
+  TrelloIssueAdapter,
 } from './adapters.js'
 
 // Mapping store
@@ -102,6 +103,20 @@ export {
   importShortcutStoryToPmo,
   type ShortcutAdapterConfig,
 } from './shortcut.js'
+
+// Trello helpers
+export {
+  normalizeTrelloCard,
+  normalizeTrelloCardToEnvelope,
+  buildTrelloTicketDescription,
+  buildTrelloMetadata,
+  buildTrelloSpawnContextMessage,
+  buildTrelloCardChoiceCommand,
+  getTrelloCardById,
+  listTrelloCards,
+  importTrelloCardToPmo,
+  type TrelloAdapterConfig,
+} from './trello.js'
 
 export {
   resolveMirrorToPmo,
