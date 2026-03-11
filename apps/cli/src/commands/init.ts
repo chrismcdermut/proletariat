@@ -1,4 +1,4 @@
-import { Command } from '@oclif/core';
+import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import * as fs from 'node:fs';
 import {
@@ -7,11 +7,15 @@ import {
   getMachineConfigPath,
   readMachineConfig,
   writeMachineConfig,
-  getRegisteredHeadquarters,
 } from '../lib/machine-config.js';
 import { isValidHQ } from '../lib/workspace.js';
 import { machineOutputFlags } from '../lib/pmo/index.js';
 import { shouldOutputJson } from '../lib/prompt-json.js';
+import {
+  isFirstTimeUser,
+  runOnboardingWizard,
+  runOnboardingJsonMode,
+} from '../lib/onboarding/index.js';
 
 export default class Init extends Command {
   static description = 'Initialize machine-level Proletariat configuration (~/.proletariat)';
@@ -19,10 +23,15 @@ export default class Init extends Command {
   static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --json',
+    '<%= config.bin %> <%= command.id %> --json --setup claude-code',
   ];
 
   static flags = {
     ...machineOutputFlags,
+    setup: Flags.string({
+      description: 'Setup method for agent-driven onboarding (claude-code, codex, or manual)',
+      options: ['claude-code', 'codex', 'manual'],
+    }),
   };
 
   async run(): Promise<void> {
@@ -58,6 +67,25 @@ export default class Init extends Command {
 
     if (prunedCount > 0) {
       writeMachineConfig(config);
+    }
+
+    // Step 4: Onboarding wizard for first-time users
+    const firstTime = isFirstTimeUser(config.headquarters.length, config.activeHeadquarters ?? null);
+
+    if (firstTime) {
+      if (jsonMode) {
+        // JSON mode: handle --setup flag or output prompt choices
+        runOnboardingJsonMode(flags);
+        // If runOnboardingJsonMode returns (manual setup), fall through to normal JSON output
+      } else {
+        // Interactive mode: run the onboarding wizard
+        const result = await runOnboardingWizard();
+        if (result.method === 'ai') {
+          // AI tool handled setup, we're done
+          return;
+        }
+        // Manual setup: fall through to normal output with guidance
+      }
     }
 
     // Output results
