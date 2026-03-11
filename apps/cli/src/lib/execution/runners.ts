@@ -893,7 +893,10 @@ export async function runHost(
     const effortFlag = skipPermissions ? '--effort high ' : ''
     // Orchestrator sessions inject their role via --system-prompt
     const systemPromptFlag = systemPromptPath ? '--system-prompt "$(cat "$SYSTEM_PROMPT_PATH")" ' : ''
-    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
+    // TKT-053: Disable plan mode for background agents — prevents silent stalls
+    // when there's no user to approve the plan mode transition
+    const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
+    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}"$(cat "$PROMPT_PATH")"`
   } else {
     // Non-Claude executors: build command from getExecutorCommand() args
     // Replace the prompt in args with a file read to avoid shell escaping
@@ -1846,7 +1849,9 @@ export function buildDevcontainerCommand(
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     // --effort high: skips the effort level prompt for automated agents (TKT-1134)
     const effortFlag = '--effort high '
-    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}"$(cat ${promptFile})"`
+    // TKT-053: Disable plan mode for background agents — prevents silent stalls
+    const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
+    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}"$(cat ${promptFile})"`
   } else if (executor === 'codex') {
     // Use Codex adapter for mode validation and deterministic command building.
     // Validates that the permission/display combination is supported before building.
@@ -2716,7 +2721,8 @@ export async function runDocker(
     // Non-Claude executors use their native command format from getExecutorCommand()
     dockerCmd += ` ${config.docker.image}`
     if (isClaudeExecutor(executor)) {
-      dockerCmd += ` ${cmd} --print '${escapedPrompt}'`
+      // TKT-053: Disable plan mode — Docker runner is always detached (no user to approve)
+      dockerCmd += ` ${cmd} --print --disallowedTools EnterPlanMode '${escapedPrompt}'`
     } else {
       const argsStr = args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
       dockerCmd += ` ${cmd} ${argsStr}`
@@ -2959,8 +2965,10 @@ export async function runOrchestratorInDocker(
     const skipPermissions = config.permissionMode === 'danger'
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     const effortFlag = skipPermissions ? '--effort high ' : ''
+    // TKT-053: Disable plan mode for background agents — prevents silent stalls
+    const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     const executorCmd = executor === 'claude-code'
-      ? `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"`
+      ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}"$(cat ${promptPath})"`
       : `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"`
 
     // Build tmux session name (reuses the same name as host tmux for consistency)
@@ -2982,7 +2990,7 @@ export async function runOrchestratorInDocker(
         const scriptContent = `#!/bin/bash
 cd /hq
 unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT
-${executor === 'claude-code' ? `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"` : `claude "$(cat ${promptPath})"`}
+${executor === 'claude-code' ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}"$(cat ${promptPath})"` : `claude "$(cat ${promptPath})"`}
 echo ""
 echo "Orchestrator complete. Press Enter to close."
 exec bash
@@ -3159,7 +3167,8 @@ export async function runVm(
     // Build the remote command based on executor type
     let remoteCmd: string
     if (isClaudeExecutor(executor)) {
-      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} --print '${escapedPrompt}'`
+      // TKT-053: Disable plan mode — VM runner is always nohup (no user to approve)
+      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} --print --disallowedTools EnterPlanMode '${escapedPrompt}'`
     } else {
       const argsStr = executorArgs.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
       remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} ${argsStr}`
