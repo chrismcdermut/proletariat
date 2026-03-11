@@ -151,10 +151,6 @@ export interface ExecutionContext {
   ticketPriority?: string
   ticketCategory?: string
   epicTitle?: string
-  specId?: string
-  specTitle?: string
-  specProblem?: string
-  specSolution?: string
   agentName: string
   agentDir: string      // Agent directory (contains .devcontainer)
   worktreePath: string  // Worktree path (may be subdirectory of agentDir)
