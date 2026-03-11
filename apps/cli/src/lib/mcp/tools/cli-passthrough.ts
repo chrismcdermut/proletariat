@@ -486,6 +486,63 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
   )
 
   strictTool(server,
+    'session_inspect',
+    'Comprehensive agent status inspection (git, PR, process, output) in one call',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      lines: z.number().optional().describe('Scrollback lines to capture (default 100)'),
+    },
+    async (params) => {
+      try {
+        const linesFlag = params.lines ? `--lines ${params.lines}` : ''
+        const output = ctx.runCommand(`prlt session inspect ${params.target} ${linesFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_exec',
+    'Run a command in an agent\'s worktree/container context',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      command: z.string().describe('Shell command to execute'),
+      timeout: z.number().optional().describe('Timeout in seconds (default 30)'),
+    },
+    async (params) => {
+      try {
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        const output = ctx.runCommand(`prlt session exec ${params.target} ${timeoutFlag} --json -- ${params.command}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_restart',
+    'Gracefully restart a stuck agent',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      fresh: z.boolean().optional().describe('Reset worktree to branch HEAD'),
+      resume: z.boolean().optional().describe('Continue from where agent left off'),
+    },
+    async (params) => {
+      try {
+        const freshFlag = params.fresh ? '--fresh' : ''
+        const resumeFlag = params.resume ? '--resume' : ''
+        const output = ctx.runCommand(`prlt session restart ${params.target} ${freshFlag} ${resumeFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
     'config_show',
     'Show configuration',
     {},

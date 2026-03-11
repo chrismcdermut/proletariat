@@ -1,5 +1,6 @@
 import { Args, Flags } from '@oclif/core'
 import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -14,6 +15,7 @@ import {
   captureTmuxPane,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { onShutdown } from '../../lib/signal-handler.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -45,7 +47,9 @@ export default class SessionPeek extends PMOCommand {
     '<%= config.bin %> session peek altman',
     '<%= config.bin %> session peek TKT-123',
     '<%= config.bin %> session peek WORK-ABCD1234',
-    '<%= config.bin %> session peek altman --lines 100',
+    '<%= config.bin %> session peek altman --lines 500',
+    '<%= config.bin %> session peek altman --full',
+    '<%= config.bin %> session peek altman --follow',
     '<%= config.bin %> session peek TKT-123 --json',
     '<%= config.bin %> session peek altman | grep error',
   ]
@@ -62,7 +66,19 @@ export default class SessionPeek extends PMOCommand {
     lines: Flags.integer({
       char: 'l',
       description: 'Number of scrollback lines to capture',
-      default: 50,
+      default: 200,
+    }),
+    full: Flags.boolean({
+      description: 'Capture entire scrollback buffer',
+      default: false,
+    }),
+    since: Flags.string({
+      description: 'Get output since timestamp (ISO 8601 format, e.g. 2024-01-01T00:00:00Z)',
+    }),
+    follow: Flags.boolean({
+      char: 'f',
+      description: 'Stream output continuously (like tail -f)',
+      default: false,
     }),
   }
 
@@ -73,6 +89,9 @@ export default class SessionPeek extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SessionPeek)
     const jsonMode = shouldOutputJson(flags)
+
+    // Determine effective lines count
+    const lines = flags.full ? 32768 : flags.lines
 
     // Discover all verified sessions
     const sessions = this.getVerifiedSessions()
@@ -110,20 +129,25 @@ export default class SessionPeek extends PMOCommand {
         this.error(`No matching session found for "${args.target}". Run "prlt session list" to see available sessions.`)
       }
 
+      // Follow mode: stream output continuously
+      if (flags.follow && matched.length === 1) {
+        await this.followMode(matched[0], lines)
+        return
+      }
+
       // Output all matched sessions
       if (jsonMode && matched.length > 1) {
-        // Collect all captures into a single JSON response
         const results = matched.map(session => {
           const containerId = session.environment === 'container' ? session.containerId : undefined
-          const content = captureTmuxPane(session.sessionId, flags.lines, containerId)
+          const content = captureTmuxPane(session.sessionId, lines, containerId)
           return {
             sessionId: session.sessionId,
             ticketId: session.ticketId,
             agentName: session.agentName,
             environment: session.environment,
             containerId: session.containerId,
-            lines: flags.lines,
-            content,
+            lines,
+            content: this.filterBySince(content, flags.since),
             captureError: content === null
               ? `Failed to capture pane content for session "${session.sessionId}".`
               : undefined,
@@ -134,7 +158,7 @@ export default class SessionPeek extends PMOCommand {
       }
 
       for (const session of matched) {
-        this.outputPeek(session, flags.lines, jsonMode, flags)
+        this.outputPeek(session, lines, jsonMode, flags)
       }
     } else {
       // No target: interactive selection
@@ -156,7 +180,12 @@ export default class SessionPeek extends PMOCommand {
         this.error('No session selected')
       }
 
-      this.outputPeek(session, flags.lines, jsonMode, flags)
+      if (flags.follow) {
+        await this.followMode(session, lines)
+        return
+      }
+
+      this.outputPeek(session, lines, jsonMode, flags)
     }
   }
 
@@ -249,6 +278,8 @@ export default class SessionPeek extends PMOCommand {
       )
     }
 
+    const filteredContent = this.filterBySince(content, flags.since as string | undefined)
+
     if (jsonMode) {
       outputSuccessAsJson({
         sessionId: session.sessionId,
@@ -257,12 +288,130 @@ export default class SessionPeek extends PMOCommand {
         environment: session.environment,
         containerId: session.containerId,
         lines,
-        content,
+        content: filteredContent,
       }, createMetadata('session peek', flags))
     } else {
       // Raw text output — pipeable and scriptable
-      process.stdout.write(content + '\n')
+      process.stdout.write((filteredContent || '') + '\n')
     }
+  }
+
+  /**
+   * Filter content to only include lines since a given timestamp.
+   * Looks for timestamp patterns in the output and returns lines after the match.
+   */
+  private filterBySince(content: string | null, since?: string): string | null {
+    if (!content || !since) return content
+
+    try {
+      const sinceDate = new Date(since)
+      if (isNaN(sinceDate.getTime())) return content
+
+      const lines = content.split('\n')
+      // Look for lines containing timestamps and filter
+      // Common timestamp patterns: ISO 8601, HH:MM:SS, etc.
+      const timestampPattern = /(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})|(\d{2}:\d{2}:\d{2})/
+
+      let foundSince = false
+      const filtered: string[] = []
+
+      for (const line of lines) {
+        if (foundSince) {
+          filtered.push(line)
+          continue
+        }
+
+        const match = line.match(timestampPattern)
+        if (match) {
+          try {
+            const lineDate = new Date(match[0])
+            if (!isNaN(lineDate.getTime()) && lineDate >= sinceDate) {
+              foundSince = true
+              filtered.push(line)
+            }
+          } catch {
+            // Not a valid date, skip
+          }
+        }
+      }
+
+      // If no timestamp found, return all content
+      return filtered.length > 0 ? filtered.join('\n') : content
+    } catch {
+      return content
+    }
+  }
+
+  /**
+   * Follow mode: continuously stream output like tail -f.
+   */
+  private async followMode(session: VerifiedSession, lines: number): Promise<void> {
+    const containerId = session.environment === 'container' ? session.containerId : undefined
+
+    // Capture initial content
+    let lastContent = captureTmuxPane(session.sessionId, lines, containerId) || ''
+    process.stdout.write(lastContent)
+    if (!lastContent.endsWith('\n')) process.stdout.write('\n')
+
+    const pollIntervalMs = 1000
+
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        try {
+          const currentContent = captureTmuxPane(session.sessionId, lines, containerId)
+          if (currentContent === null) {
+            clearInterval(timer)
+            process.stderr.write('\nSession ended.\n')
+            resolve()
+            return
+          }
+
+          // Find new content by comparing with last capture
+          if (currentContent !== lastContent) {
+            // Simple diff: find the new suffix
+            const lastLines = lastContent.split('\n')
+            const currentLines = currentContent.split('\n')
+
+            // Find where new content diverges
+            let commonIdx = 0
+            const minLen = Math.min(lastLines.length, currentLines.length)
+            // Start from the end since scrollback means old lines may have scrolled off
+            // Instead, compare from the beginning of the overlap
+            for (let i = 0; i < minLen; i++) {
+              if (lastLines[lastLines.length - minLen + i] === currentLines[i]) {
+                commonIdx = i + 1
+              } else {
+                break
+              }
+            }
+
+            // Just output lines that are new
+            const newLines = currentLines.slice(Math.max(commonIdx, lastLines.length > currentLines.length ? 0 : lastLines.length))
+            if (newLines.length > 0) {
+              process.stdout.write(newLines.join('\n') + '\n')
+            } else if (currentContent !== lastContent) {
+              // Content changed but couldn't diff cleanly; output the difference
+              const newContent = currentContent.slice(lastContent.length)
+              if (newContent) {
+                process.stdout.write(newContent)
+                if (!newContent.endsWith('\n')) process.stdout.write('\n')
+              }
+            }
+
+            lastContent = currentContent
+          }
+        } catch {
+          clearInterval(timer)
+          process.stderr.write('\nError capturing output.\n')
+          resolve()
+        }
+      }, pollIntervalMs)
+
+      onShutdown(() => {
+        clearInterval(timer)
+        resolve()
+      })
+    })
   }
 
   /**

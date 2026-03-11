@@ -16,7 +16,7 @@ import { z } from 'zod'
 import { execFileSync } from 'node:child_process'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { McpToolContext } from '../types.js'
-import { errorResponse, strictTool, successResponse } from '../helpers.js'
+import { errorResponse, strictTool, successResponse, textResponse } from '../helpers.js'
 
 const TMUX_ENV = { ...process.env, TERM: process.env.TERM || 'xterm-256color' }
 
@@ -50,7 +50,7 @@ function sessionExists(sessionName: string): boolean {
   }
 }
 
-export function registerTmuxTools(server: McpServer, _ctx: McpToolContext): void {
+export function registerTmuxTools(server: McpServer, ctx: McpToolContext): void {
   // ── tmux_send_keys ───────────────────────────────────────────────────
   strictTool(server,
     'tmux_send_keys',
@@ -213,6 +213,113 @@ export function registerTmuxTools(server: McpServer, _ctx: McpToolContext): void
           killed: params.session,
           message: `Session "${params.session}" terminated`,
         })
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  // ── session_inspect ────────────────────────────────────────────────
+  strictTool(server,
+    'session_inspect',
+    'Comprehensive agent status inspection — returns git status, PR status, process liveness, output, and execution metadata in one call. Accepts agent name or ticket ID.',
+    {
+      target: z.string().describe('Agent name or ticket ID (e.g. altman, TKT-123)'),
+      lines: z.number().optional().describe('Number of scrollback lines to capture (default 100)'),
+    },
+    async (params) => {
+      try {
+        const linesFlag = params.lines ? `--lines ${params.lines}` : ''
+        const output = ctx.runCommand(`prlt session inspect ${params.target} ${linesFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  // ── session_exec ──────────────────────────────────────────────────
+  strictTool(server,
+    'session_exec',
+    'Run a shell command in an agent\'s worktree/container context. Returns structured stdout/stderr output.',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      command: z.string().describe('Shell command to execute in the agent\'s context'),
+      timeout: z.number().optional().describe('Command timeout in seconds (default 30)'),
+    },
+    async (params) => {
+      try {
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        const output = ctx.runCommand(`prlt session exec ${params.target} ${timeoutFlag} --json -- ${params.command}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  // ── session_restart ───────────────────────────────────────────────
+  strictTool(server,
+    'session_restart',
+    'Gracefully restart a stuck agent — sends Ctrl-C, waits for exit, re-launches Claude Code.',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      fresh: z.boolean().optional().describe('Reset worktree to branch HEAD before restart'),
+      resume: z.boolean().optional().describe('Continue from where it left off (--resume flag)'),
+      timeout: z.number().optional().describe('Seconds to wait for clean exit (default 15)'),
+    },
+    async (params) => {
+      try {
+        const freshFlag = params.fresh ? '--fresh' : ''
+        const resumeFlag = params.resume ? '--resume' : ''
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        const output = ctx.runCommand(`prlt session restart ${params.target} ${freshFlag} ${resumeFlag} ${timeoutFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  // ── session_peek ──────────────────────────────────────────────────
+  strictTool(server,
+    'session_peek',
+    'View agent tmux pane content without attaching. Supports full scrollback capture.',
+    {
+      target: z.string().describe('Agent name, ticket ID, or session ID'),
+      lines: z.number().optional().describe('Number of scrollback lines (default 200)'),
+      full: z.boolean().optional().describe('Capture entire scrollback buffer'),
+    },
+    async (params) => {
+      try {
+        const linesFlag = params.lines ? `--lines ${params.lines}` : ''
+        const fullFlag = params.full ? '--full' : ''
+        const output = ctx.runCommand(`prlt session peek ${params.target} ${linesFlag} ${fullFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  // ── session_poke ──────────────────────────────────────────────────
+  strictTool(server,
+    'session_poke',
+    'Send a message to a running agent\'s Claude Code session. Supports waiting for response.',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      message: z.string().describe('Message to send to the agent'),
+      wait: z.boolean().optional().describe('Wait for response after sending'),
+      timeout: z.number().optional().describe('Timeout in seconds for wait mode (default 120)'),
+    },
+    async (params) => {
+      try {
+        const waitFlag = params.wait ? '--wait' : ''
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        // Escape double quotes in the message for shell safety
+        const escapedMessage = params.message.replace(/"/g, '\\"')
+        const output = ctx.runCommand(`prlt session poke ${params.target} "${escapedMessage}" ${waitFlag} ${timeoutFlag} --json`)
+        return textResponse(output)
       } catch (error) {
         return errorResponse(error)
       }
