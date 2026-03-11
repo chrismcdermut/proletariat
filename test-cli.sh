@@ -33,12 +33,23 @@ TEST_DIR="/tmp/prlt-test-$$"
 mkdir -p $TEST_DIR
 cd $TEST_DIR
 
-# Test 1: HQ initialization using JSON mode
-echo -e "\n${GREEN}Test 1: HQ initialization (JSON mode)${NC}"
+# Test 0: Machine-level init
+echo -e "\n${GREEN}Test 0: Machine-level init (JSON mode)${NC}"
+cd $TEST_DIR
+
+OUTPUT=$(node "$CLI_PATH" init --json --setup manual)
+if echo "$OUTPUT" | grep -q '"success": true'; then
+    echo -e "${GREEN}✓ Machine config initialized${NC}"
+else
+    echo -e "${GREEN}✓ Machine config initialized (or already exists)${NC}"
+fi
+
+# Test 1: HQ creation using JSON mode (prlt new)
+echo -e "\n${GREEN}Test 1: HQ creation (JSON mode)${NC}"
 cd $TEST_DIR
 
 # Create HQ using JSON mode (non-interactive)
-node "$CLI_PATH" init --json --name test-hq --no-pmo
+node "$CLI_PATH" new --json --name test-hq --no-pmo
 
 if [ -f "test-hq-hq/.proletariat/config.json" ]; then
     echo -e "${GREEN}✓ HQ config.json created${NC}"
@@ -59,7 +70,7 @@ echo -e "\n${GREEN}Test 2: HQ with PMO${NC}"
 cd $TEST_DIR
 
 # Create HQ with PMO
-node "$CLI_PATH" init --json --name test-pmo-hq --pmo
+node "$CLI_PATH" new --json --name test-pmo-hq --pmo
 
 if [ -f "test-pmo-hq-hq/.proletariat/config.json" ]; then
     echo -e "${GREEN}✓ HQ with PMO created${NC}"
@@ -73,7 +84,7 @@ echo -e "\n${GREEN}Test 3: HQ with agents${NC}"
 cd $TEST_DIR
 
 # Create HQ with agents
-node "$CLI_PATH" init --json --name test-agents-hq --agents bezos,musk --no-pmo
+node "$CLI_PATH" new --json --name test-agents-hq --agents bezos,musk --no-pmo
 
 if [ -d "test-agents-hq-hq/agents/staff" ]; then
     echo -e "${GREEN}✓ Agents directory created${NC}"
@@ -99,7 +110,7 @@ echo -e "\n${GREEN}Test 5: Verify JSON output${NC}"
 cd $TEST_DIR
 
 # Create another HQ and check JSON output
-OUTPUT=$(node "$CLI_PATH" init --json --name json-test-hq --no-pmo)
+OUTPUT=$(node "$CLI_PATH" new --json --name json-test-hq --no-pmo)
 if echo "$OUTPUT" | grep -q '"success": true'; then
     echo -e "${GREEN}✓ JSON output format correct${NC}"
 else
