@@ -70,6 +70,12 @@ import {
   buildShortcutTicketDescription,
   getShortcutStoryByKey,
 } from '../../lib/external-issues/shortcut.js'
+import {
+  buildTrelloMetadata,
+  buildTrelloSpawnContextMessage,
+  buildTrelloTicketDescription,
+  getTrelloCardById,
+} from '../../lib/external-issues/trello.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 import {
@@ -149,7 +155,7 @@ function parseBooleanSetting(value: string | undefined): boolean | null {
 }
 
 function isIssueSource(value: string | undefined): value is IssueSource {
-  return value === 'linear' || value === 'jira' || value === 'asana' || value === 'shortcut'
+  return value === 'linear' || value === 'jira' || value === 'asana' || value === 'shortcut' || value === 'trello'
 }
 
 function buildExternalMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
@@ -157,6 +163,7 @@ function buildExternalMetadata(envelope: NormalizedIssueEnvelope): Record<string
     case 'jira': return buildJiraMetadata(envelope)
     case 'asana': return buildAsanaMetadata(envelope)
     case 'shortcut': return buildShortcutMetadata(envelope)
+    case 'trello': return buildTrelloMetadata(envelope)
     default: return buildLinearMetadata(envelope)
   }
 }
@@ -166,6 +173,7 @@ function buildExternalTicketDescription(envelope: NormalizedIssueEnvelope): stri
     case 'jira': return buildJiraTicketDescription(envelope)
     case 'asana': return buildAsanaTicketDescription(envelope)
     case 'shortcut': return buildShortcutTicketDescription(envelope)
+    case 'trello': return buildTrelloTicketDescription(envelope)
     default: return buildLinearTicketDescription(envelope)
   }
 }
@@ -178,6 +186,7 @@ function buildExternalSpawnContextMessage(
     case 'jira': return buildJiraSpawnContextMessage(envelope, additionalMessage)
     case 'asana': return buildAsanaSpawnContextMessage(envelope, additionalMessage)
     case 'shortcut': return buildShortcutSpawnContextMessage(envelope, additionalMessage)
+    case 'trello': return buildTrelloSpawnContextMessage(envelope, additionalMessage)
     default: return buildLinearSpawnContextMessage(envelope, additionalMessage)
   }
 }
@@ -222,6 +231,7 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --from jira:PROJ-123               # Unified: Jira shorthand',
     '<%= config.bin %> <%= command.id %> --from asana:1234567890            # Unified: Asana shorthand',
     '<%= config.bin %> <%= command.id %> --from shortcut:sc-123             # Unified: Shortcut shorthand',
+    '<%= config.bin %> <%= command.id %> --from trello:abc123              # Unified: Trello shorthand',
     '<%= config.bin %> <%= command.id %> --from-issue                       # Uses workspace active source',
   ]
 
@@ -264,7 +274,7 @@ export default class WorkStart extends PMOCommand {
     }),
     source: Flags.string({
       description: 'External issue source',
-      options: ['linear', 'jira', 'asana', 'shortcut'],
+      options: ['linear', 'jira', 'asana', 'shortcut', 'trello'],
     }),
     key: Flags.string({
       description: 'External issue key (for example: ENG-123, PROJ-456)',
@@ -403,6 +413,7 @@ export default class WorkStart extends PMOCommand {
       case 'jira': return getJiraIssueByKey({}, key)
       case 'asana': return getAsanaTaskByGid({}, key)
       case 'shortcut': return getShortcutStoryByKey({}, key)
+      case 'trello': return getTrelloCardById({}, key)
       default: return getLinearIssueByIdentifier({}, key)
     }
   }
@@ -446,6 +457,7 @@ export default class WorkStart extends PMOCommand {
         { name: 'Jira', value: 'jira', command: 'prlt work start --from jira:ISSUE-KEY --json' },
         { name: 'Asana', value: 'asana', command: 'prlt work start --from asana:TASK-GID --json' },
         { name: 'Shortcut', value: 'shortcut', command: 'prlt work start --from shortcut:STORY-ID --json' },
+        { name: 'Trello', value: 'trello', command: 'prlt work start --from trello:CARD-ID --json' },
       ],
     })
     const sourceResult = await sourceResolver.resolve()
@@ -473,7 +485,7 @@ export default class WorkStart extends PMOCommand {
     keyResolver.addPrompt({
       flagName: 'key',
       type: 'input',
-      message: `Enter ${source === 'linear' ? 'Linear' : source === 'jira' ? 'Jira' : source === 'asana' ? 'Asana task' : source === 'shortcut' ? 'Shortcut story' : source} key:`,
+      message: `Enter ${source === 'linear' ? 'Linear' : source === 'jira' ? 'Jira' : source === 'asana' ? 'Asana task' : source === 'shortcut' ? 'Shortcut story' : source === 'trello' ? 'Trello card' : source} key:`,
       default: key,
       when: () => !key?.trim(),
       validate: (value) => (value as string).trim().length > 0 ? true : 'Issue key is required',

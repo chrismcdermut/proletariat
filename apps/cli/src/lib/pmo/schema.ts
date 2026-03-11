@@ -57,6 +57,8 @@ export const PMO_TABLES = {
   monday_item_map: 'pmo_monday_item_map',  // Monday item ↔ PMO ticket mapping
   // Asana integration tables
   asana_task_map: 'pmo_asana_task_map',  // Asana task ↔ PMO ticket mapping
+  // Trello integration tables
+  trello_card_map: 'pmo_trello_card_map',  // Trello card ↔ PMO ticket mapping
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -555,7 +557,7 @@ export const PMO_TABLE_SCHEMAS = {
   // Provider-agnostic external issue ↔ execution mapping
   external_execution_map: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_map} (
-      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'asana', 'monday', 'pmo')),
+      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'pmo')),
       external_id TEXT NOT NULL,
       external_key TEXT,
       canonical_url TEXT,

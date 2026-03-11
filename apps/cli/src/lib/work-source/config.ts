@@ -3,12 +3,13 @@ import { loadAsanaConfig } from '../asana/config.js'
 import { loadLinearConfig } from '../linear/config.js'
 import { loadJiraConfig } from '../jira/config.js'
 import { loadShortcutConfig } from '../shortcut/config.js'
+import { loadTrelloConfig } from '../trello/config.js'
 import { loadMondayConfig } from '../monday/config.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 const ACTIVE_SOURCE_KEY = 'work.active_source'
 
-export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'monday'] as const
+export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'trello', 'monday'] as const
 export type WorkSourceProvider = typeof WORK_SOURCE_PROVIDERS[number]
 
 export interface WorkSourceRef {
@@ -118,6 +119,14 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
     })
   }
 
+  const trelloConfig = loadTrelloConfig(db)
+  if (trelloConfig) {
+    providers.set('trello', {
+      provider: 'trello',
+      context: trelloConfig.boardName ?? trelloConfig.boardId ?? undefined,
+    })
+  }
+
   return Array.from(providers.values())
 }
 
@@ -132,6 +141,7 @@ export function getConnectedIntegrations(db: Database.Database): string[] {
   if (loadLinearConfig(db)) integrations.push('linear')
   if (loadJiraConfig(db)) integrations.push('jira')
   if (loadShortcutConfig(db)) integrations.push('shortcut')
+  if (loadTrelloConfig(db)) integrations.push('trello')
   if (loadMondayConfig(db)) integrations.push('monday')
 
   return integrations
