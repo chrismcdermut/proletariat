@@ -33,6 +33,7 @@ import {
   PermissionMode,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
+  normalizeEnvironment,
 } from './types.js'
 import { Ticket } from '../pmo/types.js'
 
@@ -388,7 +389,7 @@ export async function spawnAgentForTicket(
   // require explicit --run-on-host flag to proceed (TKT-046)
   let environment: ExecutionEnvironment
   if (options.environment) {
-    environment = options.environment
+    environment = normalizeEnvironment(options.environment)
   } else if (hasDevcontainer && dockerRunning) {
     environment = 'devcontainer'
   } else if (hasDevcontainer && !dockerRunning) {
