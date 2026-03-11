@@ -11,7 +11,7 @@
 // Three dimensions control how agent work is executed:
 //
 // 1. ExecutionEnvironment - WHERE the code runs
-//    (devcontainer, host, docker, vm)
+//    (host, sandbox, devcontainer, docker, cloud)
 //
 // 2. SessionManager - HOW the process is supervised
 //    (tmux, direct) - currently always tmux for session persistence
@@ -23,12 +23,29 @@
 
 /**
  * ExecutionEnvironment - Where the agent code runs.
+ *
+ * Hierarchy (least to most isolation):
+ *   host      -> Full access, no sandbox (quick, trusted, power users)
+ *   sandbox   -> srt restrictions on host (filesystem + network isolation, lightweight)
+ *   container -> Docker/devcontainer (full isolation, can run browsers/headless chrome)
+ *   cloud     -> Remote machines (scale, GPUs, offload to powerful hardware)
  */
 export type ExecutionEnvironment =
+  | 'host'          // Directly on host machine (no isolation)
+  | 'sandbox'       // srt sandbox on host (filesystem + network restrictions)
   | 'devcontainer'  // In a devcontainer (isolated, recommended)
-  | 'host'          // Directly on host machine
   | 'docker'        // In a Docker container
-  | 'vm'            // On a remote VM
+  | 'cloud'         // On a remote machine (was 'vm')
+  | 'vm'            // @deprecated - alias for 'cloud', use 'cloud' instead
+
+/**
+ * Normalize execution environment, mapping deprecated values to current ones.
+ * 'vm' is mapped to 'cloud'.
+ */
+export function normalizeEnvironment(env: ExecutionEnvironment): ExecutionEnvironment {
+  if (env === 'vm') return 'cloud'
+  return env
+}
 
 /**
  * SessionManager - How agent sessions are managed inside the execution environment.
@@ -118,7 +135,7 @@ export interface AgentWork {
   ticketId: string
   agentName: string
   executor: ExecutorType
-  environment: ExecutionEnvironment  // Where: devcontainer, host, docker, vm
+  environment: ExecutionEnvironment  // Where: host, sandbox, devcontainer, docker, cloud
   displayMode: DisplayMode       // How shown: terminal, background
   sessionManager?: SessionManager // How session is managed inside environment (tmux/direct)
   permissionMode: PermissionMode  // Permission mode used for this execution
@@ -177,7 +194,7 @@ export interface ExecutionContext {
   isEphemeral?: boolean // Whether this is an ephemeral agent (auto-closes session on completion)
   hqName?: string // HQ workspace name (used in orchestrator prompt)
   // Execution environment (where the agent is running)
-  executionEnvironment?: ExecutionEnvironment // 'devcontainer', 'host', 'docker', 'vm'
+  executionEnvironment?: ExecutionEnvironment // 'host', 'sandbox', 'devcontainer', 'docker', 'cloud'
   // Connected integrations (for prompt injection)
   connectedIntegrations?: string[] // e.g. ['asana', 'linear'] — only integrations that are configured
 }
@@ -365,6 +382,19 @@ export interface ExecutionConfig {
   firewall: {
     allowlistDomains: string[]  // Additional domains to allow in container firewall
   }
+  sandbox: {
+    allowReadPaths: string[]   // Additional paths the sandbox can read (repo source is always allowed)
+    allowWritePaths: string[]  // Additional paths the sandbox can write (agent worktree is always allowed)
+    networkDomains: string[]   // Domains allowed for network access (merged with firewall.allowlistDomains)
+    fallbackToHost: boolean    // If srt not installed, fall back to host with warning (default: true)
+  }
+  cloud: {
+    defaultHost?: string
+    user: string
+    keyPath?: string
+    syncMethod: 'rsync' | 'git'
+  }
+  /** @deprecated Use 'cloud' instead. Kept for backwards compatibility. */
   vm: {
     defaultHost?: string
     user: string
@@ -414,6 +444,21 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   },
   firewall: {
     allowlistDomains: [],
+  },
+  sandbox: {
+    allowReadPaths: [],
+    allowWritePaths: [],
+    networkDomains: [
+      'github.com',
+      'api.anthropic.com',
+      'registry.npmjs.org',
+      'registry.yarnpkg.com',
+    ],
+    fallbackToHost: true,
+  },
+  cloud: {
+    user: 'agent',
+    syncMethod: 'git',
   },
   vm: {
     user: 'agent',
