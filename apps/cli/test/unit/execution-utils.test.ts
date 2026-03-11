@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process'
 
 import {
   isDockerRunning,
+  checkDockerDaemon,
   buildSessionName,
   shouldUseControlMode,
   buildTmuxMouseOption,
@@ -25,11 +26,11 @@ describe('Execution Utils', () => {
       expect(result).to.be.a('boolean')
     })
 
-    it('should match actual docker info command result', () => {
-      // Get the expected result by running docker info directly
+    it('should match actual docker ps command result', () => {
+      // Get the expected result by running docker ps directly
       let dockerAvailable: boolean
       try {
-        execSync('docker info', { stdio: 'pipe', timeout: 5000 })
+        execSync('docker ps -q --no-trunc', { stdio: 'pipe', timeout: 5000 })
         dockerAvailable = true
       } catch {
         dockerAvailable = false
@@ -42,6 +43,35 @@ describe('Execution Utils', () => {
     it('should not throw an error regardless of Docker state', () => {
       // The function should handle errors gracefully
       expect(() => isDockerRunning()).to.not.throw()
+    })
+  })
+
+  describe('checkDockerDaemon (TKT-081)', () => {
+    it('should return a status object with available, reason, and message', () => {
+      const result = checkDockerDaemon()
+      expect(result).to.have.property('available').that.is.a('boolean')
+      expect(result).to.have.property('reason').that.is.a('string')
+      expect(result).to.have.property('message').that.is.a('string')
+      expect(['ready', 'not-installed', 'daemon-not-ready']).to.include(result.reason)
+    })
+
+    it('should have available=true when reason is ready', () => {
+      const result = checkDockerDaemon()
+      if (result.reason === 'ready') {
+        expect(result.available).to.be.true
+      } else {
+        expect(result.available).to.be.false
+      }
+    })
+
+    it('should be consistent with isDockerRunning', () => {
+      const status = checkDockerDaemon()
+      const running = isDockerRunning()
+      expect(status.available).to.equal(running)
+    })
+
+    it('should not throw an error regardless of Docker state', () => {
+      expect(() => checkDockerDaemon()).to.not.throw()
     })
   })
 
