@@ -22,7 +22,7 @@ import {
  *
  * Each subcommand is tested through the interactive menu flow AND directly with flags.
  */
-describe('Session Commands E2E Tests', () => {
+describe('@smoke Session Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;

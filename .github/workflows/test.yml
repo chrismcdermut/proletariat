@@ -6,6 +6,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      test_tier:
+        description: 'Test tier to run'
+        type: choice
+        options:
+          - smoke
+          - standard
+          - full
+        default: full
 
 # Cancel in-progress runs when a new commit is pushed to the same branch/PR.
 # This prevents wasted CI minutes when iterating on a PR.
@@ -22,11 +31,20 @@ concurrency:
 # - A verification step runs `require('better-sqlite3')` before tests to fail fast with
 #   clear diagnostics if the native binding is missing or incompatible.
 
-# Change-detection scoping:
+# Test tier system:
+# - smoke: critical-path @smoke-tagged tests only (~50-100 tests, <3 min)
+# - standard: scoped tests based on change detection (current PR behavior)
+# - full: entire test suite (all shards, all tests)
+#
+# Tier selection:
+# - pull_request: smoke (fast feedback)
+# - push to main: full (comprehensive)
+# - workflow_dispatch: user choice (default: full)
+#
+# Change-detection scoping (standard/full tiers):
 # - docs-only PRs skip all test suites entirely
 # - Scoped source changes (pmo, execution) run only affected unit + e2e subsets
 # - Core/runtime changes (database, shared lib, config files) trigger the full suite
-# - push to main and workflow_dispatch always run the full suite
 # - The ci-status job serves as a single required check for branch protection
 
 jobs:
@@ -35,6 +53,7 @@ jobs:
     outputs:
       run_tests: ${{ steps.classify.outputs.run_tests }}
       scope: ${{ steps.classify.outputs.scope }}
+      tier: ${{ steps.classify.outputs.tier }}
       reason: ${{ steps.classify.outputs.reason }}
       e2e_shards: ${{ steps.classify.outputs.e2e_shards }}
     steps:
@@ -50,12 +69,39 @@ jobs:
         id: classify
         shell: bash
         run: |
-          # For push to main and manual dispatch, always run full suite
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+          # Determine test tier based on event type
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TIER="${{ github.event.inputs.test_tier }}"
+            TIER="${TIER:-full}"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            TIER="full"
+          else
+            # pull_request: use smoke tier for fast feedback
+            TIER="smoke"
+          fi
+          echo "tier=$TIER" >> "$GITHUB_OUTPUT"
+          echo "Selected tier: $TIER"
+
+          # For push to main and manual dispatch (standard/full), always run full suite
+          if [[ "${{ github.event_name }}" == "push" ]]; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
-            echo "reason=Full suite: ${{ github.event_name }} event (not a pull request)" >> "$GITHUB_OUTPUT"
+            echo "reason=Full suite: push event" >> "$GITHUB_OUTPUT"
             echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            if [[ "$TIER" == "smoke" ]]; then
+              echo "scope=smoke" >> "$GITHUB_OUTPUT"
+              echo "reason=Smoke tier: manual dispatch with smoke tier selected" >> "$GITHUB_OUTPUT"
+              echo 'e2e_shards=["smoke"]' >> "$GITHUB_OUTPUT"
+            else
+              echo "scope=full" >> "$GITHUB_OUTPUT"
+              echo "reason=Full suite: manual dispatch with $TIER tier selected" >> "$GITHUB_OUTPUT"
+              echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
+            fi
             exit 0
           fi
 
@@ -156,16 +202,35 @@ jobs:
 
           echo "Classification: docs=$HAS_DOCS scripts=$HAS_SCRIPTS pmo=$HAS_PMO execution=$HAS_EXECUTION core=$HAS_CORE"
 
-          # Determine scope based on classification
+          # Check for docs-only changes first (skip tests entirely regardless of tier)
+          if [[ "$HAS_CORE" != "true" && "$HAS_PMO" != "true" && "$HAS_EXECUTION" != "true" ]]; then
+            echo "run_tests=false" >> "$GITHUB_OUTPUT"
+            echo "scope=docs-only" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=[]' >> "$GITHUB_OUTPUT"
+            PARTS=""
+            [[ "$HAS_DOCS" == "true" ]] && PARTS="documentation"
+            [[ "$HAS_SCRIPTS" == "true" ]] && PARTS="${PARTS:+$PARTS + }scripts"
+            echo "reason=Skipped: only ${PARTS:-non-code} files changed — no test suites needed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For smoke tier (default on PRs): run only @smoke-tagged tests
+          if [[ "$TIER" == "smoke" ]]; then
+            echo "run_tests=true" >> "$GITHUB_OUTPUT"
+            echo "scope=smoke" >> "$GITHUB_OUTPUT"
+            echo "reason=Smoke tier: running @smoke-tagged critical-path tests only (<3 min)" >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["smoke"]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # For standard/full tiers: determine scope based on classification
           if [[ "$HAS_CORE" == "true" ]]; then
-            # Core changes always trigger full suite
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: core/shared files changed (database, lib, config, CI, or unscoped source)" >> "$GITHUB_OUTPUT"
             echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
 
           elif [[ "$HAS_PMO" == "true" && "$HAS_EXECUTION" == "true" ]]; then
-            # Multiple domains changed, run full suite
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: changes span multiple domains (pmo + execution)" >> "$GITHUB_OUTPUT"
@@ -183,15 +248,6 @@ jobs:
             echo "reason=Scoped run: only execution-related files changed (work/agent/docker orchestration)" >> "$GITHUB_OUTPUT"
             echo 'e2e_shards=["execution"]' >> "$GITHUB_OUTPUT"
 
-          else
-            # Only docs and/or scripts changed
-            echo "run_tests=false" >> "$GITHUB_OUTPUT"
-            echo "scope=docs-only" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=[]' >> "$GITHUB_OUTPUT"
-            PARTS=""
-            [[ "$HAS_DOCS" == "true" ]] && PARTS="documentation"
-            [[ "$HAS_SCRIPTS" == "true" ]] && PARTS="${PARTS:+$PARTS + }scripts"
-            echo "reason=Skipped: only ${PARTS:-non-code} files changed — no test suites needed" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -340,9 +396,14 @@ jobs:
         working-directory: apps/cli
         run: |
           SCOPE="${{ needs.detect-changes.outputs.scope }}"
-          echo "Unit test scope: $SCOPE"
+          TIER="${{ needs.detect-changes.outputs.tier }}"
+          echo "Unit test scope: $SCOPE (tier: $TIER)"
 
           case "$SCOPE" in
+            smoke)
+              echo "Running smoke unit tests (@smoke tagged only)"
+              pnpm test:smoke:unit
+              ;;
             full)
               echo "Running full unit test suite"
               pnpm test:unit
@@ -462,6 +523,10 @@ jobs:
           echo "E2E shard: $SHARD"
 
           case "$SHARD" in
+            smoke)
+              echo "Running smoke e2e tests (@smoke tagged only)"
+              pnpm test:smoke:e2e
+              ;;
             pmo)
               echo "Running PMO e2e tests"
               npx mocha --forbid-only "test/e2e/pmo-*.test.ts"
@@ -538,6 +603,7 @@ jobs:
       - name: CI Summary
         run: |
           SCOPE="${{ needs.detect-changes.outputs.scope }}"
+          TIER="${{ needs.detect-changes.outputs.tier }}"
           REASON="${{ needs.detect-changes.outputs.reason }}"
           BUILD="${{ needs.build.result }}"
           UNIT="${{ needs.unit-tests.result }}"
@@ -545,6 +611,7 @@ jobs:
 
           echo "## CI Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Tier:** \`$TIER\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Scope:** \`$SCOPE\`" >> "$GITHUB_STEP_SUMMARY"
           echo "**Reason:** $REASON" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -559,6 +626,7 @@ jobs:
 
           echo ""
           echo "=== CI Results ==="
+          echo "Tier: $TIER"
           echo "Scope: $SCOPE"
           echo "Reason: $REASON"
           echo "E2E shards: ${{ needs.detect-changes.outputs.e2e_shards }}"

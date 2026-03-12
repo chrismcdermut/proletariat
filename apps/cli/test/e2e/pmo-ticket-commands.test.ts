@@ -20,7 +20,7 @@ import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
  * Tests actual CLI usage as a user would interact with it
  * Spec: pmo-ticket-commands.md
  */
-describe('PMO Ticket Commands E2E Tests', () => {
+describe('@smoke PMO Ticket Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
@@ -518,7 +518,7 @@ describe('PMO Ticket Commands E2E Tests', () => {
  * Tests for --label alias (TKT-937)
  * Uses production schema to avoid schema drift issues.
  */
-describe('ticket create --label alias', () => {
+describe('@smoke ticket create --label alias', () => {
   let env: TestEnvironment;
   let db: Database.Database;
 

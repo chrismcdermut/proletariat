@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../src/lib/pmo/types.js';
 
-describe('PMO Workflow Status', () => {
+describe('@smoke PMO Workflow Status', () => {
   let testDir: string;
   let storage: SQLiteStorage;
   const projectId = 'default';
