@@ -197,6 +197,8 @@ export interface ExecutionContext {
   executionEnvironment?: ExecutionEnvironment // 'host', 'sandbox', 'devcontainer', 'docker', 'cloud'
   // Connected integrations (for prompt injection)
   connectedIntegrations?: string[] // e.g. ['asana', 'linear'] — only integrations that are configured
+  // Tool registry (TKT-083): per-agent tool access
+  toolPolicy?: string // Policy profile name (e.g., 'code-agent') for tool access control
 }
 
 // =============================================================================
