@@ -4,12 +4,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import {
-  exec,
+  execInProcess as exec,
   extractJson,
   findChoice,
   findChoiceByValue,
   execChoice,
-  execFinal,
   createTestEnvironment,
   cleanupTestEnvironment,
   setupProductionSchema,
@@ -21,6 +20,15 @@ import {
   type TestEnvironment,
   type AgentPromptResponse,
 } from './test-helpers.js';
+
+/** Async version of execFinal - executes without --json/--machine flags */
+async function execFinal(cmd: string): Promise<string> {
+  const cleanCmd = cmd
+    .replace(' --json', '')
+    .replace(' --machine', '')
+    .replace(' -m', '');
+  return exec(cleanCmd);
+}
 
 /**
  * End-to-end tests for Execution Commands (migrated to this.prompt())
@@ -79,8 +87,8 @@ describe('Execution Commands E2E Tests', () => {
   // ===========================================================================
   describe('prlt execution (main menu)', () => {
     describe('--json mode', () => {
-      it('should output JSON prompt schema with all menu choices', () => {
-        const output = exec('execution --json');
+      it('should output JSON prompt schema with all menu choices', async () => {
+        const output = await exec('execution --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json).to.not.be.null;
@@ -91,8 +99,8 @@ describe('Execution Commands E2E Tests', () => {
         expect(json!.prompt.choices.length).to.be.greaterThanOrEqual(4);
       });
 
-      it('should include command field in each choice for agent navigation', () => {
-        const output = exec('execution --json');
+      it('should include command field in each choice for agent navigation', async () => {
+        const output = await exec('execution --json');
         const json = extractJson<AgentPromptResponse>(output);
         const choices = json!.prompt.choices;
 
@@ -116,8 +124,8 @@ describe('Execution Commands E2E Tests', () => {
         expect(cancelChoice).to.exist;
       });
 
-      it('should include metadata with command name', () => {
-        const output = exec('execution --json');
+      it('should include metadata with command name', async () => {
+        const output = await exec('execution --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json!.metadata).to.exist;
@@ -126,8 +134,8 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('--machine mode', () => {
-      it('should output identical prompt schema as --json', () => {
-        const output = exec('execution --machine');
+      it('should output identical prompt schema as --json', async () => {
+        const output = await exec('execution --machine');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json).to.not.be.null;
@@ -137,8 +145,8 @@ describe('Execution Commands E2E Tests', () => {
         expect(json!.prompt.choices.length).to.be.greaterThanOrEqual(4);
       });
 
-      it('should include command fields in choices with --machine', () => {
-        const output = exec('execution --machine');
+      it('should include command fields in choices with --machine', async () => {
+        const output = await exec('execution --machine');
         const json = extractJson<AgentPromptResponse>(output);
 
         const listChoice = findChoiceByValue(json!.prompt.choices, 'list');
@@ -150,11 +158,11 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('full agent workflow', () => {
-      it('should navigate menu → list → verify output with all key fields', () => {
+      it('should navigate menu → list → verify output with all key fields', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'host' });
 
         // Step 1: Get the main menu prompt
-        const menuOutput = exec('execution --json');
+        const menuOutput = await exec('execution --json');
         const menu = extractJson<AgentPromptResponse>(menuOutput);
         expect(menu).to.not.be.null;
 
@@ -164,7 +172,7 @@ describe('Execution Commands E2E Tests', () => {
         const listCmd = execChoice(listChoice!);
 
         // Step 3: Execute the extracted command (strip --json for final execution)
-        const listOutput = execFinal(listCmd);
+        const listOutput = await execFinal(listCmd);
 
         // Step 4: Verify all key fields are present in output
         expect(listOutput).to.contain('WORK-001');
@@ -174,19 +182,19 @@ describe('Execution Commands E2E Tests', () => {
         expect(listOutput).to.contain('host');
       });
 
-      it('should navigate menu → logs → select execution → verify logs', () => {
+      it('should navigate menu → logs → select execution → verify logs', async () => {
         const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
         fs.writeFileSync(logPath, 'Build started\nCompilation complete\nTests passed\n');
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
         // Step 1: Get menu, find logs choice
-        const menuOutput = exec('execution --json');
+        const menuOutput = await exec('execution --json');
         const menu = extractJson<AgentPromptResponse>(menuOutput);
         const logsChoice = findChoiceByValue(menu!.prompt.choices, 'logs');
         expect(logsChoice).to.exist;
 
         // Step 2: Execute logs command (which prompts for execution selection in JSON mode)
-        const logsPromptOutput = exec(execChoice(logsChoice!));
+        const logsPromptOutput = await exec(execChoice(logsChoice!));
         const logsPrompt = extractJson<AgentPromptResponse>(logsPromptOutput);
         expect(logsPrompt).to.not.be.null;
         expect(logsPrompt!.prompt.name).to.equal('selectedId');
@@ -194,7 +202,7 @@ describe('Execution Commands E2E Tests', () => {
         // Step 3: Find the execution choice and execute it (final, no JSON)
         const execChoice1 = logsPrompt!.prompt.choices[0];
         expect(execChoice1.command).to.include('WORK-001');
-        const logsOutput = execFinal(execChoice(execChoice1));
+        const logsOutput = await execFinal(execChoice(execChoice1));
 
         // Step 4: Verify the actual logs are shown
         expect(logsOutput).to.contain('Build started');
@@ -202,17 +210,17 @@ describe('Execution Commands E2E Tests', () => {
         expect(logsOutput).to.contain('Tests passed');
       });
 
-      it('should navigate menu → stop → select execution → verify stopped', () => {
+      it('should navigate menu → stop → select execution → verify stopped', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
         // Step 1: Get menu, find stop choice
-        const menuOutput = exec('execution --json');
+        const menuOutput = await exec('execution --json');
         const menu = extractJson<AgentPromptResponse>(menuOutput);
         const stopMenuChoice = findChoiceByValue(menu!.prompt.choices, 'stop');
         expect(stopMenuChoice).to.exist;
 
         // Step 2: Execute stop command (prompts for execution selection)
-        const stopPromptOutput = exec(execChoice(stopMenuChoice!));
+        const stopPromptOutput = await exec(execChoice(stopMenuChoice!));
         const stopPrompt = extractJson<AgentPromptResponse>(stopPromptOutput);
         expect(stopPrompt).to.not.be.null;
         expect(stopPrompt!.prompt.name).to.equal('selectedId');
@@ -220,7 +228,7 @@ describe('Execution Commands E2E Tests', () => {
         // Step 3: Find the execution and execute the stop
         const execStopChoice = stopPrompt!.prompt.choices[0];
         expect(execStopChoice.command).to.include('WORK-001');
-        const stopOutput = execFinal(execStopChoice.command!.replace('prlt ', ''));
+        const stopOutput = await execFinal(execStopChoice.command!.replace('prlt ', ''));
 
         // Step 4: Verify DB state
         expect(stopOutput).to.contain('Stopped');
@@ -228,18 +236,18 @@ describe('Execution Commands E2E Tests', () => {
         expect(row.status).to.equal('stopped');
       });
 
-      it('should navigate menu → stop-all → verify all stopped', () => {
+      it('should navigate menu → stop-all → verify all stopped', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
         // Step 1: Get menu, find stop-all choice
-        const menuOutput = exec('execution --json');
+        const menuOutput = await exec('execution --json');
         const menu = extractJson<AgentPromptResponse>(menuOutput);
         const stopAllChoice = findChoiceByValue(menu!.prompt.choices, 'stop-all');
         expect(stopAllChoice).to.exist;
 
         // Step 2: Execute the stop-all command directly (no prompt needed)
-        const stopOutput = execFinal(execChoice(stopAllChoice!));
+        const stopOutput = await execFinal(execChoice(stopAllChoice!));
 
         // Step 3: Verify all stopped in DB
         expect(stopOutput).to.contain('Stopping 2 execution(s)');
@@ -249,11 +257,11 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('full agent workflow with --machine', () => {
-      it('should navigate menu → list → verify output with all key fields using --machine', () => {
+      it('should navigate menu → list → verify output with all key fields using --machine', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'host' });
 
         // Step 1: Get the main menu prompt via --machine
-        const menuOutput = exec('execution --machine');
+        const menuOutput = await exec('execution --machine');
         const menu = extractJson<AgentPromptResponse>(menuOutput);
         expect(menu).to.not.be.null;
 
@@ -263,7 +271,7 @@ describe('Execution Commands E2E Tests', () => {
         const listCmd = execChoice(listChoice!);
 
         // Step 3: Execute the extracted command
-        const listOutput = execFinal(listCmd);
+        const listOutput = await execFinal(listCmd);
 
         // Step 4: Verify all key fields are present in output
         expect(listOutput).to.contain('WORK-001');
@@ -273,19 +281,19 @@ describe('Execution Commands E2E Tests', () => {
         expect(listOutput).to.contain('host');
       });
 
-      it('should navigate menu → logs → select execution → verify logs using --machine', () => {
+      it('should navigate menu → logs → select execution → verify logs using --machine', async () => {
         const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
         fs.writeFileSync(logPath, 'Machine mode log output\n');
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
         // Step 1: Get menu via --machine, find logs choice
-        const menuOutput = exec('execution --machine');
+        const menuOutput = await exec('execution --machine');
         const menu = extractJson<AgentPromptResponse>(menuOutput);
         const logsChoice = findChoiceByValue(menu!.prompt.choices, 'logs');
         expect(logsChoice).to.exist;
 
         // Step 2: Execute logs command (prompts for execution selection)
-        const logsPromptOutput = exec(execChoice(logsChoice!));
+        const logsPromptOutput = await exec(execChoice(logsChoice!));
         const logsPrompt = extractJson<AgentPromptResponse>(logsPromptOutput);
         expect(logsPrompt).to.not.be.null;
         expect(logsPrompt!.prompt.name).to.equal('selectedId');
@@ -293,23 +301,23 @@ describe('Execution Commands E2E Tests', () => {
         // Step 3: Find the execution choice and execute it
         const execChoice1 = logsPrompt!.prompt.choices[0];
         expect(execChoice1.command).to.include('WORK-001');
-        const logsOutput = execFinal(execChoice(execChoice1));
+        const logsOutput = await execFinal(execChoice(execChoice1));
 
         // Step 4: Verify the actual logs are shown
         expect(logsOutput).to.contain('Machine mode log output');
       });
 
-      it('should navigate menu → stop → select execution → verify stopped using --machine', () => {
+      it('should navigate menu → stop → select execution → verify stopped using --machine', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
         // Step 1: Get menu via --machine, find stop choice
-        const menuOutput = exec('execution --machine');
+        const menuOutput = await exec('execution --machine');
         const menu = extractJson<AgentPromptResponse>(menuOutput);
         const stopMenuChoice = findChoiceByValue(menu!.prompt.choices, 'stop');
         expect(stopMenuChoice).to.exist;
 
         // Step 2: Execute stop command (prompts for execution selection)
-        const stopPromptOutput = exec(execChoice(stopMenuChoice!));
+        const stopPromptOutput = await exec(execChoice(stopMenuChoice!));
         const stopPrompt = extractJson<AgentPromptResponse>(stopPromptOutput);
         expect(stopPrompt).to.not.be.null;
         expect(stopPrompt!.prompt.name).to.equal('selectedId');
@@ -317,7 +325,7 @@ describe('Execution Commands E2E Tests', () => {
         // Step 3: Find the execution and execute the stop
         const execStopChoice = stopPrompt!.prompt.choices[0];
         expect(execStopChoice.command).to.include('WORK-001');
-        const stopOutput = execFinal(execStopChoice.command!.replace('prlt ', ''));
+        const stopOutput = await execFinal(execStopChoice.command!.replace('prlt ', ''));
 
         // Step 4: Verify DB state
         expect(stopOutput).to.contain('Stopped');
@@ -325,18 +333,18 @@ describe('Execution Commands E2E Tests', () => {
         expect(row.status).to.equal('stopped');
       });
 
-      it('should navigate menu → stop-all → verify all stopped using --machine', () => {
+      it('should navigate menu → stop-all → verify all stopped using --machine', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
         // Step 1: Get menu via --machine, find stop-all choice
-        const menuOutput = exec('execution --machine');
+        const menuOutput = await exec('execution --machine');
         const menu = extractJson<AgentPromptResponse>(menuOutput);
         const stopAllChoice = findChoiceByValue(menu!.prompt.choices, 'stop-all');
         expect(stopAllChoice).to.exist;
 
         // Step 2: Execute the stop-all command directly
-        const stopOutput = execFinal(execChoice(stopAllChoice!));
+        const stopOutput = await execFinal(execChoice(stopAllChoice!));
 
         // Step 3: Verify all stopped in DB
         expect(stopOutput).to.contain('Stopping 2 execution(s)');
@@ -350,10 +358,10 @@ describe('Execution Commands E2E Tests', () => {
   // execution list
   // ===========================================================================
   describe('prlt execution list', () => {
-    it('should list executions with all key data columns', () => {
+    it('should list executions with all key data columns', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'host', display_mode: 'terminal' });
 
-      const output = exec('execution list');
+      const output = await exec('execution list');
 
       expect(output).to.contain('WORK-001');
       expect(output).to.contain('TKT-001');
@@ -362,12 +370,12 @@ describe('Execution Commands E2E Tests', () => {
       expect(output).to.contain('terminal');
     });
 
-    it('should list multiple executions with different statuses', () => {
+    it('should list multiple executions with different statuses', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'completed');
       createExecution(db, 'TKT-003', 'agent-3', 'failed');
 
-      const output = exec('execution list');
+      const output = await exec('execution list');
 
       expect(output).to.contain('agent-1');
       expect(output).to.contain('agent-2');
@@ -377,77 +385,77 @@ describe('Execution Commands E2E Tests', () => {
       expect(output).to.contain('failed');
     });
 
-    it('should show empty message when no executions', () => {
-      const output = exec('execution list');
+    it('should show empty message when no executions', async () => {
+      const output = await exec('execution list');
       expect(output).to.contain('No executions found');
     });
 
-    it('should filter by --status running', () => {
+    it('should filter by --status running', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-      const output = exec('execution list --status running');
+      const output = await exec('execution list --status running');
       expect(output).to.contain('agent-1');
       expect(output).not.to.contain('agent-2');
     });
 
-    it('should filter by --status completed', () => {
+    it('should filter by --status completed', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-      const output = exec('execution list --status completed');
+      const output = await exec('execution list --status completed');
       expect(output).not.to.contain('agent-1');
       expect(output).to.contain('agent-2');
     });
 
-    it('should filter by --status failed', () => {
+    it('should filter by --status failed', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'failed');
 
-      const output = exec('execution list --status failed');
+      const output = await exec('execution list --status failed');
       expect(output).not.to.contain('agent-1');
       expect(output).to.contain('agent-2');
     });
 
-    it('should filter by --agent', () => {
+    it('should filter by --agent', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
       createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-      const output = exec('execution list --agent agent-1');
+      const output = await exec('execution list --agent agent-1');
       expect(output).to.contain('agent-1');
       expect(output).not.to.contain('agent-2');
     });
 
-    it('should respect --limit flag', () => {
+    it('should respect --limit flag', async () => {
       for (let i = 1; i <= 5; i++) {
         createExecution(db, `TKT-${String(i).padStart(3, '0')}`, 'agent-1', 'completed');
       }
 
-      const output = exec('execution list --limit 2');
+      const output = await exec('execution list --limit 2');
       const matches = output.match(/WORK-/g) || [];
       expect(matches.length).to.equal(2);
     });
 
-    it('should show suggested commands for running executions', () => {
+    it('should show suggested commands for running executions', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-      const output = exec('execution list');
+      const output = await exec('execution list');
       expect(output).to.contain('prlt execution logs');
       expect(output).to.contain('prlt execution stop');
     });
 
-    it('should display devcontainer environment correctly', () => {
+    it('should display devcontainer environment correctly', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'devcontainer' });
 
-      const output = exec('execution list');
+      const output = await exec('execution list');
       expect(output).to.contain('devcontainer');
     });
 
-    it('should display sandbox status correctly', () => {
+    it('should display sandbox status correctly', async () => {
       createExecution(db, 'TKT-001', 'agent-1', 'running', { permission_mode: 'safe' });
       createExecution(db, 'TKT-002', 'agent-2', 'running', { permission_mode: 'danger' });
 
-      const output = exec('execution list');
+      const output = await exec('execution list');
       expect(output).to.contain('safe');
       expect(output).to.contain('danger');
     });
@@ -458,55 +466,55 @@ describe('Execution Commands E2E Tests', () => {
   // ===========================================================================
   describe('prlt execution logs', () => {
     describe('direct execution with ID', () => {
-      it('should display full log content for an execution', () => {
+      it('should display full log content for an execution', async () => {
         const logContent = 'Line 1: Starting agent\nLine 2: Processing ticket\nLine 3: Done\n';
         const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
         fs.writeFileSync(logPath, logContent);
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
-        const output = exec('execution logs WORK-001');
+        const output = await exec('execution logs WORK-001');
 
         expect(output).to.contain('Line 1: Starting agent');
         expect(output).to.contain('Line 2: Processing ticket');
         expect(output).to.contain('Line 3: Done');
       });
 
-      it('should show execution header with ID and ticket', () => {
+      it('should show execution header with ID and ticket', async () => {
         const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
         fs.writeFileSync(logPath, 'test log content\n');
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
-        const output = exec('execution logs WORK-001');
+        const output = await exec('execution logs WORK-001');
         expect(output).to.contain('WORK-001');
         expect(output).to.contain('TKT-001');
       });
 
-      it('should show message when execution has no log file', () => {
+      it('should show message when execution has no log file', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution logs WORK-001');
+        const output = await exec('execution logs WORK-001');
         expect(output).to.contain('No log file');
       });
 
-      it('should show tmux attach command when session exists', () => {
+      it('should show tmux attach command when session exists', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running', { session_id: 'prlt-session-1' });
 
-        const output = exec('execution logs WORK-001');
+        const output = await exec('execution logs WORK-001');
         expect(output).to.contain('tmux attach -t prlt-session-1');
       });
 
-      it('should error when execution not found', () => {
-        const output = exec('execution logs NONEXISTENT');
+      it('should error when execution not found', async () => {
+        const output = await exec('execution logs NONEXISTENT');
         expect(output.toLowerCase()).to.contain('not found');
       });
 
-      it('should display last N lines with --tail flag', () => {
+      it('should display last N lines with --tail flag', async () => {
         const logPath = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
         const lines = Array.from({ length: 20 }, (_, i) => `Log line ${i + 1}`).join('\n') + '\n';
         fs.writeFileSync(logPath, lines);
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath });
 
-        const output = exec('execution logs WORK-001 --tail 3');
+        const output = await exec('execution logs WORK-001 --tail 3');
 
         expect(output).to.contain('Log line 18');
         expect(output).to.contain('Log line 19');
@@ -516,11 +524,11 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('--json mode (no ID - prompt for selection)', () => {
-      it('should output JSON prompt with execution choices', () => {
+      it('should output JSON prompt with execution choices', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'completed');
 
-        const output = exec('execution logs --json');
+        const output = await exec('execution logs --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json).to.not.be.null;
@@ -530,10 +538,10 @@ describe('Execution Commands E2E Tests', () => {
         expect(json!.prompt.choices.length).to.equal(2);
       });
 
-      it('should include command field with execution ID in each choice', () => {
+      it('should include command field with execution ID in each choice', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution logs --json');
+        const output = await exec('execution logs --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         const choice = json!.prompt.choices[0];
@@ -542,10 +550,10 @@ describe('Execution Commands E2E Tests', () => {
         expect(choice.command).to.include('--json');
       });
 
-      it('should include execution details in choice names', () => {
+      it('should include execution details in choice names', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution logs --json');
+        const output = await exec('execution logs --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         const choice = json!.prompt.choices[0];
@@ -555,10 +563,10 @@ describe('Execution Commands E2E Tests', () => {
         expect(choice.name).to.contain('running');
       });
 
-      it('should include metadata with command name', () => {
+      it('should include metadata with command name', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution logs --json');
+        const output = await exec('execution logs --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json!.metadata.command).to.equal('execution logs');
@@ -566,10 +574,10 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('--machine mode (no ID - prompt for selection)', () => {
-      it('should output identical prompt schema as --json', () => {
+      it('should output identical prompt schema as --json', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution logs --machine');
+        const output = await exec('execution logs --machine');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json).to.not.be.null;
@@ -581,22 +589,22 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('--json error cases', () => {
-      it('should output JSON error when no executions exist and --json used', () => {
-        const output = exec('execution logs --json');
+      it('should output JSON error when no executions exist and --json used', async () => {
+        const output = await exec('execution logs --json');
 
         // Should contain error JSON (not a prompt)
         expect(output.toLowerCase()).to.contain('no executions found');
       });
 
-      it('should output JSON error when no executions exist and --machine used', () => {
-        const output = exec('execution logs --machine');
+      it('should output JSON error when no executions exist and --machine used', async () => {
+        const output = await exec('execution logs --machine');
 
         expect(output.toLowerCase()).to.contain('no executions found');
       });
     });
 
     describe('full agent workflow for logs', () => {
-      it('should complete: get prompt → select specific execution → see correct logs (not other)', () => {
+      it('should complete: get prompt → select specific execution → see correct logs (not other)', async () => {
         const logPath1 = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
         fs.writeFileSync(logPath1, 'Agent-1 output: building frontend\n');
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath1 });
@@ -606,7 +614,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-002', 'agent-2', 'running', { log_path: logPath2 });
 
         // Step 1: Agent requests execution selection
-        const promptOutput = exec('execution logs --json');
+        const promptOutput = await exec('execution logs --json');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
         expect(prompt!.prompt.choices.length).to.equal(2);
@@ -617,14 +625,14 @@ describe('Execution Commands E2E Tests', () => {
         expect(selectedExec!.command).to.include('WORK-002');
 
         // Step 3: Agent executes the selected command (without --json for final output)
-        const logsOutput = execFinal(execChoice(selectedExec!));
+        const logsOutput = await execFinal(execChoice(selectedExec!));
 
         // Step 4: Verify the CORRECT log content is displayed (agent-2, not agent-1)
         expect(logsOutput).to.contain('Agent-2 output: running migrations');
         expect(logsOutput).not.to.contain('Agent-1 output: building frontend');
       });
 
-      it('should complete workflow with --machine flag and show correct logs', () => {
+      it('should complete workflow with --machine flag and show correct logs', async () => {
         const logPath1 = path.join(testDir, '.proletariat', 'logs', 'work-WORK-001.log');
         fs.writeFileSync(logPath1, 'First execution logs\n');
         createExecution(db, 'TKT-001', 'agent-1', 'running', { log_path: logPath1 });
@@ -634,7 +642,7 @@ describe('Execution Commands E2E Tests', () => {
         createExecution(db, 'TKT-002', 'agent-2', 'completed', { log_path: logPath2 });
 
         // Step 1: Agent requests execution selection via --machine
-        const promptOutput = exec('execution logs --machine');
+        const promptOutput = await exec('execution logs --machine');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
         expect(prompt!.prompt.choices.length).to.equal(2);
@@ -645,7 +653,7 @@ describe('Execution Commands E2E Tests', () => {
         expect(selectedExec!.command).to.include('WORK-001');
 
         // Step 3: Execute the command without --json
-        const logsOutput = execFinal(execChoice(selectedExec!));
+        const logsOutput = await execFinal(execChoice(selectedExec!));
 
         // Step 4: Verify correct log content (first, not second)
         expect(logsOutput).to.contain('First execution logs');
@@ -659,10 +667,10 @@ describe('Execution Commands E2E Tests', () => {
   // ===========================================================================
   describe('prlt execution stop', () => {
     describe('single stop with ID', () => {
-      it('should stop a running execution and update DB status', () => {
+      it('should stop a running execution and update DB status', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution stop WORK-001');
+        const output = await exec('execution stop WORK-001');
 
         expect(output).to.contain('Stopped');
         expect(output).to.contain('WORK-001');
@@ -672,20 +680,20 @@ describe('Execution Commands E2E Tests', () => {
         expect(row.status).to.equal('stopped');
       });
 
-      it('should show agent and ticket details after stop', () => {
+      it('should show agent and ticket details after stop', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution stop WORK-001');
+        const output = await exec('execution stop WORK-001');
 
         expect(output).to.contain('TKT-001');
         expect(output).to.contain('agent-1');
       });
 
-      it('should only stop the targeted execution, leaving others unchanged', () => {
+      it('should only stop the targeted execution, leaving others unchanged', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = exec('execution stop WORK-001');
+        const output = await exec('execution stop WORK-001');
 
         expect(output).to.contain('Stopped');
         // Target execution stopped
@@ -696,45 +704,45 @@ describe('Execution Commands E2E Tests', () => {
         expect(untouched.status).to.equal('running');
       });
 
-      it('should stop a starting execution', () => {
+      it('should stop a starting execution', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'starting');
 
-        const output = exec('execution stop WORK-001');
+        const output = await exec('execution stop WORK-001');
 
         expect(output).to.contain('Stopped');
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
         expect(row.status).to.equal('stopped');
       });
 
-      it('should show message when execution is already stopped and not change DB', () => {
+      it('should show message when execution is already stopped and not change DB', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'stopped');
 
-        const output = exec('execution stop WORK-001');
+        const output = await exec('execution stop WORK-001');
         expect(output).to.contain('not running');
         // Verify DB status was NOT changed
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
         expect(row.status).to.equal('stopped');
       });
 
-      it('should show message when execution is completed and not change DB', () => {
+      it('should show message when execution is completed and not change DB', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'completed');
 
-        const output = exec('execution stop WORK-001');
+        const output = await exec('execution stop WORK-001');
         expect(output).to.contain('not running');
         // Verify DB status was NOT changed to 'stopped'
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
         expect(row.status).to.equal('completed');
       });
 
-      it('should error when execution not found', () => {
-        const output = exec('execution stop NONEXISTENT');
+      it('should error when execution not found', async () => {
+        const output = await exec('execution stop NONEXISTENT');
         expect(output.toLowerCase()).to.contain('not found');
       });
 
-      it('should handle --force flag', () => {
+      it('should handle --force flag', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution stop WORK-001 --force');
+        const output = await exec('execution stop WORK-001 --force');
 
         expect(output).to.contain('Stopped');
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
@@ -743,11 +751,11 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('bulk stop with --all', () => {
-      it('should stop all running executions and verify each by ID', () => {
+      it('should stop all running executions and verify each by ID', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = exec('execution stop --all');
+        const output = await exec('execution stop --all');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         // Verify each specific execution was stopped
@@ -757,23 +765,23 @@ describe('Execution Commands E2E Tests', () => {
         expect(row2.status).to.equal('stopped');
       });
 
-      it('should include starting executions in bulk stop', () => {
+      it('should include starting executions in bulk stop', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'starting');
 
-        const output = exec('execution stop --all');
+        const output = await exec('execution stop --all');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
         expect(rows.length).to.equal(2);
       });
 
-      it('should not stop already completed/failed executions', () => {
+      it('should not stop already completed/failed executions', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'completed');
         createExecution(db, 'TKT-003', 'agent-3', 'failed');
 
-        const output = exec('execution stop --all');
+        const output = await exec('execution stop --all');
 
         expect(output).to.contain('Stopping 1 execution(s)');
         const completedRow = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-002') as { status: string };
@@ -782,26 +790,26 @@ describe('Execution Commands E2E Tests', () => {
         expect(failedRow.status).to.equal('failed');
       });
 
-      it('should show summary with stopped count', () => {
+      it('should show summary with stopped count', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = exec('execution stop --all');
+        const output = await exec('execution stop --all');
 
         expect(output).to.contain('Summary');
         expect(output).to.contain('Stopped: 2');
       });
 
-      it('should show empty message when no running executions', () => {
-        const output = exec('execution stop --all');
+      it('should show empty message when no running executions', async () => {
+        const output = await exec('execution stop --all');
         expect(output).to.contain('No running executions');
       });
 
-      it('should work with --all --force combined', () => {
+      it('should work with --all --force combined', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = exec('execution stop --all --force');
+        const output = await exec('execution stop --all --force');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
@@ -810,11 +818,11 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('stop by agent with --agent', () => {
-      it('should stop only executions for the specified agent', () => {
+      it('should stop only executions for the specified agent', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = exec('execution stop --agent agent-1');
+        const output = await exec('execution stop --agent agent-1');
 
         expect(output).to.contain('Stopping 1 execution(s)');
 
@@ -825,33 +833,33 @@ describe('Execution Commands E2E Tests', () => {
         expect(agent2.status).to.equal('running');
       });
 
-      it('should stop multiple executions for the same agent', () => {
+      it('should stop multiple executions for the same agent', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-1', 'running');
         createExecution(db, 'TKT-003', 'agent-2', 'running');
 
-        const output = exec('execution stop --agent agent-1');
+        const output = await exec('execution stop --agent agent-1');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         const rows = db.prepare('SELECT status FROM agent_work WHERE agent_name = ? AND status = ?').all('agent-1', 'stopped') as { status: string }[];
         expect(rows.length).to.equal(2);
       });
 
-      it('should show empty message when agent has no running executions', () => {
+      it('should show empty message when agent has no running executions', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'completed');
 
-        const output = exec('execution stop --agent agent-1');
+        const output = await exec('execution stop --agent agent-1');
         expect(output).to.contain('No running executions');
         expect(output).to.contain('agent-1');
       });
     });
 
     describe('--json mode (no ID - prompt for selection)', () => {
-      it('should output JSON prompt with active execution choices', () => {
+      it('should output JSON prompt with active execution choices', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'starting');
 
-        const output = exec('execution stop --json');
+        const output = await exec('execution stop --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json).to.not.be.null;
@@ -861,10 +869,10 @@ describe('Execution Commands E2E Tests', () => {
         expect(json!.prompt.choices.length).to.equal(2);
       });
 
-      it('should include command field with execution ID in choices', () => {
+      it('should include command field with execution ID in choices', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution stop --json');
+        const output = await exec('execution stop --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         const choice = json!.prompt.choices[0];
@@ -873,10 +881,10 @@ describe('Execution Commands E2E Tests', () => {
         expect(choice.command).to.include('--json');
       });
 
-      it('should include execution details in choice names', () => {
+      it('should include execution details in choice names', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running', { environment: 'devcontainer' });
 
-        const output = exec('execution stop --json');
+        const output = await exec('execution stop --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         const choice = json!.prompt.choices[0];
@@ -886,21 +894,21 @@ describe('Execution Commands E2E Tests', () => {
         expect(choice.name).to.contain('devcontainer');
       });
 
-      it('should include metadata with command name', () => {
+      it('should include metadata with command name', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution stop --json');
+        const output = await exec('execution stop --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json!.metadata.command).to.equal('execution stop');
       });
 
-      it('should only show running and starting executions (not completed/failed)', () => {
+      it('should only show running and starting executions (not completed/failed)', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'completed');
         createExecution(db, 'TKT-003', 'agent-3', 'starting');
 
-        const output = exec('execution stop --json');
+        const output = await exec('execution stop --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json!.prompt.choices.length).to.equal(2);
@@ -912,10 +920,10 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('--machine mode (no ID - prompt for selection)', () => {
-      it('should output identical prompt schema as --json', () => {
+      it('should output identical prompt schema as --json', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution stop --machine');
+        const output = await exec('execution stop --machine');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json).to.not.be.null;
@@ -928,34 +936,34 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('--json/--machine with no active executions', () => {
-      it('should show no running executions message with --json when all completed', () => {
+      it('should show no running executions message with --json when all completed', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'completed');
         createExecution(db, 'TKT-002', 'agent-2', 'failed');
 
-        const output = exec('execution stop --json');
+        const output = await exec('execution stop --json');
         expect(output).to.contain('No running executions');
       });
 
-      it('should show no running executions message with --machine when all completed', () => {
+      it('should show no running executions message with --machine when all completed', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'completed');
 
-        const output = exec('execution stop --machine');
+        const output = await exec('execution stop --machine');
         expect(output).to.contain('No running executions');
       });
 
-      it('should show no running executions message with --json when no executions at all', () => {
-        const output = exec('execution stop --json');
+      it('should show no running executions message with --json when no executions at all', async () => {
+        const output = await exec('execution stop --json');
         expect(output).to.contain('No running executions');
       });
     });
 
     describe('full agent workflow for stop', () => {
-      it('should complete: get prompt → select specific execution → stop → verify only that one stopped', () => {
+      it('should complete: get prompt → select specific execution → stop → verify only that one stopped', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
         // Step 1: Agent requests execution selection
-        const promptOutput = exec('execution stop --json');
+        const promptOutput = await exec('execution stop --json');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
         expect(prompt!.prompt.choices.length).to.equal(2);
@@ -967,7 +975,7 @@ describe('Execution Commands E2E Tests', () => {
         expect(selectedExec!.command).to.include('WORK-001');
 
         // Step 3: Agent executes the stop command (without --json for final execution)
-        const stopOutput = execFinal(execChoice(selectedExec!));
+        const stopOutput = await execFinal(execChoice(selectedExec!));
 
         // Step 4: Verify ONLY the selected execution was stopped
         expect(stopOutput).to.contain('Stopped');
@@ -979,12 +987,12 @@ describe('Execution Commands E2E Tests', () => {
         expect(untouchedRow.status).to.equal('running');
       });
 
-      it('should complete workflow with --machine flag and verify correct execution stopped', () => {
+      it('should complete workflow with --machine flag and verify correct execution stopped', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
         // Step 1: Use --machine flag
-        const promptOutput = exec('execution stop --machine');
+        const promptOutput = await exec('execution stop --machine');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
         expect(prompt!.prompt.choices.length).to.equal(2);
@@ -993,7 +1001,7 @@ describe('Execution Commands E2E Tests', () => {
         const selectedExec = findChoice(prompt!.prompt.choices, 'WORK-002');
         expect(selectedExec).to.exist;
         expect(selectedExec!.command).to.include('WORK-002');
-        const stopOutput = execFinal(execChoice(selectedExec!));
+        const stopOutput = await execFinal(execChoice(selectedExec!));
 
         // Step 3: Verify ONLY WORK-002 was stopped
         expect(stopOutput).to.contain('Stopped');
@@ -1012,10 +1020,10 @@ describe('Execution Commands E2E Tests', () => {
   // ===========================================================================
   describe('prlt execution kill (alias for stop)', () => {
     describe('single kill with ID', () => {
-      it('should stop a running execution and update DB status', () => {
+      it('should stop a running execution and update DB status', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution kill WORK-001');
+        const output = await exec('execution kill WORK-001');
 
         expect(output).to.contain('Stopped');
         expect(output).to.contain('WORK-001');
@@ -1025,55 +1033,55 @@ describe('Execution Commands E2E Tests', () => {
         expect(row.status).to.equal('stopped');
       });
 
-      it('should show agent and ticket details after kill', () => {
+      it('should show agent and ticket details after kill', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution kill WORK-001');
+        const output = await exec('execution kill WORK-001');
 
         expect(output).to.contain('TKT-001');
         expect(output).to.contain('agent-1');
       });
 
-      it('should handle --force flag', () => {
+      it('should handle --force flag', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution kill WORK-001 --force');
+        const output = await exec('execution kill WORK-001 --force');
 
         expect(output).to.contain('Stopped');
         const row = db.prepare('SELECT status FROM agent_work WHERE id = ?').get('WORK-001') as { status: string };
         expect(row.status).to.equal('stopped');
       });
 
-      it('should error when execution not found', () => {
-        const output = exec('execution kill NONEXISTENT');
+      it('should error when execution not found', async () => {
+        const output = await exec('execution kill NONEXISTENT');
         expect(output.toLowerCase()).to.contain('not found');
       });
     });
 
     describe('bulk kill with --all', () => {
-      it('should stop all running executions', () => {
+      it('should stop all running executions', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = exec('execution kill --all');
+        const output = await exec('execution kill --all');
 
         expect(output).to.contain('Stopping 2 execution(s)');
         const rows = db.prepare('SELECT status FROM agent_work WHERE status = ?').all('stopped') as { status: string }[];
         expect(rows.length).to.equal(2);
       });
 
-      it('should show empty message when no running executions', () => {
-        const output = exec('execution kill --all');
+      it('should show empty message when no running executions', async () => {
+        const output = await exec('execution kill --all');
         expect(output).to.contain('No running executions');
       });
     });
 
     describe('kill by agent with --agent', () => {
-      it('should stop only executions for the specified agent', () => {
+      it('should stop only executions for the specified agent', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
-        const output = exec('execution kill --agent agent-1');
+        const output = await exec('execution kill --agent agent-1');
 
         expect(output).to.contain('Stopping 1 execution(s)');
 
@@ -1086,10 +1094,10 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('--json mode', () => {
-      it('should output JSON prompt with active execution choices', () => {
+      it('should output JSON prompt with active execution choices', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution kill --json');
+        const output = await exec('execution kill --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         expect(json).to.not.be.null;
@@ -1099,10 +1107,10 @@ describe('Execution Commands E2E Tests', () => {
         expect(json!.prompt.choices.length).to.equal(1);
       });
 
-      it('should include command field with execution ID in choices', () => {
+      it('should include command field with execution ID in choices', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
 
-        const output = exec('execution kill --json');
+        const output = await exec('execution kill --json');
         const json = extractJson<AgentPromptResponse>(output);
 
         const choice = json!.prompt.choices[0];
@@ -1114,12 +1122,12 @@ describe('Execution Commands E2E Tests', () => {
     });
 
     describe('full agent workflow', () => {
-      it('should complete: get prompt → select execution → kill → verify stopped', () => {
+      it('should complete: get prompt → select execution → kill → verify stopped', async () => {
         createExecution(db, 'TKT-001', 'agent-1', 'running');
         createExecution(db, 'TKT-002', 'agent-2', 'running');
 
         // Step 1: Agent requests execution selection
-        const promptOutput = exec('execution kill --json');
+        const promptOutput = await exec('execution kill --json');
         const prompt = extractJson<AgentPromptResponse>(promptOutput);
         expect(prompt).to.not.be.null;
         expect(prompt!.prompt.choices.length).to.equal(2);
@@ -1129,7 +1137,7 @@ describe('Execution Commands E2E Tests', () => {
         expect(selectedExec).to.exist;
 
         // Step 3: Agent executes the kill command (use execution kill directly)
-        const killOutput = exec('execution kill WORK-001');
+        const killOutput = await exec('execution kill WORK-001');
 
         // Step 4: Verify ONLY the selected execution was stopped
         expect(killOutput).to.contain('Stopped');

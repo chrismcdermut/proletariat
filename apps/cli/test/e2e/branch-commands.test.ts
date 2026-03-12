@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import {
-  exec,
+  execInProcess as exec,
   createTestEnvironment,
   cleanupTestEnvironment,
   setupProductionSchema,
@@ -66,37 +66,37 @@ describe('Branch Commands E2E Tests', () => {
   });
 
   describe('prlt branch list', () => {
-    it('should list branches', () => {
-      const output = exec('branch list');
+    it('should list branches', async () => {
+      const output = await exec('branch list');
 
       expect(output).to.contain('Branches');
       // Should show main/master branch
       expect(output.toLowerCase()).to.match(/main|master/);
     });
 
-    it('should show current branch marker', () => {
-      const output = exec('branch list');
+    it('should show current branch marker', async () => {
+      const output = await exec('branch list');
 
       // Current branch should be indicated
       expect(output).to.match(/\*|current/i);
     });
 
-    it('should list conventional branches with type info', () => {
+    it('should list conventional branches with type info', async () => {
       // Create a conventional branch
       execSync('git checkout -b feat/chris/add-login', { stdio: 'pipe' });
 
-      const output = exec('branch list');
+      const output = await exec('branch list');
 
       expect(output).to.contain('feat/chris/add-login');
       expect(output).to.contain('feat');
     });
 
-    it('should list ticket-first branches', () => {
+    it('should list ticket-first branches', async () => {
       // Create a ticket-first branch
       execSync('git checkout -b TKT-001/feat/chris/altman/add-auth', { stdio: 'pipe' });
 
       // Use JSON format to avoid table truncation
-      const output = exec('branch list --format json');
+      const output = await exec('branch list --format json');
       const branches = JSON.parse(output);
 
       const branch = branches.find((b: { name: string; ticketId?: string }) => b.name === 'TKT-001/feat/chris/altman/add-auth');
@@ -104,16 +104,16 @@ describe('Branch Commands E2E Tests', () => {
       expect(branch!.ticketId).to.equal('TKT-001');
     });
 
-    it('should support compact format', () => {
+    it('should support compact format', async () => {
       execSync('git checkout -b feat/test/compact-test', { stdio: 'pipe' });
 
-      const output = exec('branch list --format compact');
+      const output = await exec('branch list --format compact');
 
       expect(output).to.contain('feat/test/compact-test');
     });
 
-    it('should support JSON format', () => {
-      const output = exec('branch list --format json');
+    it('should support JSON format', async () => {
+      const output = await exec('branch list --format json');
 
       // Should be valid JSON
       const parsed = JSON.parse(output);
@@ -123,67 +123,67 @@ describe('Branch Commands E2E Tests', () => {
       expect(parsed[0]).to.have.property('current');
     });
 
-    it('should filter by type', () => {
+    it('should filter by type', async () => {
       // Create branches of different types
       execSync('git checkout -b feat/test/feature-one', { stdio: 'pipe' });
       execSync('git checkout -b fix/test/bug-fix', { stdio: 'pipe' });
       execSync('git checkout -b docs/test/add-docs', { stdio: 'pipe' });
 
-      const output = exec('branch list --type feat');
+      const output = await exec('branch list --type feat');
 
       expect(output).to.contain('feat/test/feature-one');
       expect(output).not.to.contain('fix/test/bug-fix');
       expect(output).not.to.contain('docs/test/add-docs');
     });
 
-    it('should show no branches message when filtered type has none', () => {
-      const output = exec('branch list --type sec');
+    it('should show no branches message when filtered type has none', async () => {
+      const output = await exec('branch list --type sec');
 
       expect(output.toLowerCase()).to.contain('no');
     });
   });
 
   describe('prlt branch validate', () => {
-    it('should validate correct conventional branch name', () => {
-      const output = exec('branch validate feat/chris/add-login');
+    it('should validate correct conventional branch name', async () => {
+      const output = await exec('branch validate feat/chris/add-login');
 
       expect(output.toLowerCase()).to.contain('valid');
     });
 
-    it('should validate ticket-first branch name', () => {
-      const output = exec('branch validate TKT-001/feat/chris/altman/add-auth');
+    it('should validate ticket-first branch name', async () => {
+      const output = await exec('branch validate TKT-001/feat/chris/altman/add-auth');
 
       expect(output.toLowerCase()).to.contain('valid');
     });
 
-    it('should validate minimal branch name', () => {
-      const output = exec('branch validate feat/add-feature');
+    it('should validate minimal branch name', async () => {
+      const output = await exec('branch validate feat/add-feature');
 
       expect(output.toLowerCase()).to.contain('valid');
     });
 
-    it('should reject invalid branch type', () => {
-      const output = exec('branch validate invalid/chris/test');
+    it('should reject invalid branch type', async () => {
+      const output = await exec('branch validate invalid/chris/test');
 
       expect(output.toLowerCase()).to.contain('invalid');
     });
 
-    it('should reject non-kebab-case description', () => {
-      const output = exec('branch validate feat/chris/AddLogin');
+    it('should reject non-kebab-case description', async () => {
+      const output = await exec('branch validate feat/chris/AddLogin');
 
       expect(output.toLowerCase()).to.match(/invalid|kebab/i);
     });
 
-    it('should show parsed parts for valid branch', () => {
-      const output = exec('branch validate TKT-054/chore/chris/altman/update-naming');
+    it('should show parsed parts for valid branch', async () => {
+      const output = await exec('branch validate TKT-054/chore/chris/altman/update-naming');
 
       expect(output).to.contain('TKT-054');
       expect(output).to.contain('chore');
       expect(output).to.contain('chris');
     });
 
-    it('should validate branch with ticket ID', () => {
-      const output = exec('branch validate TKT-123/fix/john/bug-fix');
+    it('should validate branch with ticket ID', async () => {
+      const output = await exec('branch validate TKT-123/fix/john/bug-fix');
 
       expect(output.toLowerCase()).to.contain('valid');
       expect(output).to.contain('TKT-123');
@@ -191,8 +191,8 @@ describe('Branch Commands E2E Tests', () => {
   });
 
   describe('prlt branch create', () => {
-    it('should create branch with type and description flags', () => {
-      const output = exec('branch create -t feat -d add-user-auth');
+    it('should create branch with type and description flags', async () => {
+      const output = await exec('branch create -t feat -d add-user-auth');
 
       expect(output).to.contain('Creating branch');
 
@@ -201,8 +201,8 @@ describe('Branch Commands E2E Tests', () => {
       expect(branches).to.match(/feat\/.*add-user-auth/);
     });
 
-    it('should create branch with owner flag', () => {
-      const output = exec('branch create -t fix -c chris -d fix-login-bug');
+    it('should create branch with owner flag', async () => {
+      const output = await exec('branch create -t fix -c chris -d fix-login-bug');
 
       expect(output).to.contain('Creating branch');
 
@@ -210,17 +210,17 @@ describe('Branch Commands E2E Tests', () => {
       expect(branches).to.contain('fix/chris/fix-login-bug');
     });
 
-    it('should create branch with ticket flag', () => {
+    it('should create branch with ticket flag', async () => {
       // Need PMO context for ticket lookup, so test direct name instead
-      const output = exec('branch create TKT-001/feat/test/add-feature');
+      const output = await exec('branch create TKT-001/feat/test/add-feature');
 
       // Branch may or may not be created depending on prompt answer
       // Just verify command ran without crash
       expect(output).to.be.a('string');
     });
 
-    it('should create branch with empty commit flag', () => {
-      const output = exec('branch create -t chore -d setup-ci -e');
+    it('should create branch with empty commit flag', async () => {
+      const output = await exec('branch create -t chore -d setup-ci -e');
 
       // Check that branch was created
       expect(output).to.contain('Creating branch');
@@ -233,30 +233,30 @@ describe('Branch Commands E2E Tests', () => {
       // the prompt may be skipped. Just verify the branch was created successfully.
     });
 
-    it('should reject existing branch name', () => {
+    it('should reject existing branch name', async () => {
       // Create a branch first
       execSync('git checkout -b feat/existing-branch', { stdio: 'pipe' });
       execSync('git checkout -', { stdio: 'pipe' });
 
-      const output = exec('branch create feat/existing-branch');
+      const output = await exec('branch create feat/existing-branch');
 
       expect(output.toLowerCase()).to.contain('already exists');
     });
 
-    it('should create branch from origin/main with flag', () => {
+    it('should create branch from origin/main with flag', async () => {
       // Create a fake origin for testing
       execSync('git remote add origin .', { stdio: 'pipe' });
 
-      const output = exec('branch create -t feat -d from-origin -o');
+      const output = await exec('branch create -t feat -d from-origin -o');
 
       // Should attempt to fetch (may warn about no origin/main)
       expect(output).to.be.a('string');
     });
 
-    it('should support no-switch flag', () => {
+    it('should support no-switch flag', async () => {
       const currentBranch = execSync('git branch --show-current', { encoding: 'utf-8' }).trim();
 
-      exec('branch create -t docs -d readme-update --no-switch');
+      await exec('branch create -t docs -d readme-update --no-switch');
 
       // Should still be on original branch
       const afterBranch = execSync('git branch --show-current', { encoding: 'utf-8' }).trim();
@@ -267,15 +267,15 @@ describe('Branch Commands E2E Tests', () => {
       expect(branches).to.match(/docs\/.*readme-update/);
     });
 
-    it('should validate branch type option', () => {
-      const output = exec('branch create -t invalid-type -d test');
+    it('should validate branch type option', async () => {
+      const output = await exec('branch create -t invalid-type -d test');
 
       expect(output.toLowerCase()).to.match(/invalid|error|unknown/i);
     });
 
-    it('should handle kebab-case conversion for description', () => {
+    it('should handle kebab-case conversion for description', async () => {
       // Note: Interactive mode would auto-convert, but flag mode requires kebab-case
-      const output = exec('branch create -t feat -d "test branch"');
+      const output = await exec('branch create -t feat -d "test branch"');
 
       // Should either work or error about format
       expect(output).to.be.a('string');
@@ -283,14 +283,14 @@ describe('Branch Commands E2E Tests', () => {
   });
 
   describe('Branch naming conventions', () => {
-    it('should recognize all conventional commit types', () => {
+    it('should recognize all conventional commit types', async () => {
       const types = ['feat', 'fix', 'docs', 'test', 'chore', 'perf', 'ci', 'build', 'rfct'];
 
       for (const type of types) {
         execSync(`git checkout -b ${type}/test/type-${type}`, { stdio: 'pipe' });
       }
 
-      const output = exec('branch list --format json');
+      const output = await exec('branch list --format json');
       const branches = JSON.parse(output);
 
       for (const type of types) {
@@ -300,14 +300,14 @@ describe('Branch Commands E2E Tests', () => {
       }
     });
 
-    it('should recognize extended types', () => {
+    it('should recognize extended types', async () => {
       const types = ['sec', 'db', 'rel'];
 
       for (const type of types) {
         execSync(`git checkout -b ${type}/test/ext-${type}`, { stdio: 'pipe' });
       }
 
-      const output = exec('branch list --format json');
+      const output = await exec('branch list --format json');
       const branches = JSON.parse(output);
 
       for (const type of types) {
@@ -317,14 +317,14 @@ describe('Branch Commands E2E Tests', () => {
       }
     });
 
-    it('should recognize founder types', () => {
+    it('should recognize founder types', async () => {
       const types = ['ship', 'grow', 'cx', 'strat', 'ops'];
 
       for (const type of types) {
         execSync(`git checkout -b ${type}/test/founder-${type}`, { stdio: 'pipe' });
       }
 
-      const output = exec('branch list --format json');
+      const output = await exec('branch list --format json');
       const branches = JSON.parse(output);
 
       for (const type of types) {
@@ -334,10 +334,10 @@ describe('Branch Commands E2E Tests', () => {
       }
     });
 
-    it('should parse ticket ID from branch name', () => {
+    it('should parse ticket ID from branch name', async () => {
       execSync('git checkout -b TKT-123/feat/chris/add-feature', { stdio: 'pipe' });
 
-      const output = exec('branch list --format json');
+      const output = await exec('branch list --format json');
       const branches = JSON.parse(output);
 
       const branch = branches.find((b: BranchInfo) => b.name.startsWith('TKT-123'));
@@ -347,10 +347,10 @@ describe('Branch Commands E2E Tests', () => {
       expect(branch.owner).to.equal('chris');
     });
 
-    it('should parse owner from branch name', () => {
+    it('should parse owner from branch name', async () => {
       execSync('git checkout -b fix/john-doe/bug-fix', { stdio: 'pipe' });
 
-      const output = exec('branch list --format json');
+      const output = await exec('branch list --format json');
       const branches = JSON.parse(output);
 
       const branch = branches.find((b: BranchInfo) => b.name === 'fix/john-doe/bug-fix');
@@ -358,10 +358,10 @@ describe('Branch Commands E2E Tests', () => {
       expect(branch.owner).to.equal('john-doe');
     });
 
-    it('should parse agent from ticket-first branch', () => {
+    it('should parse agent from ticket-first branch', async () => {
       execSync('git checkout -b TKT-001/feat/chris/altman/implement', { stdio: 'pipe' });
 
-      const output = exec('branch list --format json');
+      const output = await exec('branch list --format json');
       const branches = JSON.parse(output);
 
       const branch = branches.find((b: BranchInfo) => b.name.startsWith('TKT-001'));
@@ -371,37 +371,37 @@ describe('Branch Commands E2E Tests', () => {
   });
 
   describe('prlt branch where', () => {
-    it('should find branch in main worktree by exact name', () => {
+    it('should find branch in main worktree by exact name', async () => {
       // Create a branch and stay on it (branch where finds checked-out branches in worktrees)
       execSync('git checkout -b feat/test/find-me', { stdio: 'pipe' });
 
-      const output = exec('branch where feat/test/find-me');
+      const output = await exec('branch where feat/test/find-me');
 
       expect(output).to.contain('feat/test/find-me');
       expect(output).to.contain('Path:');
     });
 
-    it('should find branch by partial match', () => {
+    it('should find branch by partial match', async () => {
       execSync('git checkout -b feat/test/unique-branch-name', { stdio: 'pipe' });
 
-      const output = exec('branch where unique-branch');
+      const output = await exec('branch where unique-branch');
 
       expect(output).to.contain('unique-branch-name');
     });
 
-    it('should find branch by ticket ID prefix', () => {
+    it('should find branch by ticket ID prefix', async () => {
       execSync('git checkout -b TKT-999/feat/test/ticket-feature', { stdio: 'pipe' });
 
-      const output = exec('branch where TKT-999');
+      const output = await exec('branch where TKT-999');
 
       expect(output).to.contain('TKT-999');
       expect(output).to.contain('ticket-feature');
     });
 
-    it('should output JSON format when --json flag is used', () => {
+    it('should output JSON format when --json flag is used', async () => {
       execSync('git checkout -b feat/test/json-test', { stdio: 'pipe' });
 
-      const output = exec('branch where json-test --json');
+      const output = await exec('branch where json-test --json');
 
       // Should be valid JSON
       const parsed = JSON.parse(output);
@@ -414,14 +414,14 @@ describe('Branch Commands E2E Tests', () => {
       expect(parsed.matches[0]).to.have.property('branch');
     });
 
-    it('should return not found for non-existent branch', () => {
-      const output = exec('branch where non-existent-branch-xyz');
+    it('should return not found for non-existent branch', async () => {
+      const output = await exec('branch where non-existent-branch-xyz');
 
       expect(output.toLowerCase()).to.contain('no worktree found');
     });
 
-    it('should return JSON with found=false for non-existent branch', () => {
-      const output = exec('branch where non-existent-xyz --json');
+    it('should return JSON with found=false for non-existent branch', async () => {
+      const output = await exec('branch where non-existent-xyz --json');
 
       const parsed = JSON.parse(output);
       expect(parsed).to.have.property('found', false);
@@ -430,20 +430,20 @@ describe('Branch Commands E2E Tests', () => {
       expect(parsed.matches.length).to.equal(0);
     });
 
-    it('should be case-insensitive when searching', () => {
+    it('should be case-insensitive when searching', async () => {
       execSync('git checkout -b feat/test/CaseSensitive', { stdio: 'pipe' });
 
-      const output = exec('branch where casesensitive');
+      const output = await exec('branch where casesensitive');
 
       expect(output).to.contain('CaseSensitive');
     });
 
-    it('should find matching branch in current worktree', () => {
+    it('should find matching branch in current worktree', async () => {
       // branch where searches worktrees, not all branches
       // Only the currently checked-out branch in the main worktree will be found
       execSync('git checkout -b fix/test/multi-three', { stdio: 'pipe' });
 
-      const output = exec('branch where multi --json');
+      const output = await exec('branch where multi --json');
       const parsed = JSON.parse(output);
 
       expect(parsed.found).to.equal(true);

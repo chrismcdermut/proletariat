@@ -15,7 +15,7 @@ import {
   findChoice,
   type TestEnvironment,
   type AgentPromptResponse,
-  exec,
+  execInProcess as exec,
 } from './test-helpers.js';
 
 /**
@@ -84,8 +84,8 @@ describe('PR Commands - Agent Flow Tests', () => {
   // command discovery in the test environment. Skipping these tests.
   // The subcommand tests (pr:create, pr:status, pr:link) are tested below.
   describe.skip('prlt pr - main menu agent flow (skipped - oclif discovery issue)', () => {
-    it('should output action selection prompt with --machine', () => {
-      const output = exec('pr --machine');
+    it('should output action selection prompt with --machine', async () => {
+      const output = await exec('pr --machine');
       const result = extractJson<AgentPromptResponse>(output);
 
       expect(result).to.not.be.null;
@@ -93,8 +93,8 @@ describe('PR Commands - Agent Flow Tests', () => {
       expect(result!.prompt.name).to.equal('action');
     });
 
-    it('should have command fields for each action', () => {
-      const output = exec('pr --machine');
+    it('should have command fields for each action', async () => {
+      const output = await exec('pr --machine');
       const result = extractJson<AgentPromptResponse>(output);
 
       expect(result).to.not.be.null;
@@ -112,8 +112,8 @@ describe('PR Commands - Agent Flow Tests', () => {
       createLocalTestTicket('TKT-PR-2', 'Ticket without PR', 'default-in-progress');
     });
 
-    it('should output ticket selection prompt with --machine when no ticket specified', () => {
-      const output = exec('pr status -P test-project --machine');
+    it('should output ticket selection prompt with --machine when no ticket specified', async () => {
+      const output = await exec('pr status -P test-project --machine');
 
       // Skip if command not found (oclif test environment issue)
       if (output.includes('command pr:status not found') || output.includes('command pr not found')) {
@@ -137,9 +137,9 @@ describe('PR Commands - Agent Flow Tests', () => {
       expect(ticketWithPR!.command).to.include('TKT-PR-1');
     });
 
-    it('should complete flow: select ticket → view status', () => {
+    it('should complete flow: select ticket → view status', async () => {
       // Step 1: Get ticket choices
-      const output1 = exec('pr status -P test-project --machine');
+      const output1 = await exec('pr status -P test-project --machine');
 
       // Skip if command not found
       if (output1.includes('command pr:status not found') || output1.includes('command pr not found')) {
@@ -159,15 +159,15 @@ describe('PR Commands - Agent Flow Tests', () => {
 
       // Step 2: Execute with ticket selected (final step - shows status)
       const finalCmd = ticketChoice!.command!.replace('prlt ', '').replace(' --json', '').replace(' --machine', '');
-      const result = exec(finalCmd);
+      const result = await exec(finalCmd);
 
       // Should show ticket info
       expect(result).to.include('TKT-PR-1');
     });
 
-    it('should skip selection when ticket ID provided directly', () => {
+    it('should skip selection when ticket ID provided directly', async () => {
       // Direct ticket ID should not prompt for selection
-      const result = exec('pr status TKT-PR-1 -P test-project');
+      const result = await exec('pr status TKT-PR-1 -P test-project');
 
       // Skip if command not found
       if (result.includes('command pr:status not found') || result.includes('command pr not found')) {
@@ -184,8 +184,8 @@ describe('PR Commands - Agent Flow Tests', () => {
       createLocalTestTicket('TKT-LINK-1', 'Ticket to link PR', 'default-in-progress');
     });
 
-    it('should output ticket selection prompt with --machine when no ticket specified', () => {
-      const output = exec('pr link -P test-project --machine');
+    it('should output ticket selection prompt with --machine when no ticket specified', async () => {
+      const output = await exec('pr link -P test-project --machine');
 
       // Skip if command not found
       if (output.includes('command pr:link not found') || output.includes('command pr not found')) {
@@ -208,9 +208,9 @@ describe('PR Commands - Agent Flow Tests', () => {
       }
     });
 
-    it('should complete flow: select ticket → proceed to next step', () => {
+    it('should complete flow: select ticket → proceed to next step', async () => {
       // Step 1: Get ticket choices
-      const output1 = exec('pr link -P test-project --machine');
+      const output1 = await exec('pr link -P test-project --machine');
 
       // Skip if command not found
       if (output1.includes('command pr:link not found') || output1.includes('command pr not found')) {
@@ -229,15 +229,15 @@ describe('PR Commands - Agent Flow Tests', () => {
 
       // Step 2: Execute with ticket selected
       const step2Cmd = ticketChoice!.command!.replace('prlt ', '');
-      const output2 = exec(step2Cmd);
+      const output2 = await exec(step2Cmd);
 
       // Either gets PR selection prompt, confirmation prompt, or gh error
       expect(output2).to.be.a('string');
     });
 
-    it('should skip ticket selection when ticket ID provided directly', () => {
+    it('should skip ticket selection when ticket ID provided directly', async () => {
       // Direct ticket ID should skip to next step
-      const output = exec('pr link TKT-LINK-1 -P test-project --machine');
+      const output = await exec('pr link TKT-LINK-1 -P test-project --machine');
 
       // Skip if command not found
       if (output.includes('command pr:link not found') || output.includes('command pr not found')) {
@@ -273,16 +273,16 @@ describe('PR Commands - Agent Flow Tests', () => {
       }
     });
 
-    it('should auto-detect ticket from branch or prompt for selection with --machine', () => {
-      const output = exec('pr create -P test-project --machine');
+    it('should auto-detect ticket from branch or prompt for selection with --machine', async () => {
+      const output = await exec('pr create -P test-project --machine');
 
       // Either outputs ticket selection prompt, gh error, or proceeds
       // This is a flexible test since the flow depends on environment
       expect(output).to.be.a('string');
     });
 
-    it('should skip ticket selection when --no-link is used', () => {
-      const output = exec('pr create --no-link --machine');
+    it('should skip ticket selection when --no-link is used', async () => {
+      const output = await exec('pr create --no-link --machine');
 
       // Should not prompt for ticket selection
       // Will likely error on gh not installed
@@ -294,8 +294,8 @@ describe('PR Commands - Agent Flow Tests', () => {
       }
     });
 
-    it('should skip ticket selection when ticket ID provided directly', () => {
-      const output = exec('pr create TKT-CREATE-1 --machine');
+    it('should skip ticket selection when ticket ID provided directly', async () => {
+      const output = await exec('pr create TKT-CREATE-1 --machine');
 
       // Should skip ticket prompt
       expect(output).to.be.a('string');
@@ -307,9 +307,9 @@ describe('PR Commands - Agent Flow Tests', () => {
   });
 
   describe('agent flow error handling', () => {
-    it('should output message when no tickets exist for pr status', () => {
+    it('should output message when no tickets exist for pr status', async () => {
       // No tickets created
-      const output = exec('pr status -P test-project --machine');
+      const output = await exec('pr status -P test-project --machine');
 
       // Should output error or empty state message
       expect(output).to.be.a('string');
@@ -320,11 +320,11 @@ describe('PR Commands - Agent Flow Tests', () => {
       ).to.be.true;
     });
 
-    it('should handle gh CLI not installed gracefully', () => {
+    it('should handle gh CLI not installed gracefully', async () => {
       createLocalTestTicket('TKT-ERR-1', 'Error test ticket', 'default-in-progress');
 
       // This will hit gh check which may fail
-      const output = exec('pr create TKT-ERR-1 --machine');
+      const output = await exec('pr create TKT-ERR-1 --machine');
 
       // Should either succeed with prompt or output error message
       expect(output).to.be.a('string');

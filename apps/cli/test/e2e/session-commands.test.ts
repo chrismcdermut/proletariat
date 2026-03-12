@@ -4,11 +4,24 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import {
-  execProduction,
+  execInProcess,
   extractJson,
-  agentExec,
   findChoiceByValue,
+  hasContextError,
+  type AgentPromptResponse,
 } from './test-helpers.js';
+
+async function agentExec(cmd: string): Promise<AgentPromptResponse | null> {
+  const output = await execInProcess(cmd);
+  if (hasContextError(output)) {
+    return null;
+  }
+  const json = extractJson<AgentPromptResponse>(output);
+  if (json && (!json.prompt || typeof json.prompt !== 'object')) {
+    return null;
+  }
+  return json;
+}
 
 /**
  * End-to-end tests for Session Commands (TKT-758)
@@ -80,7 +93,7 @@ describe('Session Commands E2E Tests', () => {
     }
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     originalCwd = process.cwd();
     testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'session-e2e-')));
     process.chdir(testDir);
@@ -107,7 +120,7 @@ describe('Session Commands E2E Tests', () => {
 
     // Run a safe command to trigger PMO table initialization
     // The CLI's PMOCommand.init() creates all PMO tables via ensurePMOTables()
-    execProduction('session --machine');
+    await execInProcess('session --machine');
 
     // Create workspace tables needed by getWorkspaceInfo() (used by session list/attach)
     // These are separate from PMO tables and created by the workspace init flow
@@ -177,8 +190,8 @@ describe('Session Commands E2E Tests', () => {
   // prlt session (index command) - menu prompt via JSON mode
   // =========================================================================
   describe('prlt session --machine (JSON mode)', () => {
-    it('should output JSON menu prompt with list type and action field', () => {
-      const result = agentExec('session --machine');
+    it('should output JSON menu prompt with list type and action field', async () => {
+      const result = await agentExec('session --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt).to.exist;
@@ -189,8 +202,8 @@ describe('Session Commands E2E Tests', () => {
       expect(result!.prompt.choices.length).to.equal(7); // list, create, attach, peek, health, poke, cancel
     });
 
-    it('should include List choice with correct value and command', () => {
-      const result = agentExec('session --machine');
+    it('should include List choice with correct value and command', async () => {
+      const result = await agentExec('session --machine');
       expect(result).to.not.be.null;
 
       const listChoice = findChoiceByValue(result!.prompt.choices, 'list');
@@ -199,8 +212,8 @@ describe('Session Commands E2E Tests', () => {
       expect(listChoice!.command).to.equal('prlt session list --json');
     });
 
-    it('should include Attach choice with correct value and command', () => {
-      const result = agentExec('session --machine');
+    it('should include Attach choice with correct value and command', async () => {
+      const result = await agentExec('session --machine');
       expect(result).to.not.be.null;
 
       const attachChoice = findChoiceByValue(result!.prompt.choices, 'attach');
@@ -209,8 +222,8 @@ describe('Session Commands E2E Tests', () => {
       expect(attachChoice!.command).to.equal('prlt session attach --json');
     });
 
-    it('should include Cancel choice without a command field', () => {
-      const result = agentExec('session --machine');
+    it('should include Cancel choice without a command field', async () => {
+      const result = await agentExec('session --machine');
       expect(result).to.not.be.null;
 
       const cancelChoice = findChoiceByValue(result!.prompt.choices, 'cancel');
@@ -220,8 +233,8 @@ describe('Session Commands E2E Tests', () => {
       expect(cancelChoice!.command).to.be.undefined;
     });
 
-    it('should include metadata with command name "session"', () => {
-      const result = agentExec('session --machine');
+    it('should include metadata with command name "session"', async () => {
+      const result = await agentExec('session --machine');
       expect(result).to.not.be.null;
 
       expect(result!.metadata).to.exist;
@@ -233,9 +246,9 @@ describe('Session Commands E2E Tests', () => {
   // Backward compatibility: --json flag produces same output as --machine
   // =========================================================================
   describe('prlt session --json (backward compatibility)', () => {
-    it('should produce identical prompt structure as --machine', () => {
-      const machineResult = agentExec('session --machine');
-      const jsonResult = agentExec('session --json');
+    it('should produce identical prompt structure as --machine', async () => {
+      const machineResult = await agentExec('session --machine');
+      const jsonResult = await agentExec('session --json');
 
       expect(machineResult).to.not.be.null;
       expect(jsonResult).to.not.be.null;
@@ -257,14 +270,14 @@ describe('Session Commands E2E Tests', () => {
   // prlt session list - direct invocation with flags
   // =========================================================================
   describe('prlt session list', () => {
-    it('should return JSON array when DB has no execution records', () => {
-      const output = execProduction('session list --json');
+    it('should return JSON array when DB has no execution records', async () => {
+      const output = await execInProcess('session list --json');
       // Output is JSON in non-TTY (piped) environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
       expect(sessions).to.be.an('array');
     });
 
-    it('should return DB-tracked sessions even without tmux verification (default mode)', () => {
+    it('should return DB-tracked sessions even without tmux verification (default mode)', async () => {
       // Seed a running execution - no tmux session exists to verify it
       seedExecutionRecords([{
         id: 'exec-001',
@@ -275,7 +288,7 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       // Sessions are always shown from DB, even without tmux verification
-      const output = execProduction('session list --json');
+      const output = await execInProcess('session list --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string; exists: boolean; source: string; ticketId: string }>;
       expect(sessions).to.be.an('array');
       // Filter to DB-sourced sessions for our seeded ticket (host may have real orphan tmux sessions)
@@ -287,7 +300,7 @@ describe('Session Commands E2E Tests', () => {
       }
     });
 
-    it('should show stale sessions with --all flag including ticket ID and agent name', () => {
+    it('should show stale sessions with --all flag including ticket ID and agent name', async () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -296,7 +309,7 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = execProduction('session list --all --json');
+      const output = await execInProcess('session list --all --json');
 
       // Output is JSON array in non-TTY environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -307,7 +320,7 @@ describe('Session Commands E2E Tests', () => {
       expect(session!.status).to.equal('stale');
     });
 
-    it('should include stale sessions in JSON output when using --all', () => {
+    it('should include stale sessions in JSON output when using --all', async () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -316,13 +329,13 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = execProduction('session list --all --json');
+      const output = await execInProcess('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ status: string }>;
       const staleSessions = sessions.filter(s => s.status === 'stale');
       expect(staleSessions.length).to.be.greaterThanOrEqual(1);
     });
 
-    it('should show multiple stale sessions with --all when multiple executions exist', () => {
+    it('should show multiple stale sessions with --all when multiple executions exist', async () => {
       seedExecutionRecords([
         {
           id: 'exec-001',
@@ -340,7 +353,7 @@ describe('Session Commands E2E Tests', () => {
         },
       ]);
 
-      const output = execProduction('session list --all --json');
+      const output = await execInProcess('session list --all --json');
 
       // Output is JSON array in non-TTY environments
       const sessions = JSON.parse(output) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -355,7 +368,7 @@ describe('Session Commands E2E Tests', () => {
       expect(session2!.agentName).to.equal('clever-lovelace');
     });
 
-    it('should show session ID in the output', () => {
+    it('should show session ID in the output', async () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -364,13 +377,13 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = execProduction('session list --all --json');
+      const output = await execInProcess('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
       const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
       expect(session).to.not.be.undefined;
     });
 
-    it('should show host type indicator for host sessions', () => {
+    it('should show host type indicator for host sessions', async () => {
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -380,7 +393,7 @@ describe('Session Commands E2E Tests', () => {
         environment: 'host',
       }]);
 
-      const output = execProduction('session list --all --json');
+      const output = await execInProcess('session list --all --json');
       const sessions = JSON.parse(output) as Array<{ sessionId: string; environment: string }>;
       const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
       expect(session).to.not.be.undefined;
@@ -396,8 +409,8 @@ describe('Session Commands E2E Tests', () => {
   // since it's already migrated using this.selectFromList() in base-command.ts.
   // =========================================================================
   describe('prlt session attach', () => {
-    it('should output JSON error NO_SESSIONS when no sessions exist (--json)', () => {
-      const output = execProduction('session attach --json');
+    it('should output JSON error NO_SESSIONS when no sessions exist (--json)', async () => {
+      const output = await execInProcess('session attach --json');
       const json = extractJson<{ error: { code: string; message: string }; prompt?: unknown }>(output);
 
       // If real tmux sessions exist on host, attach may return a prompt instead of error
@@ -408,8 +421,8 @@ describe('Session Commands E2E Tests', () => {
       expect(json.error.message).to.include('No active sessions');
     });
 
-    it('should output JSON error NO_SESSIONS when no sessions exist (--machine)', () => {
-      const output = execProduction('session attach --machine');
+    it('should output JSON error NO_SESSIONS when no sessions exist (--machine)', async () => {
+      const output = await execInProcess('session attach --machine');
       const json = extractJson<{ error: { code: string; message: string }; prompt?: unknown }>(output);
 
       // If real tmux sessions exist on host, attach may return a prompt instead of error
@@ -419,7 +432,7 @@ describe('Session Commands E2E Tests', () => {
       expect(json.error.code).to.equal('NO_SESSIONS');
     });
 
-    it('should output NO_SESSIONS even when execution records exist (tmux verification fails)', () => {
+    it('should output NO_SESSIONS even when execution records exist (tmux verification fails)', async () => {
       // Seed execution records - but no tmux sessions exist
       seedExecutionRecords([{
         id: 'exec-001',
@@ -429,7 +442,7 @@ describe('Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      const output = execProduction('session attach --json');
+      const output = await execInProcess('session attach --json');
       const json = extractJson<{ error: { code: string; message: string }; prompt?: unknown }>(output);
 
       // If real tmux sessions exist on host, attach may return a prompt instead of error
@@ -440,8 +453,8 @@ describe('Session Commands E2E Tests', () => {
       expect(json.error.code).to.equal('NO_SESSIONS');
     });
 
-    it('should output NO_SESSIONS for named session arg when no tmux sessions exist', () => {
-      const output = execProduction('session attach TKT-100-implement --json');
+    it('should output NO_SESSIONS for named session arg when no tmux sessions exist', async () => {
+      const output = await execInProcess('session attach TKT-100-implement --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       // If real tmux sessions exist on host, error code may differ
@@ -461,7 +474,7 @@ describe('Session Commands E2E Tests', () => {
   // Tests the COMPLETE agentic flow: get menu → pick choice → follow command → verify result
   // =========================================================================
   describe('Agent flow: session menu → session list (with data)', () => {
-    it('should navigate menu → list choice → execute → verify session data appears', () => {
+    it('should navigate menu → list choice → execute → verify session data appears', async () => {
       // Seed execution data first
       seedExecutionRecords([{
         id: 'exec-001',
@@ -472,7 +485,7 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       // Step 1: Agent gets session menu
-      const menuResult = agentExec('session --machine');
+      const menuResult = await agentExec('session --machine');
       expect(menuResult).to.not.be.null;
       expect(menuResult!.prompt.type).to.equal('list');
 
@@ -482,7 +495,7 @@ describe('Session Commands E2E Tests', () => {
       expect(listChoice!.command).to.equal('prlt session list --json');
 
       // Step 3: Agent executes the list command
-      const listOutput = execProduction('session list --json');
+      const listOutput = await execInProcess('session list --json');
 
       // Step 4: Verify END RESULT - check list returns valid JSON array
       const sessions = JSON.parse(listOutput) as Array<{ sessionId: string; ticketId: string; agentName: string; status: string }>;
@@ -497,9 +510,9 @@ describe('Session Commands E2E Tests', () => {
   });
 
   describe('Agent flow: session menu → session attach (error path)', () => {
-    it('should navigate menu → attach choice → execute → verify NO_SESSIONS JSON error', () => {
+    it('should navigate menu → attach choice → execute → verify NO_SESSIONS JSON error', async () => {
       // Step 1: Agent gets session menu
-      const menuResult = agentExec('session --machine');
+      const menuResult = await agentExec('session --machine');
       expect(menuResult).to.not.be.null;
 
       // Step 2: Agent finds "attach" choice and extracts command
@@ -509,7 +522,7 @@ describe('Session Commands E2E Tests', () => {
 
       // Step 3: Agent executes the attach command from the choice
       const attachCmd = attachChoice!.command!.replace('prlt ', '');
-      const attachOutput = execProduction(attachCmd);
+      const attachOutput = await execInProcess(attachCmd);
 
       // Step 4: Verify END RESULT - structured JSON response returned
       const json = extractJson<{ error?: { code: string; message: string }; prompt?: unknown }>(attachOutput);
@@ -521,7 +534,7 @@ describe('Session Commands E2E Tests', () => {
       }
     });
 
-    it('should navigate menu → attach choice → with seeded data → still NO_SESSIONS (tmux required)', () => {
+    it('should navigate menu → attach choice → with seeded data → still NO_SESSIONS (tmux required)', async () => {
       // Seed execution records
       seedExecutionRecords([{
         id: 'exec-001',
@@ -532,13 +545,13 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       // Step 1: Agent gets session menu
-      const menuResult = agentExec('session --machine');
+      const menuResult = await agentExec('session --machine');
       expect(menuResult).to.not.be.null;
 
       // Step 2: Navigate to attach
       const attachChoice = findChoiceByValue(menuResult!.prompt.choices, 'attach');
       const attachCmd = attachChoice!.command!.replace('prlt ', '');
-      const attachOutput = execProduction(attachCmd);
+      const attachOutput = await execInProcess(attachCmd);
 
       // Step 3: Verify - structured JSON response (error or prompt if real sessions exist)
       const json = extractJson<{ error?: { code: string }; prompt?: unknown }>(attachOutput);
@@ -556,8 +569,8 @@ describe('Session Commands E2E Tests', () => {
   // we can only test error paths (no matching execution, no active session).
   // =========================================================================
   describe('prlt session poke', () => {
-    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match agent name (--json)', () => {
-      const output = execProduction('session poke nonexistent-agent "hello" --json');
+    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match agent name (--json)', async () => {
+      const output = await execInProcess('session poke nonexistent-agent "hello" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -567,8 +580,8 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.message).to.include('no active session');
     });
 
-    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match ticket ID (--json)', () => {
-      const output = execProduction('session poke TKT-999 "hello" --json');
+    it('should output JSON error NO_ACTIVE_EXECUTION when no executions match ticket ID (--json)', async () => {
+      const output = await execInProcess('session poke TKT-999 "hello" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -577,7 +590,7 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.message).to.include('TKT-999');
     });
 
-    it('should output JSON error NO_ACTIVE_EXECUTION when execution exists but is not running', () => {
+    it('should output JSON error NO_ACTIVE_EXECUTION when execution exists but is not running', async () => {
       // Seed a completed execution - should not be matched
       seedExecutionRecords([{
         id: 'exec-done-001',
@@ -588,7 +601,7 @@ describe('Session Commands E2E Tests', () => {
         status: 'completed',
       }]);
 
-      const output = execProduction('session poke done-agent "hello" --json');
+      const output = await execInProcess('session poke done-agent "hello" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -596,7 +609,7 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
     });
 
-    it('should resolve agent by exact agent name and fail at tmux level (no tmux in test env)', () => {
+    it('should resolve agent by exact agent name and fail at tmux level (no tmux in test env)', async () => {
       seedExecutionRecords([{
         id: 'exec-poke-001',
         ticketId: 'TKT-600',
@@ -606,7 +619,7 @@ describe('Session Commands E2E Tests', () => {
         status: 'running',
       }]);
 
-      const output = execProduction('session poke poke-target "test message" --json');
+      const output = await execInProcess('session poke poke-target "test message" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       // Should resolve execution but fail at tmux send-keys (no tmux in test)
@@ -616,7 +629,7 @@ describe('Session Commands E2E Tests', () => {
       expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
     });
 
-    it('should resolve agent by ticket ID and fail at tmux level', () => {
+    it('should resolve agent by ticket ID and fail at tmux level', async () => {
       seedExecutionRecords([{
         id: 'exec-poke-002',
         ticketId: 'TKT-601',
@@ -626,7 +639,7 @@ describe('Session Commands E2E Tests', () => {
         status: 'running',
       }]);
 
-      const output = execProduction('session poke TKT-601 "test message" --json');
+      const output = await execInProcess('session poke TKT-601 "test message" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -634,7 +647,7 @@ describe('Session Commands E2E Tests', () => {
       expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
     });
 
-    it('should require exact agent name match (partial names do not match)', () => {
+    it('should require exact agent name match (partial names do not match)', async () => {
       seedExecutionRecords([{
         id: 'exec-poke-003a',
         ticketId: 'TKT-700',
@@ -645,7 +658,7 @@ describe('Session Commands E2E Tests', () => {
       }]);
 
       // "alpha" is not an exact match for "alpha-agent"
-      const output = execProduction('session poke alpha "test" --json');
+      const output = await execInProcess('session poke alpha "test" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -653,7 +666,7 @@ describe('Session Commands E2E Tests', () => {
       expect(json!.error.code).to.equal('NO_ACTIVE_EXECUTION');
     });
 
-    it('should resolve docker container agent by name and attempt docker exec (not host tmux)', () => {
+    it('should resolve docker container agent by name and attempt docker exec (not host tmux)', async () => {
       seedExecutionRecords([{
         id: 'exec-poke-docker-001',
         ticketId: 'TKT-800',
@@ -665,7 +678,7 @@ describe('Session Commands E2E Tests', () => {
         containerId: 'abc123def456',
       }]);
 
-      const output = execProduction('session poke docker-agent "test message" --json');
+      const output = await execInProcess('session poke docker-agent "test message" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -675,7 +688,7 @@ describe('Session Commands E2E Tests', () => {
       expect(['SEND_FAILED', 'CONTAINER_NOT_RUNNING']).to.include(json!.error.code);
     });
 
-    it('should resolve devcontainer agent by name and attempt docker exec', () => {
+    it('should resolve devcontainer agent by name and attempt docker exec', async () => {
       seedExecutionRecords([{
         id: 'exec-poke-devcontainer-001',
         ticketId: 'TKT-801',
@@ -687,7 +700,7 @@ describe('Session Commands E2E Tests', () => {
         containerId: 'def456abc789',
       }]);
 
-      const output = execProduction('session poke devcontainer-agent "test message" --json');
+      const output = await execInProcess('session poke devcontainer-agent "test message" --json');
       const json = extractJson<{ error: { code: string; message: string } }>(output);
 
       expect(json).to.not.be.null;
@@ -696,8 +709,8 @@ describe('Session Commands E2E Tests', () => {
       expect(['SEND_FAILED', 'CONTAINER_NOT_RUNNING']).to.include(json!.error.code);
     });
 
-    it('should include poke choice in session menu with correct command', () => {
-      const result = agentExec('session --machine');
+    it('should include poke choice in session menu with correct command', async () => {
+      const result = await agentExec('session --machine');
       expect(result).to.not.be.null;
 
       const pokeChoice = findChoiceByValue(result!.prompt.choices, 'poke');
@@ -708,8 +721,8 @@ describe('Session Commands E2E Tests', () => {
   });
 
   describe('Agent flow: command fields enable correct navigation', () => {
-    it('every non-cancel choice should have a --json command for agent chaining', () => {
-      const result = agentExec('session --machine');
+    it('every non-cancel choice should have a --json command for agent chaining', async () => {
+      const result = await agentExec('session --machine');
       expect(result).to.not.be.null;
 
       const actionableChoices = result!.prompt.choices.filter(c => c.value !== 'cancel');
@@ -722,8 +735,8 @@ describe('Session Commands E2E Tests', () => {
       }
     });
 
-    it('cancel choice should NOT have a command field', () => {
-      const result = agentExec('session --machine');
+    it('cancel choice should NOT have a command field', async () => {
+      const result = await agentExec('session --machine');
       expect(result).to.not.be.null;
 
       const cancelChoice = findChoiceByValue(result!.prompt.choices, 'cancel');

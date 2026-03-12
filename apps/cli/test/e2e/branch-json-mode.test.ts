@@ -9,7 +9,7 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  execProduction,
+  execInProcess,
   filterOutput,
   findChoice as sharedFindChoice,
   execChoice as sharedExecChoice,
@@ -19,9 +19,9 @@ import {
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 
-// Local exec wrapper that uses execProduction with filtering
-const exec = (cmd: string): string => {
-  const output = execProduction(cmd);
+// Local exec wrapper that uses execInProcess with filtering
+const exec = async (cmd: string): Promise<string> => {
+  const output = await execInProcess(cmd);
   return filterOutput(output);
 };
 
@@ -107,8 +107,8 @@ describe('Branch Commands JSON Mode', () => {
   }
 
   describe('branch (main menu) --machine', () => {
-    it('should output valid JSON with prompt schema', () => {
-      const output = exec('branch --machine');
+    it('should output valid JSON with prompt schema', async () => {
+      const output = await exec('branch --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -122,16 +122,16 @@ describe('Branch Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('branch -m');
+    it('should work with -m shorthand', async () => {
+      const output = await exec('branch -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include command field in all choices', () => {
-      const output = exec('branch --machine');
+    it('should include command field in all choices', async () => {
+      const output = await exec('branch --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; value: string; command?: string }> };
       }>(output);
@@ -144,8 +144,8 @@ describe('Branch Commands JSON Mode', () => {
       }
     });
 
-    it('should have all standard menu choices', () => {
-      const output = exec('branch --machine');
+    it('should have all standard menu choices', async () => {
+      const output = await exec('branch --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; value: string }> };
       }>(output);
@@ -159,8 +159,8 @@ describe('Branch Commands JSON Mode', () => {
   });
 
   describe('branch list --format json', () => {
-    it('should output valid JSON array with --format json flag', () => {
-      const output = exec('branch list --format json');
+    it('should output valid JSON array with --format json flag', async () => {
+      const output = await exec('branch list --format json');
       const json = extractJson<Array<{ name: string; current?: boolean }>>(output);
 
       expect(json).to.be.an('array');
@@ -170,8 +170,8 @@ describe('Branch Commands JSON Mode', () => {
       }
     });
 
-    it('should work with -f json shorthand', () => {
-      const output = exec('branch list -f json');
+    it('should work with -f json shorthand', async () => {
+      const output = await exec('branch list -f json');
       const json = extractJson<Array<{ name: string }>>(output);
 
       expect(json).to.be.an('array');
@@ -179,8 +179,8 @@ describe('Branch Commands JSON Mode', () => {
   });
 
   describe('branch create --machine', () => {
-    it('should output prompt JSON for mode selection', () => {
-      const output = exec('branch create --machine');
+    it('should output prompt JSON for mode selection', async () => {
+      const output = await exec('branch create --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -192,16 +192,16 @@ describe('Branch Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('branch create -m');
+    it('should work with -m shorthand', async () => {
+      const output = await exec('branch create -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include command hints in choices', () => {
-      const output = exec('branch create --machine');
+    it('should include command hints in choices', async () => {
+      const output = await exec('branch create --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command?: string }> };
       }>(output);
@@ -214,8 +214,8 @@ describe('Branch Commands JSON Mode', () => {
       }
     });
 
-    it('should create branch when type and description flags provided', () => {
-      const output = exec('branch create -t feat -d test-feature --force');
+    it('should create branch when type and description flags provided', async () => {
+      const output = await exec('branch create -t feat -d test-feature --force');
 
       // Should either succeed or fail with meaningful error
       expect(output).to.be.a('string');
@@ -228,24 +228,24 @@ describe('Branch Commands JSON Mode', () => {
   });
 
   describe('branch validate --machine', () => {
-    it('should validate current branch', () => {
-      const output = exec('branch validate');
+    it('should validate current branch', async () => {
+      const output = await exec('branch validate');
 
       // Should output validation result
       expect(output).to.be.a('string');
       expect(output.toLowerCase()).to.match(/valid|invalid|branch/);
     });
 
-    it('should validate provided branch name', () => {
-      const output = exec('branch validate feat/chris/add-auth');
+    it('should validate provided branch name', async () => {
+      const output = await exec('branch validate feat/chris/add-auth');
 
       // In non-TTY mode, output is JSON: { "branch": "...", "valid": true, "parts": { "type": "feat", ... } }
       expect(output).to.include('"valid"');
       expect(output).to.include('feat');
     });
 
-    it('should report invalid branch format', () => {
-      const output = exec('branch validate invalid-branch-name');
+    it('should report invalid branch format', async () => {
+      const output = await exec('branch validate invalid-branch-name');
 
       expect(output.toLowerCase()).to.include('invalid');
     });
@@ -271,8 +271,8 @@ describe('Branch Commands JSON Mode', () => {
     }
 
     // Local agentExec that uses the local exec function with extractJson
-    function agentExec(cmd: string): AgentPrompt {
-      const output = exec(cmd);
+    async function agentExec(cmd: string): Promise<AgentPrompt> {
+      const output = await exec(cmd);
       return extractJson<AgentPrompt>(output);
     }
 
@@ -280,9 +280,9 @@ describe('Branch Commands JSON Mode', () => {
     const execChoice = sharedExecChoice;
 
     describe('branch menu navigation', () => {
-      it('should navigate from branch menu to branch create', () => {
+      it('should navigate from branch menu to branch create', async () => {
         // Agent Step 1: Get main menu
-        const step1 = agentExec('branch --machine');
+        const step1 = await agentExec('branch --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Find create choice
@@ -291,14 +291,14 @@ describe('Branch Commands JSON Mode', () => {
         expect(createChoice!.command).to.include('branch create');
 
         // Agent Step 2: Navigate to create
-        const step2 = agentExec(execChoice(createChoice!));
+        const step2 = await agentExec(execChoice(createChoice!));
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.choices).to.be.an('array');
       });
 
-      it('should navigate from branch menu to branch list', () => {
+      it('should navigate from branch menu to branch list', async () => {
         // Agent Step 1: Get main menu
-        const step1 = agentExec('branch --machine');
+        const step1 = await agentExec('branch --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Find list choice
@@ -307,9 +307,9 @@ describe('Branch Commands JSON Mode', () => {
         expect(listChoice!.command).to.include('branch list');
       });
 
-      it('should navigate from branch menu to branch validate', () => {
+      it('should navigate from branch menu to branch validate', async () => {
         // Agent Step 1: Get main menu
-        const step1 = agentExec('branch --machine');
+        const step1 = await agentExec('branch --machine');
         expect(step1.prompt.type).to.equal('list');
 
         // Find validate choice
@@ -325,9 +325,9 @@ describe('Branch Commands JSON Mode', () => {
         createTestTicket('TKT-001', 'Test ticket for branch creation');
       });
 
-      it('should complete flow: select mode → create with flags', () => {
+      it('should complete flow: select mode → create with flags', async () => {
         // Agent Step 1: Get mode selection
-        const step1 = agentExec('branch create --machine');
+        const step1 = await agentExec('branch create --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.choices).to.be.an('array');
 
@@ -345,16 +345,16 @@ describe('Branch Commands JSON Mode', () => {
         }
       });
 
-      it('should complete flow with all flags provided directly (custom)', () => {
-        const result = exec('branch create -t feat -d agent-test-branch --force');
+      it('should complete flow with all flags provided directly (custom)', async () => {
+        const result = await exec('branch create -t feat -d agent-test-branch --force');
 
         // Should create branch or indicate it exists
         expect(result).to.be.a('string');
       });
 
-      it('should complete flow with ticket flag provided directly', () => {
+      it('should complete flow with ticket flag provided directly', async () => {
         // Use the test ticket
-        const result = exec('branch create -T TKT-001 --force');
+        const result = await exec('branch create -T TKT-001 --force');
 
         // Should attempt to create branch from ticket
         expect(result).to.be.a('string');
@@ -362,9 +362,9 @@ describe('Branch Commands JSON Mode', () => {
     });
 
     describe('branch list - agent data retrieval', () => {
-      it('should return all branches as JSON array for agent processing', () => {
+      it('should return all branches as JSON array for agent processing', async () => {
         // Use --format json since branch list uses that flag instead of --machine
-        const output = exec('branch list --format json');
+        const output = await exec('branch list --format json');
         const branches = extractJson<Array<{ name: string; current?: boolean }>>(output);
 
         expect(branches).to.be.an('array');
@@ -375,9 +375,9 @@ describe('Branch Commands JSON Mode', () => {
         }
       });
 
-      it('should identify current branch', () => {
+      it('should identify current branch', async () => {
         // Use --format json since branch list uses that flag instead of --machine
-        const output = exec('branch list --format json');
+        const output = await exec('branch list --format json');
         const branches = extractJson<Array<{ name: string; current?: boolean }>>(output);
 
         // At least one branch should be current
@@ -389,20 +389,20 @@ describe('Branch Commands JSON Mode', () => {
     });
 
     describe('backward compatibility: --json flag flows', () => {
-      it('should complete menu flow with --json flag (legacy)', () => {
-        const step1 = agentExec('branch --json');
+      it('should complete menu flow with --json flag (legacy)', async () => {
+        const step1 = await agentExec('branch --json');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.choices).to.be.an('array');
       });
 
-      it('should complete create flow with --json flag (legacy)', () => {
-        const step1 = agentExec('branch create --json');
+      it('should complete create flow with --json flag (legacy)', async () => {
+        const step1 = await agentExec('branch create --json');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.choices).to.be.an('array');
       });
 
-      it('should complete list flow with --format json (legacy)', () => {
-        const output = exec('branch list --format json');
+      it('should complete list flow with --format json (legacy)', async () => {
+        const output = await exec('branch list --format json');
         const branches = extractJson<Array<{ name: string }>>(output);
 
         expect(branches).to.be.an('array');
@@ -411,8 +411,8 @@ describe('Branch Commands JSON Mode', () => {
   });
 
   describe('Flag accumulation in choices', () => {
-    it('branch menu choices should have commands for navigation', () => {
-      const output = exec('branch --machine');
+    it('branch menu choices should have commands for navigation', async () => {
+      const output = await exec('branch --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command?: string }> };
       }>(output);
@@ -426,8 +426,8 @@ describe('Branch Commands JSON Mode', () => {
       }
     });
 
-    it('branch create mode choices should include --json', () => {
-      const output = exec('branch create --machine');
+    it('branch create mode choices should include --json', async () => {
+      const output = await exec('branch create --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string }> };
       }>(output);
@@ -466,9 +466,9 @@ describe('Branch Commands - JSON Mode Compatibility', () => {
     cleanupTestEnvironment(env);
   });
 
-  it('--json and --machine should be interchangeable', () => {
-    const jsonOutput = exec('branch --json');
-    const machineOutput = exec('branch --machine');
+  it('--json and --machine should be interchangeable', async () => {
+    const jsonOutput = await exec('branch --json');
+    const machineOutput = await exec('branch --machine');
 
     const jsonResult = extractJson<{ prompt: { type: string; choices: Array<{ value: string }> } }>(jsonOutput);
     const machineResult = extractJson<{ prompt: { type: string; choices: Array<{ value: string }> } }>(machineOutput);
@@ -482,9 +482,9 @@ describe('Branch Commands - JSON Mode Compatibility', () => {
     expect(machineValues).to.deep.equal(jsonValues);
   });
 
-  it('branch create --json should match --machine', () => {
-    const jsonOutput = exec('branch create --json');
-    const machineOutput = exec('branch create --machine');
+  it('branch create --json should match --machine', async () => {
+    const jsonOutput = await exec('branch create --json');
+    const machineOutput = await exec('branch create --machine');
 
     const jsonResult = extractJson<{ prompt: { type: string; choices: Array<unknown> } }>(jsonOutput);
     const machineResult = extractJson<{ prompt: { type: string; choices: Array<unknown> } }>(machineOutput);

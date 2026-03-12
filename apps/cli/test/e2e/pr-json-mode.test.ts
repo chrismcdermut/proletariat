@@ -11,7 +11,7 @@ import {
   createPMODirectories,
   setupProductionSchema,
   createTestProject,
-  exec,
+  execInProcess as exec,
   type TestEnvironment,
 } from './test-helpers.js';
 
@@ -103,8 +103,8 @@ describe('PR Commands JSON Mode', () => {
   }
 
   describe('pr index --machine (main menu)', () => {
-    it('should output valid JSON with action selection prompt', () => {
-      const output = exec('pr -P test-project --machine');
+    it('should output valid JSON with action selection prompt', async () => {
+      const output = await exec('pr -P test-project --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { command: string };
@@ -122,8 +122,8 @@ describe('PR Commands JSON Mode', () => {
       expect(values).to.include('status');
     });
 
-    it('should include --json in action command choices', () => {
-      const output = exec('pr -P test-project --machine');
+    it('should include --json in action command choices', async () => {
+      const output = await exec('pr -P test-project --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string; value: string }> };
       }>(output);
@@ -135,15 +135,15 @@ describe('PR Commands JSON Mode', () => {
       }
     });
 
-    it('should work with --json flag (legacy)', () => {
-      const output = exec('pr -P test-project --json');
+    it('should work with --json flag (legacy)', async () => {
+      const output = await exec('pr -P test-project --json');
       const json = extractJson<{ prompt: { name: string } }>(output);
 
       expect(json.prompt.name).to.equal('action');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('pr -P test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await exec('pr -P test-project -m');
       const json = extractJson<{ prompt: { name: string } }>(output);
 
       expect(json.prompt.name).to.equal('action');
@@ -156,8 +156,8 @@ describe('PR Commands JSON Mode', () => {
       createTestTicket('TKT-STATUS-2', 'Status ticket two', 'in-progress', 'https://github.com/test/repo/pull/42');
     });
 
-    it('should output ticket selection prompt when no ticket provided', () => {
-      const output = exec('pr status -P test-project --machine');
+    it('should output ticket selection prompt when no ticket provided', async () => {
+      const output = await exec('pr status -P test-project --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { command: string };
@@ -170,8 +170,8 @@ describe('PR Commands JSON Mode', () => {
       expect(json.prompt.choices.length).to.be.greaterThan(0);
     });
 
-    it('should include --json in ticket selection commands', () => {
-      const output = exec('pr status -P test-project --machine');
+    it('should include --json in ticket selection commands', async () => {
+      const output = await exec('pr status -P test-project --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string }> };
       }>(output);
@@ -183,16 +183,16 @@ describe('PR Commands JSON Mode', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('pr status -P test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await exec('pr status -P test-project -m');
       const json = extractJson<{ prompt: { type: string } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.prompt.type).to.equal('list');
     });
 
-    it('should skip ticket selection when ticket ID provided directly', () => {
-      const output = exec('pr status TKT-STATUS-1 -P test-project');
+    it('should skip ticket selection when ticket ID provided directly', async () => {
+      const output = await exec('pr status TKT-STATUS-1 -P test-project');
 
       // Should show ticket info directly (no JSON prompt)
       expect(output).to.include('TKT-STATUS-1');
@@ -205,8 +205,8 @@ describe('PR Commands JSON Mode', () => {
       createTestTicket('TKT-LINK-2', 'Link ticket two', 'in-progress');
     });
 
-    it('should output ticket selection prompt when no ticket provided', () => {
-      const output = exec('pr link -P test-project --machine');
+    it('should output ticket selection prompt when no ticket provided', async () => {
+      const output = await exec('pr link -P test-project --machine');
       const json = extractJson<{
         prompt?: { type: string; name: string; choices: Array<{ name: string; value: string; command?: string }> };
         error?: { code: string };
@@ -224,8 +224,8 @@ describe('PR Commands JSON Mode', () => {
       }
     });
 
-    it('should include --json in ticket selection commands (if gh installed)', () => {
-      const output = exec('pr link -P test-project --machine');
+    it('should include --json in ticket selection commands (if gh installed)', async () => {
+      const output = await exec('pr link -P test-project --machine');
       const json = extractJson<{
         prompt?: { choices: Array<{ command?: string }> };
         error?: { code: string };
@@ -241,17 +241,17 @@ describe('PR Commands JSON Mode', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('pr link -P test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await exec('pr link -P test-project -m');
       const json = extractJson<{ prompt?: unknown; error?: unknown; metadata: { command: string } }>(output);
 
       // Should produce valid JSON output
       expect(json.metadata.command).to.equal('pr link');
     });
 
-    it('should skip ticket selection when ticket ID provided directly', () => {
+    it('should skip ticket selection when ticket ID provided directly', async () => {
       // When ticket ID provided, should move to next step (PR selection or gh error)
-      const output = exec('pr link TKT-LINK-1 -P test-project --machine');
+      const output = await exec('pr link TKT-LINK-1 -P test-project --machine');
 
       // Either prompts for PR selection or shows gh error
       expect(output).to.be.a('string');
@@ -273,8 +273,8 @@ describe('PR Commands JSON Mode', () => {
       }
     });
 
-    it('should output valid response for PR creation', () => {
-      const output = exec('pr create -P test-project --machine');
+    it('should output valid response for PR creation', async () => {
+      const output = await exec('pr create -P test-project --machine');
 
       // Must get some output
       expect(output).to.be.a('string');
@@ -316,8 +316,8 @@ describe('PR Commands JSON Mode', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('pr create -P test-project -m');
+    it('should work with -m shorthand', async () => {
+      const output = await exec('pr create -P test-project -m');
 
       // Must get some output
       expect(output).to.be.a('string');
@@ -368,8 +368,8 @@ describe('PR Commands JSON Mode', () => {
       };
     }
 
-    function agentExec(cmd: string): AgentPrompt {
-      const output = exec(cmd);
+    async function agentExec(cmd: string): Promise<AgentPrompt> {
+      const output = await exec(cmd);
       return extractJson<AgentPrompt>(output);
     }
 
@@ -396,8 +396,8 @@ describe('PR Commands JSON Mode', () => {
     /**
      * Helper to execute final command (strips --json/--machine flags)
      */
-    function execFinal(cmd: string): string {
-      return exec(cmd.replace(' --json', '').replace(' --machine', ''));
+    async function execFinal(cmd: string): Promise<string> {
+      return await exec(cmd.replace(' --json', '').replace(' --machine', ''));
     }
 
     describe('pr index → subcommand - menu navigation flow', () => {
@@ -405,9 +405,9 @@ describe('PR Commands JSON Mode', () => {
         createTestTicket('TKT-MENU-1', 'Menu navigation test', 'in-progress', 'https://github.com/test/repo/pull/99');
       });
 
-      it('should complete full flow: main menu → status → select ticket → view result', () => {
+      it('should complete full flow: main menu → status → select ticket → view result', async () => {
         // Agent Step 1: Main menu
-        const step1 = agentExec('pr -P test-project --machine');
+        const step1 = await agentExec('pr -P test-project --machine');
         expect(step1.prompt).to.exist;
         expect(step1.prompt!.type).to.equal('list');
         expect(step1.prompt!.name).to.equal('action');
@@ -420,7 +420,7 @@ describe('PR Commands JSON Mode', () => {
         // Agent Step 2: Execute status action command
         // Note: The pr index command runs subcommands directly, so we need to
         // call pr status separately (the menu selection runs the subcommand)
-        const step2 = agentExec('pr status -P test-project --machine');
+        const step2 = await agentExec('pr status -P test-project --machine');
         expect(step2.prompt).to.exist;
         expect(step2.prompt!.type).to.equal('list');
         expect(step2.prompt!.name).to.equal('ticket');
@@ -430,19 +430,19 @@ describe('PR Commands JSON Mode', () => {
         expect(ticketChoice).to.exist;
 
         // Agent Step 3: View ticket status
-        const result = execFinal(execChoice(ticketChoice!));
+        const result = await execFinal(execChoice(ticketChoice!));
 
         // Verify ticket info shown
         expect(result).to.include('TKT-MENU-1');
       });
 
-      it('should complete flow: main menu → link → select ticket → select PR', () => {
+      it('should complete flow: main menu → link → select ticket → select PR', async () => {
         // Create a ticket WITHOUT a PR link for this test
         // (TKT-MENU-1 has a PR, so we need a fresh ticket)
         createTestTicket('TKT-MENU-LINK', 'Menu link test ticket', 'in-progress');
 
         // Agent Step 1: Main menu
-        const step1 = agentExec('pr -P test-project --machine');
+        const step1 = await agentExec('pr -P test-project --machine');
         expect(step1.prompt).to.exist;
 
         // Find link action
@@ -451,7 +451,7 @@ describe('PR Commands JSON Mode', () => {
         expect(linkChoice!.command).to.include('--json');
 
         // Agent Step 2: Execute link command
-        const step2 = agentExec('pr link -P test-project --machine');
+        const step2 = await agentExec('pr link -P test-project --machine');
 
         // If gh not installed, skip rest
         if (step2.error) {
@@ -468,7 +468,7 @@ describe('PR Commands JSON Mode', () => {
         expect(ticketChoice).to.exist;
 
         // Agent Step 3: Select ticket, get PR selection
-        const step3 = agentExec(execChoice(ticketChoice!));
+        const step3 = await agentExec(execChoice(ticketChoice!));
 
         // Either PR selection or no PRs error
         if (step3.error) {
@@ -481,8 +481,8 @@ describe('PR Commands JSON Mode', () => {
         expect(step3.prompt!.name).to.equal('pr');
       });
 
-      it('should provide cancel option in menu', () => {
-        const step1 = agentExec('pr -P test-project --machine');
+      it('should provide cancel option in menu', async () => {
+        const step1 = await agentExec('pr -P test-project --machine');
         expect(step1.prompt).to.exist;
 
         const cancelChoice = findChoice(step1.prompt!.choices!, 'cancel');
@@ -496,7 +496,7 @@ describe('PR Commands JSON Mode', () => {
         createTestTicket('TKT-STATUS-FLOW-1', 'Agent status test', 'in-progress', 'https://github.com/test/repo/pull/123');
       });
 
-      it('should complete flow: select ticket → view status → verify reads from database', () => {
+      it('should complete flow: select ticket → view status → verify reads from database', async () => {
         // First verify the PR URL is in database
         const dbMetadata = db.prepare(`
           SELECT value FROM pmo_ticket_metadata
@@ -506,7 +506,7 @@ describe('PR Commands JSON Mode', () => {
         expect(dbMetadata!.value).to.equal('https://github.com/test/repo/pull/123');
 
         // Agent Step 1: Get ticket choices
-        const step1 = agentExec('pr status -P test-project --machine');
+        const step1 = await agentExec('pr status -P test-project --machine');
         expect(step1.prompt).to.exist;
         expect(step1.prompt!.type).to.equal('list');
         expect(step1.prompt!.name).to.equal('ticket');
@@ -520,7 +520,7 @@ describe('PR Commands JSON Mode', () => {
         expect(ticketChoice!.command).to.include('--json');
 
         // Agent Step 2: View status (final step)
-        const result = execFinal(execChoice(ticketChoice!));
+        const result = await execFinal(execChoice(ticketChoice!));
 
         // Verify status output includes data from database
         expect(result).to.include('TKT-STATUS-FLOW-1');
@@ -532,7 +532,7 @@ describe('PR Commands JSON Mode', () => {
         );
       });
 
-      it('should complete flow with ticket ID provided directly and show stored PR info', () => {
+      it('should complete flow with ticket ID provided directly and show stored PR info', async () => {
         // Verify database has the PR URL
         const dbMetadata = db.prepare(`
           SELECT value FROM pmo_ticket_metadata
@@ -541,7 +541,7 @@ describe('PR Commands JSON Mode', () => {
         expect(dbMetadata!.value).to.equal('https://github.com/test/repo/pull/123');
 
         // Agent provides ticket ID - no prompts needed
-        const result = exec('pr status TKT-STATUS-FLOW-1 -P test-project');
+        const result = await exec('pr status TKT-STATUS-FLOW-1 -P test-project');
 
         // Verify output shows ticket
         expect(result).to.include('TKT-STATUS-FLOW-1');
@@ -552,7 +552,7 @@ describe('PR Commands JSON Mode', () => {
         );
       });
 
-      it('should verify ticket without PR shows appropriate message', () => {
+      it('should verify ticket without PR shows appropriate message', async () => {
         // Create ticket WITHOUT PR link
         createTestTicket('TKT-NO-PR-STATUS', 'Ticket without PR', 'in-progress');
 
@@ -564,7 +564,7 @@ describe('PR Commands JSON Mode', () => {
         expect(dbMetadata).to.not.exist;
 
         // View status
-        const result = exec('pr status TKT-NO-PR-STATUS -P test-project');
+        const result = await exec('pr status TKT-NO-PR-STATUS -P test-project');
 
         // Should indicate no PR linked
         expect(result).to.include('TKT-NO-PR-STATUS');
@@ -577,9 +577,9 @@ describe('PR Commands JSON Mode', () => {
         createTestTicket('TKT-LINK-FLOW-1', 'Agent link test', 'in-progress');
       });
 
-      it('should complete flow: select ticket → select PR → verify link in database', () => {
+      it('should complete flow: select ticket → select PR → verify link in database', async () => {
         // Agent Step 1: Get ticket choices (or gh error)
-        const step1 = agentExec('pr link -P test-project --machine');
+        const step1 = await agentExec('pr link -P test-project --machine');
 
         // If gh not installed, we get an error - skip test
         if (step1.error) {
@@ -599,7 +599,7 @@ describe('PR Commands JSON Mode', () => {
         expect(ticketChoice!.command).to.include('--json');
 
         // Agent Step 2: Select ticket, get PR selection prompt
-        const step2 = agentExec(execChoice(ticketChoice!));
+        const step2 = await agentExec(execChoice(ticketChoice!));
 
         // If no open PRs, we get an error
         if (step2.error) {
@@ -620,7 +620,7 @@ describe('PR Commands JSON Mode', () => {
         expect(prChoice.command).to.include('--json');
 
         // Agent Step 3: Execute the link (final step)
-        const result = execFinal(execChoice(prChoice));
+        const result = await execFinal(execChoice(prChoice));
 
         // Verify link succeeded
         expect(result.toLowerCase()).to.include('linked');
@@ -634,9 +634,9 @@ describe('PR Commands JSON Mode', () => {
         expect(metadata!.value).to.include('github.com');
       });
 
-      it('should complete flow with ticket ID provided directly → select PR → verify link', () => {
+      it('should complete flow with ticket ID provided directly → select PR → verify link', async () => {
         // Agent provides ticket ID - skips ticket selection
-        const step1 = agentExec('pr link TKT-LINK-FLOW-1 -P test-project --machine');
+        const step1 = await agentExec('pr link TKT-LINK-FLOW-1 -P test-project --machine');
 
         // If gh not installed or no PRs, skip
         if (step1.error) {
@@ -656,7 +656,7 @@ describe('PR Commands JSON Mode', () => {
         expect(prChoice).to.exist;
 
         // Execute the link
-        const result = execFinal(execChoice(prChoice));
+        const result = await execFinal(execChoice(prChoice));
 
         // Verify link succeeded
         expect(result.toLowerCase()).to.include('linked');
@@ -670,10 +670,10 @@ describe('PR Commands JSON Mode', () => {
         expect(metadata!.value).to.include('github.com');
       });
 
-      it('should handle --pr flag to skip PR selection entirely', () => {
+      it('should handle --pr flag to skip PR selection entirely', async () => {
         // Agent provides both ticket and PR number - no prompts needed
         // Use PR #221 which exists on this repo
-        const result = exec('pr link TKT-LINK-FLOW-1 --pr 221 -P test-project');
+        const result = await exec('pr link TKT-LINK-FLOW-1 --pr 221 -P test-project');
 
         // Should either succeed or show error if PR not found
         expect(result).to.be.a('string');
@@ -688,12 +688,12 @@ describe('PR Commands JSON Mode', () => {
         }
       });
 
-      it('should complete confirmation flow: ticket with existing PR → confirm replace → select new PR', () => {
+      it('should complete confirmation flow: ticket with existing PR → confirm replace → select new PR', async () => {
         // Create a ticket that ALREADY has a PR linked
         createTestTicket('TKT-LINK-REPLACE', 'Replace PR test', 'in-progress', 'https://github.com/existing/pr/123');
 
         // Agent Step 1: Select this ticket (provide directly to skip ticket selection)
-        const step1 = agentExec('pr link TKT-LINK-REPLACE -P test-project --machine');
+        const step1 = await agentExec('pr link TKT-LINK-REPLACE -P test-project --machine');
 
         // If gh not installed, skip
         if (step1.error) {
@@ -716,7 +716,7 @@ describe('PR Commands JSON Mode', () => {
         // Agent Step 2: Use --confirm flag directly to confirm and get PR selection
         // (FlagResolver builds command with value, but --confirm is a boolean flag,
         // so we use the flag directly instead of the generated command)
-        const step2 = agentExec('pr link TKT-LINK-REPLACE -P test-project --confirm --machine');
+        const step2 = await agentExec('pr link TKT-LINK-REPLACE -P test-project --confirm --machine');
 
         // If no open PRs, we get an error
         if (step2.error) {
@@ -736,7 +736,7 @@ describe('PR Commands JSON Mode', () => {
         // Agent Step 3: Execute the link (final step)
         // Include --confirm since the ticket still has the old PR until we update it
         const finalCmd = execChoice(prChoice).replace(' --json', ' --confirm').replace(' --machine', ' --confirm');
-        const result = exec(finalCmd.includes('--confirm') ? finalCmd : finalCmd + ' --confirm');
+        const result = await exec(finalCmd.includes('--confirm') ? finalCmd : finalCmd + ' --confirm');
 
         // Verify link succeeded
         expect(result.toLowerCase()).to.include('linked');
@@ -751,12 +751,12 @@ describe('PR Commands JSON Mode', () => {
         expect(metadata!.value).to.not.equal('https://github.com/existing/pr/123');
       });
 
-      it('should allow canceling confirmation when ticket has existing PR', () => {
+      it('should allow canceling confirmation when ticket has existing PR', async () => {
         // Create a ticket with existing PR
         createTestTicket('TKT-LINK-CANCEL', 'Cancel replace test', 'in-progress', 'https://github.com/existing/pr/456');
 
         // Agent Step 1: Select this ticket
-        const step1 = agentExec('pr link TKT-LINK-CANCEL -P test-project --machine');
+        const step1 = await agentExec('pr link TKT-LINK-CANCEL -P test-project --machine');
 
         // If gh not installed, skip
         if (step1.error) {
@@ -774,7 +774,7 @@ describe('PR Commands JSON Mode', () => {
 
         // Agent Step 2: Don't use --confirm flag - just run without it
         // (equivalent to selecting "No" - will show the existing PR info and return)
-        const result = exec('pr link TKT-LINK-CANCEL -P test-project');
+        const result = await exec('pr link TKT-LINK-CANCEL -P test-project');
 
         // Should complete (shows existing PR info)
         expect(result).to.be.a('string');
@@ -802,10 +802,10 @@ describe('PR Commands JSON Mode', () => {
         }
       });
 
-      it('should auto-detect ticket from branch and skip ticket selection', () => {
+      it('should auto-detect ticket from branch and skip ticket selection', async () => {
         // Agent starts PR creation - should auto-detect ticket from branch name
         // Branch is feat/TKT-CREATE-FLOW-1-test so it should detect TKT-CREATE-FLOW-1
-        const output = exec('pr create -P test-project --machine');
+        const output = await exec('pr create -P test-project --machine');
 
         expect(output).to.be.a('string');
         expect(output.length).to.be.greaterThan(0);
@@ -845,9 +845,9 @@ describe('PR Commands JSON Mode', () => {
         }
       });
 
-      it('should handle --no-link flag and skip ticket prompt entirely', () => {
+      it('should handle --no-link flag and skip ticket prompt entirely', async () => {
         // Agent uses --no-link to create PR without linking to ticket
-        const output = exec('pr create --no-link --machine');
+        const output = await exec('pr create --no-link --machine');
 
         expect(output).to.be.a('string');
         expect(output.length).to.be.greaterThan(0);
@@ -885,14 +885,14 @@ describe('PR Commands JSON Mode', () => {
         }
       });
 
-      it('should complete ticket selection flow when branch has no ticket ID', () => {
+      it('should complete ticket selection flow when branch has no ticket ID', async () => {
         // Create some in-progress tickets for selection
         createTestTicket('TKT-CREATE-SELECT-1', 'First selectable ticket', 'in-progress');
         createTestTicket('TKT-CREATE-SELECT-2', 'Second selectable ticket', 'in-progress');
 
         // Agent Step 1: Start PR creation - should get ticket selection prompt
         // Note: This runs in the current git repo context
-        const output = exec('pr create -P test-project --machine');
+        const output = await exec('pr create -P test-project --machine');
 
         // Check if PR already exists (outputs text instead of JSON)
         if (output.includes('PR already exists')) {
@@ -938,11 +938,11 @@ describe('PR Commands JSON Mode', () => {
         }
       });
 
-      it('should allow skipping ticket selection in PR creation', () => {
+      it('should allow skipping ticket selection in PR creation', async () => {
         // Create in-progress tickets
         createTestTicket('TKT-SKIP-TEST', 'Skip test ticket', 'in-progress');
 
-        const output = exec('pr create -P test-project --machine');
+        const output = await exec('pr create -P test-project --machine');
 
         // Check if PR already exists
         if (output.includes('PR already exists')) {
@@ -972,7 +972,7 @@ describe('PR Commands JSON Mode', () => {
         expect(skipChoice.command).to.include('--json');
 
         // Agent selects "Skip" - should proceed with PR creation without ticket
-        const result = execFinal(execChoice(skipChoice!));
+        const result = await execFinal(execChoice(skipChoice!));
 
         // Verify output indicates PR creation proceeded (or valid error)
         expect(result).to.be.a('string');
@@ -1001,9 +1001,9 @@ describe('PR Commands JSON Mode', () => {
         createTestTicket('TKT-JSON-COMPAT', 'JSON compat ticket', 'in-progress', 'https://github.com/test/repo/pull/99');
       });
 
-      it('should complete status flow with --json flag (legacy) and show PR info', () => {
+      it('should complete status flow with --json flag (legacy) and show PR info', async () => {
         // Use --json instead of --machine (legacy flag)
-        const step1 = agentExec('pr status -P test-project --json');
+        const step1 = await agentExec('pr status -P test-project --json');
 
         // Verify JSON structure is identical to --machine
         expect(step1.prompt).to.exist;
@@ -1020,14 +1020,14 @@ describe('PR Commands JSON Mode', () => {
         expect(ticketChoice!.name).to.include('PR linked');  // Should show PR indicator
 
         // Execute and verify status output
-        const result = execFinal(execChoice(ticketChoice!));
+        const result = await execFinal(execChoice(ticketChoice!));
         expect(result).to.include('TKT-JSON-COMPAT');
         expect(result).to.include('PR Status');  // Header
         expect(result).to.include('Title:');    // Ticket info shown
       });
 
-      it('should complete main menu flow with --json flag (legacy) with full choice verification', () => {
-        const step1 = agentExec('pr -P test-project --json');
+      it('should complete main menu flow with --json flag (legacy) with full choice verification', async () => {
+        const step1 = await agentExec('pr -P test-project --json');
 
         // Verify prompt structure
         expect(step1.prompt).to.exist;
@@ -1058,10 +1058,10 @@ describe('PR Commands JSON Mode', () => {
         expect(statusChoice!.value).to.equal('status');
       });
 
-      it('should produce identical structure with --json and --machine flags', () => {
+      it('should produce identical structure with --json and --machine flags', async () => {
         // Get output with both flags
-        const jsonOutput = agentExec('pr -P test-project --json');
-        const machineOutput = agentExec('pr -P test-project --machine');
+        const jsonOutput = await agentExec('pr -P test-project --json');
+        const machineOutput = await agentExec('pr -P test-project --machine');
 
         // Structure should be identical (except command field may differ)
         expect(jsonOutput.prompt!.type).to.equal(machineOutput.prompt!.type);
@@ -1073,9 +1073,9 @@ describe('PR Commands JSON Mode', () => {
   });
 
   describe('Error handling in JSON mode', () => {
-    it('should show informative message when no tickets exist for pr status', () => {
+    it('should show informative message when no tickets exist for pr status', async () => {
       // No tickets created in this test
-      const output = exec('pr status -P test-project --machine');
+      const output = await exec('pr status -P test-project --machine');
 
       // Must indicate no tickets found
       expect(output.toLowerCase()).to.include('no tickets');
@@ -1084,11 +1084,11 @@ describe('PR Commands JSON Mode', () => {
       expect(output.length).to.be.greaterThan(10);
     });
 
-    it('should return structured error JSON for gh CLI issues', () => {
+    it('should return structured error JSON for gh CLI issues', async () => {
       createTestTicket('TKT-ERR-1', 'Error test ticket', 'in-progress');
 
       // pr link requires gh CLI - test error structure
-      const output = exec('pr link TKT-ERR-1 -P test-project --machine');
+      const output = await exec('pr link TKT-ERR-1 -P test-project --machine');
       const json = extractJson<{
         prompt?: { type: string; name: string };
         error?: { code: string; message: string };
@@ -1121,9 +1121,9 @@ describe('PR Commands JSON Mode', () => {
       }
     });
 
-    it('should return valid error structure for invalid ticket ID', () => {
+    it('should return valid error structure for invalid ticket ID', async () => {
       // Try to view status of non-existent ticket
-      const output = exec('pr status INVALID-TICKET-123 -P test-project --machine');
+      const output = await exec('pr status INVALID-TICKET-123 -P test-project --machine');
 
       // Should either error or show "not found" message
       expect(output).to.be.a('string');
