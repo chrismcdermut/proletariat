@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { execProduction as exec } from './test-helpers.js'
+import { execInProcess } from './test-helpers.js'
 
 /**
  * Helper to check if output is JSON format
@@ -44,15 +44,15 @@ describe('GitHub CLI Commands E2E Tests', () => {
    * Shows GitHub CLI authentication status
    */
   describe('prlt gh status', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('gh status --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('gh status --help')
 
       expect(output).to.contain('Check GitHub CLI status')
       expect(output).to.contain('USAGE')
     })
 
-    it('should check GitHub CLI status', () => {
-      const output = exec('gh status')
+    it('should check GitHub CLI status', async () => {
+      const output = await execInProcess('gh status')
 
       // In non-TTY mode, output is JSON
       if (isJsonOutput(output)) {
@@ -74,8 +74,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should indicate when gh CLI is not installed', () => {
-      const output = exec('gh status')
+    it('should indicate when gh CLI is not installed', async () => {
+      const output = await execInProcess('gh status')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -91,8 +91,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should indicate authentication status when gh is installed', () => {
-      const output = exec('gh status')
+    it('should indicate authentication status when gh is installed', async () => {
+      const output = await execInProcess('gh status')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -108,8 +108,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should check GH_TOKEN status when authenticated', () => {
-      const output = exec('gh status')
+    it('should check GH_TOKEN status when authenticated', async () => {
+      const output = await execInProcess('gh status')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -131,22 +131,22 @@ describe('GitHub CLI Commands E2E Tests', () => {
    * Initiates GitHub login flow
    */
   describe('prlt gh login', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('gh login --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('gh login --help')
 
       expect(output).to.contain('Login to GitHub CLI')
       expect(output).to.contain('USAGE')
     })
 
-    it('should display login command description in help', () => {
-      const output = exec('gh login --help')
+    it('should display login command description in help', async () => {
+      const output = await execInProcess('gh login --help')
 
       expect(output).to.contain('Login to GitHub CLI')
       expect(output).to.contain('USAGE')
     })
 
-    it('should reference gh CLI in login help', () => {
-      const output = exec('gh login --help')
+    it('should reference gh CLI in login help', async () => {
+      const output = await execInProcess('gh login --help')
 
       const hasGhReference =
         output.includes('gh') ||
@@ -154,8 +154,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
       expect(hasGhReference).to.be.true
     })
 
-    it('should show login-related flags or description in help', () => {
-      const output = exec('gh login --help')
+    it('should show login-related flags or description in help', async () => {
+      const output = await execInProcess('gh login --help')
 
       // Help output should contain relevant login info
       const hasLoginInfo =
@@ -172,29 +172,29 @@ describe('GitHub CLI Commands E2E Tests', () => {
    * Displays/manages GitHub token for devcontainer PR creation
    */
   describe('prlt gh token', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('gh token --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('gh token --help')
 
       expect(output).to.contain('GH_TOKEN setup')
       expect(output).to.contain('devcontainer')
       expect(output).to.contain('USAGE')
     })
 
-    it('should display token command description in help', () => {
-      const output = exec('gh token --help')
+    it('should display token command description in help', async () => {
+      const output = await execInProcess('gh token --help')
 
       expect(output).to.contain('GH_TOKEN setup')
       expect(output).to.contain('USAGE')
     })
 
-    it('should reference devcontainer in token help', () => {
-      const output = exec('gh token --help')
+    it('should reference devcontainer in token help', async () => {
+      const output = await execInProcess('gh token --help')
 
       expect(output).to.contain('devcontainer')
     })
 
-    it('should reference GH_TOKEN in token help', () => {
-      const output = exec('gh token --help')
+    it('should reference GH_TOKEN in token help', async () => {
+      const output = await execInProcess('gh token --help')
 
       const hasTokenReference =
         output.includes('GH_TOKEN') ||
@@ -202,8 +202,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
       expect(hasTokenReference).to.be.true
     })
 
-    it('should show token-related usage information in help', () => {
-      const output = exec('gh token --help')
+    it('should show token-related usage information in help', async () => {
+      const output = await execInProcess('gh token --help')
 
       const hasUsageInfo =
         output.includes('USAGE') ||
@@ -211,8 +211,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
       expect(hasUsageInfo).to.be.true
     })
 
-    it('should reference GitHub in token help', () => {
-      const output = exec('gh token --help')
+    it('should reference GitHub in token help', async () => {
+      const output = await execInProcess('gh token --help')
 
       const hasGhReference =
         output.includes('gh') ||
@@ -226,15 +226,15 @@ describe('GitHub CLI Commands E2E Tests', () => {
    * Tests the interactive menu when no subcommand is provided
    */
   describe('prlt gh', () => {
-    it('should show help with --help flag', () => {
-      const output = exec('gh --help')
+    it('should show help with --help flag', async () => {
+      const output = await execInProcess('gh --help')
 
       expect(output).to.contain('GitHub CLI setup')
       expect(output).to.contain('USAGE')
     })
 
-    it('should list available subcommands in help', () => {
-      const output = exec('gh --help')
+    it('should list available subcommands in help', async () => {
+      const output = await execInProcess('gh --help')
 
       // Help should show subcommands or examples
       const hasSubcommands =
@@ -245,8 +245,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
       expect(hasSubcommands).to.be.true
     })
 
-    it('should show examples in help', () => {
-      const output = exec('gh --help')
+    it('should show examples in help', async () => {
+      const output = await execInProcess('gh --help')
 
       // Should have examples section
       const hasExamples =
@@ -265,8 +265,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
    * can be called directly.
    */
   describe('Command delegation', () => {
-    it('should delegate to status command', () => {
-      const output = exec('gh status')
+    it('should delegate to status command', async () => {
+      const output = await execInProcess('gh status')
 
       if (isJsonOutput(output)) {
         const json = parseJsonOutput(output)
@@ -279,15 +279,15 @@ describe('GitHub CLI Commands E2E Tests', () => {
       }
     })
 
-    it('should delegate to login command', () => {
-      const output = exec('gh login --help')
+    it('should delegate to login command', async () => {
+      const output = await execInProcess('gh login --help')
 
       expect(output).to.contain('Login to GitHub CLI')
       expect(output).to.contain('USAGE')
     })
 
-    it('should delegate to token command', () => {
-      const output = exec('gh token --help')
+    it('should delegate to token command', async () => {
+      const output = await execInProcess('gh token --help')
 
       expect(output).to.contain('GH_TOKEN setup')
       expect(output).to.contain('USAGE')
@@ -298,8 +298,8 @@ describe('GitHub CLI Commands E2E Tests', () => {
    * Edge cases and error handling
    */
   describe('Error handling', () => {
-    it('should handle unknown subcommand gracefully', () => {
-      const output = exec('gh unknown-subcommand')
+    it('should handle unknown subcommand gracefully', async () => {
+      const output = await execInProcess('gh unknown-subcommand')
 
       // Should show error about unknown command or help
       const validOutput =
@@ -311,10 +311,10 @@ describe('GitHub CLI Commands E2E Tests', () => {
       expect(validOutput).to.be.true
     })
 
-    it('should accept --help flag on all subcommands', () => {
-      const statusHelp = exec('gh status --help')
-      const loginHelp = exec('gh login --help')
-      const tokenHelp = exec('gh token --help')
+    it('should accept --help flag on all subcommands', async () => {
+      const statusHelp = await execInProcess('gh status --help')
+      const loginHelp = await execInProcess('gh login --help')
+      const tokenHelp = await execInProcess('gh token --help')
 
       expect(statusHelp).to.contain('USAGE')
       expect(loginHelp).to.contain('USAGE')

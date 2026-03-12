@@ -1289,3 +1289,52 @@ export async function execInProcessAsAgent(
     restore();
   }
 }
+
+/**
+ * In-process equivalent of agentExec().
+ * Executes a CLI command in-process and parses the JSON response as an AgentPromptResponse.
+ *
+ * @param cmd - CLI command to execute (should include --machine or --json flag)
+ * @returns Parsed AgentPromptResponse or null if context error or no valid JSON
+ */
+export async function agentExecInProcess(cmd: string): Promise<AgentPromptResponse | null> {
+  const output = await execInProcess(cmd);
+  if (hasContextError(output)) {
+    return null;
+  }
+  const json = extractJson<AgentPromptResponse>(output);
+  if (json && (!json.prompt || typeof json.prompt !== 'object')) {
+    return null;
+  }
+  return json;
+}
+
+/**
+ * In-process equivalent of execFinal().
+ * Executes the final command in an agent flow (without --json/--machine flags).
+ *
+ * @param cmd - Command string (with or without --json/--machine flags, which will be stripped)
+ * @returns Command output after execution
+ */
+export async function execFinalInProcess(cmd: string): Promise<string> {
+  const cleanCmd = cmd
+    .replace(' --json', '')
+    .replace(' --machine', '')
+    .replace(' -m', '');
+  return execInProcess(cleanCmd);
+}
+
+/**
+ * In-process equivalent of execWithForce().
+ * Executes a command with --force flag to skip confirmation prompts.
+ *
+ * @param cmd - Command string
+ * @returns Command output after execution
+ */
+export async function execWithForceInProcess(cmd: string): Promise<string> {
+  const cleanCmd = cmd
+    .replace(' --json', '')
+    .replace(' --machine', '')
+    .replace(' -m', '');
+  return execInProcess(`${cleanCmd} --force`);
+}
