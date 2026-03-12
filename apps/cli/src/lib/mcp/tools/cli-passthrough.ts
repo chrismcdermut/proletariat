@@ -486,6 +486,108 @@ export function registerUtilityTools(server: McpServer, ctx: McpToolContext): vo
   )
 
   strictTool(server,
+    'session_inspect',
+    'Comprehensive agent status inspection: git status, PR status, process liveness, recent output, and execution metadata in one call',
+    {
+      target: z.string().describe('Agent name or ticket ID to inspect'),
+      lines: z.number().optional().describe('Number of output lines to include (default 100)'),
+    },
+    async (params) => {
+      try {
+        const linesFlag = params.lines ? `--lines ${params.lines}` : ''
+        const output = ctx.runCommand(`prlt session inspect ${params.target} ${linesFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_exec',
+    'Execute a shell command in an agent\'s worktree/container context. Returns stdout/stderr as structured output.',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      command: z.string().describe('Shell command to execute in the agent\'s context'),
+      timeout: z.number().optional().describe('Command timeout in seconds (default 30)'),
+    },
+    async (params) => {
+      try {
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        const output = ctx.runCommand(`prlt session exec ${params.target} ${timeoutFlag} --json -- ${params.command}`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_restart',
+    'Gracefully restart a stuck or completed agent session. Sends Ctrl-C, waits for clean exit, and re-launches Claude Code.',
+    {
+      target: z.string().describe('Agent name or ticket ID to restart'),
+      fresh: z.boolean().optional().describe('Reset worktree to branch HEAD before restarting'),
+      resume: z.boolean().optional().describe('Continue from where the agent left off'),
+      timeout: z.number().optional().describe('Seconds to wait for clean exit (default 15)'),
+    },
+    async (params) => {
+      try {
+        const freshFlag = params.fresh ? '--fresh' : ''
+        const resumeFlag = params.resume ? '--resume' : ''
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        const output = ctx.runCommand(`prlt session restart ${params.target} ${freshFlag} ${resumeFlag} ${timeoutFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_peek',
+    'View agent tmux pane content without attaching. Returns recent terminal output.',
+    {
+      target: z.string().describe('Agent name, ticket ID, or execution ID'),
+      lines: z.number().optional().describe('Number of scrollback lines to capture (default 200)'),
+      full: z.boolean().optional().describe('Capture entire scrollback buffer'),
+    },
+    async (params) => {
+      try {
+        const linesFlag = params.lines ? `--lines ${params.lines}` : ''
+        const fullFlag = params.full ? '--full' : ''
+        const output = ctx.runCommand(`prlt session peek ${params.target} ${linesFlag} ${fullFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'session_poke',
+    'Send a message to a running agent\'s Claude Code session',
+    {
+      target: z.string().describe('Agent name or ticket ID'),
+      message: z.string().describe('Message to send to the agent'),
+      wait: z.boolean().optional().describe('Wait for response after sending'),
+      timeout: z.number().optional().describe('Timeout in seconds for wait mode (default 120)'),
+    },
+    async (params) => {
+      try {
+        const waitFlag = params.wait ? '--wait' : ''
+        const timeoutFlag = params.timeout ? `--timeout ${params.timeout}` : ''
+        // Escape the message for shell safety
+        const escapedMessage = params.message.replace(/"/g, '\\"')
+        const output = ctx.runCommand(`prlt session poke ${params.target} "${escapedMessage}" ${waitFlag} ${timeoutFlag} --json`)
+        return textResponse(output)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
     'config_show',
     'Show configuration',
     {},

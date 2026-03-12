@@ -1,4 +1,5 @@
-import { Args } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
@@ -10,6 +11,7 @@ import {
   getContainerTmuxSessionMap,
   findContainerSessionsByPrefix,
   findSessionForExecution,
+  captureTmuxPane,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
@@ -87,6 +89,9 @@ export default class SessionPoke extends PMOCommand {
   static examples = [
     '<%= config.bin %> session poke altman "Please focus on the tests first"',
     '<%= config.bin %> session poke TKT-123 "Add error handling for edge cases"',
+    '<%= config.bin %> session poke altman --file prompt.md',
+    '<%= config.bin %> session poke altman "Run the tests" --wait --timeout 60',
+    'echo "multi-line message" | <%= config.bin %> session poke altman -',
   ]
 
   static args = {
@@ -95,13 +100,26 @@ export default class SessionPoke extends PMOCommand {
       required: true,
     }),
     message: Args.string({
-      description: 'Message to send to the agent session',
-      required: true,
+      description: 'Message to send (use "-" to read from stdin, or omit with --file)',
+      required: false,
     }),
   }
 
   static flags = {
     ...pmoBaseFlags,
+    file: Flags.string({
+      char: 'F',
+      description: 'Read message from a file (supports multi-line)',
+    }),
+    wait: Flags.boolean({
+      char: 'w',
+      description: 'Wait for response after sending (capture output after message is sent)',
+      default: false,
+    }),
+    timeout: Flags.integer({
+      description: 'Timeout in seconds for --wait mode',
+      default: 120,
+    }),
   }
 
   protected getPMOOptions() {
@@ -111,15 +129,86 @@ export default class SessionPoke extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SessionPoke)
     const jsonMode = shouldOutputJson(flags)
-    const { agent, message } = args
+    const { agent } = args
+
+    // Resolve the message from args, --file, or stdin
+    let message: string
+    if (flags.file) {
+      try {
+        message = fs.readFileSync(flags.file, 'utf-8')
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error)
+        if (jsonMode) {
+          outputErrorAsJson(
+            'FILE_READ_ERROR',
+            `Failed to read file "${flags.file}": ${errMsg}`,
+            createMetadata('session poke', flags),
+          )
+        } else {
+          this.log('')
+          this.log(styles.error(`Failed to read file "${flags.file}": ${errMsg}`))
+          this.log('')
+        }
+        return
+      }
+    } else if (args.message === '-') {
+      // Read from stdin
+      try {
+        message = fs.readFileSync(0, 'utf-8')
+      } catch {
+        if (jsonMode) {
+          outputErrorAsJson(
+            'STDIN_READ_ERROR',
+            'Failed to read from stdin.',
+            createMetadata('session poke', flags),
+          )
+        } else {
+          this.log('')
+          this.log(styles.error('Failed to read from stdin.'))
+          this.log('')
+        }
+        return
+      }
+    } else if (args.message) {
+      message = args.message
+    } else {
+      if (jsonMode) {
+        outputErrorAsJson(
+          'NO_MESSAGE',
+          'No message provided. Pass a message argument, use --file, or pipe to stdin with "-".',
+          createMetadata('session poke', flags),
+        )
+      } else {
+        this.log('')
+        this.log(styles.error('No message provided.'))
+        this.log(styles.muted('Usage: prlt session poke <agent> "message"'))
+        this.log(styles.muted('       prlt session poke <agent> --file prompt.md'))
+        this.log(styles.muted('       echo "msg" | prlt session poke <agent> -'))
+        this.log('')
+      }
+      return
+    }
 
     // Resolve the agent's active session
     const resolved = this.resolveAgentSession(agent, jsonMode, flags)
     if (!resolved) return
 
-    // Send the message
+    // Capture pre-send content for --wait mode
+    let preSendContent: string | null = null
+    if (flags.wait) {
+      preSendContent = captureTmuxPane(resolved.sessionId, 200, resolved.containerId)
+    }
+
+    // Send the message (split multi-line into individual sends)
     try {
-      sendMessage(resolved.sessionId, message, resolved.containerId)
+      const messageLines = message.trim().split('\n')
+      if (messageLines.length === 1) {
+        sendMessage(resolved.sessionId, messageLines[0], resolved.containerId)
+      } else {
+        // For multi-line messages, send the entire text as a single literal
+        // to preserve the message structure
+        sendMessage(resolved.sessionId, message.trim(), resolved.containerId)
+      }
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error)
 
@@ -131,11 +220,12 @@ export default class SessionPoke extends PMOCommand {
             `tmux session "${resolved.sessionId}" does not exist. The agent may have exited.`,
             createMetadata('session poke', flags),
           )
+        } else {
+          this.log('')
+          this.log(styles.error(`tmux session "${resolved.sessionId}" does not exist. The agent may have exited.`))
+          this.log(styles.muted('Use `prlt session list` to see running sessions.'))
+          this.log('')
         }
-        this.log('')
-        this.log(styles.error(`tmux session "${resolved.sessionId}" does not exist. The agent may have exited.`))
-        this.log(styles.muted('Use `prlt session list` to see running sessions.'))
-        this.log('')
         return
       }
 
@@ -146,11 +236,12 @@ export default class SessionPoke extends PMOCommand {
             `Docker container for agent "${resolved.agentName}" is not running.`,
             createMetadata('session poke', flags),
           )
+        } else {
+          this.log('')
+          this.log(styles.error(`Docker container for agent "${resolved.agentName}" is not running.`))
+          this.log(styles.muted('The container may have stopped. Check with `docker ps`.'))
+          this.log('')
         }
-        this.log('')
-        this.log(styles.error(`Docker container for agent "${resolved.agentName}" is not running.`))
-        this.log(styles.muted('The container may have stopped. Check with `docker ps`.'))
-        this.log('')
         return
       }
 
@@ -161,11 +252,59 @@ export default class SessionPoke extends PMOCommand {
           `Failed to send message to agent "${resolved.agentName}": ${errMsg}`,
           createMetadata('session poke', flags),
         )
+      } else {
+        this.log('')
+        this.log(styles.error(`Failed to send message: ${errMsg}`))
+        this.log('')
       }
-      this.log('')
-      this.log(styles.error(`Failed to send message: ${errMsg}`))
-      this.log('')
       return
+    }
+
+    // Handle --wait mode: capture output after sending
+    let responseContent: string | null = null
+    if (flags.wait) {
+      const timeoutMs = flags.timeout * 1000
+      const startTime = Date.now()
+
+      // Wait briefly for the agent to start processing
+      await new Promise(resolve => setTimeout(resolve, 2000))
+
+      // Poll for new output until timeout
+      while (Date.now() - startTime < timeoutMs) {
+        const currentContent = captureTmuxPane(resolved.sessionId, 200, resolved.containerId)
+        if (currentContent && currentContent !== preSendContent) {
+          // Check if the agent appears to be done (idle/prompt visible)
+          const lines = currentContent.split('\n')
+          const lastNonEmpty = [...lines].reverse().find(l => l.trim().length > 0) || ''
+          const atPrompt = /[$❯#>]\s*$/.test(lastNonEmpty)
+          const isDone = /agent work complete/i.test(lastNonEmpty)
+          const isWorking = /esc to interrupt/i.test(currentContent.split('\n').slice(-5).join('\n'))
+
+          // If agent is idle or done, capture the response
+          if (atPrompt || isDone || !isWorking) {
+            // Get just the new lines since we sent the message
+            if (preSendContent) {
+              const preLines = preSendContent.split('\n')
+              const curLines = currentContent.split('\n')
+              const lastPreLine = preLines[preLines.length - 1]
+              const matchIdx = curLines.lastIndexOf(lastPreLine)
+              if (matchIdx >= 0) {
+                responseContent = curLines.slice(matchIdx + 1).join('\n')
+              } else {
+                responseContent = currentContent
+              }
+            } else {
+              responseContent = currentContent
+            }
+            break
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
+      if (responseContent === null) {
+        responseContent = '[Timeout: no response captured within ' + flags.timeout + ' seconds]'
+      }
     }
 
     // Output result
@@ -174,12 +313,18 @@ export default class SessionPoke extends PMOCommand {
         success: true,
         agent: resolved.agentName,
         session: resolved.sessionId,
-        message,
+        message: message.trim(),
+        ...(flags.wait ? { response: responseContent } : {}),
       }, createMetadata('session poke', flags))
     }
 
     this.log('')
     this.log(styles.success(`Message sent to ${resolved.agentName} (${resolved.ticketId})`))
+    if (flags.wait && responseContent) {
+      this.log('')
+      this.log(styles.info('Response:'))
+      this.log(responseContent)
+    }
     this.log('')
   }
 

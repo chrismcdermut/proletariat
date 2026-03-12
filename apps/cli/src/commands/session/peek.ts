@@ -20,6 +20,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { onShutdown } from '../../lib/signal-handler.js'
 
 // =============================================================================
 // Types
@@ -46,6 +47,9 @@ export default class SessionPeek extends PMOCommand {
     '<%= config.bin %> session peek TKT-123',
     '<%= config.bin %> session peek WORK-ABCD1234',
     '<%= config.bin %> session peek altman --lines 100',
+    '<%= config.bin %> session peek altman --full',
+    '<%= config.bin %> session peek altman --follow',
+    '<%= config.bin %> session peek altman --since 2025-01-01T12:00:00Z',
     '<%= config.bin %> session peek TKT-123 --json',
     '<%= config.bin %> session peek altman | grep error',
   ]
@@ -62,7 +66,23 @@ export default class SessionPeek extends PMOCommand {
     lines: Flags.integer({
       char: 'l',
       description: 'Number of scrollback lines to capture',
-      default: 50,
+      default: 200,
+    }),
+    full: Flags.boolean({
+      description: 'Capture entire scrollback buffer (up to 32768 lines)',
+      default: false,
+    }),
+    since: Flags.string({
+      description: 'Filter output to lines after this timestamp (ISO 8601)',
+    }),
+    follow: Flags.boolean({
+      char: 'f',
+      description: 'Stream output continuously (like tail -f)',
+      default: false,
+    }),
+    interval: Flags.integer({
+      description: 'Polling interval in seconds for --follow mode',
+      default: 2,
     }),
   }
 
@@ -73,6 +93,9 @@ export default class SessionPeek extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(SessionPeek)
     const jsonMode = shouldOutputJson(flags)
+
+    // Determine effective line count
+    const effectiveLines = flags.full ? 32768 : flags.lines
 
     // Discover all verified sessions
     const sessions = this.getVerifiedSessions()
@@ -110,20 +133,27 @@ export default class SessionPeek extends PMOCommand {
         this.error(`No matching session found for "${args.target}". Run "prlt session list" to see available sessions.`)
       }
 
+      // Handle --follow mode for streaming output
+      if (flags.follow && matched.length === 1) {
+        await this.followMode(matched[0], effectiveLines, flags.interval)
+        return
+      }
+
       // Output all matched sessions
       if (jsonMode && matched.length > 1) {
         // Collect all captures into a single JSON response
         const results = matched.map(session => {
           const containerId = session.environment === 'container' ? session.containerId : undefined
-          const content = captureTmuxPane(session.sessionId, flags.lines, containerId)
+          const content = captureTmuxPane(session.sessionId, effectiveLines, containerId)
+          const filteredContent = flags.since ? this.filterSince(content, flags.since) : content
           return {
             sessionId: session.sessionId,
             ticketId: session.ticketId,
             agentName: session.agentName,
             environment: session.environment,
             containerId: session.containerId,
-            lines: flags.lines,
-            content,
+            lines: effectiveLines,
+            content: filteredContent,
             captureError: content === null
               ? `Failed to capture pane content for session "${session.sessionId}".`
               : undefined,
@@ -134,7 +164,7 @@ export default class SessionPeek extends PMOCommand {
       }
 
       for (const session of matched) {
-        this.outputPeek(session, flags.lines, jsonMode, flags)
+        this.outputPeek(session, effectiveLines, jsonMode, flags)
       }
     } else {
       // No target: interactive selection
@@ -156,7 +186,12 @@ export default class SessionPeek extends PMOCommand {
         this.error('No session selected')
       }
 
-      this.outputPeek(session, flags.lines, jsonMode, flags)
+      if (flags.follow) {
+        await this.followMode(session, effectiveLines, flags.interval)
+        return
+      }
+
+      this.outputPeek(session, effectiveLines, jsonMode, flags)
     }
   }
 
@@ -249,6 +284,10 @@ export default class SessionPeek extends PMOCommand {
       )
     }
 
+    // Apply --since filtering if provided
+    const sinceFlag = flags.since as string | undefined
+    const filteredContent = sinceFlag ? this.filterSince(content, sinceFlag) : content
+
     if (jsonMode) {
       outputSuccessAsJson({
         sessionId: session.sessionId,
@@ -257,12 +296,126 @@ export default class SessionPeek extends PMOCommand {
         environment: session.environment,
         containerId: session.containerId,
         lines,
-        content,
+        content: filteredContent,
+        ...(sinceFlag ? { filteredSince: sinceFlag } : {}),
       }, createMetadata('session peek', flags))
     } else {
       // Raw text output — pipeable and scriptable
-      process.stdout.write(content + '\n')
+      process.stdout.write((filteredContent || '') + '\n')
     }
+  }
+
+  /**
+   * Filter content to only include lines after a given timestamp.
+   * Looks for timestamp patterns in lines and filters accordingly.
+   * If no timestamps found, returns all content (best effort).
+   */
+  private filterSince(content: string | null, since: string): string | null {
+    if (!content) return content
+
+    const sinceDate = new Date(since)
+    if (isNaN(sinceDate.getTime())) return content
+
+    const sinceMs = sinceDate.getTime()
+    const lines = content.split('\n')
+    const filteredLines: string[] = []
+    let pastThreshold = false
+
+    // Common timestamp patterns in terminal output
+    const timestampPatterns = [
+      /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,  // ISO 8601
+      /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/,   // SQL-like
+      /\[\d{2}:\d{2}:\d{2}\]/,                    // [HH:MM:SS]
+    ]
+
+    for (const line of lines) {
+      if (pastThreshold) {
+        filteredLines.push(line)
+        continue
+      }
+
+      for (const pattern of timestampPatterns) {
+        const match = line.match(pattern)
+        if (match) {
+          try {
+            const lineDate = new Date(match[0])
+            if (!isNaN(lineDate.getTime()) && lineDate.getTime() >= sinceMs) {
+              pastThreshold = true
+              filteredLines.push(line)
+            }
+          } catch {
+            // Not a valid date, skip
+          }
+          break
+        }
+      }
+    }
+
+    // If no timestamps were found, return all content
+    return filteredLines.length > 0 ? filteredLines.join('\n') : content
+  }
+
+  /**
+   * Follow mode: continuously stream new output (like tail -f).
+   * Captures pane content at regular intervals and outputs only new lines.
+   */
+  private async followMode(
+    session: VerifiedSession,
+    lines: number,
+    intervalSeconds: number,
+  ): Promise<void> {
+    const containerId = session.environment === 'container' ? session.containerId : undefined
+    let previousContent = ''
+
+    // Initial capture
+    const initial = captureTmuxPane(session.sessionId, lines, containerId)
+    if (initial) {
+      process.stdout.write(initial + '\n')
+      previousContent = initial
+    }
+
+    const intervalMs = intervalSeconds * 1000
+
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        const content = captureTmuxPane(session.sessionId, lines, containerId)
+        if (content === null) {
+          // Session ended
+          process.stdout.write('\n[Session ended]\n')
+          clearInterval(timer)
+          resolve()
+          return
+        }
+
+        // Find new content by comparing with previous
+        if (content !== previousContent) {
+          // Find the divergence point
+          const prevLines = previousContent.split('\n')
+          const currLines = content.split('\n')
+
+          // Look for the last matching line to find new content
+          let newStartIndex = 0
+          if (prevLines.length > 0) {
+            const lastPrevLine = prevLines[prevLines.length - 1]
+            const lastPrevIdx = currLines.lastIndexOf(lastPrevLine)
+            if (lastPrevIdx >= 0) {
+              newStartIndex = lastPrevIdx + 1
+            }
+          }
+
+          const newLines = currLines.slice(newStartIndex)
+          if (newLines.length > 0) {
+            process.stdout.write(newLines.join('\n') + '\n')
+          }
+          previousContent = content
+        }
+      }, intervalMs)
+
+      onShutdown(() => {
+        clearInterval(timer)
+        resolve()
+      })
+    })
   }
 
   /**
