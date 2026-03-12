@@ -601,78 +601,6 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
   });
 
   // ===========================================================================
-  // SPEC TOOLS TESTS
-  // ===========================================================================
-
-  describe('Spec Tools', () => {
-    let specId: string;
-
-    beforeEach(() => {
-      createTestProject(db, { id: 'mcp-spec-proj', name: 'Spec Project' });
-      specId = createTestSpec(db, { id: 'SPEC-MCP-001', title: 'MCP Test Spec' });
-    });
-
-    it('spec_list - should list specs', () => {
-      const result = callTool('spec_list', {});
-      expect(result.success).to.be.true;
-      expect(result.specs).to.be.an('array');
-    });
-
-    it('spec_list - should filter by status', () => {
-      const result = callTool('spec_list', { status: 'draft' });
-      expect(result.success).to.be.true;
-    });
-
-    it('spec_create - should create spec', () => {
-      const result = callTool('spec_create', {
-        title: 'New MCP Spec',
-        status: 'draft',
-        type: 'product',
-        problem: 'A problem statement',
-        solution: 'A solution',
-      });
-      expect(result.success).to.be.true;
-      expect(result.spec).to.have.property('id');
-    });
-
-    it('spec_view - should get spec details', () => {
-      const result = callTool('spec_view', { id: specId });
-      expect(result.success).to.be.true;
-      expect(result.spec).to.have.property('id', specId);
-    });
-
-    it('spec_update - should update spec', () => {
-      const result = callTool('spec_update', {
-        id: specId,
-        title: 'Updated Spec Title',
-        status: 'active',
-      });
-      expect(result.success).to.be.true;
-    });
-
-    it('spec_delete - should delete spec', () => {
-      const tempSpec = createTestSpec(db, { id: 'SPEC-DEL', title: 'Delete Me' });
-      const result = callTool('spec_delete', { id: tempSpec });
-      expect(result.success).to.be.true;
-    });
-
-    it('spec_add_dependency - should add dependency', () => {
-      const otherSpec = createTestSpec(db, { id: 'SPEC-DEP', title: 'Dependency' });
-      const result = callTool('spec_add_dependency', {
-        spec_id: specId,
-        depends_on_id: otherSpec,
-      });
-      expect(result.success).to.be.true;
-    });
-
-    it('spec_get_dependencies - should get dependencies', () => {
-      const result = callTool('spec_get_dependencies', { spec_id: specId });
-      expect(result.success).to.be.true;
-      expect(result.dependencies).to.be.an('array');
-    });
-  });
-
-  // ===========================================================================
   // EPIC TOOLS TESTS
   // ===========================================================================
 
@@ -1391,12 +1319,6 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
       expect(result.specs).to.be.an('array');
     });
 
-    it('spec_get_tickets - should get linked tickets', () => {
-      callTool('ticket_link_to_spec', { ticket_id: ticketId, spec_id: specId });
-
-      const result = callTool('spec_get_tickets', { spec_id: specId, project: projectId });
-      expect(result.success).to.be.true;
-    });
   });
 
   // ===========================================================================
