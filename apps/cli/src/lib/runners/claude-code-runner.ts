@@ -83,6 +83,15 @@ export class ClaudeCodeRunner implements AgentRunner {
 
   async poke(session: AgentSession, message: string): Promise<void> {
     try {
+      // Send Escape first to clear any buffered input in the prompt —
+      // without this, text already typed by the agent concatenates with
+      // our message, producing garbage.
+      execSync(
+        `tmux send-keys -t "${session.sessionName}" Escape`,
+        { stdio: 'pipe' },
+      )
+      // Wait for Escape to take effect before sending new text
+      await new Promise(resolve => setTimeout(resolve, 200))
       // Send the message as keystrokes followed by Enter
       execSync(
         `tmux send-keys -t "${session.sessionName}" ${JSON.stringify(message)} Enter`,
