@@ -188,7 +188,7 @@ describe('ExecutionView', () => {
     })
 
     it('returns different environment types', () => {
-      const environments = ['host', 'devcontainer', 'docker', 'vm'] as const
+      const environments = ['host', 'sandbox', 'devcontainer', 'docker', 'cloud', 'vm'] as const
 
       for (const environment of environments) {
         storage.createExecution({
@@ -202,7 +202,7 @@ describe('ExecutionView', () => {
       }
 
       const executions = storage.listExecutions({ limit: 10 })
-      expect(executions).to.have.length(4)
+      expect(executions).to.have.length(6)
 
       for (const exec of executions) {
         expect(environments).to.include(exec.environment)

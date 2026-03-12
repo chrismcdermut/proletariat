@@ -234,7 +234,8 @@ export default class ExecutionStop extends PMOCommand {
       // Handle environment-specific cleanup
       switch (execution.environment) {
         case 'host':
-          // Kill process if we have a PID
+        case 'sandbox':
+          // Kill process if we have a PID (sandbox runs on host via srt)
           if (execution.pid) {
             const signal = force ? 'SIGKILL' : 'SIGTERM'
             try {
@@ -257,10 +258,11 @@ export default class ExecutionStop extends PMOCommand {
           }
           return true
 
+        case 'cloud':
         case 'vm':
           if (execution.host && execution.sessionId) {
             this.warn(
-              `Cannot automatically stop VM execution. SSH to ${execution.host} and stop manually.`
+              `Cannot automatically stop cloud execution. SSH to ${execution.host} and stop manually.`
             )
           }
           return true
