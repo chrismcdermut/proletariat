@@ -180,6 +180,15 @@ const T = PMO_TABLES;
  * @returns Database instance with production schema initialized
  */
 export function setupProductionSchema(dbPath: string, pmoPath: string): Database.Database {
+  if (fs.existsSync(dbPath)) {
+    // DB already exists (e.g., re-initialization to trigger migrations) — run full init
+    const db = new Database(dbPath);
+    db.pragma('foreign_keys = ON');
+    initializePMOTables(db);
+    db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
+    return db;
+  }
+
   // Copy cached template (~1ms) instead of running full initialization (~100-200ms)
   const templatePath = getOrCreatePMOTemplate();
   fs.copyFileSync(templatePath, dbPath);
