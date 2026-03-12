@@ -13,7 +13,6 @@
   "bugs": "https://github.com/chrismcdermut/proletariat/issues",
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
-    "@linear/sdk": "^76.0.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@oclif/core": "^4",
     "@oclif/plugin-autocomplete": "^3",

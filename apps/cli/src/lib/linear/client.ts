@@ -1,11 +1,10 @@
 /**
  * Linear API Client
  *
- * Thin wrapper around @linear/sdk providing typed access to
- * Linear issues, teams, states, and cycles for the PMO integration.
+ * Thin wrapper using direct GraphQL queries for Linear API access.
+ * Provides typed access to issues, teams, states, and cycles for the PMO integration.
  */
 
-import { LinearClient as SDKClient } from '@linear/sdk'
 import type {
   LinearIssue,
   LinearTeam,
@@ -14,24 +13,65 @@ import type {
   LinearIssueFilter,
 } from './types.js'
 
+const LINEAR_API_URL = 'https://api.linear.app/graphql'
+
+interface GraphQLResponse<T> {
+  data?: T
+  errors?: Array<{ message: string }>
+}
+
 export class LinearClient {
-  private sdk: SDKClient
+  private apiKey: string
 
   constructor(apiKey: string) {
-    this.sdk = new SDKClient({ apiKey })
+    this.apiKey = apiKey
+  }
+
+  private async query<T>(gql: string, variables?: Record<string, unknown>): Promise<T> {
+    const response = await fetch(LINEAR_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: this.apiKey,
+      },
+      body: JSON.stringify({ query: gql, variables }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Linear API request failed with status ${response.status}`)
+    }
+
+    const result = (await response.json()) as GraphQLResponse<T>
+
+    if (result.errors && result.errors.length > 0) {
+      throw new Error(`Linear API error: ${result.errors[0].message}`)
+    }
+
+    if (!result.data) {
+      throw new Error('Linear API returned no data')
+    }
+
+    return result.data
   }
 
   /**
    * Verify the API key is valid and return the authenticated user's organization.
    */
   async verify(): Promise<{ organizationName: string; userName: string; email: string }> {
-    const viewer = await this.sdk.viewer
-    const org = await this.sdk.organization
+    const data = await this.query<{
+      viewer: { name: string; email: string }
+      organization: { name: string }
+    }>(`
+      query {
+        viewer { name email }
+        organization { name }
+      }
+    `)
 
     return {
-      organizationName: org.name,
-      userName: viewer.name,
-      email: viewer.email,
+      organizationName: data.organization.name,
+      userName: data.viewer.name,
+      email: data.viewer.email,
     }
   }
 
@@ -39,8 +79,17 @@ export class LinearClient {
    * List all teams in the workspace.
    */
   async listTeams(): Promise<LinearTeam[]> {
-    const teams = await this.sdk.teams()
-    return teams.nodes.map((t) => ({
+    const data = await this.query<{
+      teams: { nodes: Array<{ id: string; key: string; name: string; description: string | null }> }
+    }>(`
+      query {
+        teams {
+          nodes { id key name description }
+        }
+      }
+    `)
+
+    return data.teams.nodes.map((t) => ({
       id: t.id,
       key: t.key,
       name: t.name,
@@ -60,9 +109,19 @@ export class LinearClient {
    * List workflow states for a team.
    */
   async listStates(teamId: string): Promise<LinearWorkflowState[]> {
-    const team = await this.sdk.team(teamId)
-    const states = await team.states()
-    return states.nodes.map((s) => ({
+    const data = await this.query<{
+      team: { states: { nodes: Array<{ id: string; name: string; type: string; color: string; position: number }> } }
+    }>(`
+      query TeamStates($teamId: String!) {
+        team(id: $teamId) {
+          states {
+            nodes { id name type color position }
+          }
+        }
+      }
+    `, { teamId })
+
+    return data.team.states.nodes.map((s) => ({
       id: s.id,
       name: s.name,
       type: s.type,
@@ -75,14 +134,24 @@ export class LinearClient {
    * List cycles for a team.
    */
   async listCycles(teamId: string): Promise<LinearCycle[]> {
-    const team = await this.sdk.team(teamId)
-    const cycles = await team.cycles()
-    return cycles.nodes.map((c) => ({
+    const data = await this.query<{
+      team: { cycles: { nodes: Array<{ id: string; name: string | null; number: number; startsAt: string | null; endsAt: string | null }> } }
+    }>(`
+      query TeamCycles($teamId: String!) {
+        team(id: $teamId) {
+          cycles {
+            nodes { id name number startsAt endsAt }
+          }
+        }
+      }
+    `, { teamId })
+
+    return data.team.cycles.nodes.map((c) => ({
       id: c.id,
       name: c.name ?? `Cycle ${c.number}`,
       number: c.number,
-      startsAt: c.startsAt?.toISOString() ?? '',
-      endsAt: c.endsAt?.toISOString() ?? '',
+      startsAt: c.startsAt ?? '',
+      endsAt: c.endsAt ?? '',
     }))
   }
 
@@ -105,8 +174,11 @@ export class LinearClient {
     }
 
     if (filter.assigneeMe) {
-      const viewer = await this.sdk.viewer
-      queryFilter.assignee = { id: { eq: viewer.id } }
+      // Fetch viewer ID first
+      const viewerData = await this.query<{ viewer: { id: string } }>(`
+        query { viewer { id } }
+      `)
+      queryFilter.assignee = { id: { eq: viewerData.viewer.id } }
     } else if (filter.assigneeId) {
       queryFilter.assignee = { id: { eq: filter.assigneeId } }
     }
@@ -123,140 +195,180 @@ export class LinearClient {
       queryFilter.project = { id: { eq: filter.projectId } }
     }
 
-    const issues = await this.sdk.issues({
-      filter: queryFilter,
-      first: filter.limit ?? 50,
-    })
+    const data = await this.query<{
+      issues: {
+        nodes: Array<{
+          id: string
+          identifier: string
+          title: string
+          description: string | null
+          priority: number
+          estimate: number | null
+          dueDate: string | null
+          url: string
+          createdAt: string
+          updatedAt: string
+          state: { id: string; name: string; type: string } | null
+          team: { id: string; key: string; name: string } | null
+          assignee: { id: string; name: string; email: string } | null
+          labels: { nodes: Array<{ id: string; name: string; color: string }> }
+          cycle: { id: string; name: string | null; number: number } | null
+          project: { id: string; name: string } | null
+        }>
+      }
+    }>(`
+      query Issues($filter: IssueFilter, $first: Int!) {
+        issues(filter: $filter, first: $first) {
+          nodes {
+            id identifier title description priority estimate dueDate url createdAt updatedAt
+            state { id name type }
+            team { id key name }
+            assignee { id name email }
+            labels { nodes { id name color } }
+            cycle { id name number }
+            project { id name }
+          }
+        }
+      }
+    `, { filter: queryFilter, first: filter.limit ?? 50 })
 
-    const results: LinearIssue[] = []
-
-    for (const issue of issues.nodes) {
-      // eslint-disable-next-line no-await-in-loop
-      const state = await issue.state
-      // eslint-disable-next-line no-await-in-loop
-      const team = await issue.team
-      // eslint-disable-next-line no-await-in-loop
-      const assignee = await issue.assignee
-      // eslint-disable-next-line no-await-in-loop
-      const labelsConn = await issue.labels()
-      // eslint-disable-next-line no-await-in-loop
-      const cycle = await issue.cycle
-      // eslint-disable-next-line no-await-in-loop
-      const project = await issue.project
-
-      results.push({
-        id: issue.id,
-        identifier: issue.identifier,
-        title: issue.title,
-        description: issue.description ?? undefined,
-        priority: issue.priority,
-        state: state ? {
-          id: state.id,
-          name: state.name,
-          type: state.type,
-        } : { id: '', name: 'Unknown', type: 'backlog' },
-        team: team ? {
-          id: team.id,
-          key: team.key,
-          name: team.name,
-        } : { id: '', key: '', name: 'Unknown' },
-        assignee: assignee ? {
-          id: assignee.id,
-          name: assignee.name,
-          email: assignee.email,
-        } : undefined,
-        labels: labelsConn.nodes.map((l) => ({
-          id: l.id,
-          name: l.name,
-          color: l.color,
-        })),
-        cycle: cycle ? {
-          id: cycle.id,
-          name: cycle.name ?? `Cycle ${cycle.number}`,
-          number: cycle.number,
-        } : undefined,
-        project: project ? {
-          id: project.id,
-          name: project.name,
-        } : undefined,
-        estimate: issue.estimate ?? undefined,
-        dueDate: issue.dueDate ?? undefined,
-        url: issue.url,
-        createdAt: issue.createdAt.toISOString(),
-        updatedAt: issue.updatedAt.toISOString(),
-      })
-    }
-
-    return results
+    return data.issues.nodes.map((issue) => ({
+      id: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      description: issue.description ?? undefined,
+      priority: issue.priority,
+      state: issue.state ? {
+        id: issue.state.id,
+        name: issue.state.name,
+        type: issue.state.type,
+      } : { id: '', name: 'Unknown', type: 'backlog' },
+      team: issue.team ? {
+        id: issue.team.id,
+        key: issue.team.key,
+        name: issue.team.name,
+      } : { id: '', key: '', name: 'Unknown' },
+      assignee: issue.assignee ? {
+        id: issue.assignee.id,
+        name: issue.assignee.name,
+        email: issue.assignee.email,
+      } : undefined,
+      labels: issue.labels.nodes.map((l) => ({
+        id: l.id,
+        name: l.name,
+        color: l.color,
+      })),
+      cycle: issue.cycle ? {
+        id: issue.cycle.id,
+        name: issue.cycle.name ?? `Cycle ${issue.cycle.number}`,
+        number: issue.cycle.number,
+      } : undefined,
+      project: issue.project ? {
+        id: issue.project.id,
+        name: issue.project.name,
+      } : undefined,
+      estimate: issue.estimate ?? undefined,
+      dueDate: issue.dueDate ?? undefined,
+      url: issue.url,
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt,
+    }))
   }
 
   /**
    * Fetch a single issue by its identifier (e.g., "ENG-123").
    */
   async getIssueByIdentifier(identifier: string): Promise<LinearIssue | null> {
-    // Parse team key from identifier
     const match = identifier.match(/^([A-Z]+)-(\d+)$/i)
     if (!match) return null
 
     const [, teamKey, numberStr] = match
-    const issues = await this.sdk.issues({
+
+    const data = await this.query<{
+      issues: {
+        nodes: Array<{
+          id: string
+          identifier: string
+          title: string
+          description: string | null
+          priority: number
+          estimate: number | null
+          dueDate: string | null
+          url: string
+          createdAt: string
+          updatedAt: string
+          state: { id: string; name: string; type: string } | null
+          team: { id: string; key: string; name: string } | null
+          assignee: { id: string; name: string; email: string } | null
+          labels: { nodes: Array<{ id: string; name: string; color: string }> }
+          cycle: { id: string; name: string | null; number: number } | null
+          project: { id: string; name: string } | null
+        }>
+      }
+    }>(`
+      query IssueByIdentifier($filter: IssueFilter!) {
+        issues(filter: $filter, first: 1) {
+          nodes {
+            id identifier title description priority estimate dueDate url createdAt updatedAt
+            state { id name type }
+            team { id key name }
+            assignee { id name email }
+            labels { nodes { id name color } }
+            cycle { id name number }
+            project { id name }
+          }
+        }
+      }
+    `, {
       filter: {
         team: { key: { eq: teamKey.toUpperCase() } },
         number: { eq: parseInt(numberStr, 10) },
       },
-      first: 1,
     })
 
-    if (issues.nodes.length === 0) return null
+    if (data.issues.nodes.length === 0) return null
 
-    const issue = issues.nodes[0]
-    const state = await issue.state
-    const team = await issue.team
-    const assignee = await issue.assignee
-    const labelsConn = await issue.labels()
-    const cycle = await issue.cycle
-    const project = await issue.project
-
+    const issue = data.issues.nodes[0]
     return {
       id: issue.id,
       identifier: issue.identifier,
       title: issue.title,
       description: issue.description ?? undefined,
       priority: issue.priority,
-      state: state ? {
-        id: state.id,
-        name: state.name,
-        type: state.type,
+      state: issue.state ? {
+        id: issue.state.id,
+        name: issue.state.name,
+        type: issue.state.type,
       } : { id: '', name: 'Unknown', type: 'backlog' },
-      team: team ? {
-        id: team.id,
-        key: team.key,
-        name: team.name,
+      team: issue.team ? {
+        id: issue.team.id,
+        key: issue.team.key,
+        name: issue.team.name,
       } : { id: '', key: '', name: 'Unknown' },
-      assignee: assignee ? {
-        id: assignee.id,
-        name: assignee.name,
-        email: assignee.email,
+      assignee: issue.assignee ? {
+        id: issue.assignee.id,
+        name: issue.assignee.name,
+        email: issue.assignee.email,
       } : undefined,
-      labels: labelsConn.nodes.map((l) => ({
+      labels: issue.labels.nodes.map((l) => ({
         id: l.id,
         name: l.name,
         color: l.color,
       })),
-      cycle: cycle ? {
-        id: cycle.id,
-        name: cycle.name ?? `Cycle ${cycle.number}`,
-        number: cycle.number,
+      cycle: issue.cycle ? {
+        id: issue.cycle.id,
+        name: issue.cycle.name ?? `Cycle ${issue.cycle.number}`,
+        number: issue.cycle.number,
       } : undefined,
-      project: project ? {
-        id: project.id,
-        name: project.name,
+      project: issue.project ? {
+        id: issue.project.id,
+        name: issue.project.name,
       } : undefined,
       estimate: issue.estimate ?? undefined,
       dueDate: issue.dueDate ?? undefined,
       url: issue.url,
-      createdAt: issue.createdAt.toISOString(),
-      updatedAt: issue.updatedAt.toISOString(),
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt,
     }
   }
 
@@ -264,24 +376,38 @@ export class LinearClient {
    * Update the state of an issue.
    */
   async updateIssueState(issueId: string, stateId: string): Promise<void> {
-    await this.sdk.updateIssue(issueId, { stateId })
+    await this.query<{ issueUpdate: { success: boolean } }>(`
+      mutation UpdateIssueState($issueId: String!, $stateId: String!) {
+        issueUpdate(id: $issueId, input: { stateId: $stateId }) {
+          success
+        }
+      }
+    `, { issueId, stateId })
   }
 
   /**
    * Add a comment to an issue.
    */
   async addComment(issueId: string, body: string): Promise<void> {
-    await this.sdk.createComment({ issueId, body })
+    await this.query<{ commentCreate: { success: boolean } }>(`
+      mutation CreateComment($issueId: String!, $body: String!) {
+        commentCreate(input: { issueId: $issueId, body: $body }) {
+          success
+        }
+      }
+    `, { issueId, body })
   }
 
   /**
    * Attach a URL to an issue (e.g., a PR link).
    */
   async attachUrl(issueId: string, url: string, title: string): Promise<void> {
-    await this.sdk.createAttachment({
-      issueId,
-      url,
-      title,
-    })
+    await this.query<{ attachmentCreate: { success: boolean } }>(`
+      mutation CreateAttachment($issueId: String!, $url: String!, $title: String!) {
+        attachmentCreate(input: { issueId: $issueId, url: $url, title: $title }) {
+          success
+        }
+      }
+    `, { issueId, url, title })
   }
 }
