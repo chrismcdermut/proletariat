@@ -341,21 +341,6 @@ export async function spawnAgentForTicket(
     epicTitle = epic?.title
   }
 
-  // Get spec info if linked
-  let specId: string | undefined
-  let specTitle: string | undefined
-  let specProblem: string | undefined
-  let specSolution: string | undefined
-  if (ticket.specId) {
-    const spec = await storage.getSpec(ticket.specId)
-    if (spec) {
-      specId = spec.id
-      specTitle = spec.title
-      specProblem = spec.problem
-      specSolution = spec.solution
-    }
-  }
-
   // Build execution context
   // Find proper HQ root (don't assume PMO is at {hq}/pmo - it could be at {hq}/repos/myrepo/pmo)
   const hqPath = findHQRoot() || path.dirname(pmoPath)
@@ -367,10 +352,6 @@ export async function spawnAgentForTicket(
     ticketPriority: ticket.priority,
     ticketCategory: ticket.category,
     epicTitle,
-    specId,
-    specTitle,
-    specProblem,
-    specSolution,
     agentName,
     agentDir,
     worktreePath,

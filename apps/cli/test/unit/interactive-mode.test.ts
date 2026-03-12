@@ -283,14 +283,6 @@ describe('Interactive Mode Support Audit', () => {
       expect(cmd!.classification).to.equal('GOOD');
     });
 
-    // Spec commands
-    it('spec/create should auto-prompt for title', () => {
-      const cmd = allCommands.find(c => c.relativePath === 'spec/create.ts');
-      expect(cmd).to.exist;
-      expect(cmd!.usesInquirer).to.be.true;
-      expect(cmd!.classification).to.equal('GOOD');
-    });
-
     // Status commands - these are the ones that need fixes
     it('status/create should auto-prompt for name and category', () => {
       const cmd = allCommands.find(c => c.relativePath === 'status/create.ts');
