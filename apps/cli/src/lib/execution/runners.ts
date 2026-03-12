@@ -680,6 +680,19 @@ function buildOrchestratorAntiPatterns(): string {
 function buildOrchestratorBody(hqName: string, context: ExecutionContext): string {
   let prompt = ''
 
+  // Dynamic workspace context
+  const prltVersion = getHostPrltVersion()
+  prompt += `## Environment\n`
+  if (prltVersion) {
+    prompt += `- **prlt version**: ${prltVersion}\n`
+  }
+  prompt += `- **Available executors**: claude-code, codex\n`
+  prompt += `- **Agent worktrees**: \`agents/temp/<agent-name>/<repo>\` — each agent gets an isolated git worktree\n`
+  if (context.hqPath) {
+    prompt += `- **HQ path**: \`${context.hqPath}\`\n`
+  }
+  prompt += `\n`
+
   // Runtime declaration
   prompt += `## prlt Is Your Orchestration Runtime\n\n`
   prompt += `prlt is your orchestration runtime. NEVER use raw docker exec, tmux send-keys, or direct container access. `
@@ -689,10 +702,12 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
 
   // Role
   prompt += `## Your Role\n`
-  prompt += `- Plan and prioritize work across the board\n`
+  prompt += `- Assess the current state of the board, running agents, and open PRs\n`
+  prompt += `- Plan and prioritize work — decide what to tackle next and in what order\n`
   prompt += `- Delegate implementation to agents via \`prlt work start\`\n`
-  prompt += `- Monitor agent progress and review completed work\n`
-  prompt += `- Merge completed PRs via \`gh pr merge --squash\`\n`
+  prompt += `- Monitor agent progress via sessions and review completed work\n`
+  prompt += `- Review and merge completed PRs via \`gh pr merge --squash\`\n`
+  prompt += `- Coordinate parallel agents — handle rebases after merges\n`
   prompt += `- Never write code or make changes to source files yourself\n\n`
 
   // Command reference (dynamically generated)
@@ -744,9 +759,12 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
  */
 export function buildOrchestratorSystemPrompt(context: ExecutionContext): string {
   const hqName = context.hqName || 'workspace'
-  let prompt = `You are an orchestrator for the **${hqName}** project. `
-  prompt += `Do not implement any work yourself. `
-  prompt += `Your job is to review, plan, investigate, delegate (via \`prlt work start\`), and review completed work.\n\n`
+  let prompt = `# Orchestrator: ${hqName}\n\n`
+  prompt += `You are the orchestrator for the **${hqName}** headquarters — a technical project manager driving software delivery through delegated AI agents.\n\n`
+  prompt += `**prlt** is an AI agent orchestration CLI. It manages software development by coordinating autonomous coding agents that work in isolated git worktrees. `
+  prompt += `Your workspace (HQ) contains a PMO board for tracking tickets, agent worktrees under \`agents/temp/\`, and repo connections. `
+  prompt += `Agents are spawned to implement, review, and fix code — you never write code yourself. `
+  prompt += `Your job is to assess the state of the project, plan and prioritize work, delegate to agents, monitor their progress, review results, and merge completed PRs.\n\n`
 
   prompt += buildOrchestratorBody(hqName, context)
 
@@ -759,7 +777,10 @@ function buildOrchestratorPrompt(context: ExecutionContext): string {
   // a system prompt (role/tools) + a shorter user message.
   const hqName = context.hqName || 'workspace'
   let prompt = `# Orchestrator: ${hqName}\n\n`
-  prompt += `You are the orchestrator for the **${hqName}** workspace using the prlt ecosystem.\n\n`
+  prompt += `You are the orchestrator for the **${hqName}** headquarters — a technical project manager driving software delivery through delegated AI agents.\n\n`
+  prompt += `**prlt** is an AI agent orchestration CLI. It manages software development by coordinating autonomous coding agents that work in isolated git worktrees. `
+  prompt += `Your workspace (HQ) contains a PMO board for tracking tickets, agent worktrees under \`agents/temp/\`, and repo connections. `
+  prompt += `Agents are spawned to implement, review, and fix code — you never write code yourself.\n\n`
 
   prompt += buildOrchestratorBody(hqName, context)
 
@@ -972,7 +993,11 @@ export async function runHost(
 
     // Override user message: just action instructions or a default startup message
     const userMessage = context.actionPrompt
-      || 'You are now running as the orchestrator. Check the board status and report what you see.'
+      || 'Assess the current state of the project:\n'
+        + '1. Check the board: `prlt board view` — what tickets are in progress, blocked, or ready?\n'
+        + '2. List running agents: `prlt session list` — who is working on what? Any stale sessions?\n'
+        + '3. Check open PRs: `gh pr list` — any PRs ready for review or merge?\n'
+        + '4. Summarize what needs attention and recommend next actions.'
     fs.writeFileSync(promptPath, userMessage, { mode: 0o644 })
   } else {
     // Write full prompt (includes role context for non-Claude executors)
