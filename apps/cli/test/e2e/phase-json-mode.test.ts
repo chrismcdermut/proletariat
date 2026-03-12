@@ -6,7 +6,7 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  exec,
+  execInProcess,
   setupProductionSchema,
   createTestProject,
   createTestPhase,
@@ -75,8 +75,8 @@ describe('Phase Commands JSON Mode', () => {
       createTestPhase(db, { id: 'phase-2', name: 'Review', category: 'started', position: 1 });
     });
 
-    it('should output valid JSON with --machine flag', () => {
-      const output = exec('phase list --machine');
+    it('should output valid JSON with --machine flag', async () => {
+      const output = await execInProcess('phase list --machine');
       const json = extractJson<Array<{ id: string; name: string; category: string }>>(output);
 
       expect(json).to.be.an('array');
@@ -86,22 +86,22 @@ describe('Phase Commands JSON Mode', () => {
       expect(json[0]).to.have.property('category');
     });
 
-    it('should output valid JSON with --json flag (legacy)', () => {
-      const output = exec('phase list --json');
+    it('should output valid JSON with --json flag (legacy)', async () => {
+      const output = await execInProcess('phase list --json');
       const json = extractJson<Array<{ id: string; name: string }>>(output);
 
       expect(json).to.be.an('array');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('phase list -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('phase list -m');
       const json = extractJson<Array<{ id: string; name: string }>>(output);
 
       expect(json).to.be.an('array');
     });
 
-    it('should filter by category with --machine flag', () => {
-      const output = exec('phase list --category started --machine');
+    it('should filter by category with --machine flag', async () => {
+      const output = await execInProcess('phase list --category started --machine');
       const json = extractJson<Array<{ id: string; category: string }>>(output);
 
       expect(json).to.be.an('array');
@@ -110,9 +110,9 @@ describe('Phase Commands JSON Mode', () => {
       }
     });
 
-    it('should produce same structure with --machine and --json', () => {
-      const jsonOutput = exec('phase list --json');
-      const machineOutput = exec('phase list --machine');
+    it('should produce same structure with --machine and --json', async () => {
+      const jsonOutput = await execInProcess('phase list --json');
+      const machineOutput = await execInProcess('phase list --machine');
 
       const jsonResult = extractJson<Array<{ id: string }>>(jsonOutput);
       const machineResult = extractJson<Array<{ id: string }>>(machineOutput);
@@ -122,8 +122,8 @@ describe('Phase Commands JSON Mode', () => {
   });
 
   describe('phase create --machine', () => {
-    it('should output prompt JSON when name not provided', () => {
-      const output = exec('phase create --machine');
+    it('should output prompt JSON when name not provided', async () => {
+      const output = await execInProcess('phase create --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -136,8 +136,8 @@ describe('Phase Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should output category prompt when name provided', () => {
-      const output = exec('phase create "Test Phase" --machine');
+    it('should output category prompt when name provided', async () => {
+      const output = await execInProcess('phase create "Test Phase" --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; choices: Array<{ name: string; value: string }> };
       }>(output);
@@ -149,16 +149,16 @@ describe('Phase Commands JSON Mode', () => {
       expect(json.prompt.choices.length).to.be.greaterThan(0);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('phase create -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('phase create -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should create phase when all flags provided', () => {
-      const output = exec('phase create "New Phase" --category started --machine');
+    it('should create phase when all flags provided', async () => {
+      const output = await execInProcess('phase create "New Phase" --category started --machine');
 
       // Should succeed and create the phase (not return prompt JSON)
       expect(output).to.include('Created phase');
@@ -171,8 +171,8 @@ describe('Phase Commands JSON Mode', () => {
       createTestPhase(db, { id: 'test-phase', name: 'Test Phase', category: 'started', position: 0 });
     });
 
-    it('should output prompt JSON when phase ID not provided', () => {
-      const output = exec('phase update --machine');
+    it('should output prompt JSON when phase ID not provided', async () => {
+      const output = await execInProcess('phase update --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -185,8 +185,8 @@ describe('Phase Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include command field in choices for flag accumulation', () => {
-      const output = exec('phase update --machine');
+    it('should include command field in choices for flag accumulation', async () => {
+      const output = await execInProcess('phase update --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string; value: string }> };
       }>(output);
@@ -198,16 +198,16 @@ describe('Phase Commands JSON Mode', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('phase update -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('phase update -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should update phase when ID and change flags provided', () => {
-      const output = exec('phase update test-phase --name "Updated Phase"');
+    it('should update phase when ID and change flags provided', async () => {
+      const output = await execInProcess('phase update test-phase --name "Updated Phase"');
 
       expect(output).to.include('Updated phase');
       expect(output).to.include('Updated Phase');
@@ -219,8 +219,8 @@ describe('Phase Commands JSON Mode', () => {
       createTestPhase(db, { id: 'delete-phase', name: 'Delete Me', category: 'started', position: 0 });
     });
 
-    it('should output confirmation prompt JSON', () => {
-      const output = exec('phase delete delete-phase --machine');
+    it('should output confirmation prompt JSON', async () => {
+      const output = await execInProcess('phase delete delete-phase --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: unknown }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -233,8 +233,8 @@ describe('Phase Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should include force flag in Yes choice command', () => {
-      const output = exec('phase delete delete-phase --machine');
+    it('should include force flag in Yes choice command', async () => {
+      const output = await execInProcess('phase delete delete-phase --machine');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command?: string; value: string }> };
       }>(output);
@@ -246,16 +246,16 @@ describe('Phase Commands JSON Mode', () => {
       expect(yesChoice!.command).to.include('--json');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('phase delete delete-phase -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('phase delete delete-phase -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should delete phase when --force provided', () => {
-      const output = exec('phase delete delete-phase --force');
+    it('should delete phase when --force provided', async () => {
+      const output = await execInProcess('phase delete delete-phase --force');
 
       expect(output).to.include('Deleted phase');
       expect(output).to.include('Delete Me');
@@ -268,8 +268,8 @@ describe('Phase Commands JSON Mode', () => {
       createTestPhase(db, { id: 'move-phase-2', name: 'Phase Two', category: 'started', position: 1 });
     });
 
-    it('should output phase selection prompt when ID not provided', () => {
-      const output = exec('phase move --machine');
+    it('should output phase selection prompt when ID not provided', async () => {
+      const output = await execInProcess('phase move --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: { machine: boolean } };
@@ -282,8 +282,8 @@ describe('Phase Commands JSON Mode', () => {
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should output position selection prompt when ID provided', () => {
-      const output = exec('phase move move-phase-1 --machine');
+    it('should output position selection prompt when ID provided', async () => {
+      const output = await execInProcess('phase move move-phase-1 --machine');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
       }>(output);
@@ -294,16 +294,16 @@ describe('Phase Commands JSON Mode', () => {
       expect(json.prompt.choices).to.be.an('array');
     });
 
-    it('should work with -m shorthand', () => {
-      const output = exec('phase move -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('phase move -m');
       const json = extractJson<{ prompt: { type: string }; metadata: { flags: { machine: boolean } } }>(output);
 
       expect(json.prompt).to.exist;
       expect(json.metadata.flags.machine).to.equal(true);
     });
 
-    it('should move phase when ID and position provided', () => {
-      const output = exec('phase move move-phase-1 --position 1');
+    it('should move phase when ID and position provided', async () => {
+      const output = await execInProcess('phase move move-phase-1 --position 1');
 
       expect(output.toLowerCase()).to.match(/moved|position/);
     });
@@ -333,8 +333,8 @@ describe('Phase Commands JSON Mode', () => {
       };
     }
 
-    function agentExec(cmd: string): AgentPrompt {
-      const output = exec(cmd);
+    async function agentExec(cmd: string): Promise<AgentPrompt> {
+      const output = await execInProcess(cmd);
       return extractJson<AgentPrompt>(output);
     }
 
@@ -361,21 +361,21 @@ describe('Phase Commands JSON Mode', () => {
     /**
      * Helper to execute final command (strips --json/--machine flags)
      */
-    function execFinal(cmd: string): string {
-      return exec(cmd.replace(' --json', '').replace(' --machine', ''));
+    async function execFinal(cmd: string): Promise<string> {
+      return await execInProcess(cmd.replace(' --json', '').replace(' --machine', ''));
     }
 
     describe('phase create - full agent flow', () => {
-      it('should complete flow: enter name → select category → phase created', () => {
+      it('should complete flow: enter name → select category → phase created', async () => {
         // Agent Step 1: No name provided, get input prompt
-        const step1 = agentExec('phase create --machine');
+        const step1 = await agentExec('phase create --machine');
         expect(step1.prompt.type).to.equal('input');
         expect(step1.prompt.name).to.equal('name');
         expect(step1.prompt.context).to.exist;
         expect(step1.prompt.context!.hint).to.include('prlt phase create');
 
         // Agent Step 2: Provide name, get category selection
-        const step2 = agentExec('phase create "Agent Created Phase" --machine');
+        const step2 = await agentExec('phase create "Agent Created Phase" --machine');
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.name).to.equal('category');
         expect(step2.prompt.choices).to.be.an('array');
@@ -386,7 +386,7 @@ describe('Phase Commands JSON Mode', () => {
         expect(categoryChoice).to.exist;
 
         // Agent Step 3: Execute the create with category
-        const result = execFinal(execChoice(categoryChoice!));
+        const result = await execFinal(execChoice(categoryChoice!));
 
         // Verify phase was created
         expect(result).to.include('Created phase');
@@ -397,9 +397,9 @@ describe('Phase Commands JSON Mode', () => {
         expect(phase).to.exist;
       });
 
-      it('should complete flow with all flags provided directly', () => {
+      it('should complete flow with all flags provided directly', async () => {
         // Agent provides all required flags - no prompts needed
-        const result = exec('phase create "Direct Phase" --category unstarted');
+        const result = await execInProcess('phase create "Direct Phase" --category unstarted');
 
         expect(result).to.include('Created phase');
         expect(result).to.include('Direct Phase');
@@ -411,9 +411,9 @@ describe('Phase Commands JSON Mode', () => {
         createTestPhase(db, { id: 'update-flow-phase', name: 'Update Flow Phase', category: 'backlog', position: 0 });
       });
 
-      it('should complete flow: select phase → update with flags', () => {
+      it('should complete flow: select phase → update with flags', async () => {
         // Agent Step 1: No phase ID, get phase selection prompt
-        const step1 = agentExec('phase update --machine');
+        const step1 = await agentExec('phase update --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('phaseId');
         expect(step1.prompt.choices).to.be.an('array');
@@ -426,7 +426,7 @@ describe('Phase Commands JSON Mode', () => {
         // Agent Step 2: Select phase, then provide update flags
         // The command from step1 leads to interactive mode, so we provide flags directly
         const updateCmd = `phase update ${phaseChoice!.value} --name "Updated By Agent" --category started`;
-        const result = exec(updateCmd);
+        const result = await execInProcess(updateCmd);
 
         // Verify update succeeded
         expect(result).to.include('Updated phase');
@@ -438,9 +438,9 @@ describe('Phase Commands JSON Mode', () => {
         expect(phase.category).to.equal('started');
       });
 
-      it('should complete flow with phase ID provided directly', () => {
+      it('should complete flow with phase ID provided directly', async () => {
         // Agent provides phase ID directly, then flags
-        const result = exec('phase update update-flow-phase --name "Renamed Phase"');
+        const result = await execInProcess('phase update update-flow-phase --name "Renamed Phase"');
 
         expect(result).to.include('Updated phase');
         expect(result).to.include('Renamed Phase');
@@ -452,9 +452,9 @@ describe('Phase Commands JSON Mode', () => {
         createTestPhase(db, { id: 'delete-flow-phase', name: 'Delete Flow Phase', category: 'canceled', position: 0 });
       });
 
-      it('should complete flow: provide ID → confirm deletion → phase deleted', () => {
+      it('should complete flow: provide ID → confirm deletion → phase deleted', async () => {
         // Agent Step 1: Provide phase ID, get confirmation prompt
-        const step1 = agentExec('phase delete delete-flow-phase --machine');
+        const step1 = await agentExec('phase delete delete-flow-phase --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('confirmed');
         expect(step1.prompt.message).to.include('Delete Flow Phase');
@@ -465,7 +465,7 @@ describe('Phase Commands JSON Mode', () => {
         expect(yesChoice!.command).to.include('--force');
 
         // Agent Step 2: Confirm deletion
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         // Verify deletion succeeded
         expect(result).to.include('Deleted phase');
@@ -476,9 +476,9 @@ describe('Phase Commands JSON Mode', () => {
         expect(phase).to.be.undefined;
       });
 
-      it('should complete flow with --force flag (skip confirmation)', () => {
+      it('should complete flow with --force flag (skip confirmation)', async () => {
         // Agent uses --force to skip confirmation prompt
-        const result = exec('phase delete delete-flow-phase --force');
+        const result = await execInProcess('phase delete delete-flow-phase --force');
 
         expect(result).to.include('Deleted phase');
 
@@ -496,9 +496,9 @@ describe('Phase Commands JSON Mode', () => {
         createTestPhase(db, { id: 'move-flow-3', name: 'Move Flow Third', category: 'started', position: 2 });
       });
 
-      it('should complete flow: select phase → select position → phase moved', () => {
+      it('should complete flow: select phase → select position → phase moved', async () => {
         // Agent Step 1: No phase ID, get phase selection prompt
-        const step1 = agentExec('phase move --machine');
+        const step1 = await agentExec('phase move --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('phaseId');
 
@@ -507,7 +507,7 @@ describe('Phase Commands JSON Mode', () => {
         expect(phaseChoice).to.exist;
 
         // Agent Step 2: Select phase, get position choices
-        const step2 = agentExec(execChoice(phaseChoice!));
+        const step2 = await agentExec(execChoice(phaseChoice!));
         expect(step2.prompt.type).to.equal('list');
         expect(step2.prompt.name).to.equal('position');
         expect(step2.prompt.choices).to.be.an('array');
@@ -518,15 +518,15 @@ describe('Phase Commands JSON Mode', () => {
         expect(positionChoice).to.exist;
 
         // Agent Step 3: Execute the move
-        const result = execFinal(execChoice(positionChoice!));
+        const result = await execFinal(execChoice(positionChoice!));
 
         // Verify move succeeded
         expect(result.toLowerCase()).to.match(/moved|position/);
       });
 
-      it('should complete flow with phase ID provided directly', () => {
+      it('should complete flow with phase ID provided directly', async () => {
         // Agent Step 1: Phase ID provided, get position prompt directly
-        const step1 = agentExec('phase move move-flow-1 --machine');
+        const step1 = await agentExec('phase move move-flow-1 --machine');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('position');
 
@@ -535,13 +535,13 @@ describe('Phase Commands JSON Mode', () => {
         expect(positionChoice).to.exist;
 
         // Execute move
-        const result = execFinal(execChoice(positionChoice!));
+        const result = await execFinal(execChoice(positionChoice!));
         expect(result.toLowerCase()).to.match(/moved|position/);
       });
 
-      it('should complete flow with all flags provided directly', () => {
+      it('should complete flow with all flags provided directly', async () => {
         // Agent provides all flags - no prompts needed
-        const result = exec('phase move move-flow-1 --position 2');
+        const result = await execInProcess('phase move move-flow-1 --position 2');
 
         expect(result.toLowerCase()).to.match(/moved|position/);
       });
@@ -554,8 +554,8 @@ describe('Phase Commands JSON Mode', () => {
         createTestPhase(db, { id: 'list-flow-3', name: 'List Phase Three', category: 'completed', position: 0 });
       });
 
-      it('should return all phases as JSON array for agent processing', () => {
-        const output = exec('phase list --machine');
+      it('should return all phases as JSON array for agent processing', async () => {
+        const output = await execInProcess('phase list --machine');
         const phases = extractJson<Array<{ id: string; name: string; category: string; position: number }>>(output);
 
         expect(phases).to.be.an('array');
@@ -567,8 +567,8 @@ describe('Phase Commands JSON Mode', () => {
         expect(startedPhase!.category).to.equal('started');
       });
 
-      it('should filter phases by category for agent', () => {
-        const output = exec('phase list --category started --machine');
+      it('should filter phases by category for agent', async () => {
+        const output = await execInProcess('phase list --category started --machine');
         const phases = extractJson<Array<{ id: string; category: string }>>(output);
 
         // All returned phases should be in 'started' category
@@ -583,29 +583,28 @@ describe('Phase Commands JSON Mode', () => {
         createTestPhase(db, { id: 'json-compat-phase', name: 'JSON Compat Phase', category: 'unstarted', position: 0 });
       });
 
-      it('should complete create flow with --json flag (legacy)', () => {
+      it('should complete create flow with --json flag (legacy)', async () => {
         // Use --json instead of --machine
-        const step1 = agentExec('phase create "Legacy JSON Phase" --json');
+        const step1 = await agentExec('phase create "Legacy JSON Phase" --json');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('category');
 
         const categoryChoice = findChoice(step1.prompt.choices!, 'Started');
-        const result = execFinal(execChoice(categoryChoice!));
+        const result = await execFinal(execChoice(categoryChoice!));
 
         expect(result).to.include('Created phase');
       });
 
-      it('should complete delete flow with --json flag (legacy)', () => {
-        const step1 = agentExec('phase delete json-compat-phase --json');
+      it('should complete delete flow with --json flag (legacy)', async () => {
+        const step1 = await agentExec('phase delete json-compat-phase --json');
         expect(step1.prompt.type).to.equal('list');
         expect(step1.prompt.name).to.equal('confirmed');
 
         const yesChoice = step1.prompt.choices!.find(c => c.value === 'true');
-        const result = execFinal(execChoice(yesChoice!));
+        const result = await execFinal(execChoice(yesChoice!));
 
         expect(result).to.include('Deleted phase');
       });
     });
   });
 });
-
