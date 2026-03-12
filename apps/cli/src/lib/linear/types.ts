@@ -47,6 +47,7 @@ export interface LinearIssue {
     name: string
   }
   estimate?: number
+  dueDate?: string            // ISO date string (YYYY-MM-DD) from Linear
   url: string
   createdAt: string
   updatedAt: string

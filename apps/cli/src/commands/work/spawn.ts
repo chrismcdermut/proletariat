@@ -506,18 +506,20 @@ export default class WorkSpawn extends PMOCommand {
       }
 
       let importedCount = 0
+      let updatedCount = 0
       let skippedCount = 0
       const importErrors: string[] = []
 
       for (const issue of fetchedIssues) {
         try {
           // eslint-disable-next-line no-await-in-loop
-          const { ticketId, created } = await mapper.importIssue(issue, linearProjectId, this.storage, statuses)
+          const { ticketId, created, updated } = await mapper.importIssue(issue, linearProjectId, this.storage, statuses)
           pmoTicketIds.push(ticketId)
           if (created) importedCount++
+          else if (updated) updatedCount++
           else skippedCount++
           if (!jsonMode) {
-            const action = created ? 'Imported' : 'Already imported'
+            const action = created ? 'Imported' : updated ? 'Updated' : 'Already imported'
             this.log(styles.muted(`  ${action}: ${issue.identifier} \u2192 ${ticketId}`))
           }
         } catch (error) {
@@ -529,7 +531,7 @@ export default class WorkSpawn extends PMOCommand {
       }
 
       if (!jsonMode && fetchedIssues.length > 1) {
-        this.log(styles.muted(`  Summary: ${importedCount} imported, ${skippedCount} existing${importErrors.length > 0 ? `, ${importErrors.length} errors` : ''}`))
+        this.log(styles.muted(`  Summary: ${importedCount} imported, ${updatedCount} updated, ${skippedCount} unchanged${importErrors.length > 0 ? `, ${importErrors.length} errors` : ''}`))
       }
 
       if (pmoTicketIds.length === 0) {

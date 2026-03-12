@@ -195,7 +195,7 @@ export default class LinearImport extends PMOCommand {
       return
     }
 
-    // Check which are already imported
+    // Categorize issues by import status for display
     const newIssues: LinearIssue[] = []
     const alreadyImported: LinearIssue[] = []
 
@@ -208,36 +208,28 @@ export default class LinearImport extends PMOCommand {
       }
     }
 
-    if (newIssues.length === 0) {
-      if (jsonMode) {
-        outputSuccessAsJson({
-          imported: 0,
-          skipped: alreadyImported.length,
-          message: 'All matching issues are already imported.',
-        }, createMetadata('linear import', flags))
-        return
-      }
-      this.log(colors.textMuted(`All ${alreadyImported.length} matching issue(s) already imported.`))
-      return
-    }
-
     // Interactive selection (unless --all or explicit IDs)
-    let selectedIssues = newIssues
+    // All issues are eligible since importIssue is idempotent (creates or updates)
+    let selectedIssues = issues
     if (!flags.all && issueIdentifiers.length === 0 && !jsonMode) {
-      const issueChoices = newIssues.map((issue) => ({
-        name: `${issue.identifier}  ${issue.title}  [${issue.state.name}]  ${issue.priority > 0 ? `P${issue.priority - 1}` : ''}`,
-        value: issue.id,
-        checked: true,
-      }))
+      const issueChoices = issues.map((issue) => {
+        const isExisting = alreadyImported.includes(issue)
+        const tag = isExisting ? ' [update]' : ' [new]'
+        return {
+          name: `${issue.identifier}  ${issue.title}  [${issue.state.name}]  ${issue.priority > 0 ? `P${issue.priority - 1}` : ''}${tag}`,
+          value: issue.id,
+          checked: !isExisting,  // Pre-select new issues, not existing ones
+        }
+      })
 
       const { selectedIds } = await inquirer.prompt([{
         type: 'checkbox',
         name: 'selectedIds',
-        message: `Select issues to import (${newIssues.length} new, ${alreadyImported.length} already imported):`,
+        message: `Select issues to import/update (${newIssues.length} new, ${alreadyImported.length} existing):`,
         choices: issueChoices,
       }])
 
-      selectedIssues = newIssues.filter((i) => (selectedIds as string[]).includes(i.id))
+      selectedIssues = issues.filter((i) => (selectedIds as string[]).includes(i.id))
     }
 
     if (selectedIssues.length === 0) {
@@ -250,23 +242,29 @@ export default class LinearImport extends PMOCommand {
       if (jsonMode) {
         outputSuccessAsJson({
           dryRun: true,
-          wouldImport: selectedIssues.map((i) => ({
-            identifier: i.identifier,
-            title: i.title,
-            state: i.state.name,
-            priority: i.priority,
-          })),
+          wouldImport: selectedIssues.map((i) => {
+            const existing = mapper.getByLinearId(i.id)
+            return {
+              identifier: i.identifier,
+              title: i.title,
+              state: i.state.name,
+              priority: i.priority,
+              action: existing ? 'update' : 'create',
+            }
+          }),
         }, createMetadata('linear import', flags))
         return
       }
 
       this.log('')
-      this.log(colors.primary('Dry run - would import:'))
+      this.log(colors.primary('Dry run - would import/update:'))
       for (const issue of selectedIssues) {
-        this.log(`  ${colors.textSecondary(issue.identifier)}  ${issue.title}`)
+        const existing = mapper.getByLinearId(issue.id)
+        const action = existing ? 'update' : 'create'
+        this.log(`  ${colors.textSecondary(issue.identifier)}  ${issue.title}  (${action})`)
       }
       this.log('')
-      this.log(colors.textMuted(`${selectedIssues.length} issue(s) would be imported.`))
+      this.log(colors.textMuted(`${selectedIssues.length} issue(s) would be processed.`))
       return
     }
 
@@ -290,8 +288,11 @@ export default class LinearImport extends PMOCommand {
     if (result.imported > 0) {
       this.log(colors.success(`Imported ${result.imported} issue(s) into PMO`))
     }
+    if (result.updated > 0) {
+      this.log(colors.success(`Updated ${result.updated} issue(s) from Linear`))
+    }
     if (result.skipped > 0) {
-      this.log(colors.textMuted(`  Skipped ${result.skipped} (already imported)`))
+      this.log(colors.textMuted(`  Skipped ${result.skipped} (unchanged)`))
     }
     if (result.errors.length > 0) {
       this.log(colors.error(`  ${result.errors.length} error(s):`))

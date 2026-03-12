@@ -59,7 +59,10 @@ export class LinearMapper {
 
   /**
    * Convert a Linear issue to a PMO ticket creation input.
-   * Finds the matching workflow status in the project's workflow.
+   * Maps all available Linear fields into the PMO ticket schema:
+   *   - title, description, priority, labels, status
+   *   - assignee (when available)
+   *   - estimate and dueDate (persisted in metadata)
    */
   issueToTicketInput(
     issue: LinearIssue,
@@ -88,36 +91,71 @@ export class LinearMapper {
     // Map labels
     const labels = issue.labels.map((l) => l.name)
 
+    // Build metadata with all external references
+    const metadata: Record<string, string> = {
+      'linear.issue_id': issue.id,
+      'linear.identifier': issue.identifier,
+      'linear.url': issue.url,
+      'linear.team': issue.team.key,
+      'linear.state': issue.state.name,
+    }
+
+    // Persist estimate in metadata when available
+    if (issue.estimate !== undefined) {
+      metadata['linear.estimate'] = String(issue.estimate)
+    }
+
+    // Persist due date in metadata when available
+    if (issue.dueDate) {
+      metadata['linear.due_date'] = issue.dueDate
+    }
+
+    // Persist assignee info in metadata when available
+    if (issue.assignee) {
+      metadata['linear.assignee'] = issue.assignee.name
+      metadata['linear.assignee_email'] = issue.assignee.email
+    }
+
     return {
       title: issue.title,
       description: descriptionParts.join('\n'),
       priority: pmoPriority,
       statusId: targetStatus?.id,
+      assignee: issue.assignee?.name,
       labels,
-      metadata: {
-        'linear.issue_id': issue.id,
-        'linear.identifier': issue.identifier,
-        'linear.url': issue.url,
-        'linear.team': issue.team.key,
-        'linear.state': issue.state.name,
-      },
+      metadata,
     }
   }
 
   /**
    * Import a single Linear issue into PMO as a ticket.
-   * Returns the PMO ticket ID if created, null if already mapped.
+   * Idempotent by external issue ID: creates on first import, updates on subsequent imports.
+   * Returns the PMO ticket ID and whether the ticket was created or updated.
    */
   async importIssue(
     issue: LinearIssue,
     projectId: string,
     storage: PMOStorage,
     statuses: WorkflowStatus[],
-  ): Promise<{ ticketId: string; created: boolean }> {
-    // Check if already mapped
+  ): Promise<{ ticketId: string; created: boolean; updated: boolean }> {
+    // Check if already mapped (idempotent by Linear issue ID)
     const existing = this.getByLinearId(issue.id)
     if (existing) {
-      return { ticketId: existing.pmoTicketId, created: false }
+      // Update the existing PMO ticket with fresh Linear data
+      const ticketInput = this.issueToTicketInput(issue, statuses)
+      await storage.updateTicket(existing.pmoTicketId, {
+        title: ticketInput.title,
+        description: ticketInput.description,
+        priority: ticketInput.priority,
+        assignee: ticketInput.assignee,
+        labels: ticketInput.labels ?? [],
+        metadata: ticketInput.metadata ?? {},
+      })
+
+      // Update sync timestamp
+      this.updateSyncTimestamp(existing.pmoTicketId)
+
+      return { ticketId: existing.pmoTicketId, created: false, updated: true }
     }
 
     // Convert to ticket input
@@ -137,11 +175,12 @@ export class LinearMapper {
       createdAt: new Date(),
     })
 
-    return { ticketId: ticket.id, created: true }
+    return { ticketId: ticket.id, created: true, updated: false }
   }
 
   /**
    * Batch import multiple Linear issues into PMO.
+   * Creates new tickets for unmapped issues, updates existing mapped tickets.
    */
   async importIssues(
     issues: LinearIssue[],
@@ -159,9 +198,11 @@ export class LinearMapper {
     for (const issue of issues) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        const { created } = await this.importIssue(issue, projectId, storage, statuses)
+        const { created, updated } = await this.importIssue(issue, projectId, storage, statuses)
         if (created) {
           result.imported++
+        } else if (updated) {
+          result.updated++
         } else {
           result.skipped++
         }
