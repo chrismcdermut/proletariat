@@ -8,12 +8,12 @@ import {
   cleanupTestEnvironment,
   createHQConfig,
   createPMODirectories,
-  execProduction,
+  execInProcess,
   extractJson,
-  agentExec,
+  agentExecInProcess,
   findChoice,
   execChoice,
-  execFinal,
+  execFinalInProcess,
   type TestEnvironment,
 } from './test-helpers.js';
 
@@ -136,8 +136,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       createTestSpec('spec-3', 'Completed Feature', 'implemented', 'infra');
     });
 
-    it('should output valid JSON with --machine flag', () => {
-      const output = execProduction('spec list --machine');
+    it('should output valid JSON with --machine flag', async () => {
+      const output = await execInProcess('spec list --machine');
       const json = extractJson<{ success: boolean; result: { specs: Array<{ id: string }> } }>(output);
 
       expect(json).to.not.be.null;
@@ -146,24 +146,24 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(json!.result.specs.length).to.equal(3);
     });
 
-    it('should output valid JSON with --json flag (legacy)', () => {
-      const output = execProduction('spec list --json');
+    it('should output valid JSON with --json flag (legacy)', async () => {
+      const output = await execInProcess('spec list --json');
       const json = extractJson<{ success: boolean }>(output);
 
       expect(json).to.not.be.null;
       expect(json!.success).to.equal(true);
     });
 
-    it('should work with -m shorthand', () => {
-      const output = execProduction('spec list -m');
+    it('should work with -m shorthand', async () => {
+      const output = await execInProcess('spec list -m');
       const json = extractJson<{ success: boolean }>(output);
 
       expect(json).to.not.be.null;
       expect(json!.success).to.equal(true);
     });
 
-    it('should include spec details in output', () => {
-      const output = execProduction('spec list --machine');
+    it('should include spec details in output', async () => {
+      const output = await execInProcess('spec list --machine');
       const json = extractJson<{
         success: boolean;
         result: {
@@ -182,8 +182,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(spec1!.type).to.equal('product');
     });
 
-    it('should filter by status', () => {
-      const output = execProduction('spec list --status active --machine');
+    it('should filter by status', async () => {
+      const output = await execInProcess('spec list --status active --machine');
       const json = extractJson<{
         success: boolean;
         result: { specs: Array<{ status: string }>; count: number };
@@ -194,8 +194,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(json!.result.specs[0].status).to.equal('active');
     });
 
-    it('should filter by type', () => {
-      const output = execProduction('spec list --type product --machine');
+    it('should filter by type', async () => {
+      const output = await execInProcess('spec list --type product --machine');
       const json = extractJson<{
         success: boolean;
         result: { specs: Array<{ type: string }>; count: number };
@@ -211,8 +211,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
   // spec create --machine
   // ===========================================================================
   describe('prlt spec create --machine', () => {
-    it('should output title input prompt when no title provided', () => {
-      const result = agentExec('spec create --machine');
+    it('should output title input prompt when no title provided', async () => {
+      const result = await agentExecInProcess('spec create --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('input');
@@ -220,9 +220,9 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(result!.metadata.command).to.equal('spec create');
     });
 
-    it('should output type selection prompt in interactive mode with title', () => {
+    it('should output type selection prompt in interactive mode with title', async () => {
       // Use -i flag to get type selection prompt
-      const result = agentExec('spec create "Test Spec" -i --machine');
+      const result = await agentExecInProcess('spec create "Test Spec" -i --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -231,8 +231,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices!.length).to.be.greaterThan(0);
     });
 
-    it('should have choices with command fields for type selection', () => {
-      const result = agentExec('spec create "Test Spec" -i --machine');
+    it('should have choices with command fields for type selection', async () => {
+      const result = await agentExecInProcess('spec create "Test Spec" -i --machine');
 
       expect(result).to.not.be.null;
       for (const choice of result!.prompt.choices!) {
@@ -243,17 +243,17 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       }
     });
 
-    it('should work with -m shorthand', () => {
-      const result = agentExec('spec create -m');
+    it('should work with -m shorthand', async () => {
+      const result = await agentExecInProcess('spec create -m');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('input');
       expect(result!.metadata.command).to.equal('spec create');
     });
 
-    it('should create spec when title provided (without prompts)', () => {
+    it('should create spec when title provided (without prompts)', async () => {
       // When title is provided without -i, spec is created directly with defaults
-      const output = execProduction('spec create "Direct Spec"');
+      const output = await execInProcess('spec create "Direct Spec"');
 
       expect(output).to.include('Created spec');
       expect(output).to.include('Direct Spec');
@@ -265,8 +265,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(spec!.status).to.equal('draft');
     });
 
-    it('should create spec when all flags provided', () => {
-      const output = execProduction('spec create "Full Spec" --type product --status active');
+    it('should create spec when all flags provided', async () => {
+      const output = await execInProcess('spec create "Full Spec" --type product --status active');
 
       expect(output).to.include('Created spec');
       expect(output).to.include('Full Spec');
@@ -289,8 +289,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       createTestSpec('view-spec-2', 'Another Spec', 'draft');
     });
 
-    it('should output spec selection prompt when no spec ID provided', () => {
-      const result = agentExec('spec view -P test-project --machine');
+    it('should output spec selection prompt when no spec ID provided', async () => {
+      const result = await agentExecInProcess('spec view -P test-project --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -298,8 +298,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices).to.be.an('array');
     });
 
-    it('should have choices with command fields for spec selection', () => {
-      const result = agentExec('spec view -P test-project --machine');
+    it('should have choices with command fields for spec selection', async () => {
+      const result = await agentExecInProcess('spec view -P test-project --machine');
 
       expect(result).to.not.be.null;
       for (const choice of result!.prompt.choices!) {
@@ -310,8 +310,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       }
     });
 
-    it('should show spec details when spec ID provided', () => {
-      const output = execProduction('spec view view-spec-1 -P test-project');
+    it('should show spec details when spec ID provided', async () => {
+      const output = await execInProcess('spec view view-spec-1 -P test-project');
 
       expect(output).to.include('View Test Spec');
       expect(output).to.include('active');
@@ -328,8 +328,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       createTestSpec('plan-spec-2', 'Another Planning Spec', 'draft');
     });
 
-    it('should output spec selection prompt when no spec ID provided', () => {
-      const result = agentExec('spec plan --machine');
+    it('should output spec selection prompt when no spec ID provided', async () => {
+      const result = await agentExecInProcess('spec plan --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -337,8 +337,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices).to.be.an('array');
     });
 
-    it('should have choices with command fields', () => {
-      const result = agentExec('spec plan --machine');
+    it('should have choices with command fields', async () => {
+      const result = await agentExecInProcess('spec plan --machine');
 
       expect(result).to.not.be.null;
       const choice = findChoice(result!.prompt.choices!, 'Planning Spec');
@@ -346,8 +346,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(choice!.command).to.include('--json');
     });
 
-    it('should show spec content when spec ID provided', () => {
-      const output = execProduction('spec plan plan-spec-1');
+    it('should show spec content when spec ID provided', async () => {
+      const output = await execInProcess('spec plan plan-spec-1');
 
       expect(output).to.include('Planning Spec');
       expect(output).to.include('Planning from spec');
@@ -368,8 +368,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       createTestTicket('TKT-LINK-2', 'Another ticket');
     });
 
-    it('should output ticket selection prompt when no ticket ID provided', () => {
-      const result = agentExec('spec ticket -P test-project --machine');
+    it('should output ticket selection prompt when no ticket ID provided', async () => {
+      const result = await agentExecInProcess('spec ticket -P test-project --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -377,8 +377,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices).to.be.an('array');
     });
 
-    it('should have choices with command fields for ticket selection', () => {
-      const result = agentExec('spec ticket -P test-project --machine');
+    it('should have choices with command fields for ticket selection', async () => {
+      const result = await agentExecInProcess('spec ticket -P test-project --machine');
 
       expect(result).to.not.be.null;
       const choice = findChoice(result!.prompt.choices!, 'TKT-LINK-1');
@@ -386,16 +386,16 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(choice!.command).to.include('--json');
     });
 
-    it('should output spec selection prompt when ticket ID provided', () => {
-      const result = agentExec('spec ticket TKT-LINK-1 -P test-project --machine');
+    it('should output spec selection prompt when ticket ID provided', async () => {
+      const result = await agentExecInProcess('spec ticket TKT-LINK-1 -P test-project --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
       expect(result!.prompt.name).to.equal('spec');
     });
 
-    it('should link ticket to spec when all args provided', () => {
-      const output = execProduction('spec ticket TKT-LINK-1 ticket-spec-1 -P test-project');
+    it('should link ticket to spec when all args provided', async () => {
+      const output = await execInProcess('spec ticket TKT-LINK-1 ticket-spec-1 -P test-project');
 
       expect(output).to.include('Linked ticket');
       expect(output).to.include('TKT-LINK-1');
@@ -418,8 +418,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       createTestSpec('link-spec-3', 'Link Spec Three', 'draft');
     });
 
-    it('should output spec selection prompt when no spec ID provided', () => {
-      const result = agentExec('spec link --machine');
+    it('should output spec selection prompt when no spec ID provided', async () => {
+      const result = await agentExecInProcess('spec link --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -427,8 +427,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices).to.be.an('array');
     });
 
-    it('should have choices for all specs', () => {
-      const result = agentExec('spec link --machine');
+    it('should have choices for all specs', async () => {
+      const result = await agentExecInProcess('spec link --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.choices!.length).to.equal(3);
@@ -448,8 +448,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       createTestSpec('depends-spec-3', 'Depends Spec Three', 'draft');
     });
 
-    it('should output target spec selection prompt when target not provided', () => {
-      const result = agentExec('spec link depends depends-spec-1 --machine');
+    it('should output target spec selection prompt when target not provided', async () => {
+      const result = await agentExecInProcess('spec link depends depends-spec-1 --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -457,8 +457,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices).to.be.an('array');
     });
 
-    it('should exclude source spec from target choices', () => {
-      const result = agentExec('spec link depends depends-spec-1 --machine');
+    it('should exclude source spec from target choices', async () => {
+      const result = await agentExecInProcess('spec link depends depends-spec-1 --machine');
 
       expect(result).to.not.be.null;
       // Should only have 2 choices (spec-2 and spec-3, not spec-1)
@@ -468,8 +468,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(selfChoice).to.be.undefined;
     });
 
-    it('should have choices with command fields', () => {
-      const result = agentExec('spec link depends depends-spec-1 --machine');
+    it('should have choices with command fields', async () => {
+      const result = await agentExecInProcess('spec link depends depends-spec-1 --machine');
 
       expect(result).to.not.be.null;
       for (const choice of result!.prompt.choices!) {
@@ -478,8 +478,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       }
     });
 
-    it('should create dependency when all args provided', () => {
-      const output = execProduction('spec link depends depends-spec-1 depends-spec-2');
+    it('should create dependency when all args provided', async () => {
+      const output = await execInProcess('spec link depends depends-spec-1 depends-spec-2');
 
       expect(output).to.include('depends on');
       expect(output).to.include('depends-spec-1');
@@ -503,8 +503,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       createSpecDependency('remove-spec-1', 'remove-spec-2', 'depends_on');
     });
 
-    it('should output dependency selection prompt when target not provided', () => {
-      const result = agentExec('spec link remove remove-spec-1 --machine');
+    it('should output dependency selection prompt when target not provided', async () => {
+      const result = await agentExecInProcess('spec link remove remove-spec-1 --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -512,8 +512,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices).to.be.an('array');
     });
 
-    it('should have choices with command fields', () => {
-      const result = agentExec('spec link remove remove-spec-1 --machine');
+    it('should have choices with command fields', async () => {
+      const result = await agentExecInProcess('spec link remove remove-spec-1 --machine');
 
       expect(result).to.not.be.null;
       for (const choice of result!.prompt.choices!) {
@@ -522,12 +522,12 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       }
     });
 
-    it('should remove dependency when all args provided', () => {
+    it('should remove dependency when all args provided', async () => {
       // Verify dependency exists before
       let deps = getSpecDependencies('remove-spec-1');
       expect(deps.length).to.equal(1);
 
-      const output = execProduction('spec link remove remove-spec-1 remove-spec-2');
+      const output = await execInProcess('spec link remove remove-spec-1 remove-spec-2');
 
       expect(output).to.include('Removed dependency');
 
@@ -536,10 +536,10 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
       expect(deps.length).to.equal(0);
     });
 
-    it('should return error when no dependencies exist', () => {
+    it('should return error when no dependencies exist', async () => {
       createTestSpec('no-deps-spec', 'No Deps Spec', 'active');
 
-      const result = agentExec('spec link remove no-deps-spec --machine');
+      const result = await agentExecInProcess('spec link remove no-deps-spec --machine');
 
       // Should return error JSON (no dependencies to remove)
       if (result === null) {
@@ -557,15 +557,15 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
   // ===========================================================================
   describe('End-to-end agent flows (--machine flag)', () => {
     describe('spec create - full agent flow', () => {
-      it('should complete flow: enter title → select type → spec created (interactive mode)', () => {
+      it('should complete flow: enter title → select type → spec created (interactive mode)', async () => {
         // Step 1: No title provided, get input prompt
-        const step1 = agentExec('spec create --machine');
+        const step1 = await agentExecInProcess('spec create --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('input');
         expect(step1!.prompt.name).to.equal('title');
 
         // Step 2: Provide title with -i flag, get type selection
-        const step2 = agentExec('spec create "Agent Created Spec" -i --machine');
+        const step2 = await agentExecInProcess('spec create "Agent Created Spec" -i --machine');
         expect(step2).to.not.be.null;
         expect(step2!.prompt.type).to.equal('list');
         expect(step2!.prompt.name).to.equal('type');
@@ -575,7 +575,7 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(typeChoice).to.exist;
 
         // Step 3: Execute with type selected
-        const result = execFinal(execChoice(typeChoice!));
+        const result = await execFinalInProcess(execChoice(typeChoice!));
 
         expect(result).to.include('Created spec');
         expect(result).to.include('Agent Created Spec');
@@ -587,9 +587,9 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(spec!.type).to.equal('product');
       });
 
-      it('should complete flow with title provided directly (no prompts)', () => {
+      it('should complete flow with title provided directly (no prompts)', async () => {
         // Without -i flag, spec is created directly with defaults
-        const result = execProduction('spec create "Direct Created Spec"');
+        const result = await execInProcess('spec create "Direct Created Spec"');
 
         expect(result).to.include('Created spec');
         expect(result).to.include('Direct Created Spec');
@@ -600,8 +600,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(spec!.status).to.equal('draft');
       });
 
-      it('should complete flow with all flags provided directly', () => {
-        const result = execProduction('spec create "Full Flags Spec" --type platform --status active');
+      it('should complete flow with all flags provided directly', async () => {
+        const result = await execInProcess('spec create "Full Flags Spec" --type platform --status active');
 
         expect(result).to.include('Created spec');
         expect(result).to.include('Full Flags Spec');
@@ -619,9 +619,9 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         createTestSpec('view-flow-spec', 'View Flow Spec', 'active', 'product', 'Test problem');
       });
 
-      it('should complete flow: select spec → view details', () => {
+      it('should complete flow: select spec → view details', async () => {
         // Step 1: No spec ID, get spec selection prompt
-        const step1 = agentExec('spec view -P test-project --machine');
+        const step1 = await agentExecInProcess('spec view -P test-project --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('spec');
@@ -631,14 +631,14 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(specChoice).to.exist;
 
         // Step 2: Execute with spec selected
-        const result = execFinal(execChoice(specChoice!));
+        const result = await execFinalInProcess(execChoice(specChoice!));
 
         expect(result).to.include('View Flow Spec');
         expect(result).to.include('Test problem');
       });
 
-      it('should complete flow with spec ID provided directly', () => {
-        const result = execProduction('spec view view-flow-spec -P test-project');
+      it('should complete flow with spec ID provided directly', async () => {
+        const result = await execInProcess('spec view view-flow-spec -P test-project');
 
         expect(result).to.include('View Flow Spec');
         expect(result).to.include('active');
@@ -653,9 +653,9 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         createTestTicket('TKT-FLOW-1', 'Ticket Flow Test');
       });
 
-      it('should complete flow: select ticket → select spec → ticket linked', () => {
+      it('should complete flow: select ticket → select spec → ticket linked', async () => {
         // Step 1: No ticket ID, get ticket selection prompt
-        const step1 = agentExec('spec ticket -P test-project --machine');
+        const step1 = await agentExecInProcess('spec ticket -P test-project --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('ticket');
@@ -665,7 +665,7 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(ticketChoice).to.exist;
 
         // Step 2: Execute with ticket selected, get spec selection prompt
-        const step2 = agentExec(execChoice(ticketChoice!));
+        const step2 = await agentExecInProcess(execChoice(ticketChoice!));
         expect(step2).to.not.be.null;
         expect(step2!.prompt.type).to.equal('list');
         expect(step2!.prompt.name).to.equal('spec');
@@ -675,7 +675,7 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(specChoice).to.exist;
 
         // Step 3: Execute with spec selected
-        const result = execFinal(execChoice(specChoice!));
+        const result = await execFinalInProcess(execChoice(specChoice!));
 
         expect(result).to.include('Linked ticket');
 
@@ -685,8 +685,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(ticket!.spec_id).to.equal('ticket-flow-spec');
       });
 
-      it('should complete flow with all args provided directly', () => {
-        const result = execProduction('spec ticket TKT-FLOW-1 ticket-flow-spec -P test-project');
+      it('should complete flow with all args provided directly', async () => {
+        const result = await execInProcess('spec ticket TKT-FLOW-1 ticket-flow-spec -P test-project');
 
         expect(result).to.include('Linked ticket');
 
@@ -703,9 +703,9 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         createTestSpec('dep-flow-2', 'Dependency Flow Two', 'active');
       });
 
-      it('should complete flow: select target → dependency created', () => {
+      it('should complete flow: select target → dependency created', async () => {
         // Step 1: Spec ID provided, get target spec selection
-        const step1 = agentExec('spec link depends dep-flow-1 --machine');
+        const step1 = await agentExecInProcess('spec link depends dep-flow-1 --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('target');
@@ -715,7 +715,7 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(targetChoice).to.exist;
 
         // Step 2: Execute with target selected
-        const result = execFinal(execChoice(targetChoice!));
+        const result = await execFinalInProcess(execChoice(targetChoice!));
 
         expect(result).to.include('depends on');
 
@@ -725,8 +725,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(deps[0].depends_on_spec_id).to.equal('dep-flow-2');
       });
 
-      it('should complete flow with all args provided directly', () => {
-        const result = execProduction('spec link depends dep-flow-1 dep-flow-2');
+      it('should complete flow with all args provided directly', async () => {
+        const result = await execInProcess('spec link depends dep-flow-1 dep-flow-2');
 
         expect(result).to.include('depends on');
 
@@ -744,13 +744,13 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         createSpecDependency('rem-flow-1', 'rem-flow-2', 'depends_on');
       });
 
-      it('should complete flow: select dependency → dependency removed', () => {
+      it('should complete flow: select dependency → dependency removed', async () => {
         // Verify dependency exists before
         let deps = getSpecDependencies('rem-flow-1');
         expect(deps.length).to.equal(1);
 
         // Step 1: Spec ID provided, get dependency selection
-        const step1 = agentExec('spec link remove rem-flow-1 --machine');
+        const step1 = await agentExecInProcess('spec link remove rem-flow-1 --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('target');
@@ -760,7 +760,7 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(depChoice).to.exist;
 
         // Step 2: Execute removal
-        const result = execFinal(execChoice(depChoice!));
+        const result = await execFinalInProcess(execChoice(depChoice!));
 
         expect(result).to.include('Removed dependency');
 
@@ -769,12 +769,12 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(deps.length).to.equal(0);
       });
 
-      it('should complete flow with all args provided directly', () => {
+      it('should complete flow with all args provided directly', async () => {
         // Verify dependency exists before
         let deps = getSpecDependencies('rem-flow-1');
         expect(deps.length).to.equal(1);
 
-        const result = execProduction('spec link remove rem-flow-1 rem-flow-2');
+        const result = await execInProcess('spec link remove rem-flow-1 rem-flow-2');
 
         expect(result).to.include('Removed dependency');
 
@@ -791,8 +791,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         createTestSpec('list-flow-3', 'List Flow Three', 'implemented', 'infra');
       });
 
-      it('should return all specs as JSON for agent processing', () => {
-        const output = execProduction('spec list --machine');
+      it('should return all specs as JSON for agent processing', async () => {
+        const output = await execInProcess('spec list --machine');
         const json = extractJson<{
           success: boolean;
           result: { specs: Array<{ id: string; title: string; status: string; type: string }> };
@@ -810,8 +810,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(activeSpec!.type).to.equal('platform');
       });
 
-      it('should filter specs by status for agent', () => {
-        const output = execProduction('spec list --status active --machine');
+      it('should filter specs by status for agent', async () => {
+        const output = await execInProcess('spec list --status active --machine');
         const json = extractJson<{
           success: boolean;
           result: { specs: Array<{ status: string }>; count: number };
@@ -824,8 +824,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         }
       });
 
-      it('should filter specs by type for agent', () => {
-        const output = execProduction('spec list --type product --machine');
+      it('should filter specs by type for agent', async () => {
+        const output = await execInProcess('spec list --type product --machine');
         const json = extractJson<{
           success: boolean;
           result: { specs: Array<{ type: string }>; count: number };
@@ -844,22 +844,22 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         createTestSpec('json-compat-spec', 'JSON Compat Spec', 'draft');
       });
 
-      it('should complete create flow with --json flag (legacy) in interactive mode', () => {
+      it('should complete create flow with --json flag (legacy) in interactive mode', async () => {
         // Use -i flag to get type selection prompt
-        const step1 = agentExec('spec create "Legacy JSON Spec" -i --json');
+        const step1 = await agentExecInProcess('spec create "Legacy JSON Spec" -i --json');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('type');
 
         const typeChoice = findChoice(step1!.prompt.choices!, 'Product');
-        const result = execFinal(execChoice(typeChoice!));
+        const result = await execFinalInProcess(execChoice(typeChoice!));
 
         expect(result).to.include('Created spec');
       });
 
-      it('should create spec with title and --json flag (direct creation)', () => {
+      it('should create spec with title and --json flag (direct creation)', async () => {
         // Without -i, spec is created directly
-        const output = execProduction('spec create "Direct JSON Spec" --json');
+        const output = await execInProcess('spec create "Direct JSON Spec" --json');
 
         expect(output).to.include('Created spec');
         expect(output).to.include('Direct JSON Spec');
@@ -869,8 +869,8 @@ describe('Spec Commands - JSON Mode E2E Tests', () => {
         expect(spec).to.exist;
       });
 
-      it('should list specs with --json flag (legacy)', () => {
-        const output = execProduction('spec list --json');
+      it('should list specs with --json flag (legacy)', async () => {
+        const output = await execInProcess('spec list --json');
         const json = extractJson<{ success: boolean }>(output);
 
         expect(json).to.not.be.null;

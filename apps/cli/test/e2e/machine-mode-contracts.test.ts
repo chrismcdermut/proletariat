@@ -10,7 +10,7 @@ import {
   addWorkspaceTables,
   createTestProject,
   createTestTicket,
-  exec,
+  execInProcess,
   extractJson as extractJsonOrNull,
   type TestEnvironment,
 } from './test-helpers.js';
@@ -87,16 +87,16 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       });
     });
 
-    it('ticket index --json should output a valid prompt envelope', () => {
-      const output = exec('ticket -P test-project --json');
+    it('ticket index --json should output a valid prompt envelope', async () => {
+      const output = await execInProcess('ticket -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
     });
 
-    it('ticket list --format json should output parseable JSON array', () => {
-      const output = exec('ticket list -P test-project --format json');
+    it('ticket list --format json should output parseable JSON array', async () => {
+      const output = await execInProcess('ticket list -P test-project --format json');
       // ticket list with --format json outputs raw array, not envelope
       const json = extractJson<unknown[]>(output);
       expect(json).to.be.an('array');
@@ -107,16 +107,16 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       expect(ticket).to.have.property('title');
     });
 
-    it('ticket create --json should output a prompt envelope for missing fields', () => {
-      const output = exec('ticket create -P test-project --json');
+    it('ticket create --json should output a prompt envelope for missing fields', async () => {
+      const output = await execInProcess('ticket create -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
     });
 
-    it('ticket move --json should output a prompt for ticket selection', () => {
-      const output = exec('ticket move -P test-project --json');
+    it('ticket move --json should output a prompt for ticket selection', async () => {
+      const output = await execInProcess('ticket move -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
@@ -131,24 +131,24 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       }
     });
 
-    it('ticket move with ticket ID --json should output column selection prompt', () => {
-      const output = exec('ticket move TKT-100 -P test-project --json');
+    it('ticket move with ticket ID --json should output column selection prompt', async () => {
+      const output = await execInProcess('ticket move TKT-100 -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
     });
 
-    it('ticket bulk --json should output a prompt menu', () => {
-      const output = exec('ticket bulk -P test-project --json');
+    it('ticket bulk --json should output a prompt menu', async () => {
+      const output = await execInProcess('ticket bulk -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
     });
 
-    it('ticket resolve --json with no clarification tickets should output error', () => {
-      const output = exec('ticket resolve -P test-project --json');
+    it('ticket resolve --json with no clarification tickets should output error', async () => {
+      const output = await execInProcess('ticket resolve -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
@@ -169,23 +169,23 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       });
     });
 
-    it('work index --json should output a valid prompt envelope', () => {
-      const output = exec('work -P test-project --json');
+    it('work index --json should output a valid prompt envelope', async () => {
+      const output = await execInProcess('work -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
     });
 
-    it('work start --json should output a prompt for action selection', () => {
-      const output = exec('work start -P test-project --json');
+    it('work start --json should output a prompt for action selection', async () => {
+      const output = await execInProcess('work start -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
     });
 
-    it('work spawn --json should output a prompt envelope', () => {
-      const output = exec('work spawn -P test-project --json');
+    it('work spawn --json should output a prompt envelope', async () => {
+      const output = await execInProcess('work spawn -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
@@ -196,32 +196,32 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
   // Project Family
   // =========================================================================
   describe('project family', () => {
-    it('project index --json should output a valid prompt envelope', () => {
-      const output = exec('project -P test-project --json');
+    it('project index --json should output a valid prompt envelope', async () => {
+      const output = await execInProcess('project -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
     });
 
-    it('project list --json should output project data', () => {
-      const output = exec('project list --json');
+    it('project list --json should output project data', async () => {
+      const output = await execInProcess('project list --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('success');
     });
 
-    it('project view --json should output project details', () => {
-      const output = exec('project view test-project --json');
+    it('project view --json should output project details', async () => {
+      const output = await execInProcess('project view test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('success');
     });
 
-    it('project create --json should output a form prompt', () => {
-      const output = exec('project create --json');
+    it('project create --json should output a form prompt', async () => {
+      const output = await execInProcess('project create --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
@@ -233,16 +233,16 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
   // Agent Family
   // =========================================================================
   describe('agent family', () => {
-    it('agent index --json should output a valid prompt envelope', () => {
-      const output = exec('agent -P test-project --json');
+    it('agent index --json should output a valid prompt envelope', async () => {
+      const output = await execInProcess('agent -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
     });
 
-    it('agent list --json should output parseable JSON data', () => {
-      const output = exec('agent list -P test-project --json');
+    it('agent list --json should output parseable JSON data', async () => {
+      const output = await execInProcess('agent list -P test-project --json');
       // agent list outputs raw object with staff/temp/all arrays, not envelope
       const json = extractJson<Record<string, unknown>>(output);
       expect(json).to.be.an('object');
@@ -256,16 +256,16 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
   // Execution Family
   // =========================================================================
   describe('execution family', () => {
-    it('execution index --json should output a valid prompt envelope', () => {
-      const output = exec('execution -P test-project --json');
+    it('execution index --json should output a valid prompt envelope', async () => {
+      const output = await execInProcess('execution -P test-project --json');
       const json = extractJson<Record<string, unknown>>(output);
       const errors = validateJsonEnvelope(json);
       expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
       expect(json.type).to.equal('prompt');
     });
 
-    it('execution list --json should output parseable JSON data', () => {
-      const output = exec('execution list -P test-project --json');
+    it('execution list --json should output parseable JSON data', async () => {
+      const output = await execInProcess('execution list -P test-project --json');
       // execution list outputs raw array, not envelope
       const json = extractJson<unknown>(output);
       // Should be a valid JSON structure (array or object)
@@ -288,7 +288,7 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       });
     });
 
-    it('all prompt envelopes should have metadata with command and flags', () => {
+    it('all prompt envelopes should have metadata with command and flags', async () => {
       // Test multiple commands that output prompt envelopes
       const promptCommands = [
         'ticket -P test-project --json',
@@ -299,7 +299,7 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       ];
 
       for (const cmd of promptCommands) {
-        const output = exec(cmd);
+        const output = await execInProcess(cmd);
         const json = extractJson<{ metadata?: { command?: string; flags?: unknown } }>(output);
         expect(json.metadata, `${cmd}: should have metadata`).to.exist;
         expect(json.metadata!.command, `${cmd}: metadata.command should be a string`).to.be.a('string');
@@ -307,7 +307,7 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       }
     });
 
-    it('prompt envelopes should have non-null prompt field', () => {
+    it('prompt envelopes should have non-null prompt field', async () => {
       const promptCommands = [
         'ticket -P test-project --json',
         'ticket create -P test-project --json',
@@ -315,15 +315,15 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       ];
 
       for (const cmd of promptCommands) {
-        const output = exec(cmd);
+        const output = await execInProcess(cmd);
         const json = extractJson<{ type: string; prompt: unknown }>(output);
         expect(json.type, `${cmd}: type should be 'prompt'`).to.equal('prompt');
         expect(json.prompt, `${cmd}: prompt should not be null`).to.not.be.null;
       }
     });
 
-    it('error envelopes should have code and message', () => {
-      const output = exec('ticket resolve -P test-project --json');
+    it('error envelopes should have code and message', async () => {
+      const output = await execInProcess('ticket resolve -P test-project --json');
       const json = extractJson<{ type: string; error: { code: string; message: string } }>(output);
       expect(json.type).to.equal('error');
       expect(json.error.code).to.be.a('string').and.not.empty;

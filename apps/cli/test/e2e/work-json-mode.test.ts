@@ -7,7 +7,7 @@ import {
   createHQConfig,
   createPMODirectories,
   addWorkspaceTables,
-  exec,
+  execInProcess,
   extractJson as extractJsonOrNull,
   type TestEnvironment,
 } from './test-helpers.js';
@@ -366,8 +366,8 @@ describe('Work Commands JSON Mode', () => {
   // ===========================================================================
 
   describe('work --json (menu)', () => {
-    it('should output valid JSON with prompt schema', () => {
-      const output = exec('work -P test-project --json');
+    it('should output valid JSON with prompt schema', async () => {
+      const output = await execInProcess('work -P test-project --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: unknown[] };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -380,8 +380,8 @@ describe('Work Commands JSON Mode', () => {
       expect(json.metadata.command).to.equal('work');
     });
 
-    it('should include project flag in choice commands', () => {
-      const output = exec('work -P test-project --json');
+    it('should include project flag in choice commands', async () => {
+      const output = await execInProcess('work -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command: string }> };
       }>(output);
@@ -394,8 +394,8 @@ describe('Work Commands JSON Mode', () => {
       }
     });
 
-    it('should include start, spawn, watch, ready, and complete menu options', () => {
-      const output = exec('work -P test-project --json');
+    it('should include start, spawn, watch, ready, and complete menu options', async () => {
+      const output = await execInProcess('work -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; command: string }> };
       }>(output);
@@ -420,8 +420,8 @@ describe('Work Commands JSON Mode', () => {
       createTestExecution('exec-001', 'TKT-001', 'agent-1', 'running');
     });
 
-    it('should output prompt JSON when no ticket ID provided', () => {
-      const output = exec('work ready -P test-project --json');
+    it('should output prompt JSON when no ticket ID provided', async () => {
+      const output = await execInProcess('work ready -P test-project --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string; command?: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -434,8 +434,8 @@ describe('Work Commands JSON Mode', () => {
       expect(json.metadata.command).to.equal('work ready');
     });
 
-    it('should include --json flag in ticket selection commands', () => {
-      const output = exec('work ready -P test-project --json');
+    it('should include --json flag in ticket selection commands', async () => {
+      const output = await execInProcess('work ready -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ command: string }> };
       }>(output);
@@ -448,11 +448,11 @@ describe('Work Commands JSON Mode', () => {
       }
     });
 
-    it('should only show in-progress tickets', () => {
+    it('should only show in-progress tickets', async () => {
       // Add a backlog ticket (should not appear)
       createTestTicket('TKT-003', 'Backlog ticket', 'status-backlog');
 
-      const output = exec('work ready -P test-project --json');
+      const output = await execInProcess('work ready -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; value: string }> };
       }>(output);
@@ -463,9 +463,9 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceValues).to.not.include('TKT-003');
     });
 
-    it('should move ticket to Review when all flags provided', () => {
+    it('should move ticket to Review when all flags provided', async () => {
       // Execute without prompts
-      const output = exec('work ready TKT-001 -P test-project');
+      const output = await execInProcess('work ready TKT-001 -P test-project');
 
       expect(output.toLowerCase()).to.include('work ready');
       expect(output).to.include('TKT-001');
@@ -522,8 +522,8 @@ describe('Work Commands JSON Mode', () => {
       db.prepare("INSERT OR IGNORE INTO pmo_settings (key, value) VALUES ('coder.name', 'test-coder')").run();
     });
 
-    it('should output ticket selection prompt when no ticket ID provided', () => {
-      const output = exec('work start -P test-project --json');
+    it('should output ticket selection prompt when no ticket ID provided', async () => {
+      const output = await execInProcess('work start -P test-project --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -541,8 +541,8 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceValues).to.include('TKT-032');
     });
 
-    it('should include ticket info in choice names', () => {
-      const output = exec('work start -P test-project --json');
+    it('should include ticket info in choice names', async () => {
+      const output = await execInProcess('work start -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; value: string }> };
       }>(output);
@@ -553,10 +553,10 @@ describe('Work Commands JSON Mode', () => {
       }
     });
 
-    it('should output action selection prompt when ticket ID provided', () => {
+    it('should output action selection prompt when ticket ID provided', async () => {
       // When ticket ID is provided and no staff agents exist, the command
       // auto-creates an ephemeral agent and prompts for action selection
-      const output = exec('work start TKT-030 -P test-project --json');
+      const output = await execInProcess('work start TKT-030 -P test-project --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -572,8 +572,8 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceValues).to.include('implement');
     });
 
-    it('should include action choices in prompt', () => {
-      const output = exec('work start TKT-030 -P test-project --json');
+    it('should include action choices in prompt', async () => {
+      const output = await execInProcess('work start TKT-030 -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; value: string }> };
       }>(output);
@@ -585,8 +585,8 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceValues).to.include('__adhoc__');
     });
 
-    it('should include --json flag in ticket selection commands', () => {
-      const output = exec('work start -P test-project --json');
+    it('should include --json flag in ticket selection commands', async () => {
+      const output = await execInProcess('work start -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string }> };
       }>(output);
@@ -599,8 +599,8 @@ describe('Work Commands JSON Mode', () => {
       }
     });
 
-    it('should output error when ticket not found', () => {
-      const output = exec('work start NONEXISTENT -P test-project --json');
+    it('should output error when ticket not found', async () => {
+      const output = await execInProcess('work start NONEXISTENT -P test-project --json');
       const json = extractJson<{
         error: { code: string; message: string };
         metadata: { command: string };
@@ -624,8 +624,8 @@ describe('Work Commands JSON Mode', () => {
         `).run();
       });
 
-      it('should output blocked confirmation prompt when ticket has unresolved blockers', () => {
-        const output = exec('work start TKT-BLOCKED -P test-project --json');
+      it('should output blocked confirmation prompt when ticket has unresolved blockers', async () => {
+        const output = await execInProcess('work start TKT-BLOCKED -P test-project --json');
         const json = extractJson<{
           prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
           metadata: { command: string };
@@ -643,14 +643,14 @@ describe('Work Commands JSON Mode', () => {
         expect(choiceValues).to.include('no');
       });
 
-      it('should skip blocked prompt when blocker is done', () => {
+      it('should skip blocked prompt when blocker is done', async () => {
         // Mark blocker as done
         db.prepare(`
           UPDATE pmo_tickets SET status = 'Done', status_id = 'status-done'
           WHERE id = 'TKT-BLOCKER'
         `).run();
 
-        const output = exec('work start TKT-BLOCKED -P test-project --json');
+        const output = await execInProcess('work start TKT-BLOCKED -P test-project --json');
         const json = extractJson<{
           prompt: { type: string; name: string };
         }>(output);
@@ -660,8 +660,8 @@ describe('Work Commands JSON Mode', () => {
         expect(json.prompt.name).to.equal('selectedActionId');
       });
 
-      it('should skip blocked prompt with --force flag', () => {
-        const output = exec('work start TKT-BLOCKED -P test-project --force --json');
+      it('should skip blocked prompt with --force flag', async () => {
+        const output = await execInProcess('work start TKT-BLOCKED -P test-project --force --json');
         const json = extractJson<{
           prompt: { type: string; name: string };
         }>(output);
@@ -685,8 +685,8 @@ describe('Work Commands JSON Mode', () => {
       createTestExecution('exec-010', 'TKT-010', 'agent-1', 'running');
     });
 
-    it('should output prompt JSON when no ticket ID provided', () => {
-      const output = exec('work complete -P test-project --json');
+    it('should output prompt JSON when no ticket ID provided', async () => {
+      const output = await execInProcess('work complete -P test-project --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -698,8 +698,8 @@ describe('Work Commands JSON Mode', () => {
       expect(json.metadata.command).to.equal('work complete');
     });
 
-    it('should include --json flag in ticket selection commands', () => {
-      const output = exec('work complete -P test-project --json');
+    it('should include --json flag in ticket selection commands', async () => {
+      const output = await execInProcess('work complete -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ command?: string }> };
       }>(output);
@@ -712,10 +712,10 @@ describe('Work Commands JSON Mode', () => {
       }
     });
 
-    it('should only show in-progress tickets', () => {
+    it('should only show in-progress tickets', async () => {
       createTestTicket('TKT-012', 'Backlog ticket', 'status-backlog');
 
-      const output = exec('work complete -P test-project --json');
+      const output = await execInProcess('work complete -P test-project --json');
       const json = extractJson<{
         prompt: { choices: Array<{ name: string; value: string }> };
       }>(output);
@@ -726,8 +726,8 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceValues).to.not.include('TKT-012');
     });
 
-    it('should move ticket to Done when ticket ID provided', () => {
-      const output = exec('work complete TKT-010 -P test-project');
+    it('should move ticket to Done when ticket ID provided', async () => {
+      const output = await execInProcess('work complete TKT-010 -P test-project');
 
       expect(output.toLowerCase()).to.include('work complete');
       expect(output).to.include('TKT-010');
@@ -752,8 +752,8 @@ describe('Work Commands JSON Mode', () => {
       createTestTicket('TKT-022', 'In progress ticket', 'status-in-progress');
     });
 
-    it('should output mode selection prompt when no flags provided', () => {
-      const output = exec('work spawn -P test-project --json');
+    it('should output mode selection prompt when no flags provided', async () => {
+      const output = await execInProcess('work spawn -P test-project --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -770,8 +770,8 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceNames.some(n => n.includes('many'))).to.be.true;
     });
 
-    it('should output column selection prompt with --all flag', () => {
-      const output = exec('work spawn -P test-project --all --json');
+    it('should output column selection prompt with --all flag', async () => {
+      const output = await execInProcess('work spawn -P test-project --all --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -786,8 +786,8 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceNames.some(n => n.includes('backlog'))).to.be.true;
     });
 
-    it('should output ticket selection prompt with --many flag', () => {
-      const output = exec('work spawn -P test-project --many --json');
+    it('should output ticket selection prompt with --many flag', async () => {
+      const output = await execInProcess('work spawn -P test-project --many --json');
       const json = extractJson<{
         prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
         metadata: { command: string; flags: Record<string, unknown> };
@@ -803,8 +803,8 @@ describe('Work Commands JSON Mode', () => {
       expect(choiceValues).to.include('TKT-021');
     });
 
-    it('should output success JSON when ticket IDs provided directly', () => {
-      const output = exec('work spawn TKT-020 TKT-021 -P test-project --json');
+    it('should output success JSON when ticket IDs provided directly', async () => {
+      const output = await execInProcess('work spawn TKT-020 TKT-021 -P test-project --json');
       const json = extractJson<{
         success: boolean;
         result: { ticketsSelected: Array<{ id: string }>; count: number };
@@ -816,8 +816,8 @@ describe('Work Commands JSON Mode', () => {
       expect(json.result.ticketsSelected.map(t => t.id)).to.include('TKT-021');
     });
 
-    it('should include --executor codex in spawn confirmation command (smoke)', () => {
-      const output = exec('work spawn TKT-020 -P test-project --action implement --display terminal --skip-permissions --executor codex --json');
+    it('should include --executor codex in spawn confirmation command (smoke)', async () => {
+      const output = await execInProcess('work spawn TKT-020 -P test-project --action implement --display terminal --skip-permissions --executor codex --json');
       const json = extractJson<{
         type: string;
         confirm_command: string;
@@ -855,8 +855,8 @@ describe('Work Commands JSON Mode', () => {
       data: unknown;
     }
 
-    function agentExec(cmd: string): AgentPrompt | AgentSuccess {
-      const output = exec(cmd);
+    async function agentExec(cmd: string): Promise<AgentPrompt | AgentSuccess> {
+      const output = await execInProcess(cmd);
       return extractJson<AgentPrompt | AgentSuccess>(output);
     }
 
@@ -887,8 +887,8 @@ describe('Work Commands JSON Mode', () => {
     /**
      * Helper to execute final command (strips --json flag).
      */
-    function execFinal(cmd: string): string {
-      return exec(cmd.replace(' --json', ''));
+    async function execFinal(cmd: string): Promise<string> {
+      return execInProcess(cmd.replace(' --json', ''));
     }
 
     describe('work menu - full agent flow', () => {
@@ -897,9 +897,9 @@ describe('Work Commands JSON Mode', () => {
         createTestExecution('exec-100', 'TKT-100', 'agent-1', 'running');
       });
 
-      it('should complete flow: menu → ready → ticket selection → verify result', () => {
+      it('should complete flow: menu → ready → ticket selection → verify result', async () => {
         // Step 1: Get work menu
-        const step1Result = agentExec('work -P test-project --json');
+        const step1Result = await agentExec('work -P test-project --json');
         expect(isPrompt(step1Result)).to.be.true;
         const step1 = step1Result as AgentPrompt;
 
@@ -912,7 +912,7 @@ describe('Work Commands JSON Mode', () => {
         expect(readyChoice!.command).to.include('work ready');
 
         // Step 2: Select "ready" - get ticket selection
-        const step2Result = agentExec(execChoice(readyChoice!));
+        const step2Result = await agentExec(execChoice(readyChoice!));
         expect(isPrompt(step2Result)).to.be.true;
         const step2 = step2Result as AgentPrompt;
 
@@ -924,7 +924,7 @@ describe('Work Commands JSON Mode', () => {
         expect(ticketChoice).to.exist;
 
         // Step 3: Execute final command (without --json)
-        const result = execFinal(execChoice(ticketChoice!));
+        const result = await execFinal(execChoice(ticketChoice!));
 
         // Verify ticket was marked ready (moves to Review column)
         expect(result.toLowerCase()).to.include('work ready');
@@ -935,9 +935,9 @@ describe('Work Commands JSON Mode', () => {
         expect(statusId).to.equal('status-review');
       });
 
-      it('should complete flow: menu → complete → ticket selection → verify result', () => {
+      it('should complete flow: menu → complete → ticket selection → verify result', async () => {
         // Step 1: Get work menu
-        const step1Result = agentExec('work -P test-project --json');
+        const step1Result = await agentExec('work -P test-project --json');
         const step1 = step1Result as AgentPrompt;
 
         // Find "complete" option
@@ -945,7 +945,7 @@ describe('Work Commands JSON Mode', () => {
         expect(completeChoice).to.exist;
 
         // Step 2: Select "complete" - get ticket selection
-        const step2Result = agentExec(execChoice(completeChoice!));
+        const step2Result = await agentExec(execChoice(completeChoice!));
         const step2 = step2Result as AgentPrompt;
 
         // Find the test ticket
@@ -953,7 +953,7 @@ describe('Work Commands JSON Mode', () => {
         expect(ticketChoice).to.exist;
 
         // Step 3: Execute final command
-        const result = execFinal(execChoice(ticketChoice!));
+        const result = await execFinal(execChoice(ticketChoice!));
 
         // Verify ticket was marked complete
         expect(result.toLowerCase()).to.include('work complete');
@@ -969,9 +969,9 @@ describe('Work Commands JSON Mode', () => {
         createTestExecution('exec-200', 'TKT-200', 'agent-1', 'running');
       });
 
-      it('should complete flow: ticket selection → verify move to Review', () => {
+      it('should complete flow: ticket selection → verify move to Review', async () => {
         // Step 1: Get ticket selection
-        const step1Result = agentExec('work ready -P test-project --json');
+        const step1Result = await agentExec('work ready -P test-project --json');
         const step1 = step1Result as AgentPrompt;
 
         expect(step1.prompt.type).to.equal('list');
@@ -981,7 +981,7 @@ describe('Work Commands JSON Mode', () => {
         expect(ticketChoice).to.exist;
 
         // Step 2: Execute selection
-        const result = execFinal(execChoice(ticketChoice!));
+        const result = await execFinal(execChoice(ticketChoice!));
 
         expect(result).to.include('TKT-200');
         // work ready moves to Review column
@@ -989,8 +989,8 @@ describe('Work Commands JSON Mode', () => {
         expect(statusId).to.equal('status-review');
       });
 
-      it('should skip prompts when ticket ID provided directly', () => {
-        const result = exec('work ready TKT-200 -P test-project');
+      it('should skip prompts when ticket ID provided directly', async () => {
+        const result = await execInProcess('work ready TKT-200 -P test-project');
 
         expect(result).to.include('TKT-200');
         // work ready moves to Review column
@@ -1006,9 +1006,9 @@ describe('Work Commands JSON Mode', () => {
         createTestExecution('exec-300', 'TKT-300', 'agent-1', 'running');
       });
 
-      it('should complete flow: ticket selection → verify move to Done', () => {
+      it('should complete flow: ticket selection → verify move to Done', async () => {
         // Step 1: Get ticket selection
-        const step1Result = agentExec('work complete -P test-project --json');
+        const step1Result = await agentExec('work complete -P test-project --json');
         const step1 = step1Result as AgentPrompt;
 
         expect(step1.prompt.type).to.equal('list');
@@ -1018,15 +1018,15 @@ describe('Work Commands JSON Mode', () => {
         expect(ticketChoice).to.exist;
 
         // Step 2: Execute selection
-        const result = execFinal(execChoice(ticketChoice!));
+        const result = await execFinal(execChoice(ticketChoice!));
 
         expect(result).to.include('TKT-300');
         const { statusId } = getTicketStatus('TKT-300');
         expect(statusId).to.equal('status-done');
       });
 
-      it('should skip prompts when ticket ID provided directly', () => {
-        const result = exec('work complete TKT-300 -P test-project');
+      it('should skip prompts when ticket ID provided directly', async () => {
+        const result = await execInProcess('work complete TKT-300 -P test-project');
 
         expect(result).to.include('TKT-300');
         const { statusId } = getTicketStatus('TKT-300');
@@ -1041,9 +1041,9 @@ describe('Work Commands JSON Mode', () => {
         createTestTicket('TKT-402', 'Spawn flow test 3', 'status-in-progress');
       });
 
-      it('should go to column selection with --all flag', () => {
+      it('should go to column selection with --all flag', async () => {
         // With --all flag, go directly to column selection
-        const result = agentExec('work spawn --all -P test-project --json');
+        const result = await agentExec('work spawn --all -P test-project --json');
         const step = result as AgentPrompt;
 
         expect(step.prompt.type).to.equal('list');
@@ -1055,9 +1055,9 @@ describe('Work Commands JSON Mode', () => {
         expect(backlogChoice!.name).to.include('2'); // 2 tickets in backlog
       });
 
-      it('should go to ticket selection with --many flag', () => {
+      it('should go to ticket selection with --many flag', async () => {
         // With --many flag, go directly to ticket checkbox
-        const result = agentExec('work spawn --many -P test-project --json');
+        const result = await agentExec('work spawn --many -P test-project --json');
         const step = result as AgentPrompt;
 
         expect(step.prompt.type).to.equal('checkbox');
@@ -1070,8 +1070,8 @@ describe('Work Commands JSON Mode', () => {
         expect(ticketValues).to.include('TKT-402');
       });
 
-      it('should return success JSON when ticket IDs provided directly', () => {
-        const output = exec('work spawn TKT-400 TKT-401 -P test-project --json');
+      it('should return success JSON when ticket IDs provided directly', async () => {
+        const output = await execInProcess('work spawn TKT-400 TKT-401 -P test-project --json');
         const json = extractJson<{
           success: boolean;
           result: { ticketsSelected: Array<{ id: string }>; count: number };
@@ -1096,9 +1096,9 @@ describe('Work Commands JSON Mode', () => {
       createTestTicket('TKT-500', 'Compat test ticket', 'status-in-progress');
     });
 
-    it('work ready: should produce same structure with --json and --machine', () => {
-      const jsonOutput = exec('work ready -P test-project --json');
-      const machineOutput = exec('work ready -P test-project --machine');
+    it('work ready: should produce same structure with --json and --machine', async () => {
+      const jsonOutput = await execInProcess('work ready -P test-project --json');
+      const machineOutput = await execInProcess('work ready -P test-project --machine');
 
       const jsonResult = extractJson<{ prompt: { type: string } }>(jsonOutput);
       const machineResult = extractJson<{ prompt: { type: string } }>(machineOutput);
@@ -1106,9 +1106,9 @@ describe('Work Commands JSON Mode', () => {
       expect(machineResult.prompt.type).to.equal(jsonResult.prompt.type);
     });
 
-    it('work complete: should produce same structure with --json and --machine', () => {
-      const jsonOutput = exec('work complete -P test-project --json');
-      const machineOutput = exec('work complete -P test-project --machine');
+    it('work complete: should produce same structure with --json and --machine', async () => {
+      const jsonOutput = await execInProcess('work complete -P test-project --json');
+      const machineOutput = await execInProcess('work complete -P test-project --machine');
 
       const jsonResult = extractJson<{ prompt: { type: string } }>(jsonOutput);
       const machineResult = extractJson<{ prompt: { type: string } }>(machineOutput);
@@ -1116,9 +1116,9 @@ describe('Work Commands JSON Mode', () => {
       expect(machineResult.prompt.type).to.equal(jsonResult.prompt.type);
     });
 
-    it('work spawn: should produce same structure with --json and --machine', () => {
-      const jsonOutput = exec('work spawn -P test-project --json');
-      const machineOutput = exec('work spawn -P test-project --machine');
+    it('work spawn: should produce same structure with --json and --machine', async () => {
+      const jsonOutput = await execInProcess('work spawn -P test-project --json');
+      const machineOutput = await execInProcess('work spawn -P test-project --machine');
 
       const jsonResult = extractJson<{ prompt: { type: string } }>(jsonOutput);
       const machineResult = extractJson<{ prompt: { type: string } }>(machineOutput);
@@ -1126,9 +1126,9 @@ describe('Work Commands JSON Mode', () => {
       expect(machineResult.prompt.type).to.equal(jsonResult.prompt.type);
     });
 
-    it('work: should produce same structure with --json and --machine', () => {
-      const jsonOutput = exec('work -P test-project --json');
-      const machineOutput = exec('work -P test-project --machine');
+    it('work: should produce same structure with --json and --machine', async () => {
+      const jsonOutput = await execInProcess('work -P test-project --json');
+      const machineOutput = await execInProcess('work -P test-project --machine');
 
       const jsonResult = extractJson<{ prompt: { type: string } }>(jsonOutput);
       const machineResult = extractJson<{ prompt: { type: string } }>(machineOutput);
@@ -1142,11 +1142,11 @@ describe('Work Commands JSON Mode', () => {
   // ===========================================================================
 
   describe('Error handling in JSON mode', () => {
-    it('work ready: should output error JSON when no in-progress tickets', () => {
+    it('work ready: should output error JSON when no in-progress tickets', async () => {
       // No in-progress tickets exist (only backlog)
       createTestTicket('TKT-600', 'Backlog ticket', 'status-backlog');
 
-      const output = exec('work ready -P test-project --json');
+      const output = await execInProcess('work ready -P test-project --json');
       const json = extractJson<{
         error: { code: string; message: string };
         metadata: { command: string };
@@ -1157,10 +1157,10 @@ describe('Work Commands JSON Mode', () => {
       expect(json.metadata.command).to.equal('work ready');
     });
 
-    it('work complete: should output error JSON when no completable tickets', () => {
+    it('work complete: should output error JSON when no completable tickets', async () => {
       createTestTicket('TKT-601', 'Backlog ticket', 'status-backlog');
 
-      const output = exec('work complete -P test-project --json');
+      const output = await execInProcess('work complete -P test-project --json');
       const json = extractJson<{
         error: { code: string; message: string };
         metadata: { command: string };
@@ -1171,12 +1171,12 @@ describe('Work Commands JSON Mode', () => {
       expect(json.metadata.command).to.equal('work complete');
     });
 
-    it('work spawn: should output error JSON when no tickets exist', () => {
+    it('work spawn: should output error JSON when no tickets exist', async () => {
       // Remove all tickets by creating empty project scenario
       db.exec('DELETE FROM pmo_board_tickets');
       db.exec('DELETE FROM pmo_tickets');
 
-      const output = exec('work spawn -P test-project --json');
+      const output = await execInProcess('work spawn -P test-project --json');
       const json = extractJson<{
         error: { code: string; message: string };
         metadata: { command: string };

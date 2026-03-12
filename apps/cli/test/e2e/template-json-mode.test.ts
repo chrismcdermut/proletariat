@@ -8,9 +8,9 @@ import {
   createPMODirectories,
   setupProductionSchema,
   createTestProject,
-  execProduction,
+  execInProcess,
   extractJson,
-  agentExec,
+  agentExecInProcess,
   findChoice,
   execChoice,
   type TestEnvironment,
@@ -141,8 +141,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
   // template --machine (main menu)
   // ===========================================================================
   describe('prlt template --machine (main menu)', () => {
-    it('should output JSON with action choices', () => {
-      const result = agentExec('template --machine');
+    it('should output JSON with action choices', async () => {
+      const result = await agentExecInProcess('template --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -151,8 +151,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices!.length).to.equal(7);
     });
 
-    it('should have choice for List templates with command field', () => {
-      const result = agentExec('template --machine');
+    it('should have choice for List templates with command field', async () => {
+      const result = await agentExecInProcess('template --machine');
       expect(result).to.not.be.null;
 
       const listChoice = findChoice(result!.prompt.choices!, 'List templates');
@@ -161,8 +161,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(listChoice!.command).to.include('--json');
     });
 
-    it('should have choice for Create template with command field', () => {
-      const result = agentExec('template --machine');
+    it('should have choice for Create template with command field', async () => {
+      const result = await agentExecInProcess('template --machine');
       expect(result).to.not.be.null;
 
       const createChoice = findChoice(result!.prompt.choices!, 'Create template');
@@ -171,8 +171,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(createChoice!.command).to.include('--json');
     });
 
-    it('should have choice for Apply template with command field', () => {
-      const result = agentExec('template --machine');
+    it('should have choice for Apply template with command field', async () => {
+      const result = await agentExecInProcess('template --machine');
       expect(result).to.not.be.null;
 
       const applyChoice = findChoice(result!.prompt.choices!, 'Apply template');
@@ -181,8 +181,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(applyChoice!.command).to.include('--json');
     });
 
-    it('should have choice for Delete template with command field', () => {
-      const result = agentExec('template --machine');
+    it('should have choice for Delete template with command field', async () => {
+      const result = await agentExecInProcess('template --machine');
       expect(result).to.not.be.null;
 
       const deleteChoice = findChoice(result!.prompt.choices!, 'Delete template');
@@ -191,8 +191,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(deleteChoice!.command).to.include('--json');
     });
 
-    it('should work with --json flag (legacy)', () => {
-      const result = agentExec('template --json');
+    it('should work with --json flag (legacy)', async () => {
+      const result = await agentExecInProcess('template --json');
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
       expect(result!.prompt.name).to.equal('action');
@@ -216,8 +216,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       createTestPhaseTemplate('custom-phases', 'Custom Phases', false, 'My custom phases');
     });
 
-    it('should output valid JSON with --json flag', () => {
-      const output = execProduction('template list --json');
+    it('should output valid JSON with --json flag', async () => {
+      const output = await execInProcess('template list --json');
       const json = extractJson<{ ticket: unknown[]; phase: unknown[] }>(output);
 
       expect(json).to.not.be.null;
@@ -225,8 +225,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(json!.phase).to.be.an('array');
     });
 
-    it('should include both ticket and phase templates (including built-ins)', () => {
-      const output = execProduction('template list --json');
+    it('should include both ticket and phase templates (including built-ins)', async () => {
+      const output = await execInProcess('template list --json');
       const json = extractJson<{
         ticket: Array<{ id: string; name: string; isBuiltin: boolean }>;
         phase: Array<{ id: string; name: string; isBuiltin: boolean }>;
@@ -248,8 +248,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(customPhase!.name).to.equal('Custom Phases');
     });
 
-    it('should filter by type: ticket', () => {
-      const output = execProduction('template list --type ticket --json');
+    it('should filter by type: ticket', async () => {
+      const output = await execInProcess('template list --type ticket --json');
       const json = extractJson<{ ticket: unknown[]; phase?: unknown[] }>(output);
 
       expect(json).to.not.be.null;
@@ -258,8 +258,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(json!.phase).to.be.undefined;
     });
 
-    it('should filter by type: phase', () => {
-      const output = execProduction('template list --type phase --json');
+    it('should filter by type: phase', async () => {
+      const output = await execInProcess('template list --type phase --json');
       const json = extractJson<{ ticket?: unknown[]; phase: unknown[] }>(output);
 
       expect(json).to.not.be.null;
@@ -268,8 +268,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(json!.ticket).to.be.undefined;
     });
 
-    it('should filter by builtin', () => {
-      const output = execProduction('template list --builtin --json');
+    it('should filter by builtin', async () => {
+      const output = await execInProcess('template list --builtin --json');
       const json = extractJson<{
         ticket: Array<{ isBuiltin: boolean }>;
         phase: Array<{ isBuiltin: boolean }>;
@@ -280,8 +280,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       for (const p of json!.phase) expect(p.isBuiltin).to.equal(true);
     });
 
-    it('should filter by custom', () => {
-      const output = execProduction('template list --custom --json');
+    it('should filter by custom', async () => {
+      const output = await execInProcess('template list --custom --json');
       const json = extractJson<{
         ticket: Array<{ isBuiltin: boolean }>;
         phase: Array<{ isBuiltin: boolean }>;
@@ -292,8 +292,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       for (const p of json!.phase) expect(p.isBuiltin).to.equal(false);
     });
 
-    it('should include ticket template details', () => {
-      const output = execProduction('template list --type ticket --json');
+    it('should include ticket template details', async () => {
+      const output = await execInProcess('template list --type ticket --json');
       const json = extractJson<{
         ticket: Array<{ id: string; name: string; description: string; defaultPriority: string }>;
       }>(output);
@@ -316,8 +316,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       createTestPhaseTemplate('delete-phase-1', 'Delete Phase Template', false);
     });
 
-    it('should output type selection prompt when no type provided', () => {
-      const result = agentExec('template delete --machine');
+    it('should output type selection prompt when no type provided', async () => {
+      const result = await agentExecInProcess('template delete --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('list');
@@ -325,8 +325,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices).to.be.an('array');
     });
 
-    it('should have type choices with command fields', () => {
-      const result = agentExec('template delete --machine');
+    it('should have type choices with command fields', async () => {
+      const result = await agentExecInProcess('template delete --machine');
       expect(result).to.not.be.null;
 
       const ticketChoice = findChoice(result!.prompt.choices!, 'Ticket');
@@ -340,8 +340,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(phaseChoice!.command).to.include('--json');
     });
 
-    it('should output template selection when type provided', () => {
-      const result = agentExec('template delete --type ticket --machine');
+    it('should output template selection when type provided', async () => {
+      const result = await agentExecInProcess('template delete --type ticket --machine');
 
       expect(result).to.not.be.null;
       expect(result!.prompt.type).to.equal('checkbox');
@@ -349,8 +349,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(result!.prompt.choices).to.be.an('array');
     });
 
-    it('should show ticket templates for selection when type=ticket', () => {
-      const result = agentExec('template delete --type ticket --machine');
+    it('should show ticket templates for selection when type=ticket', async () => {
+      const result = await agentExecInProcess('template delete --type ticket --machine');
       expect(result).to.not.be.null;
 
       const choice = findChoice(result!.prompt.choices!, 'Delete Ticket Template');
@@ -358,8 +358,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
       expect(choice!.command).to.include('--json');
     });
 
-    it('should show phase templates for selection when type=phase', () => {
-      const result = agentExec('template delete --type phase --machine');
+    it('should show phase templates for selection when type=phase', async () => {
+      const result = await agentExecInProcess('template delete --type phase --machine');
       expect(result).to.not.be.null;
 
       const choice = findChoice(result!.prompt.choices!, 'Delete Phase Template');
@@ -372,12 +372,12 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
   // ===========================================================================
   describe('End-to-end agent flows (--machine flag)', () => {
     describe('template menu - full agent flow', () => {
-      it('should navigate: template menu → list choice → get list output', () => {
+      it('should navigate: template menu → list choice → get list output', async () => {
         createTestTicketTemplate('flow-ticket', 'Flow Ticket', true);
         createTestPhaseTemplate('flow-phase', 'Flow Phase', true);
 
         // Step 1: Get main menu
-        const step1 = agentExec('template --machine');
+        const step1 = await agentExecInProcess('template --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
 
@@ -388,7 +388,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
 
         // Step 2: Execute list command from choice
         const listCmd = execChoice(listChoice!);
-        const listOutput = execProduction(listCmd);
+        const listOutput = await execInProcess(listCmd);
         const json = extractJson<{ ticket: unknown[]; phase: unknown[] }>(listOutput);
 
         expect(json).to.not.be.null;
@@ -396,9 +396,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(json!.phase).to.be.an('array');
       });
 
-      it('should navigate: template menu → create choice → navigate to create', () => {
+      it('should navigate: template menu → create choice → navigate to create', async () => {
         // Step 1: Get main menu
-        const step1 = agentExec('template --machine');
+        const step1 = await agentExecInProcess('template --machine');
         expect(step1).to.not.be.null;
 
         // Find create choice
@@ -407,9 +407,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(createChoice!.command).to.include('template create');
       });
 
-      it('should navigate: template menu → delete choice → navigate to delete', () => {
+      it('should navigate: template menu → delete choice → navigate to delete', async () => {
         // Step 1: Get main menu
-        const step1 = agentExec('template --machine');
+        const step1 = await agentExecInProcess('template --machine');
         expect(step1).to.not.be.null;
 
         // Find delete choice
@@ -427,13 +427,13 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         createTestPhaseTemplate('del-phase-1', 'Delete Phase Flow', false);
       });
 
-      it('should complete flow: select type → select template → confirm → deleted', () => {
+      it('should complete flow: select type → select template → confirm → deleted', async () => {
         // Verify template exists before
         const template = getTicketTemplate('del-flow-1');
         expect(template).to.exist;
 
         // Step 1: No type, get type selection
-        const step1 = agentExec('template delete --machine');
+        const step1 = await agentExecInProcess('template delete --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.name).to.equal('type');
 
@@ -442,7 +442,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(typeChoice).to.exist;
 
         // Step 2: Execute with type, get template selection
-        const step2 = agentExec(execChoice(typeChoice!));
+        const step2 = await agentExecInProcess(execChoice(typeChoice!));
         expect(step2).to.not.be.null;
         expect(step2!.prompt.name).to.equal('templateIds');
 
@@ -452,9 +452,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(templateChoice!.command).to.include('del-flow-1');
       });
 
-      it('should navigate delete flow with --force to skip confirmation', () => {
+      it('should navigate delete flow with --force to skip confirmation', async () => {
         // Step 1: Get template selection for ticket type
-        const step1 = agentExec('template delete --type ticket --machine');
+        const step1 = await agentExecInProcess('template delete --type ticket --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.name).to.equal('templateIds');
 
@@ -466,9 +466,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(choice!.command).to.include('del-flow-1');
       });
 
-      it('should complete flow for phase templates', () => {
+      it('should complete flow for phase templates', async () => {
         // Step 1: Type provided, get template selection
-        const step1 = agentExec('template delete --type phase --machine');
+        const step1 = await agentExecInProcess('template delete --type phase --machine');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.name).to.equal('templateIds');
 
@@ -492,8 +492,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         createTestPhaseTemplate('list-phase-2', 'Waterfall', false, 'Waterfall phases');
       });
 
-      it('should return all templates as JSON for agent processing', () => {
-        const output = execProduction('template list --json');
+      it('should return all templates as JSON for agent processing', async () => {
+        const output = await execInProcess('template list --json');
         const json = extractJson<{
           ticket: Array<{ id: string; name: string }>;
           phase: Array<{ id: string; name: string }>;
@@ -514,8 +514,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(featureReq!.name).to.equal('Feature Request');
       });
 
-      it('should filter templates by type for agent', () => {
-        const output = execProduction('template list --type ticket --json');
+      it('should filter templates by type for agent', async () => {
+        const output = await execInProcess('template list --type ticket --json');
         const json = extractJson<{ ticket: Array<{ id: string }> }>(output);
 
         expect(json).to.not.be.null;
@@ -526,8 +526,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(found).to.exist;
       });
 
-      it('should filter by builtin for agent', () => {
-        const output = execProduction('template list --builtin --json');
+      it('should filter by builtin for agent', async () => {
+        const output = await execInProcess('template list --builtin --json');
         const json = extractJson<{
           ticket: Array<{ isBuiltin: boolean }>;
           phase: Array<{ isBuiltin: boolean }>;
@@ -542,8 +542,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         for (const p of json!.phase) expect(p.isBuiltin).to.equal(true);
       });
 
-      it('should filter by custom for agent', () => {
-        const output = execProduction('template list --custom --json');
+      it('should filter by custom for agent', async () => {
+        const output = await execInProcess('template list --custom --json');
         const json = extractJson<{
           ticket: Array<{ isBuiltin: boolean }>;
           phase: Array<{ isBuiltin: boolean }>;
@@ -556,8 +556,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     });
 
     describe('template main menu - all operations available', () => {
-      it('should have all template operations in the main menu', () => {
-        const result = agentExec('template --machine');
+      it('should have all template operations in the main menu', async () => {
+        const result = await agentExecInProcess('template --machine');
         expect(result).to.not.be.null;
 
         const actions = result!.prompt.choices!.map(c => c.value);
@@ -571,27 +571,27 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     });
 
     describe('backward compatibility: --json flag flows', () => {
-      it('should complete menu flow with --json flag (legacy)', () => {
-        const result = agentExec('template --json');
+      it('should complete menu flow with --json flag (legacy)', async () => {
+        const result = await agentExecInProcess('template --json');
         expect(result).to.not.be.null;
         expect(result!.prompt.type).to.equal('list');
         expect(result!.prompt.name).to.equal('action');
       });
 
-      it('should list templates with --json flag (legacy)', () => {
+      it('should list templates with --json flag (legacy)', async () => {
         createTestTicketTemplate('compat-ticket', 'Compat Ticket', true);
 
-        const output = execProduction('template list --json');
+        const output = await execInProcess('template list --json');
         const json = extractJson<{ ticket: unknown[] }>(output);
 
         expect(json).to.not.be.null;
         expect(json!.ticket).to.be.an('array');
       });
 
-      it('should complete delete flow with --json flag (legacy)', () => {
+      it('should complete delete flow with --json flag (legacy)', async () => {
         createTestTicketTemplate('compat-del', 'Compat Delete', false);
 
-        const result = agentExec('template delete --json');
+        const result = await agentExecInProcess('template delete --json');
         expect(result).to.not.be.null;
         expect(result!.prompt.type).to.equal('list');
         expect(result!.prompt.name).to.equal('type');
@@ -608,8 +608,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         createTestPhaseTemplate('deep-custom', 'Deep Custom', false, 'Custom phases');
       });
 
-      it('should list phase templates with --type phase', () => {
-        const listOutput = execProduction('template list --type phase --json');
+      it('should list phase templates with --type phase', async () => {
+        const listOutput = await execInProcess('template list --type phase --json');
         const json = extractJson<{ phase: Array<{ id: string; name: string; isBuiltin: boolean }> }>(listOutput);
 
         expect(json).to.not.be.null;
@@ -625,9 +625,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     });
 
     describe('phase template create - full flow (direct flags)', () => {
-      it('should create phase template with flags and verify DB', () => {
+      it('should create phase template with flags and verify DB', async () => {
         // In non-TTY mode (like tests), output is JSON
-        const result = execProduction('template create --type phase "Agent Created" --description "Created by agent" --json');
+        const result = await execInProcess('template create --type phase "Agent Created" --description "Created by agent" --json');
         const json = extractJson<{ success: boolean; result: { name: string } }>(result);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -639,9 +639,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(template!.name).to.equal('Agent Created');
       });
 
-      it('should create phase template with direct command and verify DB', () => {
+      it('should create phase template with direct command and verify DB', async () => {
         // In non-TTY mode (like tests), output is JSON
-        const result = execProduction('template create --type phase "Direct Create" --description "Direct test" --json');
+        const result = await execInProcess('template create --type phase "Direct Create" --description "Direct test" --json');
         const json = extractJson<{ success: boolean; result: { name: string; phasesCount: number } }>(result);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -658,8 +658,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     });
 
     describe('phase template create - JSON mode support (TKT-794)', () => {
-      it('should output error JSON when name not provided with --json flag', () => {
-        const output = execProduction('template create --type phase --json');
+      it('should output error JSON when name not provided with --json flag', async () => {
+        const output = await execInProcess('template create --type phase --json');
         const json = extractJson<{ type: string; error: { code: string; message: string } }>(output);
         expect(json).to.not.be.null;
         expect(json!.type).to.equal('error');
@@ -667,16 +667,16 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(json!.error.message).to.include('Name required');
       });
 
-      it('should output error JSON when name not provided with --machine flag', () => {
-        const output = execProduction('template create --type phase --machine');
+      it('should output error JSON when name not provided with --machine flag', async () => {
+        const output = await execInProcess('template create --type phase --machine');
         const json = extractJson<{ type: string; error: { code: string; message: string } }>(output);
         expect(json).to.not.be.null;
         expect(json!.type).to.equal('error');
         expect(json!.error.code).to.equal('NAME_REQUIRED');
       });
 
-      it('should output success JSON when all required fields provided via flags', () => {
-        const output = execProduction('template create --type phase "JSON Success Test" --description "Created via JSON" --json');
+      it('should output success JSON when all required fields provided via flags', async () => {
+        const output = await execInProcess('template create --type phase "JSON Success Test" --description "Created via JSON" --json');
         const json = extractJson<{
           prompt: null;
           success: boolean;
@@ -695,8 +695,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(template!.name).to.equal('JSON Success Test');
       });
 
-      it('should work via template create --type phase with --json', () => {
-        const output = execProduction('template create --type phase "Wrapper JSON Test" --description "Via wrapper" --json');
+      it('should work via template create --type phase with --json', async () => {
+        const output = await execInProcess('template create --type phase "Wrapper JSON Test" --description "Via wrapper" --json');
         const json = extractJson<{
           prompt: null;
           success: boolean;
@@ -712,8 +712,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(template).to.exist;
       });
 
-      it('should work via template create --type phase with --machine', () => {
-        const output = execProduction('template create --type phase "Machine Flag Test" --machine');
+      it('should work via template create --type phase with --machine', async () => {
+        const output = await execInProcess('template create --type phase "Machine Flag Test" --machine');
         const json = extractJson<{
           prompt: null;
           success: boolean;
@@ -729,15 +729,15 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(template).to.exist;
       });
 
-      it('should include usage hint in error message when name missing', () => {
-        const output = execProduction('template create --type phase --json');
+      it('should include usage hint in error message when name missing', async () => {
+        const output = await execInProcess('template create --type phase --json');
         const json = extractJson<{ type: string; error: { message: string } }>(output);
         expect(json).to.not.be.null;
         expect(json!.error.message).to.include('prlt template create');
       });
 
-      it('should return phasesCount in success JSON', () => {
-        const output = execProduction('template create --type phase "Phases Count Test" --json');
+      it('should return phasesCount in success JSON', async () => {
+        const output = await execInProcess('template create --type phase "Phases Count Test" --json');
         const json = extractJson<{
           success: boolean;
           result: { id: string; name: string; phasesCount: number };
@@ -756,9 +756,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         createTestPhaseTemplate('apply-test', 'Apply Test', false, 'For apply testing');
       });
 
-      it('should get confirmation prompt and apply template via --force', () => {
+      it('should get confirmation prompt and apply template via --force', async () => {
         // Step 1: Request apply with JSON mode → get confirmation prompt
-        const step1 = agentExec('template apply --type phase apply-test --json');
+        const step1 = await agentExecInProcess('template apply --type phase apply-test --json');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('confirmed');
@@ -769,7 +769,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(yesChoice).to.exist;
 
         // Step 2: Apply with --force to skip confirmation
-        const result = execProduction('template apply --type phase apply-test --force');
+        const result = await execInProcess('template apply --type phase apply-test --force');
         expect(result).to.include('Applied phase template');
 
         // Verify phases were replaced in database
@@ -784,8 +784,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(hasDone).to.be.true;
       });
 
-      it('should error with JSON when template not found', () => {
-        const output = execProduction('template apply --type phase nonexistent --json');
+      it('should error with JSON when template not found', async () => {
+        const output = await execInProcess('template apply --type phase nonexistent --json');
         expect(output.toLowerCase()).to.include('not found');
       });
     });
@@ -795,8 +795,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         createTestPhaseTemplate('update-test', 'Update Test', false, 'Original desc');
       });
 
-      it('should update template name and description with direct flags', () => {
-        const result = execProduction('template update update-test --name "Updated Name" --description "Updated desc" --json');
+      it('should update template name and description with direct flags', async () => {
+        const result = await execInProcess('template update update-test --name "Updated Name" --description "Updated desc" --json');
         const json = extractJson<{ success: boolean; result: { template: { name: string; description: string } } }>(result);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -808,8 +808,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(template.description).to.equal('Updated desc');
       });
 
-      it('should update only name when only name flag provided', () => {
-        const result = execProduction('template update update-test --name "Name Only" --json');
+      it('should update only name when only name flag provided', async () => {
+        const result = await execInProcess('template update update-test --name "Name Only" --json');
         const json = extractJson<{ success: boolean }>(result);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -821,14 +821,14 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(template.description).to.equal('Original desc');
       });
 
-      it('should error when template not found', () => {
-        const output = execProduction('template update nonexistent --name "X"');
+      it('should error when template not found', async () => {
+        const output = await execInProcess('template update nonexistent --name "X"');
         expect(output.toLowerCase()).to.include('not found');
       });
 
-      it('should error when updating built-in template', () => {
+      it('should error when updating built-in template', async () => {
         createTestPhaseTemplate('builtin-phase', 'Builtin Phase', true);
-        const output = execProduction('template update builtin-phase --name "X"');
+        const output = await execInProcess('template update builtin-phase --name "X"');
         expect(output.toLowerCase()).to.include('cannot modify');
       });
     });
@@ -838,9 +838,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         createTestPhaseTemplate('delete-deep', 'Delete Deep', false, 'For delete testing');
       });
 
-      it('should get confirmation prompt and delete via --force', () => {
+      it('should get confirmation prompt and delete via --force', async () => {
         // Step 1: Request delete with JSON → get confirmation
-        const step1 = agentExec('phase template delete delete-deep --json');
+        const step1 = await agentExecInProcess('phase template delete delete-deep --json');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
         expect(step1!.prompt.name).to.equal('confirm');
@@ -850,21 +850,21 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(getPhaseTemplate('delete-deep')).to.exist;
 
         // Step 2: Delete with --force
-        const result = execProduction('phase template delete delete-deep --force');
+        const result = await execInProcess('phase template delete delete-deep --force');
         expect(result).to.include('Deleted phase template');
 
         // Verify template is gone
         expect(getPhaseTemplate('delete-deep')).to.be.undefined;
       });
 
-      it('should error when deleting built-in template', () => {
+      it('should error when deleting built-in template', async () => {
         createTestPhaseTemplate('builtin-del', 'Builtin Del', true);
-        const output = execProduction('phase template delete builtin-del --json');
+        const output = await execInProcess('phase template delete builtin-del --json');
         expect(output.toLowerCase()).to.include('cannot delete');
       });
 
-      it('should error when template not found', () => {
-        const output = execProduction('phase template delete nonexistent --json');
+      it('should error when template not found', async () => {
+        const output = await execInProcess('phase template delete nonexistent --json');
         expect(output.toLowerCase()).to.include('not found');
       });
     });
@@ -885,8 +885,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         });
       });
 
-      it('should list ticket templates with --type ticket', () => {
-        const listOutput = execProduction('template list --type ticket --json');
+      it('should list ticket templates with --type ticket', async () => {
+        const listOutput = await execInProcess('template list --type ticket --json');
         const json = extractJson<{ ticket: Array<{ id: string; name: string }> }>(listOutput);
 
         expect(json).to.not.be.null;
@@ -906,8 +906,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         });
       });
 
-      it('should get form prompt with --interactive --json', () => {
-        const step1 = agentExec('template apply --type ticket apply-bug --interactive --json');
+      it('should get form prompt with --interactive --json', async () => {
+        const step1 = await agentExecInProcess('template apply --type ticket apply-bug --interactive --json');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('form');
 
@@ -920,8 +920,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(fieldNames).to.include('priority');
       });
 
-      it('should create ticket with all flags provided directly', () => {
-        const result = execProduction('template apply --type ticket apply-bug --title "Login crash" --column "Backlog"');
+      it('should create ticket with all flags provided directly', async () => {
+        const result = await execInProcess('template apply --type ticket apply-bug --title "Login crash" --column "Backlog"');
         // In non-TTY mode, output includes the success log
         expect(result).to.include('Login crash');
 
@@ -934,8 +934,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(ticket!.category).to.equal('bug');
       });
 
-      it('should error when template not found', () => {
-        const output = execProduction('template apply --type ticket nonexistent --json');
+      it('should error when template not found', async () => {
+        const output = await execInProcess('template apply --type ticket nonexistent --json');
         expect(output.toLowerCase()).to.include('not found');
       });
     });
@@ -950,8 +950,8 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         });
       });
 
-      it('should save ticket as template with all args', () => {
-        const output = execProduction('template save TKT-SAVE-001 "Saved Bug" --description "From ticket" --json');
+      it('should save ticket as template with all args', async () => {
+        const output = await execInProcess('template save TKT-SAVE-001 "Saved Bug" --description "From ticket" --json');
         const json = extractJson<{ success: boolean; result: { template: { name: string } } }>(output);
         expect(json).to.not.be.null;
         expect(json!.success).to.equal(true);
@@ -974,9 +974,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         });
       });
 
-      it('should get confirmation prompt and delete via --force', () => {
+      it('should get confirmation prompt and delete via --force', async () => {
         // Step 1: Request delete with JSON → get confirmation
-        const step1 = agentExec('ticket template delete del-ticket-deep --json');
+        const step1 = await agentExecInProcess('ticket template delete del-ticket-deep --json');
         expect(step1).to.not.be.null;
         expect(step1!.prompt.type).to.equal('list');
 
@@ -984,21 +984,21 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(getTicketTemplate('del-ticket-deep')).to.exist;
 
         // Step 2: Delete with --force
-        const result = execProduction('ticket template delete del-ticket-deep --force');
+        const result = await execInProcess('ticket template delete del-ticket-deep --force');
         expect(result).to.include('Deleted template');
 
         // Verify template is gone
         expect(getTicketTemplate('del-ticket-deep')).to.be.undefined;
       });
 
-      it('should error when deleting built-in template', () => {
+      it('should error when deleting built-in template', async () => {
         createTestTicketTemplate('builtin-ticket-del', 'Builtin Ticket Del', true);
-        const output = execProduction('ticket template delete builtin-ticket-del --json');
+        const output = await execInProcess('ticket template delete builtin-ticket-del --json');
         expect(output.toLowerCase()).to.include('cannot delete');
       });
 
-      it('should error when template not found', () => {
-        const output = execProduction('ticket template delete nonexistent --json');
+      it('should error when template not found', async () => {
+        const output = await execInProcess('ticket template delete nonexistent --json');
         expect(output.toLowerCase()).to.include('not found');
       });
     });
@@ -1008,9 +1008,9 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     // ==========================================================================
 
     describe('phase template lifecycle - complete flow', () => {
-      it('should create → list → update → apply → delete a phase template', () => {
+      it('should create → list → update → apply → delete a phase template', async () => {
         // 1. Create template (non-TTY outputs JSON)
-        const createResult = execProduction('template create --type phase "Lifecycle Phases" --description "Lifecycle test" --json');
+        const createResult = await execInProcess('template create --type phase "Lifecycle Phases" --description "Lifecycle test" --json');
         const createJson = extractJson<{ success: boolean; result: { name: string } }>(createResult);
         expect(createJson).to.not.be.null;
         expect(createJson!.success).to.equal(true);
@@ -1023,7 +1023,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         const templateId = created.id;
 
         // 2. List and verify it appears
-        const listOutput = execProduction('template list --type phase --json');
+        const listOutput = await execInProcess('template list --type phase --json');
         const json = extractJson<{ phase: Array<{ id: string; name: string }> }>(listOutput);
         expect(json).to.not.be.null;
         const found = json!.phase.find(t => t.id === templateId);
@@ -1031,7 +1031,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(found!.name).to.equal('Lifecycle Phases');
 
         // 3. Update template (non-TTY outputs JSON)
-        const updateResult = execProduction(`template update ${templateId} --name "Updated Lifecycle" --description "Updated desc" --json`);
+        const updateResult = await execInProcess(`template update ${templateId} --name "Updated Lifecycle" --description "Updated desc" --json`);
         const updateJson = extractJson<{ success: boolean }>(updateResult);
         expect(updateJson).to.not.be.null;
         expect(updateJson!.success).to.equal(true);
@@ -1043,7 +1043,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(updated.description).to.equal('Updated desc');
 
         // 4. Apply template
-        const applyResult = execProduction(`template apply --type phase ${templateId} --force`);
+        const applyResult = await execInProcess(`template apply --type phase ${templateId} --force`);
         expect(applyResult).to.include('Applied phase template');
 
         // Verify phases exist
@@ -1051,7 +1051,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(phases.length).to.be.greaterThan(0);
 
         // 5. Delete template
-        const deleteResult = execProduction(`phase template delete ${templateId} --force`);
+        const deleteResult = await execInProcess(`phase template delete ${templateId} --force`);
         expect(deleteResult).to.include('Deleted phase template');
 
         // Verify gone
@@ -1063,7 +1063,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
     });
 
     describe('ticket template lifecycle - complete flow', () => {
-      it('should save → list → apply → delete a ticket template', () => {
+      it('should save → list → apply → delete a ticket template', async () => {
         // Create source ticket
         createTestTicket('TKT-LIFE-001', 'Lifecycle Ticket', {
           priority: 'P2',
@@ -1071,7 +1071,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         });
 
         // 1. Save ticket as template (non-TTY outputs JSON)
-        const saveResult = execProduction('template save TKT-LIFE-001 "Lifecycle Template" --description "Lifecycle test" --json');
+        const saveResult = await execInProcess('template save TKT-LIFE-001 "Lifecycle Template" --description "Lifecycle test" --json');
         const saveJson = extractJson<{ success: boolean }>(saveResult);
         expect(saveJson).to.not.be.null;
         expect(saveJson!.success).to.equal(true);
@@ -1084,14 +1084,14 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         const templateId = savedTemplate.id;
 
         // 2. List and verify it appears
-        const listOutput = execProduction('template list --type ticket --json');
+        const listOutput = await execInProcess('template list --type ticket --json');
         const json = extractJson<{ ticket: Array<{ id: string; name: string }> }>(listOutput);
         expect(json).to.not.be.null;
         const found = json!.ticket.find(t => t.id === templateId);
         expect(found).to.exist;
 
         // 3. Apply template to create ticket
-        const applyResult = execProduction(`template apply --type ticket ${templateId} --title "From Lifecycle" --column "Backlog"`);
+        const applyResult = await execInProcess(`template apply --type ticket ${templateId} --title "From Lifecycle" --column "Backlog"`);
         expect(applyResult).to.include('Created ticket');
 
         // Verify ticket in DB
@@ -1103,7 +1103,7 @@ describe('Template Commands - JSON Mode E2E Tests', () => {
         expect(ticket!.category).to.equal('feature');
 
         // 4. Delete template
-        const deleteResult = execProduction(`ticket template delete ${templateId} --force`);
+        const deleteResult = await execInProcess(`ticket template delete ${templateId} --force`);
         expect(deleteResult).to.include('Deleted template');
 
         expect(getTicketTemplate(templateId)).to.be.undefined;
