@@ -87,7 +87,7 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: push event" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","agent-flows","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -100,7 +100,7 @@ jobs:
             else
               echo "scope=full" >> "$GITHUB_OUTPUT"
               echo "reason=Full suite: manual dispatch with $TIER tier selected" >> "$GITHUB_OUTPUT"
-              echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
+              echo 'e2e_shards=["pmo","execution","agent-flows","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
             fi
             exit 0
           fi
@@ -111,7 +111,7 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: unable to compute merge-base with origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","agent-flows","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CHANGED=$(git diff --name-only "$MERGE_BASE" HEAD)
@@ -228,13 +228,13 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: core/shared files changed (database, lib, config, CI, or unscoped source)" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","agent-flows","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
 
           elif [[ "$HAS_PMO" == "true" && "$HAS_EXECUTION" == "true" ]]; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=full" >> "$GITHUB_OUTPUT"
             echo "reason=Full suite: changes span multiple domains (pmo + execution)" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["pmo","execution","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["pmo","execution","agent-flows","json-mode","integrations","standalone","infrastructure"]' >> "$GITHUB_OUTPUT"
 
           elif [[ "$HAS_PMO" == "true" ]]; then
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
@@ -246,7 +246,7 @@ jobs:
             echo "run_tests=true" >> "$GITHUB_OUTPUT"
             echo "scope=execution" >> "$GITHUB_OUTPUT"
             echo "reason=Scoped run: only execution-related files changed (work/agent/docker orchestration)" >> "$GITHUB_OUTPUT"
-            echo 'e2e_shards=["execution"]' >> "$GITHUB_OUTPUT"
+            echo 'e2e_shards=["execution","agent-flows"]' >> "$GITHUB_OUTPUT"
 
           fi
 
@@ -533,16 +533,20 @@ jobs:
               ;;
             execution)
               echo "Running execution/work e2e tests"
-              npx mocha --forbid-only "test/e2e/work-*.test.ts" "test/e2e/*-agent-flow.test.ts"
+              npx mocha --forbid-only "test/e2e/work-*.test.ts"
+              ;;
+            agent-flows)
+              echo "Running agent flow e2e tests"
+              npx mocha --forbid-only "test/e2e/*-agent-flow.test.ts"
               ;;
             json-mode)
               echo "Running JSON/machine mode e2e tests"
               npx mocha --forbid-only \
                 --ignore "test/e2e/work-*.test.ts" \
-                --ignore "test/e2e/agent-json-mode.test.ts" \
                 "test/e2e/*-json-mode.test.ts" \
                 "test/e2e/json-mode-*.test.ts" \
-                "test/e2e/machine-mode-*.test.ts"
+                "test/e2e/machine-mode-*.test.ts" \
+                "test/e2e/agent-json-mode.test.ts"
               ;;
             integrations)
               echo "Running integration e2e tests"
@@ -562,8 +566,7 @@ jobs:
               npx mocha --forbid-only \
                 "test/e2e/docker-*.test.ts" \
                 "test/e2e/mcp-server.test.ts" \
-                "test/e2e/execution-*.test.ts" \
-                "test/e2e/agent-json-mode.test.ts"
+                "test/e2e/execution-*.test.ts"
               ;;
             standalone)
               echo "Running standalone e2e tests"

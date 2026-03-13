@@ -5,44 +5,10 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store-path }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        run: pnpm -r build
-
-      - name: Run unit tests
-        run: pnpm --filter @proletariat/cli test:unit
-
-      - name: Run e2e tests
-        run: pnpm --filter @proletariat/cli test:e2e
+  # Tests run in the parallel 'tests' workflow (test.yml) on every push to main.
+  # No need to duplicate them here — the release job proceeds independently.
 
   release:
-    # TODO: restore needs: [test] once CI tests are stabilized
-    # needs: [test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
