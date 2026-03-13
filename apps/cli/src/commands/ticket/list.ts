@@ -281,7 +281,12 @@ export default class TicketList extends Command {
     if (source === 'linear') return true;
     if (source === 'pmo') return false;
     // auto: use Linear when it's configured in the workspace
-    return isLinearConfigured(db);
+    try {
+      return isLinearConfigured(db);
+    } catch {
+      // workspace_settings table may not exist in older/test databases
+      return false;
+    }
   }
 
   /**
