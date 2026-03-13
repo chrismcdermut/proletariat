@@ -77,6 +77,7 @@ import {
   getTrelloCardById,
 } from '../../lib/external-issues/trello.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
+import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/config.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 import {
   parseWorkSourceRef,
@@ -411,13 +412,19 @@ export default class WorkStart extends PMOCommand {
   private async fetchExternalIssue(
     source: IssueSource,
     key: string,
+    db: Database.Database,
   ): Promise<NormalizedIssueEnvelope | null> {
     switch (source) {
       case 'jira': return getJiraIssueByKey({}, key)
       case 'asana': return getAsanaTaskByGid({}, key)
       case 'shortcut': return getShortcutStoryByKey({}, key)
       case 'trello': return getTrelloCardById({}, key)
-      default: return getLinearIssueByIdentifier({}, key)
+      default: {
+        const apiKey = getLinearApiKey(db) || undefined
+        const linearConfig = loadLinearConfig(db)
+        const team = linearConfig?.defaultTeamKey || undefined
+        return getLinearIssueByIdentifier({ apiKey, team }, key)
+      }
     }
   }
 
@@ -638,7 +645,7 @@ export default class WorkStart extends PMOCommand {
 
         let envelope: NormalizedIssueEnvelope | null = null
         try {
-          envelope = await this.fetchExternalIssue(sourceAndKey.source, sourceAndKey.key)
+          envelope = await this.fetchExternalIssue(sourceAndKey.source, sourceAndKey.key, db)
         } catch (error) {
           if (error instanceof ExternalIssueAdapterError) {
             db.close()
