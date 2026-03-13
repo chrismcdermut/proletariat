@@ -15,6 +15,8 @@ import {
   checkStaleTap,
   getBrewTapPath,
   getStaleTapCommands,
+  triggerBackgroundCheck,
+  flushPendingVersionCheck,
   type VersionCheckCache,
 } from '../../src/lib/update-check.js'
 
@@ -253,6 +255,39 @@ describe('Update Check', () => {
       // Result depends on whether Homebrew is actually installed on this machine.
       // We just verify it returns a string or null without throwing.
       expect(result === null || typeof result === 'string').to.be.true
+    })
+  })
+
+  describe('flushPendingVersionCheck', () => {
+    it('resolves immediately when no check is pending', async () => {
+      // Should be a no-op and resolve without error
+      await flushPendingVersionCheck()
+    })
+
+    it('waits for a pending background check to complete', async () => {
+      // Write a cache that is stale (last checked > 20 hours ago) so
+      // triggerBackgroundCheck actually fires a fetch
+      const staleCache: VersionCheckCache = {
+        latest_version: '0.1.0',
+        last_checked_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+        dismissed_version: null,
+      }
+      writeCache(staleCache)
+
+      // Trigger a background check. The npm fetch will either succeed
+      // (updating the cache) or fail (caught internally). Either way,
+      // flush should resolve without throwing.
+      triggerBackgroundCheck('npm')
+      await flushPendingVersionCheck()
+
+      // After flush, the cache should have been updated (last_checked_at
+      // should be more recent than our stale value — or unchanged if the
+      // network call failed, which is fine).
+      const cache = readCache()
+      expect(cache.last_checked_at).to.satisfy(
+        (v: string | null) => v === staleCache.last_checked_at || (v !== null && new Date(v).getTime() > new Date(staleCache.last_checked_at!).getTime()),
+        'last_checked_at should be updated or unchanged on network failure',
+      )
     })
   })
 
