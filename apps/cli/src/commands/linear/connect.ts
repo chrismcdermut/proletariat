@@ -116,7 +116,7 @@ export default class LinearConnect extends PMOCommand {
       if (jsonMode) {
         outputErrorAsJson(
           'API_KEY_REQUIRED',
-          'Linear API key required. Set LINEAR_API_KEY or PRLT_LINEAR_API_KEY environment variable, or run interactively.',
+          'Linear API key required. Configure a Linear provider source, set PRLT_LINEAR_API_KEY, or run interactively.',
           createMetadata('linear connect', flags),
         )
         this.exit(1)
