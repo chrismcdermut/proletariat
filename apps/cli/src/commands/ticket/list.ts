@@ -12,12 +12,45 @@ import {
   getPriorityStyle,
 } from '../../lib/styles.js';
 import { isNonTTY } from '../../lib/prompt-json.js';
+import { isLinearConfigured, loadLinearConfig, getLinearApiKey } from '../../lib/linear/index.js';
+import { listLinearIssues } from '../../lib/external-issues/linear.js';
+import { ExternalIssueAdapterError, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js';
 
 // Priority order for grouping - dynamically resolved from workspace settings
 // Computed at runtime and includes 'None' for unset priorities
 function getPriorityOrder(db: { prepare(sql: string): { get(...params: unknown[]): unknown; run(...params: unknown[]): unknown } }): string[] {
   const priorities = getWorkspacePriorities(db);
   return [...priorities, 'None'];
+}
+
+/**
+ * Convert a NormalizedIssueEnvelope from Linear into the PMO Ticket shape
+ * so the existing display methods can render it without changes.
+ */
+function envelopeToTicket(envelope: NormalizedIssueEnvelope): Ticket {
+  return {
+    id: envelope.source.externalKey,
+    title: envelope.title,
+    description: envelope.description || undefined,
+    priority: envelope.priority || undefined,
+    category: envelope.category || undefined,
+    projectId: envelope.projectKey,
+    projectName: envelope.projectKey,
+    statusId: envelope.status,
+    statusName: envelope.status,
+    owner: envelope.assignee || undefined,
+    assignee: envelope.assignee || undefined,
+    subtasks: [],
+    labels: envelope.labels,
+    metadata: {
+      external_source: envelope.source.name,
+      external_key: envelope.source.externalKey,
+      external_id: envelope.source.externalId,
+      external_url: envelope.source.url,
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
 }
 
 export default class TicketList extends Command {
@@ -86,6 +119,14 @@ export default class TicketList extends Command {
       description: 'Skip first N tickets (for pagination)',
       min: 0,
     }),
+    source: Flags.string({
+      description: 'Ticket source: "pmo" for local DB, "linear" for Linear API, or "auto" to detect (default: auto)',
+      options: ['auto', 'pmo', 'linear'],
+      default: 'auto',
+    }),
+    team: Flags.string({
+      description: 'Linear team key (fallback: PRLT_LINEAR_TEAM)',
+    }),
   };
 
   async run(): Promise<void> {
@@ -105,8 +146,17 @@ export default class TicketList extends Command {
     });
 
     try {
+      const db = pmoContext.storage.getDatabase();
+
       // Set dynamic priority order from workspace settings
-      this.priorityOrder = getPriorityOrder(pmoContext.storage.getDatabase());
+      this.priorityOrder = getPriorityOrder(db);
+
+      // Determine whether to use Linear or PMO as the ticket source
+      const useLinear = this.shouldUseLinear(flags.source as string, db);
+
+      if (useLinear) {
+        return await this.runLinear(flags, db);
+      }
 
       // Build filter
       const filter: TicketFilter = {};
@@ -221,6 +271,86 @@ export default class TicketList extends Command {
       }
     } finally {
       await pmoContext.storage.close();
+    }
+  }
+
+  /**
+   * Determine whether to route through Linear based on --source flag and workspace config.
+   */
+  private shouldUseLinear(source: string, db: import('better-sqlite3').Database): boolean {
+    if (source === 'linear') return true;
+    if (source === 'pmo') return false;
+    // auto: use Linear when it's configured in the workspace
+    return isLinearConfigured(db);
+  }
+
+  /**
+   * Fetch and display tickets from Linear API instead of local PMO.
+   */
+  private async runLinear(flags: Record<string, unknown>, db: import('better-sqlite3').Database): Promise<void> {
+    const linearConfig = loadLinearConfig(db);
+    const apiKey = getLinearApiKey(db) || undefined;
+    const team = (flags.team as string) || linearConfig?.defaultTeamKey || process.env.PRLT_LINEAR_TEAM;
+
+    const limit = typeof flags.limit === 'number' ? flags.limit : 50;
+
+    let envelopes: NormalizedIssueEnvelope[];
+    try {
+      envelopes = await listLinearIssues({ apiKey, team }, { limit });
+    } catch (error: unknown) {
+      if (error instanceof ExternalIssueAdapterError) {
+        this.error(error.message);
+      }
+      const msg = error instanceof Error ? error.message : 'Failed to fetch Linear issues.';
+      this.error(msg);
+    }
+
+    let tickets: Ticket[] = envelopes.map(envelopeToTicket);
+
+    // Apply client-side filters that map to Linear fields
+    if (flags.priority) {
+      tickets = tickets.filter(t => t.priority === flags.priority);
+    }
+    if (flags.column) {
+      tickets = tickets.filter(t => t.statusName === flags.column);
+    }
+    if (flags.category) {
+      tickets = tickets.filter(t => t.category === flags.category);
+    }
+    if (flags.search) {
+      const term = (flags.search as string).toLowerCase();
+      tickets = tickets.filter(t =>
+        t.title.toLowerCase().includes(term) ||
+        (t.description || '').toLowerCase().includes(term),
+      );
+    }
+    if (flags.label) {
+      const label = (flags.label as string).toLowerCase();
+      tickets = tickets.filter(t => t.labels.some(l => l.toLowerCase() === label));
+    }
+
+    // Apply pagination
+    if (typeof flags.offset === 'number') tickets = tickets.slice(flags.offset as number);
+    if (typeof flags.limit === 'number') tickets = tickets.slice(0, flags.limit as number);
+
+    if (tickets.length === 0) {
+      this.log(styles.warning('No tickets found.'));
+      return;
+    }
+
+    const format = flags.format as string;
+    const groupBy = (flags['group-by'] as 'status' | 'priority') || 'status';
+
+    // Linear issues are always cross-project style (no local board columns)
+    switch (format) {
+      case 'json':
+        this.log(JSON.stringify(tickets, null, 2));
+        break;
+      case 'compact':
+        this.outputCrossProjectCompact(tickets, groupBy);
+        break;
+      default:
+        this.outputCrossProjectTable(tickets, groupBy);
     }
   }
 
