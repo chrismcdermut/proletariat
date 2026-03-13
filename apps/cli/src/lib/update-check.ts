@@ -334,6 +334,13 @@ export function isNewerVersion(current: string, latest: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Pending check tracking
+// ---------------------------------------------------------------------------
+
+/** Module-level promise tracking so the check can be flushed before exit. */
+let pendingCheck: Promise<void> | null = null
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -382,8 +389,9 @@ export function getCachedUpdateInfo(currentVersion: string): UpdateInfo {
 
 /**
  * Perform a background version check and update the cache.
- * This is fire-and-forget — errors are silently ignored.
- * Does not block the calling process.
+ * The fetch runs without blocking startup, but the promise is tracked
+ * internally so it can be flushed before process exit via
+ * {@link flushPendingVersionCheck}.
  */
 export function triggerBackgroundCheck(pm: PackageManager): void {
   const cache = readCache()
@@ -392,8 +400,7 @@ export function triggerBackgroundCheck(pm: PackageManager): void {
     return
   }
 
-  // Fire and forget — don't await, don't block
-  fetchLatestVersion(pm)
+  pendingCheck = fetchLatestVersion(pm)
     .then((latest) => {
       if (latest) {
         const updatedCache = readCache() // Re-read to avoid races
@@ -405,6 +412,22 @@ export function triggerBackgroundCheck(pm: PackageManager): void {
     .catch(() => {
       // Silently ignore — never fail startup due to version check
     })
+    .finally(() => {
+      pendingCheck = null
+    })
+}
+
+/**
+ * Await the in-flight background version check (if any) so the result
+ * is written to disk before the process exits.  Called from the postrun
+ * hook — mirrors the flush pattern used by analytics and Sentry.
+ *
+ * No-op when no check is pending (the common case).
+ */
+export async function flushPendingVersionCheck(): Promise<void> {
+  if (pendingCheck) {
+    await pendingCheck
+  }
 }
 
 /**
