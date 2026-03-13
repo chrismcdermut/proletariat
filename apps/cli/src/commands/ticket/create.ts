@@ -12,10 +12,15 @@ import {
   outputErrorAsJson,
   outputDryRunSuccessAsJson,
   outputDryRunErrorsAsJson,
+  outputPromptAsJson,
+  buildPromptConfig,
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
 import { multiLineInput } from '../../lib/multiline-input.js';
+import { isLinearConfigured, loadLinearConfig, getLinearApiKey, LinearClient } from '../../lib/linear/index.js';
+import { PMO_PRIORITY_TO_LINEAR } from '../../lib/linear/types.js';
+import { getRegisteredWorkSources } from '../../lib/work-source/config.js';
 
 export default class TicketCreate extends PMOCommand {
   static description = 'Create a new ticket on the PMO board';
@@ -30,6 +35,8 @@ export default class TicketCreate extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --title "My ticket" --description-file -  # Read from stdin',
     '<%= config.bin %> <%= command.id %> --json  # Output column choices as JSON',
     '<%= config.bin %> <%= command.id %> --title "Test" -P PROJ-001 --dry-run --json  # Validate without creating',
+    '<%= config.bin %> <%= command.id %> --source linear -t "Fix bug" --team ENG',
+    '<%= config.bin %> <%= command.id %> --source pmo -t "Local task" -c Backlog',
   ];
 
   static flags = {
@@ -83,11 +90,31 @@ export default class TicketCreate extends PMOCommand {
       description: 'Validate inputs without creating ticket (use with --json for structured output)',
       default: false,
     }),
+    source: Flags.string({
+      description: 'Ticket source: "pmo" for local DB, "linear" for Linear API, or "auto" to detect (default: auto)',
+      options: ['auto', 'pmo', 'linear'],
+      default: 'auto',
+    }),
+    team: Flags.string({
+      description: 'Linear team key (fallback: PRLT_LINEAR_TEAM)',
+    }),
   };
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(TicketCreate);
 
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Determine ticket source (pmo, linear, or prompt user)
+    const resolvedSource = await this.resolveSource(flags, jsonMode);
+
+    // If Linear source is selected, delegate to the Linear creation path
+    if (resolvedSource === 'linear') {
+      return this.createLinearIssue(flags, jsonMode);
+    }
+
+    // PMO path — existing flow
     // Get project and board info (pass JSON mode config for AI agents)
     const projectId = await this.requireProject({
       jsonMode: {
@@ -99,9 +126,6 @@ export default class TicketCreate extends PMOCommand {
     const board = await this.storage.getBoard(projectId);
     const columns = board.columns.map(c => c.name);
     const projectName = await this.getProjectName(projectId);
-
-    // Check if JSON output mode is active
-    const jsonMode = shouldOutputJson(flags);
 
     // Helper to handle errors in JSON mode
     const handleError = (code: string, message: string): never => {
@@ -373,6 +397,205 @@ export default class TicketCreate extends PMOCommand {
     }
     this.log(styles.muted(`\n   View board: prlt board`));
     this.log(styles.muted(`   List tickets: prlt ticket list`));
+  }
+
+  /**
+   * Determine whether to route through Linear or PMO based on --source flag
+   * and workspace config. When multiple providers are configured and source is
+   * 'auto', prompts the user (or outputs JSON for agents) to choose.
+   */
+  private async resolveSource(
+    flags: { source?: string; json?: boolean },
+    jsonMode: boolean
+  ): Promise<'pmo' | 'linear'> {
+    const source = flags.source || 'auto';
+
+    if (source === 'pmo') return 'pmo';
+    if (source === 'linear') return 'linear';
+
+    // auto: check configured providers
+    const db = this.storage.getDatabase();
+    const registeredSources = getRegisteredWorkSources(db);
+
+    // Filter to unique provider types
+    const providerTypes = [...new Set(registeredSources.map(s => s.provider))];
+
+    // If only PMO is available, use it directly
+    if (providerTypes.length <= 1) return 'pmo';
+
+    // Multiple providers configured — prompt user to select
+    const choices = providerTypes.map(p => ({
+      name: p === 'pmo' ? 'PMO (local)' : `${p.charAt(0).toUpperCase() + p.slice(1)}`,
+      value: p,
+    }));
+    const message = 'Multiple ticket providers configured. Where should this ticket be created?';
+
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'source', message, choices),
+        createMetadata('ticket create', flags as Record<string, unknown>)
+      );
+      // outputPromptAsJson calls process.exit — unreachable
+    }
+
+    const { selectedSource } = await inquirer.prompt([{
+      type: 'list',
+      name: 'selectedSource',
+      message,
+      choices,
+    }]);
+
+    // Only 'linear' gets the special path; everything else falls through to PMO
+    return selectedSource === 'linear' ? 'linear' : 'pmo';
+  }
+
+  /**
+   * Create an issue in Linear instead of the local PMO database.
+   */
+  private async createLinearIssue(
+    flags: Record<string, unknown>,
+    jsonMode: boolean
+  ): Promise<void> {
+    const db = this.storage.getDatabase();
+
+    const handleError = (code: string, message: string): never => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket create', flags));
+        this.exit(1);
+      }
+      this.error(message);
+    };
+
+    // Resolve Linear API key
+    const apiKey = getLinearApiKey(db);
+    if (!apiKey) {
+      return handleError(
+        'LINEAR_NOT_CONFIGURED',
+        'Linear is not configured. Run "prlt linear setup" first, or set LINEAR_API_KEY.'
+      );
+    }
+
+    const client = new LinearClient(apiKey);
+
+    // Resolve team
+    const linearConfig = loadLinearConfig(db);
+    const teamKey = (flags.team as string) || linearConfig?.defaultTeamKey || process.env.PRLT_LINEAR_TEAM;
+    if (!teamKey) {
+      return handleError(
+        'LINEAR_TEAM_REQUIRED',
+        'Linear team key is required. Use --team flag or set PRLT_LINEAR_TEAM.'
+      );
+    }
+
+    const team = await client.getTeamByKey(teamKey);
+    if (!team) {
+      return handleError('LINEAR_TEAM_NOT_FOUND', `Linear team "${teamKey}" not found.`);
+    }
+
+    // Collect title (required)
+    let title = flags.title as string | undefined;
+    if (!title) {
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('input', 'title', 'Enter ticket title:', undefined, undefined),
+          createMetadata('ticket create', flags)
+        );
+        // unreachable
+      }
+
+      const { inputTitle } = await inquirer.prompt([{
+        type: 'input',
+        name: 'inputTitle',
+        message: 'Enter ticket title:',
+        validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
+      }]);
+      title = inputTitle;
+    }
+
+    // Read description from file if --description-file is provided
+    let description = flags.description as string | undefined;
+    if (flags['description-file']) {
+      const filePath = flags['description-file'] as string;
+      try {
+        if (filePath === '-') {
+          if (process.stdin.isTTY) {
+            return handleError('DESCRIPTION_FILE_ERROR', 'Cannot read from stdin: no input piped.');
+          }
+          description = fs.readFileSync(0, 'utf-8');
+        } else {
+          description = fs.readFileSync(filePath, 'utf-8');
+        }
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        return handleError('DESCRIPTION_FILE_ERROR', `Failed to read description file "${filePath}": ${errMsg}`);
+      }
+    }
+
+    // Map PMO priority to Linear priority number
+    const pmoPriority = flags.priority as string | undefined;
+    const linearPriority = pmoPriority ? PMO_PRIORITY_TO_LINEAR[pmoPriority] : undefined;
+
+    // Handle dry-run
+    if (flags['dry-run']) {
+      const wouldCreate = {
+        source: 'linear',
+        team: teamKey,
+        title: title!,
+        ...(description && { description }),
+        ...(pmoPriority && { priority: pmoPriority, linearPriority }),
+      };
+
+      if (jsonMode) {
+        outputDryRunSuccessAsJson('ticket', wouldCreate, createMetadata('ticket create', flags));
+      }
+
+      this.log(styles.warning('\n[DRY RUN] Would create Linear issue:'));
+      this.log(styles.muted(`   Team: ${teamKey}`));
+      this.log(styles.muted(`   Title: ${title}`));
+      if (pmoPriority) {
+        this.log(styles.muted(`   Priority: ${pmoPriority} (Linear: ${linearPriority})`));
+      }
+      if (description) {
+        const shortDesc = description.split('\n')[0].substring(0, 60);
+        this.log(styles.muted(`   Description: ${shortDesc}${description.length > 60 ? '...' : ''}`));
+      }
+      this.log(styles.muted('\n(No issue was created)'));
+      return;
+    }
+
+    // Create the issue in Linear
+    const issue = await client.createIssue({
+      teamId: team.id,
+      title: title!,
+      description,
+      priority: linearPriority,
+    });
+
+    // JSON output
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        source: 'linear',
+        issue: {
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          url: issue.url,
+          state: issue.state.name,
+          team: issue.team.key,
+          priority: issue.priority,
+        },
+      }, null, 2));
+      return;
+    }
+
+    this.log(styles.success(`\n✅ Created Linear issue ${styles.emphasis(issue.identifier)}`));
+    this.log(styles.muted(`   Title: ${issue.title}`));
+    this.log(styles.muted(`   Team: ${issue.team.name} (${issue.team.key})`));
+    this.log(styles.muted(`   State: ${issue.state.name}`));
+    if (issue.url) {
+      this.log(styles.muted(`   URL: ${issue.url}`));
+    }
   }
 
   private async promptTicketData(
