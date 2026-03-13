@@ -23,6 +23,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { parseBoard } from './markdown.js';
+import { initOutboundSync } from '../external-issues/outbound-sync.js';
 
 /**
  * Get the board path for a project
@@ -280,6 +281,9 @@ export function getStorageWithAutoSync(
 
   // Note: Storage no longer holds project context - projectId is passed explicitly to operations
   const storage = new SQLiteStorage(dbPath);
+
+  // Initialize outbound sync hooks (idempotent — safe to call on every storage creation)
+  initOutboundSync(storage.getDatabase());
 
   return storage;
 }

@@ -108,3 +108,11 @@ export {
   type MirrorResolution,
   type MirrorResolutionInput,
 } from './work-start.js'
+
+// Outbound sync
+export {
+  OutboundSyncHandler,
+  initOutboundSync,
+  stopOutboundSync,
+  type OutboundSyncResult,
+} from './outbound-sync.js'
