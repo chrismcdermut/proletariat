@@ -5,6 +5,7 @@ import { loadJiraConfig } from '../jira/config.js'
 import { loadShortcutConfig } from '../shortcut/config.js'
 import { loadTrelloConfig } from '../trello/config.js'
 import { loadMondayConfig } from '../monday/config.js'
+import { loadProviderSources } from './provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 const ACTIVE_SOURCE_KEY = 'work.active_source'
@@ -124,6 +125,18 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
     providers.set('trello', {
       provider: 'trello',
       context: trelloConfig.boardName ?? trelloConfig.boardId ?? undefined,
+    })
+  }
+
+  // Append multi-source provider entries. These use a composite key
+  // (provider + ':' + prefix) so they don't overwrite single-provider
+  // entries already in the map.
+  const multiSources = loadProviderSources(db)
+  for (const source of multiSources) {
+    const key = `${source.provider}:${source.prefix}` as WorkSourceProvider
+    providers.set(key, {
+      provider: source.provider,
+      context: source.teamProjectId,
     })
   }
 
