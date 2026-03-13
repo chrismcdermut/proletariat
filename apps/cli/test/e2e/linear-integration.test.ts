@@ -123,6 +123,104 @@ describe('Linear Integration', () => {
       const key = getLinearApiKey(db)
       expect(key).to.equal('lin_api_stored')
     })
+
+    it('should resolve API key from provider source apiKeyRef', () => {
+      delete process.env.LINEAR_API_KEY
+      delete process.env.PRLT_LINEAR_API_KEY
+
+      // Configure a provider source with a custom apiKeyRef pointing to a workspace setting
+      const sources = [{
+        id: 'eng-linear',
+        provider: 'linear',
+        apiKeyRef: 'custom.linear_key',
+        teamProjectId: 'ENG',
+        prefix: 'ENG-',
+      }]
+      db.prepare('INSERT INTO workspace_settings (key, value) VALUES (?, ?)').run(
+        'work.provider_sources',
+        JSON.stringify(sources),
+      )
+      // Store the key under the custom apiKeyRef
+      db.prepare('INSERT INTO workspace_settings (key, value) VALUES (?, ?)').run(
+        'custom.linear_key',
+        'lin_api_from_provider_source',
+      )
+
+      const key = getLinearApiKey(db)
+      expect(key).to.equal('lin_api_from_provider_source')
+    })
+
+    it('should resolve API key from provider source env var apiKeyRef', () => {
+      delete process.env.LINEAR_API_KEY
+      delete process.env.PRLT_LINEAR_API_KEY
+
+      // Configure a provider source with apiKeyRef pointing to an env var
+      process.env.MY_CUSTOM_LINEAR_KEY = 'lin_api_custom_env'
+      const sources = [{
+        id: 'eng-linear',
+        provider: 'linear',
+        apiKeyRef: 'MY_CUSTOM_LINEAR_KEY',
+        teamProjectId: 'ENG',
+        prefix: 'ENG-',
+      }]
+      db.prepare('INSERT INTO workspace_settings (key, value) VALUES (?, ?)').run(
+        'work.provider_sources',
+        JSON.stringify(sources),
+      )
+
+      const key = getLinearApiKey(db)
+      expect(key).to.equal('lin_api_custom_env')
+
+      delete process.env.MY_CUSTOM_LINEAR_KEY
+    })
+
+    it('should prefer provider source over legacy env var', () => {
+      process.env.LINEAR_API_KEY = 'lin_api_legacy_env'
+
+      // Configure provider source with workspace setting
+      const sources = [{
+        id: 'eng-linear',
+        provider: 'linear',
+        apiKeyRef: 'custom.linear_key',
+        teamProjectId: 'ENG',
+        prefix: 'ENG-',
+      }]
+      db.prepare('INSERT INTO workspace_settings (key, value) VALUES (?, ?)').run(
+        'work.provider_sources',
+        JSON.stringify(sources),
+      )
+      db.prepare('INSERT INTO workspace_settings (key, value) VALUES (?, ?)').run(
+        'custom.linear_key',
+        'lin_api_provider_source',
+      )
+
+      const key = getLinearApiKey(db)
+      expect(key).to.equal('lin_api_provider_source')
+
+      delete process.env.LINEAR_API_KEY
+    })
+
+    it('should fall back to legacy env var when provider source has no key', () => {
+      process.env.PRLT_LINEAR_API_KEY = 'lin_api_legacy_fallback'
+
+      // Configure provider source with a ref that doesn't resolve
+      const sources = [{
+        id: 'eng-linear',
+        provider: 'linear',
+        apiKeyRef: 'nonexistent.key',
+        teamProjectId: 'ENG',
+        prefix: 'ENG-',
+      }]
+      db.prepare('INSERT INTO workspace_settings (key, value) VALUES (?, ?)').run(
+        'work.provider_sources',
+        JSON.stringify(sources),
+      )
+
+      const key = getLinearApiKey(db)
+      expect(key).to.equal('lin_api_legacy_fallback')
+
+      delete process.env.PRLT_LINEAR_API_KEY
+    })
   })
 
   // ===========================================================================

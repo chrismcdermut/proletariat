@@ -475,7 +475,7 @@ export default class TicketCreate extends PMOCommand {
     if (!apiKey) {
       return handleError(
         'LINEAR_NOT_CONFIGURED',
-        'Linear is not configured. Run "prlt linear setup" first, or set LINEAR_API_KEY.'
+        'Linear is not configured. Run "prlt linear setup" first, or configure a Linear provider source.'
       );
     }
 

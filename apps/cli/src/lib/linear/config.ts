@@ -6,6 +6,7 @@
 
 import Database from 'better-sqlite3'
 import type { LinearConfig } from './types.js'
+import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
@@ -104,13 +105,32 @@ export function clearLinearConfig(db: Database.Database): void {
 }
 
 /**
- * Get the stored Linear API key.
- * Also checks PRLT_LINEAR_API_KEY and LINEAR_API_KEY environment variables.
+ * Get the Linear API key using the provider-sources resolution chain.
+ *
+ * Resolution order:
+ * 1. If a Linear provider source is configured, resolve its apiKeyRef
+ *    (checks env var named apiKeyRef, then workspace_settings key named apiKeyRef)
+ * 2. Legacy fallback: PRLT_LINEAR_API_KEY or LINEAR_API_KEY environment variables
+ * 3. Legacy fallback: workspace_settings key 'linear.api_key'
  */
 export function getLinearApiKey(db: Database.Database): string | null {
-  // Environment variables take precedence
+  // 1. Try provider sources (supports custom apiKeyRef per source)
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'linear') {
+        const key = resolveApiKey(db, source)
+        if (key) return key
+      }
+    }
+  } catch {
+    // Provider sources table may not exist in older databases
+  }
+
+  // 2. Legacy: environment variables
   const envKey = process.env.PRLT_LINEAR_API_KEY || process.env.LINEAR_API_KEY
   if (envKey) return envKey
 
+  // 3. Legacy: stored workspace setting
   return getSetting(db, LINEAR_CONFIG_KEYS.apiKey)
 }
