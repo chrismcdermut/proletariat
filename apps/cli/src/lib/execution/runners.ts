@@ -1089,7 +1089,9 @@ export async function runHost(
 
   // Build script that runs executor and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
-  const systemPromptVar = systemPromptPath ? `\nSYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
+  // TKT-941: Export SYSTEM_PROMPT_PATH so it's available inside srt sandbox child processes.
+  // Without export, `bash -c '...'` inside srt can't access the variable.
+  const systemPromptVar = systemPromptPath ? `\nexport SYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
 
   // Ephemeral agents auto-close after completion instead of dropping to interactive shell
   const postExecBlock = context.isEphemeral
@@ -1133,7 +1135,12 @@ exec $SHELL
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
-PROMPT_PATH="${promptPath}"${systemPromptVar}
+# TKT-941: Export PROMPT_PATH so it's available inside srt sandbox child processes.
+# When running in sandbox mode, the executor is wrapped with:
+#   srt ... -- bash -c 'claude ... "$(cat "$PROMPT_PATH")"'
+# Without export, the inner bash started by srt cannot access PROMPT_PATH,
+# causing $(cat "$PROMPT_PATH") to expand to empty and the agent to start idle.
+export PROMPT_PATH="${promptPath}"${systemPromptVar}
 ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 ${context.executionEnvironment === 'sandbox' ? 'echo "🔒 Running in srt sandbox (filesystem + network isolation)"' : ''}
