@@ -414,11 +414,15 @@ export default class TicketCreate extends PMOCommand {
     if (source === 'linear') return 'linear';
 
     // auto: check configured providers
-    const db = this.storage.getDatabase();
-    const registeredSources = getRegisteredWorkSources(db);
-
-    // Filter to unique provider types
-    const providerTypes = [...new Set(registeredSources.map(s => s.provider))];
+    let providerTypes: string[];
+    try {
+      const db = this.storage.getDatabase();
+      const registeredSources = getRegisteredWorkSources(db);
+      providerTypes = [...new Set(registeredSources.map(s => s.provider))];
+    } catch {
+      // workspace_settings table may not exist in older/test databases
+      return 'pmo';
+    }
 
     // If only PMO is available, use it directly
     if (providerTypes.length <= 1) return 'pmo';
