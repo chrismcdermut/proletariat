@@ -84,10 +84,10 @@ import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelo
 import {
   parseWorkSourceRef,
   formatWorkSourceRef,
-  loadActiveWorkSource,
-  saveActiveWorkSource,
+  loadDefaultWorkSource,
   getRegisteredWorkSources,
   getConnectedIntegrations,
+  isLocalTicketId,
 } from '../../lib/work-source/index.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
 
@@ -462,12 +462,12 @@ export default class WorkStart extends PMOCommand {
     let key = input.key
     let sourceResolutionMethod = 'flag'
 
-    // If no explicit source flag, try workspace active source
+    // If no explicit source flag, try workspace default source
     if (!isIssueSource(source) && input.db) {
-      const activeSource = loadActiveWorkSource(input.db)
-      if (activeSource && isIssueSource(activeSource.provider)) {
-        source = activeSource.provider
-        sourceResolutionMethod = 'active-source'
+      const defaultSource = loadDefaultWorkSource(input.db)
+      if (defaultSource && isIssueSource(defaultSource.provider)) {
+        source = defaultSource.provider
+        sourceResolutionMethod = 'default-source'
       }
     }
 
@@ -496,11 +496,6 @@ export default class WorkStart extends PMOCommand {
     if (!isIssueSource(source)) {
       source = sourceResult.source
       sourceResolutionMethod = 'interactive'
-
-      // Persist selected source as default
-      if (input.db && isIssueSource(source)) {
-        saveActiveWorkSource(input.db, { provider: source })
-      }
     }
 
     if (!isIssueSource(source)) {
@@ -627,6 +622,31 @@ export default class WorkStart extends PMOCommand {
         } else {
           // Provider only, no key - will prompt for key
           flags.source = fromFlag.toLowerCase()
+        }
+      }
+
+      // Auto-detect external issue identifiers: if a positional ticketId is provided
+      // that doesn't look like a local PMO ID (TKT-XXX), route through the default source.
+      // This allows `prlt work start PRLT-933` to go directly to the configured source.
+      if (ticketId && !fromIssueActive && !isLocalTicketId(ticketId)) {
+        const defaultSource = loadDefaultWorkSource(db)
+        if (defaultSource && isIssueSource(defaultSource.provider)) {
+          // Treat the positional arg as an external issue key
+          fromIssueActive = true
+          flags.source = defaultSource.provider
+          flags.key = ticketId
+          ticketId = undefined // Clear so it gets set from linked ticket
+          if (!jsonMode) {
+            this.log(styles.muted(`"${flags.key}" is not a local ticket ID — resolving via default source: ${defaultSource.provider}`))
+          }
+        } else {
+          db.close()
+          return handleError(
+            'NO_DEFAULT_SOURCE',
+            `"${ticketId}" is not a local ticket ID (TKT-XXX) and no default work source is configured. ` +
+            `Set one with: prlt work source set <provider[:context]>  (e.g. prlt work source set linear)\n` +
+            `Or use: prlt work start --from <provider>:${ticketId}`
+          )
         }
       }
 

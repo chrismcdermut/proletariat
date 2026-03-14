@@ -3,10 +3,17 @@ export {
   type WorkSourceProvider,
   type WorkSourceRef,
   isWorkSourceProvider,
+  isLocalTicketId,
   parseWorkSourceRef,
   formatWorkSourceRef,
+  saveDefaultWorkSource,
+  clearDefaultWorkSource,
+  loadDefaultWorkSource,
+  /** @deprecated Use saveDefaultWorkSource */
   saveActiveWorkSource,
+  /** @deprecated Use clearDefaultWorkSource */
   clearActiveWorkSource,
+  /** @deprecated Use loadDefaultWorkSource */
   loadActiveWorkSource,
   getRegisteredWorkSources,
   getConnectedIntegrations,

@@ -9,11 +9,11 @@ import {
 import {
   parseWorkSourceRef,
   formatWorkSourceRef,
-  saveActiveWorkSource,
+  saveDefaultWorkSource,
 } from '../../../lib/work-source/index.js'
 
 export default class WorkSourceSet extends PMOCommand {
-  static description = 'Set the active work source used by "work spawn"'
+  static description = 'Set the default work source used by "work start" and "work spawn"'
 
   static strict = false
 
@@ -52,7 +52,7 @@ export default class WorkSourceSet extends PMOCommand {
     }
 
     const db = this.storage.getDatabase()
-    saveActiveWorkSource(db, source)
+    saveDefaultWorkSource(db, source)
     const ref = formatWorkSourceRef(source)
 
     if (jsonMode) {
@@ -65,6 +65,6 @@ export default class WorkSourceSet extends PMOCommand {
       }, createMetadata('work source set', flags))
     }
 
-    this.log(styles.success(`Active work source set to ${ref}`))
+    this.log(styles.success(`Default work source set to ${ref}`))
   }
 }

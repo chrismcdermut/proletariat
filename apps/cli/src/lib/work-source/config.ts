@@ -8,7 +8,9 @@ import { loadMondayConfig } from '../monday/config.js'
 import { loadProviderSources } from './provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
-const ACTIVE_SOURCE_KEY = 'work.active_source'
+const DEFAULT_SOURCE_KEY = 'work.default_source'
+/** @deprecated Old key kept for migration — use DEFAULT_SOURCE_KEY */
+const LEGACY_ACTIVE_SOURCE_KEY = 'work.active_source'
 
 export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'trello', 'monday'] as const
 export type WorkSourceProvider = typeof WORK_SOURCE_PROVIDERS[number]
@@ -41,6 +43,14 @@ export function isWorkSourceProvider(value: string): value is WorkSourceProvider
   return (WORK_SOURCE_PROVIDERS as readonly string[]).includes(value)
 }
 
+/**
+ * Check if a ticket identifier looks like a local PMO ticket ID (e.g. TKT-123).
+ * Local IDs always start with the TKT- prefix.
+ */
+export function isLocalTicketId(ticketId: string): boolean {
+  return /^TKT-\d+$/i.test(ticketId)
+}
+
 export function parseWorkSourceRef(input: string): WorkSourceRef {
   const raw = input.trim()
   if (!raw) {
@@ -65,16 +75,31 @@ export function formatWorkSourceRef(source: WorkSourceRef): string {
   return source.context ? `${source.provider}:${source.context}` : source.provider
 }
 
-export function saveActiveWorkSource(db: Database.Database, source: WorkSourceRef): void {
-  setSetting(db, ACTIVE_SOURCE_KEY, formatWorkSourceRef(source))
+export function saveDefaultWorkSource(db: Database.Database, source: WorkSourceRef): void {
+  setSetting(db, DEFAULT_SOURCE_KEY, formatWorkSourceRef(source))
+  // Clean up legacy key if it exists
+  deleteSetting(db, LEGACY_ACTIVE_SOURCE_KEY)
 }
 
-export function clearActiveWorkSource(db: Database.Database): void {
-  deleteSetting(db, ACTIVE_SOURCE_KEY)
+export function clearDefaultWorkSource(db: Database.Database): void {
+  deleteSetting(db, DEFAULT_SOURCE_KEY)
+  deleteSetting(db, LEGACY_ACTIVE_SOURCE_KEY)
 }
 
-export function loadActiveWorkSource(db: Database.Database): WorkSourceRef | null {
-  const raw = getSetting(db, ACTIVE_SOURCE_KEY)
+export function loadDefaultWorkSource(db: Database.Database): WorkSourceRef | null {
+  // Check new key first
+  let raw = getSetting(db, DEFAULT_SOURCE_KEY)
+
+  // Fall back to legacy key and migrate
+  if (!raw) {
+    raw = getSetting(db, LEGACY_ACTIVE_SOURCE_KEY)
+    if (raw) {
+      // Migrate to new key
+      setSetting(db, DEFAULT_SOURCE_KEY, raw)
+      deleteSetting(db, LEGACY_ACTIVE_SOURCE_KEY)
+    }
+  }
+
   if (!raw) return null
 
   try {
@@ -83,6 +108,13 @@ export function loadActiveWorkSource(db: Database.Database): WorkSourceRef | nul
     return null
   }
 }
+
+/** @deprecated Use saveDefaultWorkSource instead */
+export const saveActiveWorkSource = saveDefaultWorkSource
+/** @deprecated Use clearDefaultWorkSource instead */
+export const clearActiveWorkSource = clearDefaultWorkSource
+/** @deprecated Use loadDefaultWorkSource instead */
+export const loadActiveWorkSource = loadDefaultWorkSource
 
 export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[] {
   const providers = new Map<WorkSourceProvider, WorkSourceRef>()
