@@ -1058,6 +1058,10 @@ export async function runHost(
   let executorInvocation: string
   if (isClaudeExecutor(executor)) {
     // Build flags based on config - Claude-specific flags
+    // PRLT-948: --permission-mode bypassPermissions skips the "trust this folder" dialog.
+    // Without it, Claude Code shows a workspace trust prompt in new worktrees and the
+    // agent sits idle waiting for user input that never comes in automated tmux sessions.
+    const bypassTrustFlag = skipPermissions ? '--permission-mode bypassPermissions ' : ''
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
     const printFlag = config.outputMode === 'print' ? '-p ' : ''
@@ -1070,7 +1074,7 @@ export async function runHost(
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     // Tool registry (TKT-083): pass MCP config to Claude Code via --mcp-config flag
     const mcpConfigFlag = mcpConfigPath ? `--mcp-config "${mcpConfigPath}" ` : ''
-    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}${mcpConfigFlag}"$(cat "$PROMPT_PATH")"`
+    executorInvocation = `${cmd} ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}${mcpConfigFlag}"$(cat "$PROMPT_PATH")"`
   } else if (executor === 'codex') {
     // TKT-080: Use Codex adapter for deterministic command building.
     // Uses PLACEHOLDER pattern for reliable prompt replacement (same as devcontainer runner).
@@ -1121,13 +1125,14 @@ exec $SHELL
   // so the agent at least gets a working session instead of silently failing.
   let fallbackInvocation: string
   if (isClaudeExecutor(executor)) {
+    const fbBypassTrust = skipPermissions ? '--permission-mode bypassPermissions ' : ''
     const fbPermissions = skipPermissions ? '--dangerously-skip-permissions ' : ''
     const fbEffort = skipPermissions ? '--effort high ' : ''
     const fbPrint = config.outputMode === 'print' ? '-p ' : ''
     const fbDisallowPlan = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     const fbSystemPrompt = systemPromptPath ? '--system-prompt "$(cat "$SYSTEM_PROMPT_PATH")" ' : ''
     const fbMcpConfig = mcpConfigPath ? `--mcp-config "${mcpConfigPath}" ` : ''
-    fallbackInvocation = `${cmd} ${fbPermissions}${fbEffort}${fbPrint}${fbDisallowPlan}${fbSystemPrompt}${fbMcpConfig}`.trim()
+    fallbackInvocation = `${cmd} ${fbBypassTrust}${fbPermissions}${fbEffort}${fbPrint}${fbDisallowPlan}${fbSystemPrompt}${fbMcpConfig}`.trim()
   } else {
     fallbackInvocation = cmd
   }
