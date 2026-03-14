@@ -205,7 +205,7 @@ export class OutboundSyncHandler {
       }
 
       const states = await client.listStates(team.id)
-      const matchingState = states.find((s) => s.type === category)
+      const matchingState = findMatchingLinearState(states, event.newStatus, category)
 
       if (!matchingState) {
         return { provider: 'linear', success: false, error: `No Linear state for category: ${category}` }
@@ -438,6 +438,21 @@ export class OutboundSyncHandler {
       latestStateSnapshot: row.latest_state_snapshot ? parseSnapshot(row.latest_state_snapshot) : null,
     }))
   }
+}
+
+/**
+ * Find the best matching Linear workflow state for a status change.
+ * Prefers an exact name match (e.g. "In Progress" → "In Progress") over
+ * a category-type match (e.g. 'started') to avoid ambiguity when multiple
+ * states share the same category.
+ */
+export function findMatchingLinearState(
+  states: Array<{ id: string; name: string; type: string }>,
+  statusName: string | null,
+  categoryType: string,
+): { id: string; name: string; type: string } | undefined {
+  const nameMatch = statusName ? states.find((s) => s.name === statusName) : undefined
+  return nameMatch ?? states.find((s) => s.type === categoryType)
 }
 
 function parseSnapshot(value: string): Record<string, unknown> | null {
