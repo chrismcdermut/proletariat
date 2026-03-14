@@ -37,8 +37,7 @@ import {
   type WorkSourceRef,
   parseWorkSourceRef,
   formatWorkSourceRef,
-  loadActiveWorkSource,
-  saveActiveWorkSource,
+  loadDefaultWorkSource,
   getRegisteredWorkSources,
 } from '../../lib/work-source/index.js'
 import {
@@ -389,9 +388,9 @@ export default class WorkSpawn extends PMOCommand {
         context: flags['linear-team'],
       }
     } else {
-      const activeSource = loadActiveWorkSource(sourceDb)
-      if (activeSource) {
-        resolvedSource = activeSource
+      const defaultSource = loadDefaultWorkSource(sourceDb)
+      if (defaultSource) {
+        resolvedSource = defaultSource
       } else {
         const registeredSources = getRegisteredWorkSources(sourceDb)
         if (registeredSources.length > 1) {
@@ -414,10 +413,10 @@ export default class WorkSpawn extends PMOCommand {
           }
 
           resolvedSource = parseWorkSourceRef(selectedRef)
-          saveActiveWorkSource(sourceDb, resolvedSource)
 
           if (!jsonMode) {
-            this.log(styles.muted(`Saved active work source: ${formatWorkSourceRef(resolvedSource)}`))
+            this.log(styles.muted(`Using work source: ${formatWorkSourceRef(resolvedSource)}`))
+            this.log(styles.muted(`To set as default: prlt work source set ${formatWorkSourceRef(resolvedSource)}`))
           }
         } else if (registeredSources.length === 1) {
           resolvedSource = registeredSources[0]
