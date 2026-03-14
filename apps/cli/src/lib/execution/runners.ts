@@ -1074,7 +1074,9 @@ export async function runHost(
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     // Tool registry (TKT-083): pass MCP config to Claude Code via --mcp-config flag
     const mcpConfigFlag = mcpConfigPath ? `--mcp-config "${mcpConfigPath}" ` : ''
-    executorInvocation = `${cmd} ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}${mcpConfigFlag}"$(cat "$PROMPT_PATH")"`
+    // PRLT-950: Use -- to separate flags from positional prompt argument.
+    // --disallowedTools is variadic and will consume the prompt as its second arg without --.
+    executorInvocation = `${cmd} ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}${mcpConfigFlag}-- "$(cat "$PROMPT_PATH")"`
   } else if (executor === 'codex') {
     // TKT-080: Use Codex adapter for deterministic command building.
     // Uses PLACEHOLDER pattern for reliable prompt replacement (same as devcontainer runner).
@@ -2147,7 +2149,9 @@ export function buildDevcontainerCommand(
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     // Tool registry (TKT-083): pass MCP config to Claude Code via --mcp-config flag
     const mcpConfigFlag = mcpConfigFile ? `--mcp-config ${mcpConfigFile} ` : ''
-    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${mcpConfigFlag}"$(cat ${promptFile})"`
+    // PRLT-950: Use -- to separate flags from positional prompt argument.
+    // --disallowedTools is variadic and will consume the prompt as its second arg without --.
+    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${mcpConfigFlag}-- "$(cat ${promptFile})"`
   } else if (executor === 'codex') {
     // Use Codex adapter for mode validation and deterministic command building.
     // Validates that the permission/display combination is supported before building.
@@ -3046,7 +3050,8 @@ export async function runDocker(
     dockerCmd += ` ${config.docker.image}`
     if (isClaudeExecutor(executor)) {
       // TKT-053: Disable plan mode — Docker runner is always detached (no user to approve)
-      dockerCmd += ` ${cmd} --print --disallowedTools EnterPlanMode '${escapedPrompt}'`
+      // PRLT-950: Use -- to separate flags from positional prompt argument.
+      dockerCmd += ` ${cmd} --print --disallowedTools EnterPlanMode -- '${escapedPrompt}'`
     } else {
       const argsStr = args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
       dockerCmd += ` ${cmd} ${argsStr}`
@@ -3292,9 +3297,11 @@ export async function runOrchestratorInDocker(
     const effortFlag = skipPermissions ? '--effort high ' : ''
     // TKT-053: Disable plan mode for background agents — prevents silent stalls
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
+    // PRLT-950: Use -- to separate flags from positional prompt argument.
+    // --disallowedTools is variadic and will consume the prompt as its second arg without --.
     const executorCmd = executor === 'claude-code'
-      ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}"$(cat ${promptPath})"`
-      : `claude ${permissionsFlag}${effortFlag}"$(cat ${promptPath})"`
+      ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}-- "$(cat ${promptPath})"`
+      : `claude ${permissionsFlag}${effortFlag}-- "$(cat ${promptPath})"`
 
     // Build tmux session name (reuses the same name as host tmux for consistency)
     const tmuxSessionName = options?.sessionName || containerName
@@ -3625,7 +3632,8 @@ export async function runCloud(
     let remoteCmd: string
     if (isClaudeExecutor(executor)) {
       // TKT-053: Disable plan mode — VM runner is always nohup (no user to approve)
-      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} --print --disallowedTools EnterPlanMode '${escapedPrompt}'`
+      // PRLT-950: Use -- to separate flags from positional prompt argument.
+      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} --print --disallowedTools EnterPlanMode -- '${escapedPrompt}'`
     } else {
       const argsStr = executorArgs.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
       remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} ${argsStr}`
