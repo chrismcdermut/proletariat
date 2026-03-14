@@ -21,8 +21,8 @@ export default class PR extends PMOCommand {
     ...pmoBaseFlags,
     action: Flags.string({
       char: 'a',
-      description: 'Action to perform (list, create, link, status)',
-      options: ['list', 'create', 'link', 'status'],
+      description: 'Action to perform (list, create, merge, checks, link, status)',
+      options: ['list', 'create', 'merge', 'checks', 'link', 'status'],
     }),
   };
 
@@ -61,6 +61,8 @@ export default class PR extends PMOCommand {
       choices: () => [
         { name: 'List all open PRs', value: 'list' },
         { name: 'Create PR from current branch', value: 'create' },
+        { name: 'Merge a PR', value: 'merge' },
+        { name: 'View CI check status', value: 'checks' },
         { name: 'Link existing PR to ticket', value: 'link' },
         { name: 'View PR status for ticket', value: 'status' },
         { name: 'Cancel', value: 'cancel' },
@@ -84,6 +86,12 @@ export default class PR extends PMOCommand {
         break;
       case 'link':
         await this.config.runCommand('pr:link', []);
+        break;
+      case 'merge':
+        await this.config.runCommand('pr:merge', []);
+        break;
+      case 'checks':
+        await this.config.runCommand('pr:checks', []);
         break;
       case 'status':
         await this.config.runCommand('pr:status', []);
