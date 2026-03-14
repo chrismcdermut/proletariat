@@ -47,8 +47,10 @@ export const PMO_TABLES = {
   label_groups: 'pmo_label_groups',
   labels: 'pmo_labels',
   ticket_labels: 'pmo_ticket_labels',
-  // Linear integration tables
-  linear_issue_map: 'pmo_linear_issue_map',  // Linear issue ↔ PMO ticket mapping
+  // Generic external issue ↔ PMO ticket mapping (replaces provider-specific tables)
+  external_issue_map: 'pmo_external_issue_map',
+  // Linear integration tables (DEPRECATED — use external_issue_map)
+  linear_issue_map: 'pmo_linear_issue_map',
   // Provider-agnostic external issue/execution mapping
   external_execution_map: 'pmo_external_execution_map',
   external_execution_links: 'pmo_external_execution_links',
@@ -539,7 +541,22 @@ export const PMO_TABLE_SCHEMAS = {
       PRIMARY KEY (roadmap_id, project_id)
     )`,
 
-  // Linear integration: issue ↔ PMO ticket mapping
+  // Generic external issue ↔ PMO ticket mapping (provider-agnostic)
+  external_issue_map: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_issue_map} (
+      pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
+      external_id TEXT NOT NULL,
+      external_key TEXT NOT NULL,
+      external_url TEXT NOT NULL,
+      team_key TEXT NOT NULL,
+      sync_direction TEXT NOT NULL DEFAULT 'inbound',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (pmo_ticket_id, provider),
+      UNIQUE (provider, external_id)
+    )`,
+
+  // Linear integration: issue ↔ PMO ticket mapping (DEPRECATED — use external_issue_map)
   linear_issue_map: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.linear_issue_map} (
       pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
@@ -673,9 +690,10 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_labels_builtin ON ${PMO_TABLES.labels}(is_builtin);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_labels_ticket ON ${PMO_TABLES.ticket_labels}(ticket_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_ticket_labels_label ON ${PMO_TABLES.ticket_labels}(label_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_linear_id ON ${PMO_TABLES.linear_issue_map}(linear_issue_id);
-  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_identifier ON ${PMO_TABLES.linear_issue_map}(linear_identifier);
-  CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_team ON ${PMO_TABLES.linear_issue_map}(linear_team_key);
+  CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_provider ON ${PMO_TABLES.external_issue_map}(provider);
+  CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_external_id ON ${PMO_TABLES.external_issue_map}(provider, external_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_external_key ON ${PMO_TABLES.external_issue_map}(provider, external_key);
+  CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_team_key ON ${PMO_TABLES.external_issue_map}(provider, team_key);
   CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_map_external_key ON ${PMO_TABLES.external_execution_map}(provider, external_key);
   CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_links_execution_id ON ${PMO_TABLES.external_execution_links}(execution_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_prs_pr_url ON ${PMO_TABLES.external_execution_prs}(pr_url);
@@ -726,7 +744,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.ticket_labels,  // Ticket-label junction table
   PMO_TABLE_SCHEMAS.roadmaps,  // Named roadmap definitions
   PMO_TABLE_SCHEMAS.roadmap_projects,  // Roadmap-to-project associations
-  PMO_TABLE_SCHEMAS.linear_issue_map,  // Linear issue ↔ PMO ticket mapping
+  PMO_TABLE_SCHEMAS.external_issue_map,  // Generic external issue ↔ PMO ticket mapping
   PMO_TABLE_SCHEMAS.external_execution_map,  // External issue ↔ execution mapping
   PMO_TABLE_SCHEMAS.external_execution_links,  // External issue ↔ execution links
   PMO_TABLE_SCHEMAS.external_execution_prs,  // External issue ↔ PR links
