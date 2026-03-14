@@ -128,6 +128,9 @@ export default class DockerLogs extends Command {
         trackChildProcess(proc)
 
         proc.on('error', (err) => {
+          if (jsonMode) {
+            outputErrorAsJson('LOGS_FAILED', `Failed to get logs: ${err.message}`, createMetadata('docker logs', flags))
+          }
           this.error(`Failed to get logs: ${err.message}`)
         })
       } else {
@@ -141,6 +144,9 @@ export default class DockerLogs extends Command {
           this.log(output)
         } catch (error) {
           if (error instanceof Error && 'stderr' in error) {
+            if (jsonMode) {
+              outputErrorAsJson('LOGS_FAILED', `Failed to get logs: ${(error as { stderr: string }).stderr}`, createMetadata('docker logs', flags))
+            }
             this.error(`Failed to get logs: ${(error as { stderr: string }).stderr}`)
           }
           throw error
