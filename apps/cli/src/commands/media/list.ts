@@ -3,7 +3,7 @@ import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
 import { findHQRoot } from '../../lib/repos/index.js';
 import { getWorkspaceMediaInfo, formatDuration } from '../../lib/media/index.js';
-import { isNonTTY } from '../../lib/prompt-json.js';
+import { isNonTTY, shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 import { visualPadEnd } from '../../lib/string-utils.js';
 
 export default class List extends PMOCommand {
@@ -35,8 +35,13 @@ export default class List extends PMOCommand {
       flags.format = 'json';
     }
 
+    const jsonMode = shouldOutputJson(flags);
+
     const hqPath = findHQRoot();
     if (!hqPath) {
+      if (jsonMode) {
+        outputErrorAsJson('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt new" first.', createMetadata('media list', flags));
+      }
       this.error('Not in an HQ directory. Run "prlt new" first.');
     }
 

@@ -40,7 +40,7 @@ export default class ActionShow extends PMOCommand {
     }
 
     if (jsonMode) {
-      outputSuccessAsJson(action, createMetadata('action show', flags));
+      outputSuccessAsJson({ ...action }, createMetadata('action show', flags));
       return;
     }
 

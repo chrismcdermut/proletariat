@@ -106,6 +106,9 @@ export default class Add extends PMOCommand {
       this.log(colors.textMuted(`  Location: media/${result.name}/`));
       this.log(colors.textMuted(`  View details: prlt media show ${result.name}`));
     } else {
+      if (jsonMode) {
+        outputErrorAsJson('ADD_FAILED', `Failed to add media: ${result.error}`, createMetadata('media add', flags));
+      }
       this.error(`Failed to add media: ${result.error}`);
     }
   }

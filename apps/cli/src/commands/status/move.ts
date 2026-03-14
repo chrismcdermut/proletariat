@@ -139,6 +139,9 @@ export default class StatusMove extends PMOCommand {
     const newPosition = positionResolved.position;
 
     if (newPosition! < 0) {
+      if (jsonMode) {
+        outputErrorAsJson('INVALID_POSITION', 'Position must be >= 0', createMetadata('status move', flags));
+      }
       this.error('Position must be >= 0');
     }
 

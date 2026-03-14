@@ -20,7 +20,7 @@ import {
   getColumnEmoji,
   divider,
 } from '../../lib/styles.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 
 export default class Board extends PMOCommand {
   static description = 'Interactive menu for board operations';
@@ -222,6 +222,10 @@ export default class Board extends PMOCommand {
     const boardPath = getBoardPath(this.pmoPath, projectId);
 
     if (!fs.existsSync(boardPath)) {
+      const { flags: parsedFlags } = await this.parse(Board);
+      if (shouldOutputJson(parsedFlags)) {
+        outputErrorAsJson('BOARD_NOT_FOUND', 'board.md not found. Run "prlt board export" first to create it.', createMetadata('board', parsedFlags));
+      }
       this.error('board.md not found. Run "prlt board export" first to create it.');
     }
 

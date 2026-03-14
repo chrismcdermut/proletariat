@@ -118,6 +118,9 @@ export default class Remove extends PMOCommand {
     if (result.success) {
       this.log(format.success(`Media ${mediaName} removed`));
     } else {
+      if (jsonMode) {
+        outputErrorAsJson('REMOVE_FAILED', `Failed to remove media: ${result.error}`, createMetadata('media remove', flags));
+      }
       this.error(`Failed to remove media: ${result.error}`);
     }
   }
