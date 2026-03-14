@@ -126,7 +126,7 @@ export interface LinearIssueFilter {
 
 /**
  * Mapping record between a Linear issue and a PMO ticket.
- * Stored in pmo_linear_issue_map table.
+ * Stored in pmo_external_issue_map table (provider = 'linear').
  */
 export interface LinearIssueMap {
   pmoTicketId: string

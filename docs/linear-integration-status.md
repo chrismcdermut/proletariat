@@ -174,7 +174,7 @@ Whether status changes on PMO tickets fire outbound sync to Linear.
    - `ticket:pr_linked` — when a PR URL is attached to a ticket.
 
 2. On status change (`handleStatusChanged`):
-   - Checks if Linear is configured and the ticket has a Linear mapping (`pmo_linear_issue_map` table).
+   - Checks if Linear is configured and the ticket has a Linear mapping (`pmo_external_issue_map` table, `provider = 'linear'`).
    - Skips `inbound`-only sync mappings (only processes `outbound` or `bidirectional`).
    - Maps PMO status category to Linear workflow state type (e.g., `started` → `started`).
    - Calls `client.updateIssueState()` to update the Linear issue.
@@ -193,9 +193,9 @@ Whether status changes on PMO tickets fire outbound sync to Linear.
 - `prlt linear sync --pr-url URL --ticket TKT-001` — attach a PR link.
 - `--dry-run` for preview.
 
-**Dual mapping tables:**
-- `pmo_linear_issue_map` — Linear-specific with `sync_direction`, `linear_identifier`, `linear_team_key`.
-- `pmo_external_execution_map` — provider-agnostic with `latest_state_snapshot` JSON.
+**Mapping tables:**
+- `pmo_external_issue_map` — generic issue ↔ ticket mapping with `provider`, `sync_direction`, `external_key`, `team_key`.
+- `pmo_external_execution_map` — provider-agnostic execution tracking with `latest_state_snapshot` JSON.
 
 ### Verdict: **Works**
 

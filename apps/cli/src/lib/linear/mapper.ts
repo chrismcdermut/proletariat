@@ -29,31 +29,31 @@ export class LinearMapper {
   }
 
   /**
-   * Ensure the linear_issue_map table exists.
+   * Ensure the external_issue_map table exists.
    * Uses CREATE TABLE IF NOT EXISTS to match the schema defined in schema.ts.
    */
   private ensureTable(): void {
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS ${PMO_TABLES.linear_issue_map} (
+      CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_issue_map} (
         pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
-        linear_issue_id TEXT NOT NULL,
-        linear_identifier TEXT NOT NULL,
-        linear_team_key TEXT NOT NULL,
-        linear_url TEXT NOT NULL,
+        provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
+        external_id TEXT NOT NULL,
+        external_key TEXT NOT NULL,
+        external_url TEXT NOT NULL,
+        team_key TEXT NOT NULL,
         sync_direction TEXT NOT NULL DEFAULT 'inbound',
-        last_synced_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (pmo_ticket_id),
-        UNIQUE (linear_issue_id)
+        PRIMARY KEY (pmo_ticket_id, provider),
+        UNIQUE (provider, external_id)
       )
     `)
     this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_linear_id
-        ON ${PMO_TABLES.linear_issue_map}(linear_issue_id)
+      CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_external_id
+        ON ${PMO_TABLES.external_issue_map}(provider, external_id)
     `)
     this.db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_pmo_linear_issue_map_identifier
-        ON ${PMO_TABLES.linear_issue_map}(linear_identifier)
+      CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_external_key_eim
+        ON ${PMO_TABLES.external_issue_map}(provider, external_key)
     `)
   }
 
@@ -217,15 +217,15 @@ export class LinearMapper {
    */
   createMapping(map: Omit<LinearIssueMap, 'lastSyncedAt'>): void {
     this.db.prepare(`
-      INSERT INTO ${PMO_TABLES.linear_issue_map}
-        (pmo_ticket_id, linear_issue_id, linear_identifier, linear_team_key, linear_url, sync_direction, last_synced_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      INSERT INTO ${PMO_TABLES.external_issue_map}
+        (pmo_ticket_id, provider, external_id, external_key, external_url, team_key, sync_direction, created_at)
+      VALUES (?, 'linear', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
       map.pmoTicketId,
       map.linearIssueId,
       map.linearIdentifier,
-      map.linearTeamKey,
       map.linearUrl,
+      map.linearTeamKey,
       map.syncDirection,
     )
 
@@ -248,7 +248,7 @@ export class LinearMapper {
    */
   getByTicketId(ticketId: string): LinearIssueMap | null {
     const row = this.db.prepare(`
-      SELECT * FROM ${PMO_TABLES.linear_issue_map} WHERE pmo_ticket_id = ?
+      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE pmo_ticket_id = ? AND provider = 'linear'
     `).get(ticketId) as Record<string, unknown> | undefined
 
     return row ? this.rowToMap(row) : null
@@ -259,7 +259,7 @@ export class LinearMapper {
    */
   getByLinearId(linearIssueId: string): LinearIssueMap | null {
     const row = this.db.prepare(`
-      SELECT * FROM ${PMO_TABLES.linear_issue_map} WHERE linear_issue_id = ?
+      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' AND external_id = ?
     `).get(linearIssueId) as Record<string, unknown> | undefined
 
     if (row) {
@@ -275,7 +275,7 @@ export class LinearMapper {
    */
   getByIdentifier(identifier: string): LinearIssueMap | null {
     const row = this.db.prepare(`
-      SELECT * FROM ${PMO_TABLES.linear_issue_map} WHERE linear_identifier = ?
+      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' AND external_key = ?
     `).get(identifier) as Record<string, unknown> | undefined
 
     if (row) {
@@ -291,7 +291,7 @@ export class LinearMapper {
    */
   listMappings(): LinearIssueMap[] {
     const rows = this.db.prepare(`
-      SELECT * FROM ${PMO_TABLES.linear_issue_map} ORDER BY created_at DESC
+      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' ORDER BY created_at DESC
     `).all() as Record<string, unknown>[]
 
     return rows.map((row) => this.rowToMap(row))
@@ -301,12 +301,6 @@ export class LinearMapper {
    * Update the last synced timestamp for a mapping.
    */
   updateSyncTimestamp(pmoTicketId: string): void {
-    this.db.prepare(`
-      UPDATE ${PMO_TABLES.linear_issue_map}
-      SET last_synced_at = CURRENT_TIMESTAMP
-      WHERE pmo_ticket_id = ?
-    `).run(pmoTicketId)
-
     const map = this.getByTicketId(pmoTicketId)
     if (map) {
       this.externalMappingStore.upsertMapping({
@@ -329,7 +323,7 @@ export class LinearMapper {
    */
   deleteMapping(pmoTicketId: string): void {
     this.db.prepare(`
-      DELETE FROM ${PMO_TABLES.linear_issue_map} WHERE pmo_ticket_id = ?
+      DELETE FROM ${PMO_TABLES.external_issue_map} WHERE pmo_ticket_id = ? AND provider = 'linear'
     `).run(pmoTicketId)
   }
 
@@ -339,12 +333,11 @@ export class LinearMapper {
   private rowToMap(row: Record<string, unknown>): LinearIssueMap {
     return {
       pmoTicketId: row.pmo_ticket_id as string,
-      linearIssueId: row.linear_issue_id as string,
-      linearIdentifier: row.linear_identifier as string,
-      linearTeamKey: row.linear_team_key as string,
-      linearUrl: row.linear_url as string,
+      linearIssueId: row.external_id as string,
+      linearIdentifier: row.external_key as string,
+      linearTeamKey: row.team_key as string,
+      linearUrl: row.external_url as string,
       syncDirection: row.sync_direction as LinearIssueMap['syncDirection'],
-      lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at as string) : undefined,
       createdAt: new Date(row.created_at as string),
     }
   }

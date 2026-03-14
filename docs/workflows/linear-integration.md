@@ -209,7 +209,7 @@ prlt linear auth       →  config.ts      →  workspace_settings table
 prlt linear import     →  client.ts      →  Linear API (read)
                        →  mapper.ts      →  issue → ticket conversion
                        →  storage        →  PMO ticket creation
-                       →  mapper.ts      →  mapping record (pmo_linear_issue_map)
+                       →  mapper.ts      →  mapping record (pmo_external_issue_map)
 
 prlt linear sync       →  mapper.ts      →  lookup mapping
                        →  sync.ts        →  Linear API (write: state, comment, attachment)
