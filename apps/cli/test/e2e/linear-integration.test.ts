@@ -556,6 +556,48 @@ describe('Linear Integration', () => {
           })
         }).to.throw()
       })
+
+      it('should create outbound mapping for Linear-created tickets', () => {
+        insertStubTicket('TKT-003')
+        mapper.createMapping({
+          pmoTicketId: 'TKT-003',
+          linearIssueId: 'lin-outbound-1',
+          linearIdentifier: 'PRLT-500',
+          linearTeamKey: 'PRLT',
+          linearUrl: 'https://linear.app/proletariat/issue/PRLT-500',
+          syncDirection: 'outbound',
+          createdAt: new Date(),
+        })
+
+        const result = mapper.getByTicketId('TKT-003')
+        expect(result).to.not.be.null
+        expect(result!.linearIdentifier).to.equal('PRLT-500')
+        expect(result!.linearTeamKey).to.equal('PRLT')
+        expect(result!.syncDirection).to.equal('outbound')
+
+        // Should also be retrievable by Linear ID
+        const byLinearId = mapper.getByLinearId('lin-outbound-1')
+        expect(byLinearId).to.not.be.null
+        expect(byLinearId!.pmoTicketId).to.equal('TKT-003')
+      })
+
+      it('should create outbound mapping retrievable by identifier', () => {
+        insertStubTicket('TKT-004')
+        mapper.createMapping({
+          pmoTicketId: 'TKT-004',
+          linearIssueId: 'lin-outbound-2',
+          linearIdentifier: 'PRLT-501',
+          linearTeamKey: 'PRLT',
+          linearUrl: 'https://linear.app/proletariat/issue/PRLT-501',
+          syncDirection: 'outbound',
+          createdAt: new Date(),
+        })
+
+        const result = mapper.getByIdentifier('PRLT-501')
+        expect(result).to.not.be.null
+        expect(result!.pmoTicketId).to.equal('TKT-004')
+        expect(result!.syncDirection).to.equal('outbound')
+      })
     })
   })
 })
