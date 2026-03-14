@@ -67,6 +67,9 @@ export default class WorkReady extends PMOCommand {
 
     // Check for conflicting PR flags
     if (flags.pr && flags['no-pr']) {
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('CONFLICTING_FLAGS', '--pr and --no-pr are mutually exclusive', createMetadata('work ready', flags));
+      }
       this.error('--pr and --no-pr are mutually exclusive');
     }
 
@@ -136,7 +139,7 @@ export default class WorkReady extends PMOCommand {
       const ticket = await this.storage.getTicket(ticketId!);
       if (!ticket) {
         db.close();
-        this.error(`Ticket "${ticketId}" not found.`);
+        return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
       }
 
       // Get configured column name (from pmo_settings or default)

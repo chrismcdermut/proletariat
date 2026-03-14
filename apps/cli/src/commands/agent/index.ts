@@ -1,7 +1,7 @@
 
 import { colors } from '../../lib/colors.js';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 
 export default class Agent extends PMOCommand {
   static description = 'Manage agents in the workspace';
@@ -153,9 +153,15 @@ export default class Agent extends PMOCommand {
           break;
         }
         default:
+          if (jsonMode) {
+            outputErrorAsJson('UNKNOWN_ACTION', `Unknown action: ${action}`, createMetadata('agent', flags));
+          }
           this.error(`Unknown action: ${action}`);
       }
     } catch (error) {
+      if (jsonMode) {
+        outputErrorAsJson('EXECUTION_FAILED', `Failed to execute agent ${action}: ${error instanceof Error ? error.message : String(error)}`, createMetadata('agent', flags));
+      }
       this.error(`Failed to execute agent ${action}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

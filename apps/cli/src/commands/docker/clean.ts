@@ -9,6 +9,7 @@ import { isDockerRunning } from '../../lib/execution/runners.js'
 import { sanitizeContainerId } from '../../lib/docker/resolve.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 import { machineOutputFlags } from '../../lib/pmo/base-command.js'
+import { outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 
 interface OrphanedContainer {
@@ -63,6 +64,9 @@ export default class DockerClean extends Command {
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('docker clean', flags))
+      }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 
@@ -72,6 +76,9 @@ export default class DockerClean extends Command {
     try {
       db = new Database(dbPath)
     } catch {
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('DB_ERROR', 'Could not open workspace database.', createMetadata('docker clean', flags))
+      }
       this.error('Could not open workspace database.')
     }
 

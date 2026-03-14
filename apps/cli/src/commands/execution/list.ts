@@ -6,7 +6,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { ExecutionStatus } from '../../lib/execution/types.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
-import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 
 export default class ExecutionList extends PMOCommand {
@@ -51,6 +51,9 @@ export default class ExecutionList extends PMOCommand {
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('execution list', flags))
+      }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 

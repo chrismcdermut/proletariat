@@ -110,13 +110,13 @@ export default class EpicReorder extends PMOCommand {
     } else if (flags.after) {
       const afterEpic = epics.find(e => e.id === flags.after);
       if (!afterEpic) {
-        this.error(`Epic not found: ${flags.after}`);
+        return handleError('EPIC_NOT_FOUND', `Epic not found: ${flags.after}`);
       }
       newPosition = afterEpic.position + 1;
     } else if (flags.before) {
       const beforeEpic = epics.find(e => e.id === flags.before);
       if (!beforeEpic) {
-        this.error(`Epic not found: ${flags.before}`);
+        return handleError('EPIC_NOT_FOUND', `Epic not found: ${flags.before}`);
       }
       newPosition = beforeEpic.position;
     } else if (args.position !== undefined) {

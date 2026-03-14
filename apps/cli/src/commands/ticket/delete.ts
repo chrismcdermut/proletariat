@@ -95,7 +95,7 @@ export default class TicketDelete extends PMOCommand {
     // Get ticket to show details in confirmation
     const ticket = await this.storage.getTicket(ticketId!);
     if (!ticket) {
-      this.error(`Ticket "${ticketId}" not found.`);
+      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
 
     // Get board for project name (may be null if project was deleted/orphaned)

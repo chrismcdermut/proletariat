@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../lib/pmo/types.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputErrorAsJson, outputSuccessAsJson, createMetadata } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
 
 export default class ActionCreate extends PMOCommand {
@@ -163,6 +163,9 @@ export default class ActionCreate extends PMOCommand {
     }
 
     if (!name || !prompt) {
+      if (jsonMode) {
+        outputErrorAsJson('MISSING_REQUIRED', 'Name and prompt are required.', createMetadata('action create', flags));
+      }
       this.error('Name and prompt are required.');
     }
 
@@ -173,6 +176,18 @@ export default class ActionCreate extends PMOCommand {
       suggestedForCategories: suggestedFor,
       defaultMoveToCategory: moveTo,
     });
+
+    if (jsonMode) {
+      outputSuccessAsJson({
+        id: action.id,
+        name: action.name,
+        description: action.description ?? null,
+        suggestedForCategories: action.suggestedForCategories ?? [],
+        defaultMoveToCategory: action.defaultMoveToCategory ?? null,
+        message: `Created action "${action.name}"`,
+      }, createMetadata('action create', flags));
+      return;
+    }
 
     this.log(styles.success(`\nCreated action "${styles.emphasis(action.name)}" (${action.id})`));
     if (action.description) {

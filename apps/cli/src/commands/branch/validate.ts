@@ -7,7 +7,7 @@ import {
   getCurrentBranch,
   isGitRepo,
 } from '../../lib/branch/index.js'
-import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 
 export default class BranchValidate extends PMOCommand {
   static description = 'Validate branch name against conventional format'
@@ -42,11 +42,17 @@ export default class BranchValidate extends PMOCommand {
     // Use current branch if not provided
     if (!branchName) {
       if (!isGitRepo()) {
+        if (jsonMode) {
+          outputErrorAsJson('NOT_GIT_REPO', 'Not in a git repository.', createMetadata('branch validate', flags))
+        }
         this.error('Not in a git repository.')
       }
 
       const currentBranch = getCurrentBranch()
       if (!currentBranch) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_BRANCH', 'Could not determine current branch.', createMetadata('branch validate', flags))
+        }
         this.error('Could not determine current branch.')
       }
       branchName = currentBranch

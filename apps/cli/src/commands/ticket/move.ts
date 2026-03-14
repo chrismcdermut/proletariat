@@ -126,7 +126,7 @@ export default class TicketMove extends PMOCommand {
     // Get ticket
     const ticket = await this.storage.getTicket(ticketId!);
     if (!ticket) {
-      this.error(`Ticket "${ticketId}" not found.`);
+      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
 
     // Cross-project move (when --to-project flag is provided)
@@ -183,7 +183,7 @@ export default class TicketMove extends PMOCommand {
           // Get columns from target project and ask which column to move to
           const targetProjectBoard = await this.storage.getProjectBoard(targetProjectId);
           if (!targetProjectBoard) {
-            this.error('Target project not found.');
+            return handleError('PROJECT_NOT_FOUND', 'Target project not found.');
           }
 
           const targetColumnName = await this.selectFromList({
@@ -207,7 +207,7 @@ export default class TicketMove extends PMOCommand {
       // Get columns from the database (not config.json) to ensure accuracy
       const project = await this.storage.getProjectBoard(projectId);
       if (!project) {
-        this.error('Project not found.');
+        return handleError('PROJECT_NOT_FOUND', 'Project not found.');
       }
 
       // Use helper for column selection (handles JSON mode automatically)

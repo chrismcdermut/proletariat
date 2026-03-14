@@ -9,6 +9,7 @@ import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, containerExists, sanitizeContainerId } from '../../lib/docker/resolve.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 import { machineOutputFlags } from '../../lib/pmo/base-command.js'
+import { outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 
 export default class DockerRestart extends Command {
   static description = 'Restart a container (by execution ID, agent name, or container ID)'
@@ -44,7 +45,12 @@ export default class DockerRestart extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(DockerRestart)
 
+    const jsonMode = shouldOutputJson(flags)
+
     if (!isDockerRunning()) {
+      if (jsonMode) {
+        outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker restart', flags))
+      }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }
 
@@ -53,6 +59,9 @@ export default class DockerRestart extends Command {
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('docker restart', flags))
+      }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 
@@ -62,6 +71,9 @@ export default class DockerRestart extends Command {
     try {
       db = new Database(dbPath)
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson('DB_ERROR', 'Could not open workspace database.', createMetadata('docker restart', flags))
+      }
       this.error('Could not open workspace database.')
     }
 
@@ -72,12 +84,18 @@ export default class DockerRestart extends Command {
 
       if (!result.containerId) {
         db.close()
+        if (jsonMode) {
+          outputErrorAsJson('CONTAINER_NOT_FOUND', result.error || 'Could not find container', createMetadata('docker restart', flags))
+        }
         this.error(result.error || 'Could not find container')
       }
 
       // Check if container exists
       if (!containerExists(result.containerId)) {
         db.close()
+        if (jsonMode) {
+          outputErrorAsJson('CONTAINER_NOT_FOUND', `Container ${result.displayName} does not exist`, createMetadata('docker restart', flags))
+        }
         this.error(`Container ${result.displayName} does not exist`)
       }
 

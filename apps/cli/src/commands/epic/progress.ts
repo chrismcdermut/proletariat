@@ -87,6 +87,10 @@ export default class EpicProgress extends PMOCommand {
   private async showSingleProgress(projectId: string, epicId: string): Promise<void> {
     const epic = await this.storage.getEpic(epicId);
     if (!epic) {
+      const { flags } = await this.parse(EpicProgress);
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('EPIC_NOT_FOUND', `Epic not found: ${epicId}`, createMetadata('epic progress', flags));
+      }
       this.error(`Epic not found: ${epicId}`);
     }
 

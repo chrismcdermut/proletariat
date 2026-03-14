@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
-import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata, outputErrorAsJson, outputSuccessAsJson } from '../../lib/prompt-json.js';
 
 export default class CategoryCreate extends PMOCommand {
   static description = 'Create a new category';
@@ -81,11 +81,17 @@ export default class CategoryCreate extends PMOCommand {
 
     // At this point name should be defined
     if (!name) {
+      if (jsonMode) {
+        outputErrorAsJson('NAME_REQUIRED', 'Category name is required', createMetadata('category create', flags));
+      }
       this.error('Category name is required');
     }
 
     // Validate name format
     if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      if (jsonMode) {
+        outputErrorAsJson('INVALID_NAME', 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens', createMetadata('category create', flags));
+      }
       this.error('Category name must start with a letter and contain only lowercase letters, numbers, and hyphens');
     }
 
@@ -106,6 +112,17 @@ export default class CategoryCreate extends PMOCommand {
         description,
       });
 
+      if (jsonMode) {
+        outputSuccessAsJson({
+          id: category.id,
+          name: category.name,
+          type: category.type,
+          description: category.description ?? null,
+          message: 'Category created successfully!',
+        }, createMetadata('category create', flags));
+        return;
+      }
+
       this.log(`\n${styles.success('Category created successfully!')}`);
       this.log(`  Name: ${styles.emphasis(category.name)}`);
       this.log(`  Type: ${category.type}`);
@@ -116,6 +133,9 @@ export default class CategoryCreate extends PMOCommand {
       this.log('');
     } catch (error) {
       if (error instanceof Error) {
+        if (jsonMode) {
+          outputErrorAsJson('CREATE_FAILED', error.message, createMetadata('category create', flags));
+        }
         this.error(error.message);
       }
       throw error;

@@ -1,7 +1,7 @@
 
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors } from '../../lib/colors.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 
 export default class Media extends PMOCommand {
   static description = 'Media management operations (videos, audio files)';
@@ -88,9 +88,15 @@ export default class Media extends PMOCommand {
           break;
         }
         default:
+          if (jsonMode) {
+            outputErrorAsJson('UNKNOWN_ACTION', `Unknown action: ${action}`, createMetadata('media', flags));
+          }
           this.error(`Unknown action: ${action}`);
       }
     } catch (error) {
+      if (jsonMode) {
+        outputErrorAsJson('EXECUTION_FAILED', `Failed to execute media ${action}: ${error instanceof Error ? error.message : String(error)}`, createMetadata('media', flags));
+      }
       this.error(`Failed to execute media ${action}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }

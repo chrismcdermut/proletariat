@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../lib/pmo/base-command.js'
-import { shouldOutputJson } from '../lib/prompt-json.js'
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../lib/prompt-json.js'
 import { styles, divider } from '../lib/styles.js'
 import {
   loadDietConfig,
@@ -52,6 +52,9 @@ export default class Diet extends PMOCommand {
         }
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error)
+        if (jsonMode) {
+          outputErrorAsJson('INVALID_DIET', message, createMetadata('diet', flags))
+        }
         this.error(message)
       }
       return

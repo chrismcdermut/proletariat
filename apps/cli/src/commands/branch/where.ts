@@ -2,7 +2,7 @@ import { Args } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
-import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { isGitRepo, isTicketId } from '../../lib/branch/index.js'
 import { findWorktreesByBranch as findDbWorktreesByBranch, AgentWorktree } from '../../lib/database/index.js'
@@ -45,6 +45,9 @@ export default class BranchWhere extends PMOCommand {
 
     // Check if in git repo
     if (!isGitRepo()) {
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('NOT_GIT_REPO', 'Not in a git repository.', createMetadata('branch where', flags))
+      }
       this.error('Not in a git repository.')
     }
 

@@ -226,12 +226,12 @@ export default class PRCreate extends PMOCommand {
     if (!hasBranchBeenPushed(currentBranch)) {
       this.log(styles.muted(`   Pushing branch to origin...`));
       if (!pushBranch(currentBranch)) {
-        this.error('Failed to push branch to origin.');
+        return handleError('PUSH_FAILED', 'Failed to push branch to origin.');
       }
     } else if (hasUnpushedCommits(currentBranch)) {
       this.log(styles.muted(`   Pushing unpushed commits...`));
       if (!pushBranch(currentBranch)) {
-        this.error('Failed to push commits to origin.');
+        return handleError('PUSH_FAILED', 'Failed to push commits to origin.');
       }
     }
 
@@ -253,7 +253,7 @@ export default class PRCreate extends PMOCommand {
     });
 
     if (!result.success) {
-      this.error(`Failed to create PR: ${result.error}`);
+      return handleError('PR_CREATE_FAILED', `Failed to create PR: ${result.error}`);
     }
 
     // Track PR creation analytics

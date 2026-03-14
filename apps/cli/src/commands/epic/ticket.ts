@@ -153,7 +153,7 @@ export default class EpicTicket extends PMOCommand {
         // Link spec to epic
         const spec = await this.storage.getSpec(flags.spec!);
         if (!spec) {
-          this.error(`Spec not found: ${flags.spec}`);
+          return handleError('SPEC_NOT_FOUND', `Spec not found: ${flags.spec}`);
         }
 
         await this.storage.updateEpic(epicId!, { specId: flags.spec });
@@ -213,7 +213,7 @@ export default class EpicTicket extends PMOCommand {
     // Validate all tickets exist
     const invalidTickets = ticketIds.filter(id => !allTickets.find((t: Ticket) => t.id === id));
     if (invalidTickets.length > 0) {
-      this.error(`Tickets not found: ${invalidTickets.join(', ')}`);
+      return handleError('TICKETS_NOT_FOUND', `Tickets not found: ${invalidTickets.join(', ')}`);
     }
 
     // Process each ticket

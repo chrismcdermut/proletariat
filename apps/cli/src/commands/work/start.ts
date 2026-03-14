@@ -542,6 +542,9 @@ export default class WorkStart extends PMOCommand {
 
     // Check for conflicting PR flags
     if (flags['create-pr'] && flags['no-pr']) {
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('CONFLICTING_FLAGS', '--create-pr and --no-pr are mutually exclusive', createMetadata('work start', flags))
+      }
       this.error('--create-pr and --no-pr are mutually exclusive');
     }
 
@@ -553,6 +556,9 @@ export default class WorkStart extends PMOCommand {
     // Handle --skip-permissions flag (alias for --permission-mode danger)
     // Check for conflicting flags first
     if (flags['skip-permissions'] && flags['permission-mode']) {
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('CONFLICTING_FLAGS', 'Cannot use both --skip-permissions and --permission-mode flags. Use only one: --skip-permissions OR --permission-mode danger/safe', createMetadata('work start', flags))
+      }
       this.error(
         'Cannot use both --skip-permissions and --permission-mode flags.\n' +
         'Use only one: --skip-permissions OR --permission-mode danger/safe'
@@ -1066,9 +1072,8 @@ export default class WorkStart extends PMOCommand {
       const agentInfo = workspaceInfo.agents.find((a) => a.name === assignedAgent)
       if (!isEphemeralAgent && !agentInfo) {
         db.close()
-        this.error(
-          `Agent "${assignedAgent}" not found in workspace.\n` +
-            `Use --ephemeral to create an ephemeral agent, or add a staff agent with "prlt agent add ${assignedAgent}"`
+        return handleError('AGENT_NOT_FOUND',
+          `Agent "${assignedAgent}" not found in workspace. Use --ephemeral to create an ephemeral agent, or add a staff agent with "prlt agent add ${assignedAgent}"`
         )
       }
 
@@ -1086,9 +1091,8 @@ export default class WorkStart extends PMOCommand {
         if (agentRunningExecutions.length > 0 && !flags.force) {
           const execInfo = agentRunningExecutions.map(e => `  ${e.id}: ${e.ticketId}`).join('\n')
           db.close()
-          this.error(
-            `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\n` +
-              `Use --force to start anyway, or stop existing work first.`
+          return handleError('AGENT_BUSY',
+            `Agent "${assignedAgent}" is already working on other tickets:\n${execInfo}\n\nUse --force to start anyway, or stop existing work first.`
           )
         }
       }
@@ -1115,9 +1119,8 @@ export default class WorkStart extends PMOCommand {
 
       if (!fs.existsSync(agentDir)) {
         db.close()
-        this.error(
-          `Agent directory not found at ${agentDir}.\n` +
-            `Use --ephemeral to create an ephemeral agent, or create a staff agent with "prlt agent add ${assignedAgent}"`
+        return handleError('AGENT_DIR_NOT_FOUND',
+          `Agent directory not found at ${agentDir}. Use --ephemeral to create an ephemeral agent, or create a staff agent with "prlt agent add ${assignedAgent}"`
         )
       }
 
@@ -1218,13 +1221,13 @@ export default class WorkStart extends PMOCommand {
         // Handle special "custom" action - requires --prompt flag
         if (flags.action === 'custom') {
           db.close()
-          this.error('--action custom requires --prompt flag.\nUsage: prlt work start TKT-001 --action custom --prompt "your custom instructions"')
+          return handleError('CUSTOM_ACTION_REQUIRES_PROMPT', '--action custom requires --prompt flag. Usage: prlt work start TKT-001 --action custom --prompt "your custom instructions"')
         }
         // Specific action requested
         selectedAction = await this.storage.getAction(flags.action)
         if (!selectedAction) {
           db.close()
-          this.error(`Action not found: ${flags.action}. Use "prlt action list" to see available actions.`)
+          return handleError('ACTION_NOT_FOUND', `Action not found: ${flags.action}. Use "prlt action list" to see available actions.`)
         }
       } else {
         // Interactive action selection
@@ -2389,7 +2392,7 @@ export default class WorkStart extends PMOCommand {
             failMetadata
           )
         } else {
-          this.error(`Failed to start work: ${result.error}`)
+          return handleError('START_FAILED', `Failed to start work: ${result.error}`)
         }
       }
 
@@ -2451,6 +2454,9 @@ export default class WorkStart extends PMOCommand {
 
     if (availableAgents.length === 0) {
       db.close()
+      if (batchJsonMode) {
+        outputErrorAsJson('NO_AVAILABLE_AGENTS', 'No available agents. All agents are busy with other work.', createMetadata('work start', flags as Record<string, unknown>))
+      }
       this.error('No available agents. All agents are busy with other work.')
     }
 

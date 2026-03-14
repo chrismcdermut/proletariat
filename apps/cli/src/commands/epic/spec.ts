@@ -144,7 +144,7 @@ export default class EpicSpec extends PMOCommand {
     // Validate spec exists
     const spec = specs.find(s => s.id === specId);
     if (!spec) {
-      this.error(`Spec not found: ${specId}`);
+      return handleError('SPEC_NOT_FOUND', `Spec not found: ${specId}`);
     }
 
     // Check if already linked

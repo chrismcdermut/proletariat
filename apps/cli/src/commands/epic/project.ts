@@ -139,7 +139,7 @@ export default class EpicProject extends PMOCommand {
     // Validate target project
     const targetProject = projects.find(p => p.id === targetProjectId);
     if (!targetProject) {
-      this.error(`Project not found: ${targetProjectId}`);
+      return handleError('PROJECT_NOT_FOUND', `Project not found: ${targetProjectId}`);
     }
 
     if (targetProjectId === sourceProjectId) {

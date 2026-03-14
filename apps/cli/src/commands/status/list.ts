@@ -2,7 +2,7 @@ import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { StateCategory, STATE_CATEGORY_ORDER, WorkflowStatus } from '../../lib/pmo/types.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 
 export default class StatusList extends PMOCommand {
   static description = 'List all workflow statuses for a project';
@@ -40,6 +40,9 @@ export default class StatusList extends PMOCommand {
     // Get the project's workflow ID
     const project = await this.storage.getProject(projectId);
     if (!project?.workflowId) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_WORKFLOW', `Project "${projectId}" has no workflow assigned.`, createMetadata('status list', flags));
+      }
       this.error(`Project "${projectId}" has no workflow assigned.`);
     }
 

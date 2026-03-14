@@ -96,6 +96,9 @@ export default class StatusDelete extends PMOCommand {
       this.log(styles.success(`Deleted status "${existing.name}"`));
     } catch (error) {
       if (error instanceof Error && error.message.includes('ticket(s) are using it')) {
+        if (jsonMode) {
+          outputErrorAsJson('STATUS_IN_USE', error.message + ' Move tickets to another status before deleting.', createMetadata('status delete', flags));
+        }
         this.error(error.message + '\nMove tickets to another status before deleting.');
       }
       throw error;

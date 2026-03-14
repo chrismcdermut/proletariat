@@ -8,7 +8,7 @@ import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, isContainerRunning, sanitizeContainerId } from '../../lib/docker/resolve.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
-import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 
 export default class DockerStart extends Command {
   static description = 'Start a stopped container (by execution ID, agent name, or container ID)'
@@ -40,6 +40,9 @@ export default class DockerStart extends Command {
     const jsonMode = shouldOutputJson(flags)
 
     if (!isDockerRunning()) {
+      if (jsonMode) {
+        outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker start', flags))
+      }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }
 
@@ -48,6 +51,9 @@ export default class DockerStart extends Command {
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('docker start', flags))
+      }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 
@@ -57,6 +63,9 @@ export default class DockerStart extends Command {
     try {
       db = new Database(dbPath)
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson('DB_ERROR', 'Could not open workspace database.', createMetadata('docker start', flags))
+      }
       this.error('Could not open workspace database.')
     }
 
@@ -67,6 +76,9 @@ export default class DockerStart extends Command {
 
       if (!result.containerId) {
         db.close()
+        if (jsonMode) {
+          outputErrorAsJson('CONTAINER_NOT_FOUND', result.error || 'Could not find container', createMetadata('docker start', flags))
+        }
         this.error(result.error || 'Could not find container')
       }
 

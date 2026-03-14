@@ -170,7 +170,7 @@ export default class TicketCreate extends PMOCommand {
     if (flags.template) {
       template = await this.storage.getTicketTemplate(flags.template);
       if (!template) {
-        this.error(`Template not found: ${flags.template}. Run 'prlt ticket template list' to see available templates.`);
+        return handleError('TEMPLATE_NOT_FOUND', `Template not found: ${flags.template}. Run 'prlt ticket template list' to see available templates.`);
       }
     }
 
@@ -239,7 +239,7 @@ export default class TicketCreate extends PMOCommand {
 
       // If we get here, we have both column and title
       if (!resolvedFlags.title && !template?.titlePattern) {
-        this.error('Title is required. Use --title or -t flag, or use --interactive mode.');
+        return handleError('TITLE_REQUIRED', 'Title is required. Use --title or -t flag, or use --interactive mode.');
       }
 
       ticketData = {
@@ -268,7 +268,7 @@ export default class TicketCreate extends PMOCommand {
         }
         this.error(`Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
       }
-      this.error(`Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
+      return handleError('INVALID_COLUMN', `Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
     }
 
     // Handle dry-run: show what would be created without actually creating

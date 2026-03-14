@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
-import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata, outputErrorAsJson, outputSuccessAsJson } from '../../lib/prompt-json.js';
 
 export default class CategoryDelete extends PMOCommand {
   static description = 'Delete a category (custom categories only)';
@@ -85,10 +85,16 @@ export default class CategoryDelete extends PMOCommand {
     // Find the category
     const category = await this.storage.getCategoryByName(name, categoryType);
     if (!category) {
+      if (jsonMode) {
+        outputErrorAsJson('CATEGORY_NOT_FOUND', `Category "${name}" not found for type "${categoryType}"`, createMetadata('category delete', flags));
+      }
       this.error(`Category "${name}" not found for type "${categoryType}"`);
     }
 
     if (category.isBuiltin) {
+      if (jsonMode) {
+        outputErrorAsJson('BUILTIN_CATEGORY', `Cannot delete built-in category "${name}"`, createMetadata('category delete', flags));
+      }
       this.error(`Cannot delete built-in category "${name}"`);
     }
 
@@ -112,9 +118,23 @@ export default class CategoryDelete extends PMOCommand {
 
     try {
       await this.storage.deleteCategory(category.id);
+
+      if (jsonMode) {
+        outputSuccessAsJson({
+          deleted: true,
+          name,
+          type: categoryType,
+          message: `Category "${name}" deleted successfully.`,
+        }, createMetadata('category delete', flags));
+        return;
+      }
+
       this.log(`\n${styles.success(`Category "${name}" deleted successfully.`)}`);
     } catch (error) {
       if (error instanceof Error) {
+        if (jsonMode) {
+          outputErrorAsJson('DELETE_FAILED', error.message, createMetadata('category delete', flags));
+        }
         this.error(error.message);
       }
       throw error;

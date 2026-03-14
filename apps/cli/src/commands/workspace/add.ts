@@ -9,7 +9,7 @@ import {
   getWorkspaceNameFromPath,
 } from '../../lib/machine-config.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 
 export default class WorkspaceAdd extends Command {
   static description = 'Register an existing workspace in the machine config';
@@ -44,18 +44,27 @@ export default class WorkspaceAdd extends Command {
 
     // Check if path exists
     if (!fs.existsSync(workspacePath)) {
+      if (jsonMode) {
+        outputErrorAsJson('PATH_NOT_FOUND', `Path does not exist: ${workspacePath}`, createMetadata('workspace add', flags));
+      }
       this.error(`Path does not exist: ${workspacePath}`);
     }
 
     // Check if it's a directory
     const stats = fs.statSync(workspacePath);
     if (!stats.isDirectory()) {
+      if (jsonMode) {
+        outputErrorAsJson('NOT_A_DIRECTORY', `Path is not a directory: ${workspacePath}`, createMetadata('workspace add', flags));
+      }
       this.error(`Path is not a directory: ${workspacePath}`);
     }
 
     // Validate it's a valid HQ workspace
     const configPath = path.join(workspacePath, '.proletariat', 'config.json');
     if (!fs.existsSync(configPath)) {
+      if (jsonMode) {
+        outputErrorAsJson('NOT_A_WORKSPACE', 'Not a valid workspace: missing .proletariat/config.json. Run "prlt new" to create a new workspace.', createMetadata('workspace add', flags));
+      }
       this.error(
         `Not a valid workspace: missing .proletariat/config.json\n` +
           `Run "prlt new" to create a new workspace.`
@@ -66,12 +75,18 @@ export default class WorkspaceAdd extends Command {
     try {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       if (config.type !== 'hq') {
+        if (jsonMode) {
+          outputErrorAsJson('INVALID_WORKSPACE_TYPE', `Invalid workspace type: ${config.type}. Only HQ workspaces can be registered.`, createMetadata('workspace add', flags));
+        }
         this.error(
           `Invalid workspace type: ${config.type}\n` +
             `Only HQ workspaces can be registered.`
         );
       }
     } catch (error) {
+      if (jsonMode) {
+        outputErrorAsJson('CONFIG_READ_FAILED', `Failed to read workspace config: ${(error as Error).message}`, createMetadata('workspace add', flags));
+      }
       this.error(`Failed to read workspace config: ${(error as Error).message}`);
     }
 
