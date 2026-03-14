@@ -10,6 +10,7 @@ import {
   getPRByNumber,
   listOpenPRs,
   mergePR,
+  getGitHubRepo,
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
@@ -18,6 +19,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
+import { getEventBus } from '../../lib/events/event-bus.js';
 
 export default class PRMerge extends PMOCommand {
   static description = 'Merge a GitHub pull request by number';
@@ -140,7 +142,8 @@ export default class PRMerge extends PMOCommand {
       return handleError('MERGE_FAILED', `Failed to merge PR #${prNumber}: ${result.error}`);
     }
 
-    // Update ticket metadata if PR was linked
+    // Update ticket metadata if PR was linked and emit merge event for outbound sync
+    let linkedTicketId: string | undefined;
     if (this.hasPMO) {
       try {
         const allTickets = await this.storage.listTickets(flags.project);
@@ -148,6 +151,7 @@ export default class PRMerge extends PMOCommand {
           t.metadata?.pr_number === String(prNumber)
         );
         if (linkedTicket) {
+          linkedTicketId = linkedTicket.id;
           await this.storage.updateTicket(linkedTicket.id, {
             metadata: {
               ...linkedTicket.metadata,
@@ -160,6 +164,26 @@ export default class PRMerge extends PMOCommand {
       }
     }
 
+    // Emit work:pr_merged event for outbound sync (e.g., Linear auto-transition)
+    if (linkedTicketId) {
+      try {
+        const repo = getGitHubRepo();
+        const prUrl = repo ? `https://github.com/${repo}/pull/${prNumber}` : null;
+
+        getEventBus().emit('work:pr_merged', {
+          workItemId: linkedTicketId,
+          source: 'github',
+          prNumber,
+          prTitle: prInfo.title,
+          prUrl,
+          mergeMethod: method,
+          timestamp: new Date(),
+        });
+      } catch {
+        // Non-critical - don't fail the merge if event emission fails
+      }
+    }
+
     if (jsonMode) {
       outputSuccessAsJson(
         {
@@ -168,6 +192,8 @@ export default class PRMerge extends PMOCommand {
           title: prInfo.title,
           method,
           branchDeleted: flags['delete-branch'],
+          linkedTicket: linkedTicketId ?? null,
+          linearSyncEmitted: !!linkedTicketId,
         },
         createMetadata('pr merge', flags)
       );
@@ -180,6 +206,9 @@ export default class PRMerge extends PMOCommand {
     this.log(styles.muted(`   Method: ${method}`));
     if (flags['delete-branch']) {
       this.log(styles.muted(`   Branch ${prInfo.headBranch} deleted`));
+    }
+    if (linkedTicketId) {
+      this.log(styles.muted(`   Linear sync triggered for ${linkedTicketId}`));
     }
   }
 }

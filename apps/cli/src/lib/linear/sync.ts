@@ -71,6 +71,41 @@ export class LinearSync {
   }
 
   /**
+   * Sync a PR merge to the corresponding Linear issue.
+   * Transitions the issue to a "completed" state and posts a merge comment.
+   */
+  async syncPRMerge(
+    ticketId: string,
+    linearStates: LinearWorkflowState[],
+    prTitle?: string | null,
+    prUrl?: string | null,
+    mergeMethod?: string,
+  ): Promise<boolean> {
+    const mapping = this.mapper.getByTicketId(ticketId)
+    if (!mapping) return false
+
+    // Transition to completed state
+    const completedState = linearStates.find((s) => s.type === 'completed')
+    if (completedState) {
+      await this.client.updateIssueState(mapping.linearIssueId, completedState.id)
+    }
+
+    // Post merge comment
+    const parts: string[] = ['Pull request merged']
+    if (prTitle) parts[0] = `Pull request merged: **${prTitle}**`
+    if (mergeMethod) parts.push(`Method: ${mergeMethod}`)
+    if (prUrl) parts.push(`[View PR](${prUrl})`)
+
+    await this.client.addComment(
+      mapping.linearIssueId,
+      parts.join('\n'),
+    )
+
+    this.mapper.updateSyncTimestamp(ticketId)
+    return true
+  }
+
+  /**
    * Post a status update comment to the Linear issue.
    */
   async syncStatusComment(

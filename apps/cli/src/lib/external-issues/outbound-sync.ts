@@ -12,7 +12,7 @@
 
 import Database from 'better-sqlite3'
 import { getEventBus } from '../events/event-bus.js'
-import type { WorkStatusChangedEvent, WorkPRCreatedEvent } from '../work-lifecycle/events.js'
+import type { WorkStatusChangedEvent, WorkPRCreatedEvent, WorkPRMergedEvent } from '../work-lifecycle/events.js'
 import { LinearClient } from '../linear/client.js'
 import { LinearMapper } from '../linear/mapper.js'
 import { LinearSync } from '../linear/sync.js'
@@ -61,6 +61,12 @@ export class OutboundSyncHandler {
     this.unsubscribers.push(
       bus.on('work:pr_created', (event) => {
         void this.handlePRLinked(event)
+      }),
+    )
+
+    this.unsubscribers.push(
+      bus.on('work:pr_merged', (event) => {
+        void this.handlePRMerged(event)
       }),
     )
   }
@@ -128,6 +134,35 @@ export class OutboundSyncHandler {
     // Update provider-agnostic mapping with PR URL
     try {
       this.recordPRInMappings(event)
+    } catch {
+      // Non-fatal
+    }
+
+    return results
+  }
+
+  /**
+   * Handle a PR merge by syncing to all mapped external providers.
+   * Transitions the linked external issue to a completed state.
+   */
+  private async handlePRMerged(event: WorkPRMergedEvent): Promise<OutboundSyncResult[]> {
+    const results: OutboundSyncResult[] = []
+
+    // Try Linear sync (skip if event came from Linear)
+    if (event.source !== 'linear') {
+      try {
+        const linearResult = await this.syncMergeToLinear(event)
+        if (linearResult) {
+          results.push(linearResult)
+        }
+      } catch {
+        // Sync errors are non-fatal
+      }
+    }
+
+    // Update provider-agnostic mappings with merged state
+    try {
+      this.recordMergeInMappings(event)
     } catch {
       // Non-fatal
     }
@@ -232,6 +267,52 @@ export class OutboundSyncHandler {
     }
   }
 
+  /**
+   * Sync a PR merge to Linear if the work item has a Linear mapping.
+   * Transitions the issue to "completed" state and posts a merge comment.
+   */
+  private async syncMergeToLinear(event: WorkPRMergedEvent): Promise<OutboundSyncResult | null> {
+    if (!isLinearConfigured(this.db)) return null
+
+    const config = loadLinearConfig(this.db)
+    if (!config) return null
+
+    const mapper = new LinearMapper(this.db)
+    const mapping = mapper.getByTicketId(event.workItemId)
+    if (!mapping) return null
+
+    // Only sync outbound or bidirectional mappings
+    if (mapping.syncDirection === 'inbound') return null
+
+    try {
+      const client = new LinearClient(config.apiKey)
+
+      // Get Linear team's workflow states
+      const team = await client.getTeamByKey(mapping.linearTeamKey)
+      if (!team) {
+        return { provider: 'linear', success: false, error: `Team not found: ${mapping.linearTeamKey}` }
+      }
+
+      const states = await client.listStates(team.id)
+      const sync = new LinearSync(client, mapper)
+      const success = await sync.syncPRMerge(
+        event.workItemId,
+        states,
+        event.prTitle,
+        event.prUrl,
+        event.mergeMethod,
+      )
+
+      return { provider: 'linear', success }
+    } catch (err) {
+      return {
+        provider: 'linear',
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      }
+    }
+  }
+
   // ===========================================================================
   // Provider-Agnostic Sync
   // ===========================================================================
@@ -295,6 +376,34 @@ export class OutboundSyncHandler {
           provider: mapping.provider,
           externalId: mapping.externalId,
           prUrl: event.prUrl,
+          lastSyncedAt: new Date(),
+        })
+      } catch {
+        // Non-fatal
+      }
+    }
+  }
+
+  /**
+   * Record a PR merge in all external mappings for a work item.
+   */
+  private recordMergeInMappings(event: WorkPRMergedEvent): void {
+    const mappings = this.findMappingsForWorkItem(event.workItemId)
+
+    for (const mapping of mappings) {
+      // Skip the source provider to avoid sync loops
+      if (mapping.provider === event.source) continue
+
+      try {
+        this.mappingStore.upsertMapping({
+          provider: mapping.provider,
+          externalId: mapping.externalId,
+          latestStateSnapshot: {
+            ...((mapping.latestStateSnapshot as Record<string, unknown>) ?? {}),
+            prMerged: true,
+            prMergeMethod: event.mergeMethod,
+            lastOutboundSync: new Date().toISOString(),
+          },
           lastSyncedAt: new Date(),
         })
       } catch {

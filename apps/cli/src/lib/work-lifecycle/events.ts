@@ -48,6 +48,18 @@ export interface WorkPRCreatedEvent {
   timestamp: Date
 }
 
+/** Emitted when a PR linked to a work item is merged. */
+export interface WorkPRMergedEvent {
+  workItemId: string
+  source: WorkEventSource
+  projectId?: string
+  prNumber: number
+  prTitle: string | null
+  prUrl: string | null
+  mergeMethod: string
+  timestamp: Date
+}
+
 /** Emitted when work on an item is completed (status moved to 'completed' category). */
 export interface WorkCompletedEvent {
   workItemId: string
