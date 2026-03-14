@@ -29,7 +29,7 @@ import {
 // Types
 // =============================================================================
 
-type AgentHealthState = 'HUNG' | 'WORKING' | 'DONE' | 'IDLE' | 'UNKNOWN'
+export type AgentHealthState = 'HUNG' | 'WORKING' | 'DONE' | 'IDLE' | 'UNKNOWN'
 
 interface AgentHealthInfo {
   sessionId: string
@@ -55,7 +55,7 @@ interface AgentHealthInfo {
  * - 'Agent work complete' or similar completion messages = DONE
  * - Idle prompt patterns ($ or ❯ at end of line) = IDLE
  */
-function detectState(paneContent: string | null): AgentHealthState {
+export function detectState(paneContent: string | null): AgentHealthState {
   if (!paneContent) return 'UNKNOWN'
 
   // Check last few lines for patterns

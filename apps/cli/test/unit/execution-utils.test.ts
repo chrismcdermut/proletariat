@@ -14,7 +14,7 @@ import {
   getExecutorDisplayName,
   getExecutorPackage,
 } from '../../src/lib/execution/runners.js'
-import type { ExecutionContext, DisplayMode, TerminalApp, ExecutorType, PermissionMode } from '../../src/lib/execution/types.js'
+import type { ExecutionContext, TerminalApp, ExecutorType, PermissionMode } from '../../src/lib/execution/types.js'
 
 /**
  * Unit tests for execution utility functions
@@ -130,32 +130,6 @@ describe('Execution Utils', () => {
     })
   })
 
-  describe('DisplayMode', () => {
-    it('should accept foreground as a valid display mode', () => {
-      const mode: DisplayMode = 'foreground'
-      expect(mode).to.equal('foreground')
-    })
-
-    it('should accept terminal as a valid display mode', () => {
-      const mode: DisplayMode = 'terminal'
-      expect(mode).to.equal('terminal')
-    })
-
-    it('should accept background as a valid display mode', () => {
-      const mode: DisplayMode = 'background'
-      expect(mode).to.equal('background')
-    })
-
-    it('should have exactly three valid display modes', () => {
-      // TypeScript enforces this at compile time, but we can verify the expected values
-      const validModes: DisplayMode[] = ['foreground', 'terminal', 'background']
-      expect(validModes).to.have.lengthOf(3)
-      expect(validModes).to.include('foreground')
-      expect(validModes).to.include('terminal')
-      expect(validModes).to.include('background')
-    })
-  })
-
   describe('shouldUseControlMode', () => {
     it('should return true for iTerm with controlMode enabled', () => {
       expect(shouldUseControlMode('iTerm', true)).to.be.true
@@ -263,71 +237,6 @@ describe('Execution Utils', () => {
       expect(getOpenTmuxWindowsInValue('window')).to.equal(1)
     })
 
-    it('should document AutoHideTmuxClientSession behavior', () => {
-      // When AutoHideTmuxClientSession is true:
-      // - The terminal where tmux -CC is run gets buried/hidden
-      // - User only sees the native iTerm tabs for tmux windows
-      // This is set to true by configureITermTmuxPreferences()
-      expect(true).to.be.true
-    })
-  })
-
-  describe('iTerm Control Mode Flow', () => {
-    /**
-     * Documents the complete flow for iTerm + control mode.
-     * This serves as living documentation for the expected behavior.
-     */
-    it('should document the complete spawn flow', () => {
-      // 1. prlt spawns work, creates tmux session in container (detached)
-      // 2. configureITermTmuxPreferences() sets:
-      //    - OpenTmuxWindowsIn = 2 (tabs in existing window)
-      //    - AutoHideTmuxClientSession = true (hide control channel)
-      // 3. AppleScript creates a NEW tab (not current session)
-      // 4. tmux -CC attach runs in that new tab
-      // 5. iTerm creates native tabs for tmux windows
-      // 6. The intermediate tab is auto-hidden
-      // 7. prlt continues running in original terminal (unaffected)
-      expect(true).to.be.true
-    })
-
-    it('should create new tab to avoid interfering with prlt', () => {
-      // Running tmux -CC in current session would interfere with prlt output
-      // Creating a new tab first ensures clean separation
-      // This is especially important during batch spawns
-      expect(true).to.be.true
-    })
-  })
-
-  describe('Display Mode Behavior', () => {
-    /**
-     * All display modes create a tmux session for persistence.
-     * The difference is how/whether the session is attached.
-     */
-    it('foreground should attach tmux in current terminal (blocking)', () => {
-      // Foreground mode: creates tmux session, then runs `tmux attach` (blocking)
-      // User sees the session in their current terminal
-      // Can detach with Ctrl+B D and reattach later
-      const mode: DisplayMode = 'foreground'
-      expect(mode).to.equal('foreground')
-      // Note: Actual execution tested in e2e tests
-    })
-
-    it('terminal should open new tab attached to tmux', () => {
-      // Terminal mode: creates tmux session, then opens new terminal tab
-      // that attaches to the session
-      // Original terminal is free, work happens in new tab
-      const mode: DisplayMode = 'terminal'
-      expect(mode).to.equal('terminal')
-      // Note: Actual execution tested in e2e tests
-    })
-
-    it('background should create detached tmux session', () => {
-      // Background mode: creates tmux session but doesn't attach
-      // Session runs detached, user can reattach with `prlt session attach`
-      const mode: DisplayMode = 'background'
-      expect(mode).to.equal('background')
-      // Note: Actual execution tested in e2e tests
-    })
   })
 
   // =============================================================================
