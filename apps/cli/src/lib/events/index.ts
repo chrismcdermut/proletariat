@@ -11,6 +11,8 @@ export type {
   AgentStoppedEvent,
   AgentErrorEvent,
   AgentOutputEvent,
+  TicketStatusChangedEvent,
+  TicketPRLinkedEvent,
 } from './events.js'
 
 export {
