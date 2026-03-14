@@ -6,6 +6,7 @@ import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard, type Ticket } from '../../lib/pmo/index.js'
 import { trackAgentSpawned } from '../../lib/telemetry/analytics.js'
+import { registerAgent } from '../../lib/registry/index.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -2259,6 +2260,18 @@ export default class WorkStart extends PMOCommand {
           ephemeral: isEphemeralAgent,
         })
 
+        // Register in machine-wide agent registry
+        try {
+          registerAgent({
+            agentName: context.agentName,
+            projectPath: workspaceInfo.path,
+            sessionId: result.sessionId,
+            ticketId: context.ticketId,
+          })
+        } catch {
+          // Non-fatal — registry is best-effort
+        }
+
         // Update execution record with process info
         executionStorage.updateStatus(execution.id, 'running')
         executionStorage.updateProcessInfo(execution.id, {
@@ -2852,6 +2865,18 @@ export default class WorkStart extends PMOCommand {
         sessionId: result.sessionId,
         logPath: result.logPath,
       })
+
+      // Register in machine-wide agent registry
+      try {
+        registerAgent({
+          agentName: context.agentName,
+          projectPath: workspaceInfo.path,
+          sessionId: result.sessionId,
+          ticketId: context.ticketId,
+        })
+      } catch {
+        // Non-fatal — registry is best-effort
+      }
 
       // Update ticket assignee ONLY after successful spawn
       if (!ticket.assignee || ticket.assignee !== agentName) {
