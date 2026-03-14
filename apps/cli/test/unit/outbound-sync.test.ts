@@ -1,6 +1,6 @@
 import { expect } from 'chai'
 import Database from 'better-sqlite3'
-import { OutboundSyncHandler, stopOutboundSync } from '../../src/lib/external-issues/outbound-sync.js'
+import { OutboundSyncHandler, stopOutboundSync, findMatchingLinearState } from '../../src/lib/external-issues/outbound-sync.js'
 import { EventBus, resetEventBus } from '../../src/lib/events/event-bus.js'
 import { ExternalExecutionMappingStore } from '../../src/lib/external-issues/mapping-store.js'
 import type { TicketStatusChangedEvent, TicketPRLinkedEvent } from '../../src/lib/events/events.js'
@@ -226,6 +226,53 @@ describe('OutboundSyncHandler', () => {
         status: 'In Progress',
         ticketStatus: 'Active',
       })
+    })
+  })
+
+  // ===========================================================================
+  // findMatchingLinearState — name vs category matching
+  // ===========================================================================
+
+  describe('findMatchingLinearState', () => {
+    const linearStates = [
+      { id: 'state-1', name: 'Backlog', type: 'backlog' },
+      { id: 'state-2', name: 'Todo', type: 'unstarted' },
+      { id: 'state-3', name: 'In Progress', type: 'started' },
+      { id: 'state-4', name: 'In Review', type: 'started' },
+      { id: 'state-5', name: 'Done', type: 'completed' },
+      { id: 'state-6', name: 'Canceled', type: 'canceled' },
+    ]
+
+    it('"In Progress" maps to "In Progress" by name, not "In Review"', () => {
+      const result = findMatchingLinearState(linearStates, 'In Progress', 'started')
+      expect(result).to.not.be.undefined
+      expect(result!.name).to.equal('In Progress')
+      expect(result!.id).to.equal('state-3')
+    })
+
+    it('"Review" maps to "In Review" by name', () => {
+      const result = findMatchingLinearState(linearStates, 'In Review', 'started')
+      expect(result).to.not.be.undefined
+      expect(result!.name).to.equal('In Review')
+      expect(result!.id).to.equal('state-4')
+    })
+
+    it('falls back to category match for non-standard state names', () => {
+      const result = findMatchingLinearState(linearStates, 'Working On It', 'started')
+      expect(result).to.not.be.undefined
+      // Falls back to first state with type 'started' (In Progress)
+      expect(result!.type).to.equal('started')
+    })
+
+    it('falls back to category match when statusName is null', () => {
+      const result = findMatchingLinearState(linearStates, null, 'completed')
+      expect(result).to.not.be.undefined
+      expect(result!.name).to.equal('Done')
+    })
+
+    it('returns undefined when no name or category matches', () => {
+      const result = findMatchingLinearState(linearStates, 'Unknown', 'nonexistent')
+      expect(result).to.be.undefined
     })
   })
 
