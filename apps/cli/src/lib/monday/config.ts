@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import type { MondayConfig } from './types.js'
+import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
@@ -65,9 +66,24 @@ export function clearMondayConfig(db: Database.Database): void {
 }
 
 export function getMondayApiToken(db: Database.Database): string | null {
+  // 1. Try provider sources (supports custom apiKeyRef per source)
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'monday') {
+        const key = resolveApiKey(db, source)
+        if (key) return key
+      }
+    }
+  } catch {
+    // Provider sources may not exist in older databases
+  }
+
+  // 2. Legacy: environment variables
   const envToken = process.env.PRLT_MONDAY_API_TOKEN || process.env.MONDAY_API_TOKEN
   if (envToken) return envToken
 
+  // 3. Legacy: stored workspace setting
   return getSetting(db, MONDAY_CONFIG_KEYS.apiToken)
 }
 

@@ -6,6 +6,7 @@
  */
 
 import Database from 'better-sqlite3'
+import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
@@ -49,6 +50,19 @@ function deleteSetting(db: Database.Database, key: string): void {
  * - Environment variables PRLT_JIRA_BASE_URL/JIRA_BASE_URL and PRLT_JIRA_API_TOKEN/JIRA_API_TOKEN are set
  */
 export function isJiraConfigured(db: Database.Database): boolean {
+  // Check provider sources first
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'jira') {
+        const key = resolveApiKey(db, source)
+        if (key) return true
+      }
+    }
+  } catch {
+    // Provider sources may not exist in older databases
+  }
+
   const hasDbConfig = getSetting(db, JIRA_CONFIG_KEYS.baseUrl) !== null
     && getSetting(db, JIRA_CONFIG_KEYS.apiToken) !== null
 

@@ -309,6 +309,55 @@ export function getRoutingTable(
 }
 
 // =============================================================================
+// Upsert (for connect commands)
+// =============================================================================
+
+/**
+ * Create or update a provider source entry by id.
+ * Used by connect commands to register the provider as a source after authentication.
+ * If an entry with the same id exists, it is replaced. Otherwise a new entry is added.
+ */
+export function upsertProviderSource(
+  db: Database.Database,
+  entry: ProviderSourceEntry,
+): ProviderSourceValidationError[] {
+  const errors = validateProviderSourceEntry(entry)
+  if (errors.length > 0) return errors
+
+  const existing = loadProviderSources(db)
+  const index = existing.findIndex((e) => e.id === entry.id)
+
+  if (index !== -1) {
+    // Check prefix uniqueness against other entries
+    if (existing.some((e, i) => i !== index && e.prefix.toUpperCase() === entry.prefix.toUpperCase())) {
+      return [{ field: 'prefix', message: `A provider source with prefix "${entry.prefix}" already exists` }]
+    }
+    existing[index] = entry
+    saveProviderSources(db, existing)
+    return []
+  }
+
+  // New entry – delegate to addProviderSource for uniqueness checks
+  return addProviderSource(db, entry)
+}
+
+/**
+ * Remove all provider source entries for a given provider type.
+ * Used by connect --disconnect to clean up provider sources.
+ * Returns the number of entries removed.
+ */
+export function removeProviderSourcesByProvider(
+  db: Database.Database,
+  provider: WorkSourceProvider,
+): number {
+  const sources = loadProviderSources(db)
+  const filtered = sources.filter((e) => e.provider !== provider)
+  const removedCount = sources.length - filtered.length
+  saveProviderSources(db, filtered)
+  return removedCount
+}
+
+// =============================================================================
 // API Key Resolution
 // =============================================================================
 
