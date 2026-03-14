@@ -21,6 +21,7 @@ import {
   buildLinearSpawnContextMessage,
 } from '../../lib/external-issues/linear.js'
 import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/index.js'
+import { LinearMapper } from '../../lib/linear/mapper.js'
 
 function buildWorkStartArgs(options: {
   ticketId: string
@@ -129,8 +130,9 @@ export default class WorkLinear extends PMOCommand {
     const description = buildLinearTicketDescription(envelope)
     const metadata = buildLinearMetadata(envelope)
 
+    let ticket: Ticket
     if (existing) {
-      const updated = await this.storage.updateTicket(existing.id, {
+      ticket = await this.storage.updateTicket(existing.id, {
         title: envelope.title,
         description,
         priority: envelope.priority ?? undefined,
@@ -141,17 +143,34 @@ export default class WorkLinear extends PMOCommand {
           ...metadata,
         },
       })
-      return updated
+    } else {
+      ticket = await this.storage.createTicket(projectId, {
+        title: envelope.title,
+        description,
+        priority: envelope.priority ?? undefined,
+        category: envelope.category ?? undefined,
+        labels: envelope.labels,
+        metadata,
+      })
     }
 
-    return this.storage.createTicket(projectId, {
-      title: envelope.title,
-      description,
-      priority: envelope.priority ?? undefined,
-      category: envelope.category ?? undefined,
-      labels: envelope.labels,
-      metadata,
-    })
+    // Create Linear mapping so OutboundSyncHandler can push status/PR changes back
+    const db = this.storage.getDatabase()
+    const mapper = new LinearMapper(db)
+    const existingMapping = mapper.getByTicketId(ticket.id)
+    if (!existingMapping) {
+      mapper.createMapping({
+        pmoTicketId: ticket.id,
+        linearIssueId: envelope.source.externalId,
+        linearIdentifier: envelope.source.externalKey,
+        linearTeamKey: envelope.projectKey,
+        linearUrl: envelope.source.url,
+        syncDirection: 'outbound',
+        createdAt: new Date(),
+      })
+    }
+
+    return ticket
   }
 
   async execute(): Promise<void> {
