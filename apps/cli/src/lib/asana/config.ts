@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import type { AsanaConfig } from './types.js'
+import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
@@ -68,8 +69,23 @@ export function clearAsanaConfig(db: Database.Database): void {
 }
 
 export function getAsanaAccessToken(db: Database.Database): string | null {
+  // 1. Try provider sources (supports custom apiKeyRef per source)
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'asana') {
+        const key = resolveApiKey(db, source)
+        if (key) return key
+      }
+    }
+  } catch {
+    // Provider sources may not exist in older databases
+  }
+
+  // 2. Legacy: environment variables
   const envToken = process.env.PRLT_ASANA_ACCESS_TOKEN || process.env.ASANA_ACCESS_TOKEN
   if (envToken) return envToken
 
+  // 3. Legacy: stored workspace setting
   return getSetting(db, ASANA_CONFIG_KEYS.accessToken)
 }

@@ -12,6 +12,8 @@ import {
   resolveProviderByPrefixFromList,
   getRoutingTable,
   resolveApiKey,
+  upsertProviderSource,
+  removeProviderSourcesByProvider,
   type ProviderSourceEntry,
 } from '../../src/lib/work-source/provider-sources.js'
 
@@ -308,6 +310,104 @@ describe('provider-sources', () => {
       const db = setupDb()
       const key = resolveApiKey(db, makeEntry({ apiKeyRef: 'nonexistent.key' }))
       expect(key).to.be.null
+      db.close()
+    })
+  })
+
+  // ===========================================================================
+  // Upsert (for connect commands)
+  // ===========================================================================
+  describe('upsertProviderSource', () => {
+    it('inserts a new entry when id does not exist', () => {
+      const db = setupDb()
+      const errors = upsertProviderSource(db, makeEntry())
+      expect(errors).to.have.length(0)
+      expect(loadProviderSources(db)).to.have.length(1)
+      db.close()
+    })
+
+    it('replaces an existing entry with the same id', () => {
+      const db = setupDb()
+      upsertProviderSource(db, makeEntry({ label: 'Original' }))
+      const errors = upsertProviderSource(db, makeEntry({ label: 'Updated', teamProjectId: 'NEW' }))
+      expect(errors).to.have.length(0)
+
+      const sources = loadProviderSources(db)
+      expect(sources).to.have.length(1)
+      expect(sources[0].label).to.equal('Updated')
+      expect(sources[0].teamProjectId).to.equal('NEW')
+      db.close()
+    })
+
+    it('preserves other entries when upserting', () => {
+      const db = setupDb()
+      addProviderSource(db, makeEntry({ id: 'prod-asana', provider: 'asana', apiKeyRef: 'asana.access_token', teamProjectId: 'PROD', prefix: 'PROD-' }))
+      upsertProviderSource(db, makeEntry())
+
+      const sources = loadProviderSources(db)
+      expect(sources).to.have.length(2)
+      db.close()
+    })
+
+    it('rejects duplicate prefix against other entries', () => {
+      const db = setupDb()
+      addProviderSource(db, makeEntry({ id: 'prod-asana', provider: 'asana', apiKeyRef: 'asana.access_token', teamProjectId: 'PROD', prefix: 'PROD-' }))
+      const errors = upsertProviderSource(db, makeEntry({ prefix: 'PROD-' }))
+      expect(errors.some(e => e.field === 'prefix')).to.be.true
+      db.close()
+    })
+
+    it('allows updating prefix on same id without conflict', () => {
+      const db = setupDb()
+      upsertProviderSource(db, makeEntry())
+      const errors = upsertProviderSource(db, makeEntry({ prefix: 'NEW-' }))
+      expect(errors).to.have.length(0)
+
+      const sources = loadProviderSources(db)
+      expect(sources[0].prefix).to.equal('NEW-')
+      db.close()
+    })
+
+    it('returns validation errors for invalid entry', () => {
+      const db = setupDb()
+      const errors = upsertProviderSource(db, makeEntry({ id: '' }))
+      expect(errors.some(e => e.field === 'id')).to.be.true
+      db.close()
+    })
+  })
+
+  // ===========================================================================
+  // Remove by provider
+  // ===========================================================================
+  describe('removeProviderSourcesByProvider', () => {
+    it('removes all entries for a given provider', () => {
+      const db = setupDb()
+      addProviderSource(db, makeEntry())
+      addProviderSource(db, makeEntry({ id: 'linear-design', prefix: 'DES-', teamProjectId: 'DES' }))
+      addProviderSource(db, makeEntry({ id: 'prod-asana', provider: 'asana', apiKeyRef: 'asana.access_token', teamProjectId: 'PROD', prefix: 'PROD-' }))
+
+      const removed = removeProviderSourcesByProvider(db, 'linear')
+      expect(removed).to.equal(2)
+
+      const remaining = loadProviderSources(db)
+      expect(remaining).to.have.length(1)
+      expect(remaining[0].provider).to.equal('asana')
+      db.close()
+    })
+
+    it('returns 0 when no entries match', () => {
+      const db = setupDb()
+      addProviderSource(db, makeEntry())
+      const removed = removeProviderSourcesByProvider(db, 'asana')
+      expect(removed).to.equal(0)
+      expect(loadProviderSources(db)).to.have.length(1)
+      db.close()
+    })
+
+    it('handles empty sources', () => {
+      const db = setupDb()
+      const removed = removeProviderSourcesByProvider(db, 'linear')
+      expect(removed).to.equal(0)
       db.close()
     })
   })

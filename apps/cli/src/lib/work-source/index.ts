@@ -29,4 +29,6 @@ export {
   resolveProviderByPrefixFromList,
   getRoutingTable,
   resolveApiKey,
+  upsertProviderSource,
+  removeProviderSourcesByProvider,
 } from './provider-sources.js'
