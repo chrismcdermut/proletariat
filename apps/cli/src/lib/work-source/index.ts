@@ -31,4 +31,5 @@ export {
   resolveApiKey,
   upsertProviderSource,
   removeProviderSourcesByProvider,
+  saveProviderApiKey,
 } from './provider-sources.js'

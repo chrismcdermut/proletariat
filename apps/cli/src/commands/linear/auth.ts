@@ -9,15 +9,16 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import {
+  LINEAR_API_KEY_ENV_VAR,
   LinearClient,
   isLinearConfigured,
   loadLinearConfig,
-  saveLinearApiKey,
   saveLinearDefaultTeam,
   saveLinearOrganization,
   clearLinearConfig,
   getLinearApiKey,
 } from '../../lib/linear/index.js'
+import { saveProviderApiKey, upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
 
 export default class LinearAuth extends PMOCommand {
   static description = 'Authenticate with Linear (alias for "prlt linear connect")'
@@ -55,6 +56,7 @@ export default class LinearAuth extends PMOCommand {
     // Handle --disconnect
     if (flags.disconnect) {
       clearLinearConfig(db)
+      removeProviderSourcesByProvider(db, 'linear')
       if (jsonMode) {
         outputSuccessAsJson({
           disconnected: true,
@@ -142,13 +144,14 @@ export default class LinearAuth extends PMOCommand {
     // Try environment variable first
     const envKey = getLinearApiKey(db)
     let apiKey = envKey
+    let keyFromEnv = !!apiKey
 
     if (!apiKey) {
       // Prompt for API key
       if (jsonMode) {
         outputErrorAsJson(
           'API_KEY_REQUIRED',
-          'Linear API key required. Configure a Linear provider source, set PRLT_LINEAR_API_KEY, or run interactively.',
+          `Linear API key required. Set ${LINEAR_API_KEY_ENV_VAR} or LINEAR_API_KEY environment variable, or run interactively.`,
           createMetadata('linear auth', flags),
         )
         this.exit(1)
@@ -173,6 +176,7 @@ export default class LinearAuth extends PMOCommand {
         },
       }])
       apiKey = inputKey
+      keyFromEnv = false
     }
 
     // Verify the API key
@@ -180,16 +184,28 @@ export default class LinearAuth extends PMOCommand {
     this.log(colors.textMuted('Verifying API key...'))
 
     let client: LinearClient
+    let selectedTeamKey = 'default'
+    let selectedTeamName: string | undefined
     try {
       client = new LinearClient(apiKey!)
       const info = await client.verify()
 
-      // Save API key and org name
-      saveLinearApiKey(db, apiKey!)
+      // Save key under env var name in DB as convenience fallback
+      if (!keyFromEnv) {
+        saveProviderApiKey(db, LINEAR_API_KEY_ENV_VAR, apiKey!)
+      }
       saveLinearOrganization(db, info.organizationName)
 
       if (jsonMode) {
         // Don't prompt for team in JSON mode, just save the key
+        upsertProviderSource(db, {
+          id: 'linear',
+          provider: 'linear',
+          apiKeyRef: LINEAR_API_KEY_ENV_VAR,
+          teamProjectId: 'default',
+          prefix: 'LIN-',
+          label: info.organizationName,
+        })
         outputSuccessAsJson({
           authenticated: true,
           organization: info.organizationName,
@@ -201,6 +217,9 @@ export default class LinearAuth extends PMOCommand {
 
       this.log(colors.success(`Connected to ${info.organizationName}`))
       this.log(colors.textMuted(`  Signed in as ${info.userName} (${info.email})`))
+      if (!keyFromEnv) {
+        this.log(colors.textMuted(`  Tip: Set ${LINEAR_API_KEY_ENV_VAR} in your shell profile for persistent access.`))
+      }
     } catch (error) {
       if (jsonMode) {
         outputErrorAsJson('LINEAR_AUTH_FAILED', `Authentication failed: ${error instanceof Error ? error.message : String(error)}`, createMetadata('linear auth', flags))
@@ -215,12 +234,22 @@ export default class LinearAuth extends PMOCommand {
 
     if (teams.length === 0) {
       this.log(colors.warning('No teams found in your Linear workspace.'))
+      upsertProviderSource(db, {
+        id: 'linear',
+        provider: 'linear',
+        apiKeyRef: LINEAR_API_KEY_ENV_VAR,
+        teamProjectId: 'default',
+        prefix: 'LIN-',
+        label: 'Linear',
+      })
       return
     }
 
     if (teams.length === 1) {
       // Auto-select the only team
       saveLinearDefaultTeam(db, teams[0].id, teams[0].key)
+      selectedTeamKey = teams[0].key
+      selectedTeamName = teams[0].name
       this.log(colors.textMuted(`  Default team set to: ${teams[0].name} (${teams[0].key})`))
     } else {
       const teamChoices = teams.map((t) => ({
@@ -237,8 +266,20 @@ export default class LinearAuth extends PMOCommand {
 
       const selectedTeam = teams.find((t) => t.id === selectedTeamId)!
       saveLinearDefaultTeam(db, selectedTeam.id, selectedTeam.key)
+      selectedTeamKey = selectedTeam.key
+      selectedTeamName = selectedTeam.name
       this.log(colors.textMuted(`  Default team set to: ${selectedTeam.name} (${selectedTeam.key})`))
     }
+
+    // Register as provider source
+    upsertProviderSource(db, {
+      id: 'linear',
+      provider: 'linear',
+      apiKeyRef: LINEAR_API_KEY_ENV_VAR,
+      teamProjectId: selectedTeamKey,
+      prefix: `${selectedTeamKey}-`,
+      label: selectedTeamName ?? 'Linear',
+    })
 
     this.log('')
     this.log(colors.success('Linear integration configured!'))
