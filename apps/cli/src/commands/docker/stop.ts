@@ -9,6 +9,7 @@ import { isDockerRunning } from '../../lib/execution/runners.js'
 import { resolveContainerId, isContainerRunning, sanitizeContainerId } from '../../lib/docker/resolve.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 import { machineOutputFlags } from '../../lib/pmo/base-command.js'
+import { outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 
 export default class DockerStop extends Command {
   static description = 'Stop a running container (by execution ID, agent name, or container ID)'
@@ -44,7 +45,12 @@ export default class DockerStop extends Command {
   async run(): Promise<void> {
     const { args, flags } = await this.parse(DockerStop)
 
+    const jsonMode = shouldOutputJson(flags)
+
     if (!isDockerRunning()) {
+      if (jsonMode) {
+        outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker stop', flags))
+      }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }
 
@@ -53,6 +59,9 @@ export default class DockerStop extends Command {
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('docker stop', flags))
+      }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 
@@ -62,6 +71,9 @@ export default class DockerStop extends Command {
     try {
       db = new Database(dbPath)
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson('DB_ERROR', 'Could not open workspace database.', createMetadata('docker stop', flags))
+      }
       this.error('Could not open workspace database.')
     }
 
@@ -72,6 +84,9 @@ export default class DockerStop extends Command {
 
       if (!result.containerId) {
         db.close()
+        if (jsonMode) {
+          outputErrorAsJson('CONTAINER_NOT_FOUND', result.error || 'Could not find container', createMetadata('docker stop', flags))
+        }
         this.error(result.error || 'Could not find container')
       }
 

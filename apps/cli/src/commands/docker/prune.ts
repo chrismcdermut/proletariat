@@ -4,6 +4,7 @@ import { styles } from '../../lib/styles.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 import { machineOutputFlags } from '../../lib/pmo/base-command.js'
+import { outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 
 export default class DockerPrune extends Command {
   static description = 'Remove unused Docker resources (containers, images, volumes, networks)'
@@ -43,6 +44,9 @@ export default class DockerPrune extends Command {
     const { flags } = await this.parse(DockerPrune)
 
     if (!isDockerRunning()) {
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker prune', flags))
+      }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }
 

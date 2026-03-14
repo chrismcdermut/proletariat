@@ -10,6 +10,7 @@ import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
 import { machineOutputFlags } from '../../lib/pmo/base-command.js'
+import { outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 
 export default class Docker extends PromptCommand {
@@ -100,6 +101,9 @@ export default class Docker extends PromptCommand {
     // Check Docker first
     const dockerRunning = isDockerRunning()
     if (!dockerRunning) {
+      if (shouldOutputJson(flags)) {
+        outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker', flags))
+      }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }
 
