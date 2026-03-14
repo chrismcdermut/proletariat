@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { parseWorkSourceRef } from '../../src/lib/work-source/config.js'
+import { parseWorkSourceRef, isLocalTicketId } from '../../src/lib/work-source/config.js'
 import { resolveMirrorToPmo } from '../../src/lib/external-issues/work-start.js'
 
 describe('--from flag parsing', () => {
@@ -67,6 +67,28 @@ describe('--from flag parsing', () => {
       const result = splitFromFlag('JIRA:PROJ-123')
       expect(result.source).to.equal('jira')
       expect(result.key).to.equal('PROJ-123')
+    })
+  })
+
+  describe('auto-detect external identifiers', () => {
+    it('TKT-123 is recognized as local PMO ticket', () => {
+      expect(isLocalTicketId('TKT-123')).to.equal(true)
+    })
+
+    it('PRLT-933 is NOT a local PMO ticket', () => {
+      expect(isLocalTicketId('PRLT-933')).to.equal(false)
+    })
+
+    it('ENG-456 is NOT a local PMO ticket', () => {
+      expect(isLocalTicketId('ENG-456')).to.equal(false)
+    })
+
+    it('PROJ-789 is NOT a local PMO ticket', () => {
+      expect(isLocalTicketId('PROJ-789')).to.equal(false)
+    })
+
+    it('tkt-42 is recognized as local (case-insensitive)', () => {
+      expect(isLocalTicketId('tkt-42')).to.equal(true)
     })
   })
 })

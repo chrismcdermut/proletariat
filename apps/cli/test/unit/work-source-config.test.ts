@@ -4,6 +4,11 @@ import {
   parseWorkSourceRef,
   formatWorkSourceRef,
   getRegisteredWorkSources,
+  saveDefaultWorkSource,
+  loadDefaultWorkSource,
+  clearDefaultWorkSource,
+  isLocalTicketId,
+  // Deprecated aliases still work
   saveActiveWorkSource,
   loadActiveWorkSource,
 } from '../../src/lib/work-source/config.js'
@@ -59,6 +64,40 @@ describe('work-source config', () => {
     })
   })
 
+  describe('isLocalTicketId', () => {
+    it('recognizes TKT-123 as local', () => {
+      expect(isLocalTicketId('TKT-123')).to.equal(true)
+    })
+
+    it('recognizes TKT-1 as local', () => {
+      expect(isLocalTicketId('TKT-1')).to.equal(true)
+    })
+
+    it('is case-insensitive', () => {
+      expect(isLocalTicketId('tkt-42')).to.equal(true)
+    })
+
+    it('rejects PRLT-933 as not local', () => {
+      expect(isLocalTicketId('PRLT-933')).to.equal(false)
+    })
+
+    it('rejects ENG-123 as not local', () => {
+      expect(isLocalTicketId('ENG-123')).to.equal(false)
+    })
+
+    it('rejects plain text as not local', () => {
+      expect(isLocalTicketId('some-ticket')).to.equal(false)
+    })
+
+    it('rejects TKT- without number', () => {
+      expect(isLocalTicketId('TKT-')).to.equal(false)
+    })
+
+    it('rejects TKT-abc', () => {
+      expect(isLocalTicketId('TKT-abc')).to.equal(false)
+    })
+  })
+
   describe('getRegisteredWorkSources', () => {
     it('returns pmo only by default', () => {
       const db = setupDb()
@@ -110,18 +149,128 @@ describe('work-source config', () => {
     })
   })
 
-  describe('active source persistence', () => {
-    it('saves and loads jira active source', () => {
+  describe('default source persistence', () => {
+    it('saves and loads jira default source', () => {
       const db = setupDb()
-      saveActiveWorkSource(db, { provider: 'jira', context: 'PROJ' })
-      const loaded = loadActiveWorkSource(db)
+      saveDefaultWorkSource(db, { provider: 'jira', context: 'PROJ' })
+      const loaded = loadDefaultWorkSource(db)
       expect(loaded).to.deep.equal({ provider: 'jira', context: 'PROJ' })
       db.close()
     })
 
-    it('saves and loads linear active source', () => {
+    it('saves and loads linear default source', () => {
       const db = setupDb()
-      saveActiveWorkSource(db, { provider: 'linear', context: 'ENG' })
+      saveDefaultWorkSource(db, { provider: 'linear', context: 'ENG' })
+      const loaded = loadDefaultWorkSource(db)
+      expect(loaded).to.deep.equal({ provider: 'linear', context: 'ENG' })
+      db.close()
+    })
+
+    it('uses work.default_source key in database', () => {
+      const db = setupDb()
+      saveDefaultWorkSource(db, { provider: 'linear', context: 'PRO' })
+
+      const row = db.prepare(
+        `SELECT value FROM workspace_settings WHERE key = 'work.default_source'`
+      ).get() as { value: string } | undefined
+      expect(row?.value).to.equal('linear:PRO')
+
+      // Old key should not exist
+      const oldRow = db.prepare(
+        `SELECT value FROM workspace_settings WHERE key = 'work.active_source'`
+      ).get() as { value: string } | undefined
+      expect(oldRow).to.be.undefined
+      db.close()
+    })
+
+    it('clears default source', () => {
+      const db = setupDb()
+      saveDefaultWorkSource(db, { provider: 'linear', context: 'ENG' })
+      clearDefaultWorkSource(db)
+      const loaded = loadDefaultWorkSource(db)
+      expect(loaded).to.equal(null)
+      db.close()
+    })
+
+    it('returns null when no default source set', () => {
+      const db = setupDb()
+      const loaded = loadDefaultWorkSource(db)
+      expect(loaded).to.equal(null)
+      db.close()
+    })
+  })
+
+  describe('legacy migration from work.active_source', () => {
+    it('migrates legacy work.active_source to work.default_source on read', () => {
+      const db = setupDb()
+      // Simulate old data
+      db.prepare(
+        `INSERT INTO workspace_settings (key, value) VALUES ('work.active_source', 'linear:PRO')`
+      ).run()
+
+      const loaded = loadDefaultWorkSource(db)
+      expect(loaded).to.deep.equal({ provider: 'linear', context: 'PRO' })
+
+      // Old key should have been deleted
+      const oldRow = db.prepare(
+        `SELECT value FROM workspace_settings WHERE key = 'work.active_source'`
+      ).get() as { value: string } | undefined
+      expect(oldRow).to.be.undefined
+
+      // New key should exist
+      const newRow = db.prepare(
+        `SELECT value FROM workspace_settings WHERE key = 'work.default_source'`
+      ).get() as { value: string } | undefined
+      expect(newRow?.value).to.equal('linear:PRO')
+      db.close()
+    })
+
+    it('prefers work.default_source over legacy work.active_source', () => {
+      const db = setupDb()
+      // Both keys exist (shouldn't happen in practice, but defensive)
+      db.prepare(
+        `INSERT INTO workspace_settings (key, value) VALUES ('work.default_source', 'jira:PROJ')`
+      ).run()
+      db.prepare(
+        `INSERT INTO workspace_settings (key, value) VALUES ('work.active_source', 'linear:OLD')`
+      ).run()
+
+      const loaded = loadDefaultWorkSource(db)
+      expect(loaded).to.deep.equal({ provider: 'jira', context: 'PROJ' })
+      db.close()
+    })
+
+    it('saveDefaultWorkSource cleans up legacy key', () => {
+      const db = setupDb()
+      db.prepare(
+        `INSERT INTO workspace_settings (key, value) VALUES ('work.active_source', 'linear:OLD')`
+      ).run()
+
+      saveDefaultWorkSource(db, { provider: 'jira', context: 'NEW' })
+
+      const oldRow = db.prepare(
+        `SELECT value FROM workspace_settings WHERE key = 'work.active_source'`
+      ).get() as { value: string } | undefined
+      expect(oldRow).to.be.undefined
+
+      const loaded = loadDefaultWorkSource(db)
+      expect(loaded).to.deep.equal({ provider: 'jira', context: 'NEW' })
+      db.close()
+    })
+  })
+
+  describe('deprecated aliases', () => {
+    it('saveActiveWorkSource delegates to saveDefaultWorkSource', () => {
+      const db = setupDb()
+      saveActiveWorkSource(db, { provider: 'jira', context: 'PROJ' })
+      const loaded = loadDefaultWorkSource(db)
+      expect(loaded).to.deep.equal({ provider: 'jira', context: 'PROJ' })
+      db.close()
+    })
+
+    it('loadActiveWorkSource delegates to loadDefaultWorkSource', () => {
+      const db = setupDb()
+      saveDefaultWorkSource(db, { provider: 'linear', context: 'ENG' })
       const loaded = loadActiveWorkSource(db)
       expect(loaded).to.deep.equal({ provider: 'linear', context: 'ENG' })
       db.close()
