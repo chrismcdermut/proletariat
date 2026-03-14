@@ -412,6 +412,30 @@ export class LinearClient {
   }
 
   /**
+   * List labels available for a team (includes workspace-level labels).
+   */
+  async listLabels(teamId: string): Promise<Array<{ id: string; name: string; color: string }>> {
+    const data = await this.query<{
+      issueLabels: { nodes: Array<{ id: string; name: string; color: string }> }
+    }>(`
+      query TeamLabels($filter: IssueLabelFilter) {
+        issueLabels(filter: $filter) {
+          nodes { id name color }
+        }
+      }
+    `, {
+      filter: {
+        or: [
+          { team: { id: { eq: teamId } } },
+          { team: { null: true } },
+        ],
+      },
+    })
+
+    return data.issueLabels.nodes
+  }
+
+  /**
    * Create a new issue in Linear.
    */
   async createIssue(input: {
@@ -420,6 +444,7 @@ export class LinearClient {
     description?: string
     priority?: number
     stateId?: string
+    labelIds?: string[]
   }): Promise<LinearIssue> {
     const data = await this.query<{
       issueCreate: {
