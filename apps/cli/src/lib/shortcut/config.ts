@@ -6,6 +6,7 @@
  */
 
 import Database from 'better-sqlite3'
+import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
@@ -110,8 +111,23 @@ export function clearShortcutConfig(db: Database.Database): void {
  * Also checks PRLT_SHORTCUT_API_TOKEN and SHORTCUT_API_TOKEN environment variables.
  */
 export function getShortcutApiToken(db: Database.Database): string | null {
+  // 1. Try provider sources (supports custom apiKeyRef per source)
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'shortcut') {
+        const key = resolveApiKey(db, source)
+        if (key) return key
+      }
+    }
+  } catch {
+    // Provider sources may not exist in older databases
+  }
+
+  // 2. Legacy: environment variables
   const envKey = process.env.PRLT_SHORTCUT_API_TOKEN || process.env.SHORTCUT_API_TOKEN
   if (envKey) return envKey
 
+  // 3. Legacy: stored workspace setting
   return getSetting(db, SHORTCUT_CONFIG_KEYS.apiToken)
 }

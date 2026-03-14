@@ -668,6 +668,108 @@ export function hasPendingFeedback(feedback: PRFeedback): boolean {
 /**
  * Format PR feedback as markdown for agent prompt.
  */
+// =============================================================================
+// PR Merge
+// =============================================================================
+
+export interface MergePROptions {
+  /** Merge method: merge, squash, or rebase */
+  method?: 'merge' | 'squash' | 'rebase';
+  /** Delete branch after merging */
+  deleteBranch?: boolean;
+  /** Admin override to bypass branch protections */
+  admin?: boolean;
+  /** Working directory */
+  cwd?: string;
+}
+
+export interface MergePRResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Merge a pull request by number.
+ */
+export function mergePR(prNumber: number, options: MergePROptions = {}): MergePRResult {
+  const { method = 'merge', deleteBranch = true, admin = false, cwd } = options;
+
+  const args = ['pr', 'merge', String(prNumber), `--${method}`];
+
+  if (deleteBranch) {
+    args.push('--delete-branch');
+  }
+
+  if (admin) {
+    args.push('--admin');
+  }
+
+  try {
+    const result = spawnSync('gh', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (result.status !== 0) {
+      return {
+        success: false,
+        error: result.stderr?.trim() || 'Failed to merge PR',
+      };
+    }
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// =============================================================================
+// PR Checks / CI Status
+// =============================================================================
+
+export interface PRCheck {
+  name: string;
+  status: string;
+  conclusion: string;
+  url: string;
+}
+
+/**
+ * Get CI check status for a PR.
+ */
+export function getPRChecks(prNumber: number, cwd?: string): PRCheck[] {
+  try {
+    const result = execSync(
+      `gh pr checks ${prNumber} --json name,state,conclusion,detailsUrl`,
+      {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }
+    );
+
+    const data = JSON.parse(result) as Array<{
+      name: string;
+      state: string;
+      conclusion: string;
+      detailsUrl: string;
+    }>;
+
+    return data.map(check => ({
+      name: check.name,
+      status: check.state,
+      conclusion: check.conclusion,
+      url: check.detailsUrl || '',
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export function formatPRFeedbackForPrompt(feedback: PRFeedback): string {
   const lines: string[] = [];
 

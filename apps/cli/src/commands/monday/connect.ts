@@ -19,6 +19,7 @@ import {
   getMondayApiToken,
   getMondayBoardId,
 } from '../../lib/monday/index.js'
+import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
 
 export default class MondayConnect extends PMOCommand {
   static description = 'Connect PRLT to Monday.com and store workspace credentials'
@@ -56,6 +57,7 @@ export default class MondayConnect extends PMOCommand {
 
     if (flags.disconnect) {
       clearMondayConfig(db)
+      removeProviderSourcesByProvider(db, 'monday')
       if (jsonMode) {
         outputSuccessAsJson({
           disconnected: true,
@@ -162,6 +164,16 @@ export default class MondayConnect extends PMOCommand {
         saveMondayBoard(db, board.id, board.name)
         boardId = board.id
       }
+
+      // Register as provider source
+      upsertProviderSource(db, {
+        id: 'monday',
+        provider: 'monday',
+        apiKeyRef: 'monday.api_token',
+        teamProjectId: boardId ?? 'default',
+        prefix: 'MON-',
+        label: boardName ?? info.accountName,
+      })
 
       if (jsonMode) {
         outputSuccessAsJson({

@@ -18,6 +18,7 @@ import {
   clearShortcutConfig,
   getShortcutApiToken,
 } from '../../lib/shortcut/index.js'
+import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
 
 const SHORTCUT_API_URL = 'https://api.app.shortcut.com/api/v3'
 
@@ -94,6 +95,7 @@ export default class ShortcutConnect extends PMOCommand {
     // Handle --disconnect
     if (flags.disconnect) {
       clearShortcutConfig(db)
+      removeProviderSourcesByProvider(db, 'shortcut')
       if (jsonMode) {
         outputSuccessAsJson({
           disconnected: true,
@@ -184,6 +186,16 @@ export default class ShortcutConnect extends PMOCommand {
 
       // Save API token
       saveShortcutApiToken(db, apiToken!)
+
+      // Register as provider source
+      upsertProviderSource(db, {
+        id: 'shortcut',
+        provider: 'shortcut',
+        apiKeyRef: 'shortcut.api_token',
+        teamProjectId: 'default',
+        prefix: 'SC-',
+        label: 'Shortcut',
+      })
 
       if (!jsonMode) {
         this.log(colors.success('Connected to Shortcut'))

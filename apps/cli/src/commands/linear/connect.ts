@@ -20,6 +20,7 @@ import {
   clearLinearConfig,
   getLinearApiKey,
 } from '../../lib/linear/index.js'
+import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
 
 export default class LinearConnect extends PMOCommand {
   static description = 'Connect to Linear workspace and configure authentication'
@@ -61,6 +62,7 @@ export default class LinearConnect extends PMOCommand {
     // Handle --disconnect
     if (flags.disconnect) {
       clearLinearConfig(db)
+      removeProviderSourcesByProvider(db, 'linear')
       if (jsonMode) {
         outputSuccessAsJson({
           disconnected: true,
@@ -116,7 +118,7 @@ export default class LinearConnect extends PMOCommand {
       if (jsonMode) {
         outputErrorAsJson(
           'API_KEY_REQUIRED',
-          'Linear API key required. Set LINEAR_API_KEY or PRLT_LINEAR_API_KEY environment variable, or run interactively.',
+          'Linear API key required. Configure a Linear provider source, set PRLT_LINEAR_API_KEY, or run interactively.',
           createMetadata('linear connect', flags),
         )
         this.exit(1)
@@ -266,6 +268,16 @@ export default class LinearConnect extends PMOCommand {
     const teams = await client.listTeams()
 
     if (teams.length === 0) {
+      // Register provider source even without a team
+      upsertProviderSource(db, {
+        id: 'linear',
+        provider: 'linear',
+        apiKeyRef: 'linear.api_key',
+        teamProjectId: 'default',
+        prefix: 'LIN-',
+        label: info.organizationName,
+      })
+
       if (jsonMode) {
         outputSuccessAsJson({
           authenticated: true,
@@ -297,6 +309,14 @@ export default class LinearConnect extends PMOCommand {
         this.error(message)
       }
       saveLinearDefaultTeam(db, matched!.id, matched!.key)
+      upsertProviderSource(db, {
+        id: 'linear',
+        provider: 'linear',
+        apiKeyRef: 'linear.api_key',
+        teamProjectId: matched!.key,
+        prefix: `${matched!.key}-`,
+        label: matched!.name,
+      })
       if (jsonMode) {
         outputSuccessAsJson({
           authenticated: true,
@@ -330,8 +350,12 @@ export default class LinearConnect extends PMOCommand {
 
     // Interactive team selection
     this.log('')
+    let selectedTeamKey: string
+    let selectedTeamName: string
     if (teams.length === 1) {
       saveLinearDefaultTeam(db, teams[0].id, teams[0].key)
+      selectedTeamKey = teams[0].key
+      selectedTeamName = teams[0].name
       this.log(colors.textMuted(`  Default team set to: ${teams[0].name} (${teams[0].key})`))
     } else {
       const teamChoices = teams.map((t) => ({
@@ -349,8 +373,20 @@ export default class LinearConnect extends PMOCommand {
 
       const selectedTeam = teams.find((t) => t.id === selectedTeamId)!
       saveLinearDefaultTeam(db, selectedTeam.id, selectedTeam.key)
+      selectedTeamKey = selectedTeam.key
+      selectedTeamName = selectedTeam.name
       this.log(colors.textMuted(`  Default team set to: ${selectedTeam.name} (${selectedTeam.key})`))
     }
+
+    // Register as provider source
+    upsertProviderSource(db, {
+      id: 'linear',
+      provider: 'linear',
+      apiKeyRef: 'linear.api_key',
+      teamProjectId: selectedTeamKey,
+      prefix: `${selectedTeamKey}-`,
+      label: selectedTeamName,
+    })
 
     this.log('')
     this.log(colors.success('Linear integration configured!'))

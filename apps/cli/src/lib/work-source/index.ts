@@ -15,3 +15,20 @@ export {
   type WorkSourceClient,
   getWorkSourceClient,
 } from './client.js'
+export {
+  type ProviderSourceEntry,
+  type ProviderSourceValidationError,
+  validateProviderSourceEntry,
+  loadProviderSources,
+  saveProviderSources,
+  addProviderSource,
+  updateProviderSource,
+  removeProviderSource,
+  getProviderSourceById,
+  resolveProviderByPrefix,
+  resolveProviderByPrefixFromList,
+  getRoutingTable,
+  resolveApiKey,
+  upsertProviderSource,
+  removeProviderSourcesByProvider,
+} from './provider-sources.js'

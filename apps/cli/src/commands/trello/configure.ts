@@ -19,6 +19,7 @@ import {
   saveTrelloApiToken,
   saveTrelloBoard,
 } from '../../lib/trello/index.js'
+import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
 
 export default class TrelloConfigure extends PMOCommand {
   static description = 'Connect to Trello and configure authentication'
@@ -59,6 +60,7 @@ export default class TrelloConfigure extends PMOCommand {
     // Handle --disconnect
     if (flags.disconnect) {
       clearTrelloConfig(db)
+      removeProviderSourcesByProvider(db, 'trello')
       if (jsonMode) {
         outputSuccessAsJson({
           disconnected: true,
@@ -229,6 +231,16 @@ export default class TrelloConfigure extends PMOCommand {
       if (boardId && boardName) {
         saveTrelloBoard(db, boardId, boardName)
       }
+
+      // Register as provider source
+      upsertProviderSource(db, {
+        id: 'trello',
+        provider: 'trello',
+        apiKeyRef: 'trello.api_key',
+        teamProjectId: boardId ?? 'default',
+        prefix: 'TRL-',
+        label: boardName ?? 'Trello',
+      })
 
       if (jsonMode) {
         outputSuccessAsJson({

@@ -78,6 +78,8 @@ import {
   getTrelloCardById,
 } from '../../lib/external-issues/trello.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
+import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/config.js'
+import { LinearMapper } from '../../lib/linear/mapper.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 import {
   parseWorkSourceRef,
@@ -380,13 +382,14 @@ export default class WorkStart extends PMOCommand {
     })
   }
 
-  private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket> {
+  private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope, db: Database.Database): Promise<Ticket> {
     const existing = await this.findLinkedTicketByEnvelope(projectId, envelope)
     const description = buildExternalTicketDescription(envelope)
     const metadata = buildExternalMetadata(envelope)
 
+    let ticket: Ticket
     if (existing) {
-      return this.storage.updateTicket(existing.id, {
+      ticket = await this.storage.updateTicket(existing.id, {
         title: envelope.title,
         description,
         priority: envelope.priority ?? undefined,
@@ -397,28 +400,53 @@ export default class WorkStart extends PMOCommand {
           ...metadata,
         },
       })
+    } else {
+      ticket = await this.storage.createTicket(projectId, {
+        title: envelope.title,
+        description,
+        priority: envelope.priority ?? undefined,
+        category: envelope.category ?? undefined,
+        labels: envelope.labels,
+        metadata,
+      })
     }
 
-    return this.storage.createTicket(projectId, {
-      title: envelope.title,
-      description,
-      priority: envelope.priority ?? undefined,
-      category: envelope.category ?? undefined,
-      labels: envelope.labels,
-      metadata,
-    })
+    // Create Linear mapping so OutboundSyncHandler can push status/PR changes back
+    if (envelope.source.name === 'linear') {
+      const mapper = new LinearMapper(db)
+      const existingMapping = mapper.getByTicketId(ticket.id)
+      if (!existingMapping) {
+        mapper.createMapping({
+          pmoTicketId: ticket.id,
+          linearIssueId: envelope.source.externalId,
+          linearIdentifier: envelope.source.externalKey,
+          linearTeamKey: envelope.projectKey,
+          linearUrl: envelope.source.url,
+          syncDirection: 'outbound',
+          createdAt: new Date(),
+        })
+      }
+    }
+
+    return ticket
   }
 
   private async fetchExternalIssue(
     source: IssueSource,
     key: string,
+    db: Database.Database,
   ): Promise<NormalizedIssueEnvelope | null> {
     switch (source) {
       case 'jira': return getJiraIssueByKey({}, key)
       case 'asana': return getAsanaTaskByGid({}, key)
       case 'shortcut': return getShortcutStoryByKey({}, key)
       case 'trello': return getTrelloCardById({}, key)
-      default: return getLinearIssueByIdentifier({}, key)
+      default: {
+        const apiKey = getLinearApiKey(db) || undefined
+        const linearConfig = loadLinearConfig(db)
+        const team = linearConfig?.defaultTeamKey || undefined
+        return getLinearIssueByIdentifier({ apiKey, team }, key)
+      }
     }
   }
 
@@ -639,7 +667,7 @@ export default class WorkStart extends PMOCommand {
 
         let envelope: NormalizedIssueEnvelope | null = null
         try {
-          envelope = await this.fetchExternalIssue(sourceAndKey.source, sourceAndKey.key)
+          envelope = await this.fetchExternalIssue(sourceAndKey.source, sourceAndKey.key, db)
         } catch (error) {
           if (error instanceof ExternalIssueAdapterError) {
             db.close()
@@ -665,7 +693,7 @@ export default class WorkStart extends PMOCommand {
         let linkedTicket: Ticket
 
         if (mirrorToPmo) {
-          linkedTicket = await this.createOrUpdateLinkedTicket(projectId, envelope)
+          linkedTicket = await this.createOrUpdateLinkedTicket(projectId, envelope, db)
           await autoExportToBoard(this.pmoPath, this.storage)
         } else {
           if (!existingLinkedTicket) {
@@ -1577,8 +1605,8 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.warning('Docker daemon is not running. Start Docker Desktop or use --run-on-host.'))
           this.log('')
 
-          if (jsonMode && flags.yes) {
-            // In JSON mode with --yes, auto-switch to host
+          if (flags.yes || !process.stdout.isTTY) {
+            // Non-interactive mode: auto-switch to host
             environment = 'host'
             this.log(styles.muted('Switched to host environment (Docker not running).'))
           } else {
@@ -1636,11 +1664,18 @@ export default class WorkStart extends PMOCommand {
           // Saved preference: OAuth — validate credentials exist
           const hasCredentials = dockerCredentialsExist()
           if (!hasCredentials) {
-            this.log('')
-            this.log(styles.warning('⚠️  Saved auth method is "oauth" but no OAuth credentials found.'))
-            this.log(styles.muted('   Run "' + this.config.bin + ' agent auth" to authenticate.'))
-            db.close()
-            return
+            if (flags.yes || !process.stdout.isTTY) {
+              // Non-interactive mode: auto-fallback to host
+              this.log(styles.warning('⚠️  Saved auth method is "oauth" but no OAuth credentials found.'))
+              environment = 'host'
+              this.log(styles.muted('Switched to host environment (OAuth credentials missing).'))
+            } else {
+              this.log('')
+              this.log(styles.warning('⚠️  Saved auth method is "oauth" but no OAuth credentials found.'))
+              this.log(styles.muted('   Run "' + this.config.bin + ' agent auth" to authenticate.'))
+              db.close()
+              return
+            }
           }
           // OAuth credentials valid — continue (useApiKey stays false)
         } else {
@@ -1652,9 +1687,10 @@ export default class WorkStart extends PMOCommand {
             // useApiKey stays false
           } else {
             // No saved preference and no OAuth credentials — prompt user
-            // In JSON mode with --yes, continue anyway (agent can run /login)
-            if (jsonMode && flags.yes) {
-              // Continue without prompting - agent will need to handle auth
+            if (flags.yes || !process.stdout.isTTY) {
+              // Non-interactive mode: auto-fallback to host
+              environment = 'host'
+              this.log(styles.warning('⚠️  No OAuth credentials found. Switched to host environment.'))
             } else {
               this.log('')
               this.log(styles.warning('⚠️  No Claude Code OAuth credentials found for Docker containers'))
@@ -2480,126 +2516,138 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.warning('Docker daemon is not running. Start Docker Desktop or use --run-on-host.'))
         this.log('')
 
-        const { dockerAction } = await this.prompt<{ dockerAction: string }>([
-          {
-            type: 'list',
-            name: 'dockerAction',
-            message: 'Docker is not running. What would you like to do?',
-            choices: [
-              { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host', command: 'prlt work start --all --run-on-host --json' },
-              { name: '✗  Cancel', value: 'cancel', command: '' },
-            ],
-          },
-        ], batchJsonModeConfig)
+        if (!process.stdout.isTTY) {
+          // Non-interactive mode: auto-switch to host
+          flags['run-on-host'] = true
+          this.log(styles.muted('All agents will run on host (Docker not running).'))
+        } else {
+          const { dockerAction } = await this.prompt<{ dockerAction: string }>([
+            {
+              type: 'list',
+              name: 'dockerAction',
+              message: 'Docker is not running. What would you like to do?',
+              choices: [
+                { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host', command: 'prlt work start --all --run-on-host --json' },
+                { name: '✗  Cancel', value: 'cancel', command: '' },
+              ],
+            },
+          ], batchJsonModeConfig)
 
-        if (dockerAction === 'cancel') {
-          db.close()
-          this.log(styles.muted('Cancelled.'))
-          return
+          if (dockerAction === 'cancel') {
+            db.close()
+            this.log(styles.muted('Cancelled.'))
+            return
+          }
+
+          flags['run-on-host'] = true
+          this.log(styles.muted('All agents will run on host.'))
         }
-
-        flags['run-on-host'] = true
-        this.log(styles.muted('All agents will run on host.'))
       }
 
       if (!flags['run-on-host']) {
       const hasCredentials = dockerCredentialsExist()
       if (!hasCredentials) {
-        const hasApiKey = !!process.env.ANTHROPIC_API_KEY
-
-        this.log('')
-        this.log(styles.warning('⚠️  No Claude Code OAuth credentials found for Docker containers'))
-        this.log(styles.muted('   Agents need credentials to authenticate with Claude.'))
-        this.log('')
-
-        // Build choices based on available options
-        const batchAuthChoices: Array<{ name: string; value: string; command?: string }> = [
-          { name: `🔐 Run ${this.config.bin} agent auth now (recommended — uses Max subscription)`, value: 'auth', command: `${this.config.bin} agent auth` },
-        ]
-        if (hasApiKey) {
-          batchAuthChoices.push({ name: '🔑 Use ANTHROPIC_API_KEY (⚠️  uses API credits, not Max subscription)', value: 'apikey', command: '' })
-        }
-        batchAuthChoices.push(
-          { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host', command: 'prlt work start --all --run-on-host --json' },
-          { name: '✗  Cancel', value: 'cancel', command: '' },
-        )
-
-        const { authAction } = await this.prompt<{ authAction: string }>([
-          {
-            type: 'list',
-            name: 'authAction',
-            message: 'What would you like to do?',
-            choices: batchAuthChoices,
-          },
-        ], batchJsonModeConfig)
-
-        if (authAction === 'cancel') {
-          db.close()
-          this.log(styles.muted('Cancelled.'))
-          return
-        }
-
-        if (authAction === 'host') {
+        if (!process.stdout.isTTY) {
+          // Non-interactive mode: auto-fallback to host
+          this.log(styles.warning('⚠️  No OAuth credentials found. Switched to host environment.'))
           flags['run-on-host'] = true
-          this.log(styles.muted('All agents will run on host.'))
-        } else if (authAction === 'apikey') {
-          batchUseApiKey = true
-          this.log(styles.warning('Using ANTHROPIC_API_KEY — this will consume API credits.'))
-          this.log(styles.muted(`Run "${this.config.bin} agent auth" to set up OAuth and use your Max subscription instead.`))
+        } else {
+          const hasApiKey = !!process.env.ANTHROPIC_API_KEY
+
           this.log('')
-        } else if (authAction === 'auth') {
-          this.log('')
-          this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
+          this.log(styles.warning('⚠️  No Claude Code OAuth credentials found for Docker containers'))
+          this.log(styles.muted('   Agents need credentials to authenticate with Claude.'))
           this.log('')
 
-          // Open auth in a new terminal tab
-          const authCmd = `${process.argv[1]} agent auth`
-          try {
-            execSync(`osascript -e '
-              tell application "iTerm"
-                tell current window
-                  create tab with default profile
-                  tell current session
-                    write text "${authCmd}"
-                  end tell
-                end tell
-              end tell
-            '`)
-          } catch {
-            // Fallback: try Terminal.app
-            try {
-              execSync(`osascript -e 'tell application "Terminal" to do script "${authCmd}"'`)
-            } catch {
-              this.log(styles.warning('Could not open new terminal tab.'))
-              this.log(styles.muted(`Please run manually: ${authCmd}`))
-            }
+          // Build choices based on available options
+          const batchAuthChoices: Array<{ name: string; value: string; command?: string }> = [
+            { name: `🔐 Run ${this.config.bin} agent auth now (recommended — uses Max subscription)`, value: 'auth', command: `${this.config.bin} agent auth` },
+          ]
+          if (hasApiKey) {
+            batchAuthChoices.push({ name: '🔑 Use ANTHROPIC_API_KEY (⚠️  uses API credits, not Max subscription)', value: 'apikey', command: '' })
           }
+          batchAuthChoices.push(
+            { name: '💻 Run all agents on host instead (--run-on-host)', value: 'host', command: 'prlt work start --all --run-on-host --json' },
+            { name: '✗  Cancel', value: 'cancel', command: '' },
+          )
 
-          this.log(styles.muted('Complete the /login flow in the new tab, then press Enter here...'))
-          this.log('')
+          const { authAction } = await this.prompt<{ authAction: string }>([
+            {
+              type: 'list',
+              name: 'authAction',
+              message: 'What would you like to do?',
+              choices: batchAuthChoices,
+            },
+          ], batchJsonModeConfig)
 
-          // Wait for user to complete auth
-          await this.prompt<{ done: string }>([{
-            type: 'input',
-            name: 'done',
-            message: 'Press Enter when authentication is complete:',
-          }], batchJsonModeConfig)
-
-          // Check if credentials now exist
-          if (!dockerCredentialsExist()) {
-            this.log('')
-            this.log(styles.warning('Authentication did not complete. No credentials found.'))
+          if (authAction === 'cancel') {
             db.close()
+            this.log(styles.muted('Cancelled.'))
             return
           }
-          const info = getDockerCredentialInfo()
-          this.log('')
-          this.log(styles.success('✓ Credentials configured'))
-          if (info) {
-            this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
-            this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
+
+          if (authAction === 'host') {
+            flags['run-on-host'] = true
+            this.log(styles.muted('All agents will run on host.'))
+          } else if (authAction === 'apikey') {
+            batchUseApiKey = true
+            this.log(styles.warning('Using ANTHROPIC_API_KEY — this will consume API credits.'))
+            this.log(styles.muted(`Run "${this.config.bin} agent auth" to set up OAuth and use your Max subscription instead.`))
+            this.log('')
+          } else if (authAction === 'auth') {
+            this.log('')
+            this.log(styles.primary(`Opening ${this.config.bin} agent auth in new tab...`))
+            this.log('')
+
+            // Open auth in a new terminal tab
+            const authCmd = `${process.argv[1]} agent auth`
+            try {
+              execSync(`osascript -e '
+                tell application "iTerm"
+                  tell current window
+                    create tab with default profile
+                    tell current session
+                      write text "${authCmd}"
+                    end tell
+                  end tell
+                end tell
+              '`)
+            } catch {
+              // Fallback: try Terminal.app
+              try {
+                execSync(`osascript -e 'tell application "Terminal" to do script "${authCmd}"'`)
+              } catch {
+                this.log(styles.warning('Could not open new terminal tab.'))
+                this.log(styles.muted(`Please run manually: ${authCmd}`))
+              }
+            }
+
+            this.log(styles.muted('Complete the /login flow in the new tab, then press Enter here...'))
+            this.log('')
+
+            // Wait for user to complete auth
+            await this.prompt<{ done: string }>([{
+              type: 'input',
+              name: 'done',
+              message: 'Press Enter when authentication is complete:',
+            }], batchJsonModeConfig)
+
+            // Check if credentials now exist
+            if (!dockerCredentialsExist()) {
+              this.log('')
+              this.log(styles.warning('Authentication did not complete. No credentials found.'))
+              db.close()
+              return
+            }
+            const info = getDockerCredentialInfo()
+            this.log('')
+            this.log(styles.success('✓ Credentials configured'))
+            if (info) {
+              this.log(styles.muted(`   Subscription: ${info.subscriptionType || 'unknown'}`))
+              this.log(styles.muted(`   Expires: ${info.expiresAt.toLocaleDateString()}`))
+            }
+            this.log('')
           }
-          this.log('')
         }
       }
       }

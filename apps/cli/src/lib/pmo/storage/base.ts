@@ -437,6 +437,38 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Migration: Migrate pmo_linear_issue_map → pmo_external_issue_map (PRLT-947)
+  if (tableExists(T.linear_issue_map) && !tableExists(T.external_issue_map)) {
+    try {
+      // Create the new generic table
+      db.exec(`
+        CREATE TABLE ${T.external_issue_map} (
+          pmo_ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE CASCADE,
+          provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
+          external_id TEXT NOT NULL,
+          external_key TEXT NOT NULL,
+          external_url TEXT NOT NULL,
+          team_key TEXT NOT NULL,
+          sync_direction TEXT NOT NULL DEFAULT 'inbound',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (pmo_ticket_id, provider),
+          UNIQUE (provider, external_id)
+        )
+      `)
+
+      // Copy existing Linear mappings into the new table
+      db.exec(`
+        INSERT INTO ${T.external_issue_map}
+          (pmo_ticket_id, provider, external_id, external_key, external_url, team_key, sync_direction, created_at)
+        SELECT
+          pmo_ticket_id, 'linear', linear_issue_id, linear_identifier, linear_url, linear_team_key, sync_direction, created_at
+        FROM ${T.linear_issue_map}
+      `)
+    } catch {
+      // Migration may have already run
+    }
+  }
+
 }
 
 /**

@@ -410,4 +410,80 @@ export class LinearClient {
       }
     `, { issueId, url, title })
   }
+
+  /**
+   * Create a new issue in Linear.
+   */
+  async createIssue(input: {
+    teamId: string
+    title: string
+    description?: string
+    priority?: number
+    stateId?: string
+  }): Promise<LinearIssue> {
+    const data = await this.query<{
+      issueCreate: {
+        success: boolean
+        issue: {
+          id: string
+          identifier: string
+          title: string
+          description: string | null
+          priority: number
+          url: string
+          createdAt: string
+          updatedAt: string
+          state: { id: string; name: string; type: string } | null
+          team: { id: string; key: string; name: string } | null
+          assignee: { id: string; name: string; email: string } | null
+          labels: { nodes: Array<{ id: string; name: string; color: string }> }
+        }
+      }
+    }>(`
+      mutation CreateIssue($input: IssueCreateInput!) {
+        issueCreate(input: $input) {
+          success
+          issue {
+            id identifier title description priority url createdAt updatedAt
+            state { id name type }
+            team { id key name }
+            assignee { id name email }
+            labels { nodes { id name color } }
+          }
+        }
+      }
+    `, { input })
+
+    const issue = data.issueCreate.issue
+    return {
+      id: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      description: issue.description ?? undefined,
+      priority: issue.priority,
+      state: issue.state ? {
+        id: issue.state.id,
+        name: issue.state.name,
+        type: issue.state.type,
+      } : { id: '', name: 'Unknown', type: 'backlog' },
+      team: issue.team ? {
+        id: issue.team.id,
+        key: issue.team.key,
+        name: issue.team.name,
+      } : { id: '', key: '', name: 'Unknown' },
+      assignee: issue.assignee ? {
+        id: issue.assignee.id,
+        name: issue.assignee.name,
+        email: issue.assignee.email,
+      } : undefined,
+      labels: issue.labels.nodes.map((l) => ({
+        id: l.id,
+        name: l.name,
+        color: l.color,
+      })),
+      url: issue.url,
+      createdAt: issue.createdAt,
+      updatedAt: issue.updatedAt,
+    }
+  }
 }

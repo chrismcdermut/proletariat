@@ -6,6 +6,7 @@
  */
 
 import Database from 'better-sqlite3'
+import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
 
@@ -133,9 +134,24 @@ export function clearTrelloConfig(db: Database.Database): void {
  * Also checks PRLT_TRELLO_API_KEY and TRELLO_API_KEY environment variables.
  */
 export function getTrelloApiKey(db: Database.Database): string | null {
+  // 1. Try provider sources (resolves apiKeyRef → trello.api_key)
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'trello') {
+        const key = resolveApiKey(db, source)
+        if (key) return key
+      }
+    }
+  } catch {
+    // Provider sources may not exist in older databases
+  }
+
+  // 2. Legacy: environment variables
   const envKey = process.env.PRLT_TRELLO_API_KEY || process.env.TRELLO_API_KEY
   if (envKey) return envKey
 
+  // 3. Legacy: stored workspace setting
   return getSetting(db, TRELLO_CONFIG_KEYS.apiKey)
 }
 
@@ -144,8 +160,10 @@ export function getTrelloApiKey(db: Database.Database): string | null {
  * Also checks PRLT_TRELLO_API_TOKEN and TRELLO_API_TOKEN environment variables.
  */
 export function getTrelloApiToken(db: Database.Database): string | null {
+  // 1. Legacy: environment variables
   const envToken = process.env.PRLT_TRELLO_API_TOKEN || process.env.TRELLO_API_TOKEN
   if (envToken) return envToken
 
+  // 2. Legacy: stored workspace setting
   return getSetting(db, TRELLO_CONFIG_KEYS.apiToken)
 }

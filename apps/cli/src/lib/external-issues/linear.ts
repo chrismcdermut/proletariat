@@ -151,7 +151,7 @@ function ensureLinearConfig(
   if (!apiKey) {
     throw new ExternalIssueAdapterError(
       'MISSING_CONFIG',
-      'Missing Linear API key. Set LINEAR_API_KEY or PRLT_LINEAR_API_KEY.',
+      'Missing Linear API key. Configure a Linear provider source, or set PRLT_LINEAR_API_KEY.',
     )
   }
 
@@ -317,7 +317,7 @@ export async function getLinearIssueByIdentifier(
   if (response.status === 401 || response.status === 403) {
     throw new ExternalIssueAdapterError(
       'AUTH_FAILED',
-      'Linear authentication failed. Verify your LINEAR_API_KEY token.',
+      'Linear authentication failed. Verify your API key configuration.',
     )
   }
 
@@ -392,7 +392,7 @@ export async function listLinearIssues(
   if (response.status === 401 || response.status === 403) {
     throw new ExternalIssueAdapterError(
       'AUTH_FAILED',
-      'Linear authentication failed. Verify your LINEAR_API_KEY token.',
+      'Linear authentication failed. Verify your API key configuration.',
     )
   }
 

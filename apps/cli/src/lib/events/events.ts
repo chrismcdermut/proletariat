@@ -1,11 +1,19 @@
 /**
  * Execution Runtime Event Definitions
  *
- * Typed event payloads emitted by the execution runtime during agent lifecycle.
- * These events enable workflow automation, logging, and orchestration hooks.
+ * Typed event payloads emitted by the execution runtime during agent lifecycle
+ * and the PMO ticket system. These events enable workflow automation, logging,
+ * orchestration hooks, and outbound sync to external issue trackers.
  */
 
 import type { ExecutionStatus } from '../execution/types.js'
+import type { StateCategory } from '../pmo/types.js'
+import type {
+  WorkStartedEvent,
+  WorkStatusChangedEvent,
+  WorkPRCreatedEvent,
+  WorkCompletedEvent,
+} from '../work-lifecycle/events.js'
 
 // =============================================================================
 // Event Payloads
@@ -64,6 +72,32 @@ export interface AgentOutputEvent {
 }
 
 // =============================================================================
+// Ticket Events
+// =============================================================================
+
+/** Emitted when a ticket's status changes (moved to a different column/status). */
+export interface TicketStatusChangedEvent {
+  ticketId: string
+  projectId: string
+  previousStatusId: string | null
+  previousStatusName: string | null
+  previousStatusCategory: StateCategory | null
+  newStatusId: string
+  newStatusName: string | null
+  newStatusCategory: StateCategory | null
+  timestamp: Date
+}
+
+/** Emitted when a PR is linked to a ticket. */
+export interface TicketPRLinkedEvent {
+  ticketId: string
+  projectId: string
+  prUrl: string
+  prTitle: string | null
+  timestamp: Date
+}
+
+// =============================================================================
 // Event Map
 // =============================================================================
 
@@ -78,6 +112,14 @@ export interface RuntimeEventMap {
   'agent:stopped': AgentStoppedEvent
   'agent:error': AgentErrorEvent
   'agent:output': AgentOutputEvent
+  'ticket:status_changed': TicketStatusChangedEvent
+  'ticket:pr_linked': TicketPRLinkedEvent
+
+  // Work-lifecycle domain events (provider-agnostic)
+  'work:started': WorkStartedEvent
+  'work:status_changed': WorkStatusChangedEvent
+  'work:pr_created': WorkPRCreatedEvent
+  'work:completed': WorkCompletedEvent
 }
 
 /** Union of all event names. */

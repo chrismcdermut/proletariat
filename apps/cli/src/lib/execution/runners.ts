@@ -312,8 +312,20 @@ async function ensureTmuxServerHasKeychainAccess(): Promise<void> {
       // Keychain access is broken - restart tmux server
       // This happens silently - the next tmux session will have keychain access
       execSync('tmux kill-server', { stdio: 'pipe' })
-      // Brief delay to ensure server fully stops
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // TKT-099: Wait for the tmux server to fully stop before returning.
+      // The old 500ms fixed delay was insufficient under load, causing the subsequent
+      // `tmux new-session` to occasionally create a session on the dying server.
+      // Poll for server shutdown with a reasonable timeout instead.
+      for (let i = 0; i < 10; i++) {
+        await new Promise(resolve => setTimeout(resolve, 300))
+        try {
+          execSync('tmux list-sessions 2>/dev/null', { stdio: 'pipe' })
+          // Server still alive, keep waiting
+        } catch {
+          // Server is gone — ready to proceed
+          break
+        }
+      }
     }
   } catch (_error) {
     // Test session failed - clean up if it exists
@@ -1046,6 +1058,10 @@ export async function runHost(
   let executorInvocation: string
   if (isClaudeExecutor(executor)) {
     // Build flags based on config - Claude-specific flags
+    // PRLT-948: --permission-mode bypassPermissions skips the "trust this folder" dialog.
+    // Without it, Claude Code shows a workspace trust prompt in new worktrees and the
+    // agent sits idle waiting for user input that never comes in automated tmux sessions.
+    const bypassTrustFlag = skipPermissions ? '--permission-mode bypassPermissions ' : ''
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     // outputMode: 'print' adds -p flag (final result only), 'interactive' shows streaming UI
     const printFlag = config.outputMode === 'print' ? '-p ' : ''
@@ -1058,7 +1074,7 @@ export async function runHost(
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     // Tool registry (TKT-083): pass MCP config to Claude Code via --mcp-config flag
     const mcpConfigFlag = mcpConfigPath ? `--mcp-config "${mcpConfigPath}" ` : ''
-    executorInvocation = `${cmd} ${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}${mcpConfigFlag}"$(cat "$PROMPT_PATH")"`
+    executorInvocation = `${cmd} ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${systemPromptFlag}${mcpConfigFlag}"$(cat "$PROMPT_PATH")"`
   } else if (executor === 'codex') {
     // TKT-080: Use Codex adapter for deterministic command building.
     // Uses PLACEHOLDER pattern for reliable prompt replacement (same as devcontainer runner).
@@ -1077,7 +1093,9 @@ export async function runHost(
 
   // Build script that runs executor and keeps shell open after completion
   const setTitleCmds = getSetTitleCommands(windowTitle)
-  const systemPromptVar = systemPromptPath ? `\nSYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
+  // TKT-941: Export SYSTEM_PROMPT_PATH so it's available inside srt sandbox child processes.
+  // Without export, `bash -c '...'` inside srt can't access the variable.
+  const systemPromptVar = systemPromptPath ? `\nexport SYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
 
   // Ephemeral agents auto-close after completion instead of dropping to interactive shell
   const postExecBlock = context.isEphemeral
@@ -1102,17 +1120,56 @@ exec $SHELL
     finalInvocation = srtCmd
   }
 
+  // TKT-099: Build a fallback invocation WITHOUT the prompt argument.
+  // Used when prompt file is missing/empty — starts Claude in interactive mode
+  // so the agent at least gets a working session instead of silently failing.
+  let fallbackInvocation: string
+  if (isClaudeExecutor(executor)) {
+    const fbBypassTrust = skipPermissions ? '--permission-mode bypassPermissions ' : ''
+    const fbPermissions = skipPermissions ? '--dangerously-skip-permissions ' : ''
+    const fbEffort = skipPermissions ? '--effort high ' : ''
+    const fbPrint = config.outputMode === 'print' ? '-p ' : ''
+    const fbDisallowPlan = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
+    const fbSystemPrompt = systemPromptPath ? '--system-prompt "$(cat "$SYSTEM_PROMPT_PATH")" ' : ''
+    const fbMcpConfig = mcpConfigPath ? `--mcp-config "${mcpConfigPath}" ` : ''
+    fallbackInvocation = `${cmd} ${fbBypassTrust}${fbPermissions}${fbEffort}${fbPrint}${fbDisallowPlan}${fbSystemPrompt}${fbMcpConfig}`.trim()
+  } else {
+    fallbackInvocation = cmd
+  }
+
   const scriptContent = `#!/bin/bash
 # Auto-generated script for ticket ${context.ticketId}
 SCRIPT_PATH="${scriptPath}"
-PROMPT_PATH="${promptPath}"${systemPromptVar}
+# TKT-941: Export PROMPT_PATH so it's available inside srt sandbox child processes.
+# When running in sandbox mode, the executor is wrapped with:
+#   srt ... -- bash -c 'claude ... "$(cat "$PROMPT_PATH")"'
+# Without export, the inner bash started by srt cannot access PROMPT_PATH,
+# causing $(cat "$PROMPT_PATH") to expand to empty and the agent to start idle.
+export PROMPT_PATH="${promptPath}"${systemPromptVar}
 ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 ${context.executionEnvironment === 'sandbox' ? 'echo "🔒 Running in srt sandbox (filesystem + network isolation)"' : ''}
 echo ""
 cd "${context.worktreePath}"
-# Run executor in subshell with CLAUDECODE unset (prevents nested session error)
-(unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${finalInvocation})
+
+# TKT-099: Robust prompt loading — wait for file and verify content before passing to executor.
+# Prevents race where the prompt file isn't flushed/synced yet (e.g., Docker file-sharing
+# delay, tmux server restart, or transient filesystem latency).
+PROMPT_WAIT=0
+while [ ! -s "$PROMPT_PATH" ] && [ $PROMPT_WAIT -lt 30 ]; do
+  sleep 0.5
+  PROMPT_WAIT=$((PROMPT_WAIT + 1))
+done
+
+if [ ! -s "$PROMPT_PATH" ]; then
+  echo "⚠️  Warning: Prompt file not available after 15s. Starting in interactive mode."
+  echo "   Expected: $PROMPT_PATH"
+  # Fallback: launch executor without prompt so the session isn't lost
+  (unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${fallbackInvocation})
+else
+  # Run executor in subshell with CLAUDECODE unset (prevents nested session error)
+  (unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT; ${finalInvocation})
+fi
 
 # Clean up script and prompt files
 rm -f "$SCRIPT_PATH" "$PROMPT_PATH"${systemPromptPath ? ' "$SYSTEM_PROMPT_PATH"' : ''}
@@ -2236,7 +2293,7 @@ export async function runDevcontainer(
     if (sessionManager === 'tmux') {
       // Use tmux inside container - pass displayMode to control whether to open terminal tab
       // Pass containerId directly to avoid regex extraction issues with devcontainer exec commands
-      result = await runDevcontainerInTmux(context, devcontainerCmd, config, displayMode, containerId || undefined)
+      result = await runDevcontainerInTmux(context, devcontainerCmd, config, displayMode, containerId || undefined, promptFile)
     } else {
       switch (displayMode) {
         case 'background':
@@ -2554,7 +2611,8 @@ async function runDevcontainerInTmux(
   devcontainerCmd: string,
   config: ExecutionConfig,
   displayMode: DisplayMode = 'terminal',
-  containerId?: string
+  containerId?: string,
+  promptContainerPath?: string
 ): Promise<RunnerResult> {
   // Session name: {ticketId}-{action} (e.g., TKT-347-implement)
   const sessionName = buildTmuxWindowName(context)
@@ -2615,6 +2673,22 @@ exit 0`
 echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec bash`
 
+    // TKT-099: Build a wait guard for the prompt file inside the container.
+    // Docker Desktop's file-sharing layer (grpcfuse/virtiofs) can lag behind host writes,
+    // so the prompt file may not be visible in the container the instant it was written on the host.
+    const promptWaitBlock = promptContainerPath
+      ? `# TKT-099: Wait for prompt file to sync from host into container
+PROMPT_WAIT=0
+while [ ! -s "${promptContainerPath}" ] && [ $PROMPT_WAIT -lt 30 ]; do
+  sleep 0.5
+  PROMPT_WAIT=$((PROMPT_WAIT + 1))
+done
+if [ ! -s "${promptContainerPath}" ]; then
+  echo "⚠️  Warning: Prompt file not available after 15s: ${promptContainerPath}"
+fi
+`
+      : ''
+
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
 export COLORTERM=truecolor
@@ -2622,15 +2696,12 @@ unset CI
 unset CLAUDECODE
 echo "🚀 Starting: ${sessionName}"
 echo ""
-${claudeCmd}
+${promptWaitBlock}${claudeCmd}
 ${containerPostExec}
 `
     const scriptPath = `/tmp/prlt-${sessionName}.sh`
 
     // Write script and start tmux session inside container
-    // IMPORTANT: We create the session with bash first, then send keys to run the script.
-    // This ensures bash is running interactively (required for Claude's TUI to render).
-    // If we pass the script as the session command, bash runs non-interactively and Claude won't show TUI.
     // -n sets the window name (shows in iTerm tab title with -CC mode)
     // sessionName is already ticket-action-agent format
     // Only enable mouse mode if NOT using control mode (control mode lets iTerm handle mouse natively)

@@ -18,6 +18,7 @@ import {
   saveAsanaProject,
   saveAsanaWorkspace,
 } from '../../lib/asana/index.js'
+import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
 
 function isLikelyGid(value: string): boolean {
   return /^\d+$/.test(value)
@@ -62,6 +63,7 @@ export default class AsanaConnect extends PMOCommand {
 
     if (flags.disconnect) {
       clearAsanaConfig(db)
+      removeProviderSourcesByProvider(db, 'asana')
       if (jsonMode) {
         outputSuccessAsJson({ disconnected: true, message: 'Asana credentials removed.' }, createMetadata('asana connect', flags))
         return
@@ -282,6 +284,16 @@ export default class AsanaConnect extends PMOCommand {
       if (projectGid) {
         saveAsanaProject(db, projectGid, projectName ?? projectGid)
       }
+
+      // Register as provider source
+      upsertProviderSource(db, {
+        id: 'asana',
+        provider: 'asana',
+        apiKeyRef: 'asana.access_token',
+        teamProjectId: projectGid ?? workspaceGid ?? 'default',
+        prefix: 'ASANA-',
+        label: projectName ?? workspaceName ?? 'Asana',
+      })
 
       if (jsonMode) {
         outputSuccessAsJson({

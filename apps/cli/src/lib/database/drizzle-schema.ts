@@ -546,6 +546,27 @@ export const pmoExternalExecutionPrs = sqliteTable('pmo_external_execution_prs',
 }))
 
 /**
+ * Generic external issue ↔ PMO ticket mapping (replaces provider-specific tables).
+ */
+export const pmoExternalIssueMap = sqliteTable('pmo_external_issue_map', {
+  pmoTicketId: text('pmo_ticket_id').notNull(),
+  provider: text('provider', { enum: ['linear', 'jira', 'shortcut', 'trello', 'github'] }).notNull(),
+  externalId: text('external_id').notNull(),
+  externalKey: text('external_key').notNull(),
+  externalUrl: text('external_url').notNull(),
+  teamKey: text('team_key').notNull(),
+  syncDirection: text('sync_direction', { enum: ['inbound', 'outbound', 'bidirectional'] }).notNull().default('inbound'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.pmoTicketId, table.provider] }),
+  unqProviderExternalId: unique('unq_pmo_external_issue_map_provider_external_id').on(table.provider, table.externalId),
+  idxProvider: index('idx_pmo_external_issue_map_provider').on(table.provider),
+  idxExternalId: index('idx_pmo_external_issue_map_external_id').on(table.provider, table.externalId),
+  idxExternalKey: index('idx_pmo_external_issue_map_external_key_eim').on(table.provider, table.externalKey),
+  idxTeamKey: index('idx_pmo_external_issue_map_team_key').on(table.provider, table.teamKey),
+}))
+
+/**
  * ID sequence counters
  */
 export const pmoIdSequences = sqliteTable('id_sequences', {
@@ -923,6 +944,9 @@ export type NewDbPmoBoardView = typeof pmoBoardViews.$inferInsert
 
 export type DbPmoAgentWorkRecord = typeof pmoAgentWork.$inferSelect
 export type NewDbPmoAgentWorkRecord = typeof pmoAgentWork.$inferInsert
+
+export type DbPmoExternalIssueMap = typeof pmoExternalIssueMap.$inferSelect
+export type NewDbPmoExternalIssueMap = typeof pmoExternalIssueMap.$inferInsert
 
 export type DbPmoExternalExecutionMap = typeof pmoExternalExecutionMap.$inferSelect
 export type NewDbPmoExternalExecutionMap = typeof pmoExternalExecutionMap.$inferInsert

@@ -290,7 +290,7 @@ describe('Redaction integration – adapter outputs are credential-free', () => 
     try {
       // The error message from ensureLinearConfig should mention the env var name,
       // not the value
-      const errorMsg = 'Missing Linear API key. Set LINEAR_API_KEY or PRLT_LINEAR_API_KEY.'
+      const errorMsg = 'Missing Linear API key. Configure a Linear provider source, or set PRLT_LINEAR_API_KEY.'
       assertNoCredentials(errorMsg, 'config error message')
     } finally {
       if (savedKey !== undefined) {
