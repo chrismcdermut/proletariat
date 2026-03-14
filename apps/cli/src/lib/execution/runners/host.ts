@@ -1,42 +1,15 @@
 /**
- * Host Runner - Host execution with tmux session persistence
- *
- * Runs commands on the host machine using tmux sessions for persistence.
- * Supports multiple terminal emulators on macOS.
+ * Host Runner — tmux session persistence on macOS
  */
 
 import {
-  execSync,
-  fs,
-  path,
-  os,
-  spawn,
-  DisplayMode,
-  OutputMode,
-  PermissionMode,
-  ExecutorType,
-  ExecutionContext,
-  ExecutionConfig,
-  getSetTitleCommands,
-  resolveCodexExecutionContext,
-  validateCodexMode,
-  getCodexCommand,
-  resolveToolsForSpawn,
-} from './shared.js'
-
-import {
-  RunnerResult,
-  buildSessionName,
-  buildWindowTitle,
-  buildTmuxWindowName,
-  buildPrompt,
-  buildOrchestratorSystemPrompt,
-  getExecutorCommand,
-  isClaudeExecutor,
-  shouldUseControlMode,
-  buildTmuxMouseOption,
-  buildTmuxAttachCommand,
-  configureITermTmuxWindowMode,
+  execSync, fs, path, os, spawn,
+  DisplayMode, OutputMode, PermissionMode, ExecutorType,
+  ExecutionContext, ExecutionConfig, getSetTitleCommands,
+  resolveCodexExecutionContext, validateCodexMode, getCodexCommand, resolveToolsForSpawn,
+  RunnerResult, buildSessionName, buildWindowTitle, buildTmuxWindowName,
+  buildPrompt, buildOrchestratorSystemPrompt, getExecutorCommand, isClaudeExecutor,
+  shouldUseControlMode, buildTmuxMouseOption, buildTmuxAttachCommand, configureITermTmuxWindowMode,
 } from './shared.js'
 import { buildSrtCommand } from './sandbox.js'
 
