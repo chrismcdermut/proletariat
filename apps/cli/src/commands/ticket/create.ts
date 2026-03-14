@@ -442,12 +442,12 @@ export default class TicketCreate extends PMOCommand {
       // outputPromptAsJson calls process.exit — unreachable
     }
 
-    const { selectedSource } = await inquirer.prompt([{
+    const { selectedSource } = await this.prompt<{ selectedSource: string }>([{
       type: 'list',
       name: 'selectedSource',
       message,
       choices,
-    }]);
+    }], null);
 
     // Only 'linear' gets the special path; everything else falls through to PMO
     return selectedSource === 'linear' ? 'linear' : 'pmo';
@@ -507,12 +507,12 @@ export default class TicketCreate extends PMOCommand {
         // unreachable
       }
 
-      const { inputTitle } = await inquirer.prompt([{
+      const { inputTitle } = await this.prompt<{ inputTitle: string }>([{
         type: 'input',
         name: 'inputTitle',
         message: 'Enter ticket title:',
-        validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
-      }]);
+        validate: (input: unknown) => typeof input === 'string' && input.trim() ? true : 'Title cannot be empty',
+      }], null);
       title = inputTitle;
     }
 

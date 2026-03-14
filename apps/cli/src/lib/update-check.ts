@@ -206,7 +206,8 @@ export interface StaleTapResult {
  * or when the tap is not installed (non-brew installs).
  */
 export function checkStaleTap(tapPath?: string | null): StaleTapResult {
-  const resolvedPath = tapPath ?? getBrewTapPath()
+  // Explicit null means "no tap" — only fall back to auto-detect when omitted
+  const resolvedPath = tapPath === null ? null : (tapPath ?? getBrewTapPath())
   if (!resolvedPath) {
     return { isStale: false }
   }
