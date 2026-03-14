@@ -266,3 +266,64 @@ export function findSessionForExecution(
   const match = availableSessions.find(s => sessionMatchesExecution(s, ticketId, agentName))
   return match || null
 }
+
+/**
+ * Send a text message to a tmux session via send-keys.
+ * Sends the text first, then Enter separately with a small delay
+ * to avoid race conditions where Enter arrives before text is rendered.
+ */
+export function sendTmuxMessage(sessionId: string, message: string, containerId?: string): void {
+  // Escape single quotes in the message for shell safety
+  const escapedMessage = message.replace(/'/g, "'\\''")
+
+  // First send Escape to clear any buffered input in the prompt — without
+  // this, text already typed by the agent concatenates with our message,
+  // producing garbage.
+  const sendEscapeCmd = `tmux send-keys -t "${sessionId}" Escape`
+  // Send the text (without Enter), using -l (literal) flag so tmux
+  // does not interpret special characters - message is delivered verbatim
+  const sendTextCmd = `tmux send-keys -l -t "${sessionId}" '${escapedMessage}'`
+  // Then send Enter separately (Enter is a tmux key name, not literal text)
+  const sendEnterCmd = `tmux send-keys -t "${sessionId}" Enter`
+
+  if (containerId) {
+    // Clear any buffered input first
+    execSync(
+      `docker exec ${containerId} bash -c '${sendEscapeCmd}'`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 },
+    )
+    // Wait for Escape to take effect before sending new text
+    execSync('sleep 0.2', { stdio: ['pipe', 'pipe', 'pipe'] })
+    execSync(
+      `docker exec ${containerId} bash -c '${sendTextCmd}'`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 },
+    )
+    // Small delay before sending Enter to avoid race conditions
+    execSync('sleep 0.1', { stdio: ['pipe', 'pipe', 'pipe'] })
+    execSync(
+      `docker exec ${containerId} bash -c '${sendEnterCmd}'`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 },
+    )
+  } else {
+    // Clear any buffered input first
+    execSync(sendEscapeCmd, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    })
+    // Wait for Escape to take effect before sending new text
+    execSync('sleep 0.2', { stdio: ['pipe', 'pipe', 'pipe'] })
+    execSync(sendTextCmd, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    })
+    // Small delay before sending Enter
+    execSync('sleep 0.1', { stdio: ['pipe', 'pipe', 'pipe'] })
+    execSync(sendEnterCmd, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    })
+  }
+}

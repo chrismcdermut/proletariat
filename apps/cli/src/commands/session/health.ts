@@ -13,6 +13,7 @@ import {
   findContainerSessionsByPrefix,
   findSessionForExecution,
   captureTmuxPane,
+  sendTmuxMessage,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
@@ -130,19 +131,26 @@ function sendEscape(sessionId: string, containerId?: string): boolean {
 // =============================================================================
 
 export default class SessionHealth extends PMOCommand {
-  static description = 'Check health of running agent sessions and detect/recover hung agents'
+  static description = 'Check health of running agent sessions, detect/recover hung agents, and auto-poke idle agents'
 
   static examples = [
     '<%= config.bin %> session health',
     '<%= config.bin %> session health --fix',
+    '<%= config.bin %> session health --poke-idle',
+    '<%= config.bin %> session health --fix --poke-idle',
     '<%= config.bin %> session health --watch',
     '<%= config.bin %> session health --watch --interval 3 --threshold 5',
+    '<%= config.bin %> session health --watch --poke-idle',
   ]
 
   static flags = {
     ...pmoBaseFlags,
     fix: Flags.boolean({
       description: 'Send Escape to hung agents to unstick them',
+      default: false,
+    }),
+    'poke-idle': Flags.boolean({
+      description: 'Auto-poke idle agents with their ticket description to resume work',
       default: false,
     }),
     watch: Flags.boolean({
@@ -154,7 +162,7 @@ export default class SessionHealth extends PMOCommand {
       default: 5,
     }),
     threshold: Flags.integer({
-      description: 'Minutes an agent must be hung before auto-recovery in watch mode',
+      description: 'Minutes an agent must be hung/idle before auto-recovery in watch mode',
       default: 10,
     }),
   }
@@ -166,11 +174,12 @@ export default class SessionHealth extends PMOCommand {
   async execute(): Promise<void> {
     const { flags } = await this.parse(SessionHealth)
     const jsonMode = shouldOutputJson(flags)
+    const pokeIdle = flags['poke-idle']
 
     if (flags.watch) {
-      await this.watchMode(flags.interval, flags.threshold)
+      await this.watchMode(flags.interval, flags.threshold, pokeIdle)
     } else {
-      await this.runHealthCheck(flags.fix, jsonMode, flags)
+      await this.runHealthCheck(flags.fix, jsonMode, flags, pokeIdle)
     }
   }
 
@@ -181,6 +190,7 @@ export default class SessionHealth extends PMOCommand {
     fix: boolean,
     jsonMode: boolean = false,
     flags: Record<string, unknown> = {},
+    pokeIdle: boolean = false,
   ): Promise<AgentHealthInfo[]> {
     let executionStorage: ExecutionStorage | null = null
     let db: Database.Database | null = null
@@ -318,6 +328,16 @@ export default class SessionHealth extends PMOCommand {
         }
       }
 
+      // Auto-poke idle agents if --poke-idle
+      const pokeResults: Array<{ agentName: string; ticketId: string; poked: boolean; message?: string }> = []
+      if (pokeIdle) {
+        const idleAgents = agents.filter(a => a.state === 'IDLE')
+        for (const agent of idleAgents) {
+          const result = await this.pokeIdleAgent(agent)
+          pokeResults.push(result)
+        }
+      }
+
       // JSON mode: output structured data and exit
       if (jsonMode) {
         const hungAgents = agents.filter(a => a.state === 'HUNG')
@@ -353,8 +373,10 @@ export default class SessionHealth extends PMOCommand {
             unknown: agents.filter(a => a.state === 'UNKNOWN').length,
           },
           ...(fix && fixResults.length > 0 ? { recovered: fixResults } : {}),
+          ...(pokeResults.length > 0 ? { poked: pokeResults } : {}),
           commands: {
             fix: 'prlt session health --fix',
+            'poke-idle': 'prlt session health --poke-idle',
             watch: 'prlt session health --watch',
           },
         }, createMetadata('session health', flags))
@@ -384,6 +406,21 @@ export default class SessionHealth extends PMOCommand {
           this.log(styles.success('No hung agents found.'))
           this.log('')
         }
+      }
+
+      // Display poke-idle results
+      if (pokeIdle && pokeResults.length > 0) {
+        this.log('')
+        this.log(styles.header('Poking idle agents...'))
+        this.log('')
+        for (const result of pokeResults) {
+          if (result.poked) {
+            this.log(styles.success(`  Poked ${result.agentName} (${result.ticketId}) with ticket description`))
+          } else {
+            this.log(styles.warning(`  Could not poke ${result.agentName} (${result.ticketId}): ${result.message || 'unknown error'}`))
+          }
+        }
+        this.log('')
       }
 
       return agents
@@ -479,21 +516,72 @@ export default class SessionHealth extends PMOCommand {
       this.log(styles.muted('  prlt session health --fix'))
       this.log('')
     }
+
+    // Show poke-idle hint if there are idle agents
+    if (counts.IDLE > 0) {
+      this.log(styles.warning(`  ${counts.IDLE} agent(s) appear idle. Run with --poke-idle to send their ticket description and resume work.`))
+      this.log(styles.muted('  prlt session health --poke-idle'))
+      this.log('')
+    }
+  }
+
+  /**
+   * Poke an idle agent with its ticket description to resume work.
+   * Looks up the ticket from PMO storage and sends the description.
+   */
+  private async pokeIdleAgent(
+    agent: AgentHealthInfo,
+  ): Promise<{ agentName: string; ticketId: string; poked: boolean; message?: string }> {
+    try {
+      const ticket = await this.storage.getTicket(agent.ticketId)
+      if (!ticket) {
+        return { agentName: agent.agentName, ticketId: agent.ticketId, poked: false, message: 'ticket not found' }
+      }
+
+      if (!ticket.description && !ticket.title) {
+        return { agentName: agent.agentName, ticketId: agent.ticketId, poked: false, message: 'ticket has no description' }
+      }
+
+      // Build the poke message with ticket context
+      const parts = [`Continue working on ${agent.ticketId}: ${ticket.title}`]
+      if (ticket.description) {
+        parts.push('')
+        parts.push(ticket.description)
+      }
+      if (ticket.acceptanceCriteria && ticket.acceptanceCriteria.length > 0) {
+        parts.push('')
+        parts.push('Acceptance Criteria:')
+        for (const ac of ticket.acceptanceCriteria) {
+          parts.push(`- ${ac.criterion}`)
+        }
+      }
+      const pokeMessage = parts.join('\n')
+
+      sendTmuxMessage(agent.sessionId, pokeMessage, agent.containerId)
+      return { agentName: agent.agentName, ticketId: agent.ticketId, poked: true }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error)
+      return { agentName: agent.agentName, ticketId: agent.ticketId, poked: false, message: errMsg }
+    }
   }
 
   /**
    * Watchdog mode: continuously monitor and auto-recover hung agents.
    */
-  private async watchMode(intervalMinutes: number, thresholdMinutes: number): Promise<void> {
+  private async watchMode(intervalMinutes: number, thresholdMinutes: number, pokeIdle: boolean = false): Promise<void> {
     this.log('')
     this.log(styles.header('Watchdog Mode'))
     this.log(styles.muted(`  Polling every ${intervalMinutes} minute(s)`))
     this.log(styles.muted(`  Auto-recovering agents hung for >${thresholdMinutes} minute(s)`))
+    if (pokeIdle) {
+      this.log(styles.muted(`  Auto-poking agents idle for >${thresholdMinutes} minute(s)`))
+    }
     this.log(styles.muted('  Press Ctrl+C to stop'))
     this.log('')
 
-    // Track how long each agent has been in HUNG state (by sessionId)
+    // Track how long each agent has been in HUNG or IDLE state (by sessionId)
     const hungSince = new Map<string, number>()
+    const idleSince = new Map<string, number>()
 
     const poll = async () => {
       const timestamp = new Date().toLocaleTimeString()
@@ -503,6 +591,7 @@ export default class SessionHealth extends PMOCommand {
 
       // Track hung durations and auto-recover
       const currentHungIds = new Set<string>()
+      const currentIdleIds = new Set<string>()
 
       for (const agent of agents) {
         if (agent.state === 'HUNG') {
@@ -527,12 +616,43 @@ export default class SessionHealth extends PMOCommand {
             }
           }
         }
+
+        // Track idle agents and auto-poke when threshold exceeded
+        if (pokeIdle && agent.state === 'IDLE') {
+          currentIdleIds.add(agent.sessionId)
+
+          if (!idleSince.has(agent.sessionId)) {
+            idleSince.set(agent.sessionId, Date.now())
+            this.log(styles.warning(`  Detected idle agent: ${agent.agentName} (${agent.ticketId})`))
+          }
+
+          const idleDurationMs = Date.now() - idleSince.get(agent.sessionId)!
+          const idleMinutes = Math.floor(idleDurationMs / 60000)
+
+          if (idleMinutes >= thresholdMinutes) {
+            this.log(styles.warning(`  Agent ${agent.agentName} idle for ${idleMinutes}m (threshold: ${thresholdMinutes}m) - poking...`))
+            const result = await this.pokeIdleAgent(agent)
+            if (result.poked) {
+              this.log(styles.success(`  Poked ${agent.agentName} (${agent.ticketId}) with ticket description`))
+              idleSince.delete(agent.sessionId)
+            } else {
+              this.log(styles.error(`  Failed to poke ${agent.agentName} (${agent.ticketId}): ${result.message}`))
+            }
+          }
+        }
       }
 
       // Clear hung tracking for agents no longer hung
       for (const sessionId of hungSince.keys()) {
         if (!currentHungIds.has(sessionId)) {
           hungSince.delete(sessionId)
+        }
+      }
+
+      // Clear idle tracking for agents no longer idle
+      for (const sessionId of idleSince.keys()) {
+        if (!currentIdleIds.has(sessionId)) {
+          idleSince.delete(sessionId)
         }
       }
     }
