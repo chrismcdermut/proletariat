@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { CategoryType } from '../../lib/pmo/types.js';
-import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputPromptAsJson, buildPromptConfig, createMetadata, outputErrorAsJson, outputSuccessAsJson } from '../../lib/prompt-json.js';
 
 export default class CategoryRename extends PMOCommand {
   static description = 'Rename a category (custom categories only)';
@@ -89,10 +89,16 @@ export default class CategoryRename extends PMOCommand {
     // Find the category
     const category = await this.storage.getCategoryByName(oldName, categoryType);
     if (!category) {
+      if (jsonMode) {
+        outputErrorAsJson('CATEGORY_NOT_FOUND', `Category "${oldName}" not found for type "${categoryType}"`, createMetadata('category rename', flags));
+      }
       this.error(`Category "${oldName}" not found for type "${categoryType}"`);
     }
 
     if (category.isBuiltin) {
+      if (jsonMode) {
+        outputErrorAsJson('BUILTIN_CATEGORY', `Cannot rename built-in category "${oldName}"`, createMetadata('category rename', flags));
+      }
       this.error(`Cannot rename built-in category "${oldName}"`);
     }
 
@@ -125,25 +131,47 @@ export default class CategoryRename extends PMOCommand {
 
     // At this point newName and oldName should be defined
     if (!newName) {
+      if (jsonMode) {
+        outputErrorAsJson('NAME_REQUIRED', 'New name is required', createMetadata('category rename', flags));
+      }
       this.error('New name is required');
     }
     if (!oldName) {
+      if (jsonMode) {
+        outputErrorAsJson('NAME_REQUIRED', 'Old name is required', createMetadata('category rename', flags));
+      }
       this.error('Old name is required');
     }
 
     // Validate new name format
     if (!/^[a-z][a-z0-9-]*$/.test(newName)) {
+      if (jsonMode) {
+        outputErrorAsJson('INVALID_NAME', 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens', createMetadata('category rename', flags));
+      }
       this.error('Category name must start with a letter and contain only lowercase letters, numbers, and hyphens');
     }
 
     try {
       const updatedCategory = await this.storage.renameCategory(category.id, newName);
+      if (jsonMode) {
+        outputSuccessAsJson({
+          oldName,
+          newName: updatedCategory.name,
+          type: categoryType,
+          message: 'Category renamed successfully!',
+        }, createMetadata('category rename', flags));
+        return;
+      }
+
       this.log(`\n${styles.success(`Category renamed successfully!`)}`);
       this.log(`  Old name: ${oldName}`);
       this.log(`  New name: ${styles.emphasis(updatedCategory.name)}`);
       this.log('');
     } catch (error) {
       if (error instanceof Error) {
+        if (jsonMode) {
+          outputErrorAsJson('RENAME_FAILED', error.message, createMetadata('category rename', flags));
+        }
         this.error(error.message);
       }
       throw error;

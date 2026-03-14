@@ -1,7 +1,7 @@
 import { Args } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputErrorAsJson, outputSuccessAsJson, createMetadata } from '../../lib/prompt-json.js';
 
 export default class ActionShow extends PMOCommand {
   static description = 'Show details of a work action';
@@ -33,11 +33,14 @@ export default class ActionShow extends PMOCommand {
     const action = await this.storage.getAction(args.id);
 
     if (!action) {
+      if (jsonMode) {
+        outputErrorAsJson('ACTION_NOT_FOUND', `Action not found: ${args.id}`, createMetadata('action show', flags));
+      }
       this.error(`Action not found: ${args.id}`);
     }
 
     if (jsonMode) {
-      this.log(JSON.stringify(action, null, 2));
+      outputSuccessAsJson(action, createMetadata('action show', flags));
       return;
     }
 
