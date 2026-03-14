@@ -1,0 +1,190 @@
+/**
+ * Docker Credential Helpers
+ *
+ * Functions for checking and managing Claude Code credentials
+ * in Docker volumes, host filesystem, and macOS keychain.
+ * Also includes tmux server keychain access management.
+ */
+
+import { execSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import * as os from 'node:os'
+
+export const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials'
+
+/**
+ * Check if the claude-credentials Docker volume exists.
+ */
+export function credentialsVolumeExists(): boolean {
+  try {
+    execSync(`docker volume inspect ${CLAUDE_CREDENTIALS_VOLUME}`, { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if valid Claude OAuth credentials exist in the Docker volume.
+ * Returns true if OAuth credentials are stored (even if access token is expired,
+ * since Claude Code handles refresh internally using stored refresh tokens).
+ *
+ * NOTE: This intentionally does NOT check for ANTHROPIC_API_KEY. If the user
+ * has an API key but no OAuth credentials, we want to prompt them to set up
+ * OAuth (which uses their Max subscription) rather than silently burning API credits.
+ */
+export function dockerCredentialsExist(): boolean {
+  try {
+    const result = execSync(
+      `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
+      { stdio: 'pipe', encoding: 'utf-8' }
+    )
+
+    const creds = JSON.parse(result)
+    if (creds.claudeAiOauth?.accessToken) {
+      return true
+    }
+    return false
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Get Docker credential info for display.
+ * Returns expiration date and subscription type if available.
+ */
+export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?: string } | null {
+  try {
+    const result = execSync(
+      `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
+      { stdio: 'pipe', encoding: 'utf-8' }
+    )
+
+    const creds = JSON.parse(result)
+    if (creds.claudeAiOauth?.expiresAt) {
+      return {
+        expiresAt: new Date(creds.claudeAiOauth.expiresAt),
+        subscriptionType: creds.claudeAiOauth.subscriptionType,
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Check if Claude Code authentication is available on the host system.
+ * Returns true if any of:
+ * 1. ANTHROPIC_API_KEY environment variable is set
+ * 2. OAuth credentials exist in ~/.claude/.credentials.json (Claude Code 1.x)
+ * 3. OAuth credentials exist in macOS keychain (Claude Code 2.x)
+ */
+export function hostCredentialsExist(): boolean {
+  if (process.env.ANTHROPIC_API_KEY) {
+    return true
+  }
+
+  try {
+    const homeDir = process.env.HOME || os.homedir()
+    const credPath = path.join(homeDir, '.claude', '.credentials.json')
+    if (fs.existsSync(credPath)) {
+      const credData = fs.readFileSync(credPath, 'utf-8')
+      const creds = JSON.parse(credData)
+      if (creds.claudeAiOauth?.accessToken) {
+        return true
+      }
+    }
+  } catch {
+    // Fall through to keychain check
+  }
+
+  if (process.platform === 'darwin') {
+    try {
+      execSync('security find-generic-password -s "Claude Code-credentials" 2>/dev/null', {
+        stdio: 'pipe',
+        timeout: 5000,
+      })
+      return true
+    } catch {
+      // Keychain entry not found or keychain is locked
+    }
+  }
+
+  return false
+}
+
+/**
+ * Ensure tmux server has keychain access for Claude Code OAuth.
+ *
+ * On macOS, tmux sessions can lose access to the keychain if the tmux server
+ * was started in a context without keychain access. This function tests and
+ * restarts the tmux server if needed.
+ */
+export async function ensureTmuxServerHasKeychainAccess(): Promise<void> {
+  try {
+    const serverRunning = execSync('tmux list-sessions 2>/dev/null || echo ""', {
+      encoding: 'utf-8',
+      stdio: 'pipe'
+    })
+    if (!serverRunning.trim()) {
+      return
+    }
+  } catch {
+    return
+  }
+
+  const testSession = `prlt-keychain-test-${Date.now()}`
+
+  try {
+    execSync(`tmux new-session -d -s "${testSession}"`, { stdio: 'pipe' })
+    execSync(
+      `tmux send-keys -t "${testSession}" "unset CLAUDECODE && claude -p 'test' 2>&1 | head -1" Enter`,
+      { stdio: 'pipe' }
+    )
+    await new Promise(resolve => setTimeout(resolve, 3000))
+    const output = execSync(`tmux capture-pane -t "${testSession}" -p`, {
+      encoding: 'utf-8',
+      stdio: 'pipe'
+    })
+    execSync(`tmux kill-session -t "${testSession}"`, { stdio: 'pipe' })
+
+    if (output.includes('Not logged in') || output.includes('Please run /login')) {
+      execSync('tmux kill-server', { stdio: 'pipe' })
+      for (let i = 0; i < 10; i++) {
+        await new Promise(resolve => setTimeout(resolve, 300))
+        try {
+          execSync('tmux list-sessions 2>/dev/null', { stdio: 'pipe' })
+        } catch {
+          break
+        }
+      }
+    }
+  } catch (_error) {
+    try {
+      execSync(`tmux kill-session -t "${testSession}"`, { stdio: 'pipe' })
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Copy Claude Code credentials (~/.claude.json) into the agent directory.
+ * This makes the subscription credentials available inside the devcontainer.
+ */
+export function copyClaudeCredentials(agentDir: string): void {
+  const sourceFile = path.join(os.homedir(), '.claude.json')
+  const destFile = path.join(agentDir, '.claude.json')
+
+  if (fs.existsSync(sourceFile)) {
+    try {
+      fs.copyFileSync(sourceFile, destFile)
+      console.debug('[runners:credentials] Copied .claude.json to workspace')
+    } catch (err) {
+      console.debug('[runners:credentials] Failed to copy .claude.json:', err)
+    }
+  }
+}
