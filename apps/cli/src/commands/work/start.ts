@@ -78,6 +78,7 @@ import {
 } from '../../lib/external-issues/trello.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
 import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/config.js'
+import { LinearMapper } from '../../lib/linear/mapper.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 import {
   parseWorkSourceRef,
@@ -380,13 +381,14 @@ export default class WorkStart extends PMOCommand {
     })
   }
 
-  private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket> {
+  private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope, db: Database.Database): Promise<Ticket> {
     const existing = await this.findLinkedTicketByEnvelope(projectId, envelope)
     const description = buildExternalTicketDescription(envelope)
     const metadata = buildExternalMetadata(envelope)
 
+    let ticket: Ticket
     if (existing) {
-      return this.storage.updateTicket(existing.id, {
+      ticket = await this.storage.updateTicket(existing.id, {
         title: envelope.title,
         description,
         priority: envelope.priority ?? undefined,
@@ -397,16 +399,35 @@ export default class WorkStart extends PMOCommand {
           ...metadata,
         },
       })
+    } else {
+      ticket = await this.storage.createTicket(projectId, {
+        title: envelope.title,
+        description,
+        priority: envelope.priority ?? undefined,
+        category: envelope.category ?? undefined,
+        labels: envelope.labels,
+        metadata,
+      })
     }
 
-    return this.storage.createTicket(projectId, {
-      title: envelope.title,
-      description,
-      priority: envelope.priority ?? undefined,
-      category: envelope.category ?? undefined,
-      labels: envelope.labels,
-      metadata,
-    })
+    // Create Linear mapping so OutboundSyncHandler can push status/PR changes back
+    if (envelope.source.name === 'linear') {
+      const mapper = new LinearMapper(db)
+      const existingMapping = mapper.getByTicketId(ticket.id)
+      if (!existingMapping) {
+        mapper.createMapping({
+          pmoTicketId: ticket.id,
+          linearIssueId: envelope.source.externalId,
+          linearIdentifier: envelope.source.externalKey,
+          linearTeamKey: envelope.projectKey,
+          linearUrl: envelope.source.url,
+          syncDirection: 'outbound',
+          createdAt: new Date(),
+        })
+      }
+    }
+
+    return ticket
   }
 
   private async fetchExternalIssue(
@@ -671,7 +692,7 @@ export default class WorkStart extends PMOCommand {
         let linkedTicket: Ticket
 
         if (mirrorToPmo) {
-          linkedTicket = await this.createOrUpdateLinkedTicket(projectId, envelope)
+          linkedTicket = await this.createOrUpdateLinkedTicket(projectId, envelope, db)
           await autoExportToBoard(this.pmoPath, this.storage)
         } else {
           if (!existingLinkedTicket) {
