@@ -7,6 +7,7 @@
 
 import type { Migration } from '../migrator.js'
 import { baseline } from './0001_baseline.js'
+import { workHooks } from './0002_work_hooks.js'
 
 /**
  * Ordered list of all migrations.
@@ -14,4 +15,5 @@ import { baseline } from './0001_baseline.js'
  */
 export const ALL_MIGRATIONS: Migration[] = [
   baseline,
+  workHooks,
 ]

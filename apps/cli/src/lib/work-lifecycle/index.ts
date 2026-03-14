@@ -19,3 +19,8 @@ export {
   initWorkLifecycleAdapter,
   stopWorkLifecycleAdapter,
 } from './adapter.js'
+
+export {
+  initHookManager,
+  stopHookManager,
+} from './hooks/index.js'

@@ -61,6 +61,8 @@ export const PMO_TABLES = {
   asana_task_map: 'pmo_asana_task_map',  // Asana task ↔ PMO ticket mapping
   // Trello integration tables
   trello_card_map: 'pmo_trello_card_map',  // Trello card ↔ PMO ticket mapping
+  // Work lifecycle hooks
+  work_hooks: 'pmo_work_hooks',  // Configurable event-driven actions for work events
   // Legacy tables (deprecated, kept for migration)
   columns: 'pmo_columns',  // DEPRECATED: use workflow_statuses
   board_tickets: 'pmo_board_tickets',  // DEPRECATED: tickets now use status_id directly
@@ -626,6 +628,19 @@ export const PMO_TABLE_SCHEMAS = {
       PRIMARY KEY (pmo_ticket_id),
       UNIQUE (monday_item_id)
     )`,
+
+  // Work lifecycle hooks: configurable event-driven actions
+  work_hooks: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.work_hooks} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      event TEXT NOT NULL,
+      action_type TEXT NOT NULL CHECK (action_type IN ('shell', 'webhook', 'log')),
+      action_value TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
 } as const;
 
 // =============================================================================
@@ -699,6 +714,8 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_prs_pr_url ON ${PMO_TABLES.external_execution_prs}(pr_url);
   CREATE INDEX IF NOT EXISTS idx_pmo_monday_item_map_item_id ON ${PMO_TABLES.monday_item_map}(monday_item_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_monday_item_map_board_id ON ${PMO_TABLES.monday_item_map}(monday_board_id);
+  CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_event ON ${PMO_TABLES.work_hooks}(event);
+  CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_enabled ON ${PMO_TABLES.work_hooks}(enabled);
 `;
 
 // =============================================================================
@@ -749,6 +766,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.external_execution_links,  // External issue ↔ execution links
   PMO_TABLE_SCHEMAS.external_execution_prs,  // External issue ↔ PR links
   PMO_TABLE_SCHEMAS.monday_item_map,  // Monday item ↔ PMO ticket mapping
+  PMO_TABLE_SCHEMAS.work_hooks,  // Work lifecycle hooks
   // Legacy tables (kept for migration, will be dropped after data migrated)
   PMO_TABLE_SCHEMAS.columns,  // DEPRECATED
   PMO_TABLE_SCHEMAS.board_tickets,  // DEPRECATED

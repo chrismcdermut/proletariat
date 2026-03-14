@@ -25,6 +25,7 @@ import { SQLiteStorage } from './storage-sqlite.js';
 import { parseBoard } from './markdown.js';
 import { initWorkLifecycleAdapter } from '../work-lifecycle/adapter.js';
 import { initOutboundSync } from '../external-issues/outbound-sync.js';
+import { initHookManager } from '../work-lifecycle/hooks/index.js';
 
 /**
  * Get the board path for a project
@@ -289,6 +290,9 @@ export function getStorageWithAutoSync(
 
   // Initialize outbound sync hooks (subscribes to work:* events)
   initOutboundSync(storage.getDatabase());
+
+  // Initialize work-lifecycle hooks (user-configured event-driven actions)
+  initHookManager(storage.getDatabase());
 
   return storage;
 }
