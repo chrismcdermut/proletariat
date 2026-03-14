@@ -102,7 +102,7 @@ export default class WorkComplete extends PMOCommand {
       const ticket = await this.storage.getTicket(ticketId!);
       if (!ticket) {
         db.close();
-        this.error(`Ticket "${ticketId}" not found.`);
+        return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
       }
 
       // Get configured column name (from pmo_settings or default)

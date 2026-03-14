@@ -8,6 +8,7 @@ import {
   shouldOutputJson,
   outputPromptAsJson,
   outputSuccessAsJson,
+  outputErrorAsJson,
   outputDryRunSuccessAsJson,
   outputDryRunErrorsAsJson,
   createMetadata,
@@ -128,6 +129,9 @@ export default class ProjectCreate extends PMOCommand {
             createMetadata('project create', flags)
           );
         }
+      }
+      if (jsonMode) {
+        outputErrorAsJson('PROJECT_EXISTS', `Project "${projectId}" already exists.`, createMetadata('project create', flags));
       }
       this.error(`Project "${projectId}" already exists.`);
     }

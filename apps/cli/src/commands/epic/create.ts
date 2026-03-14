@@ -5,6 +5,7 @@ import { EpicStatus } from '../../lib/pmo/types.js';
 import { createEpicFile, getRelativeEpicPath } from '../../lib/pmo/epic-files.js';
 import {
   shouldOutputJson,
+  outputErrorAsJson,
   outputPromptAsJson,
   outputDryRunSuccessAsJson,
   outputDryRunErrorsAsJson,
@@ -125,6 +126,9 @@ export default class EpicCreate extends PMOCommand {
               createMetadata('epic create', flags)
             );
           }
+        }
+        if (jsonMode) {
+          outputErrorAsJson('SPEC_NOT_FOUND', `Spec not found: ${epicData.specId}`, createMetadata('epic create', flags));
         }
         this.error(`Spec not found: ${epicData.specId}`);
       }

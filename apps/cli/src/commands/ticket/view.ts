@@ -72,7 +72,7 @@ export default class TicketView extends PMOCommand {
     // Get ticket
     const ticket = await this.storage.getTicket(ticketId!);
     if (!ticket) {
-      this.error(`Ticket "${ticketId}" not found.`);
+      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
 
     // JSON output mode
