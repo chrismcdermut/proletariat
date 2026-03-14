@@ -23,6 +23,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { parseBoard } from './markdown.js';
+import { initWorkLifecycleAdapter } from '../work-lifecycle/adapter.js';
 import { initOutboundSync } from '../external-issues/outbound-sync.js';
 
 /**
@@ -282,7 +283,11 @@ export function getStorageWithAutoSync(
   // Note: Storage no longer holds project context - projectId is passed explicitly to operations
   const storage = new SQLiteStorage(dbPath);
 
-  // Initialize outbound sync hooks (idempotent — safe to call on every storage creation)
+  // Initialize work-lifecycle adapter (translates ticket:* → work:* events)
+  // Must be initialized before outbound sync so events flow: PMO → adapter → sync handler
+  initWorkLifecycleAdapter();
+
+  // Initialize outbound sync hooks (subscribes to work:* events)
   initOutboundSync(storage.getDatabase());
 
   return storage;

@@ -1,17 +1,18 @@
 /**
  * Outbound Sync Handler
  *
- * Listens for ticket state changes on the EventBus and pushes them
- * to external issue trackers (Linear, Shortcut, etc.) via their
+ * Listens for work-lifecycle domain events on the EventBus and pushes
+ * changes to external issue trackers (Linear, Shortcut, etc.) via their
  * respective adapters.
  *
- * The handler is provider-agnostic: it resolves which external provider
- * a ticket is mapped to, then dispatches to the correct sync implementation.
+ * Subscribes to work:* events (provider-agnostic), NOT ticket:* events.
+ * The work-lifecycle adapter layer translates provider-specific events
+ * into these domain events, keeping PMO as just another provider.
  */
 
 import Database from 'better-sqlite3'
 import { getEventBus } from '../events/event-bus.js'
-import type { TicketStatusChangedEvent, TicketPRLinkedEvent } from '../events/events.js'
+import type { WorkStatusChangedEvent, WorkPRCreatedEvent } from '../work-lifecycle/events.js'
 import { LinearClient } from '../linear/client.js'
 import { LinearMapper } from '../linear/mapper.js'
 import { LinearSync } from '../linear/sync.js'
@@ -29,9 +30,9 @@ export interface OutboundSyncResult {
 }
 
 /**
- * OutboundSyncHandler subscribes to ticket events and pushes changes
- * to mapped external providers. It is fire-and-forget: sync failures
- * are logged but never block the caller.
+ * OutboundSyncHandler subscribes to work-lifecycle domain events and
+ * pushes changes to mapped external providers. It is fire-and-forget:
+ * sync failures are logged but never block the caller.
  */
 export class OutboundSyncHandler {
   private unsubscribers: Array<() => void> = []
@@ -44,20 +45,21 @@ export class OutboundSyncHandler {
   }
 
   /**
-   * Start listening for ticket events on the global EventBus.
+   * Start listening for work-lifecycle events on the global EventBus.
+   * Subscribes to work:* domain events, not provider-specific ticket:* events.
    * Call `stop()` to unsubscribe.
    */
   start(): void {
     const bus = getEventBus()
 
     this.unsubscribers.push(
-      bus.on('ticket:status_changed', (event) => {
+      bus.on('work:status_changed', (event) => {
         void this.handleStatusChanged(event)
       }),
     )
 
     this.unsubscribers.push(
-      bus.on('ticket:pr_linked', (event) => {
+      bus.on('work:pr_created', (event) => {
         void this.handlePRLinked(event)
       }),
     )
@@ -74,19 +76,23 @@ export class OutboundSyncHandler {
   }
 
   /**
-   * Handle a ticket status change by syncing to all mapped external providers.
+   * Handle a work status change by syncing to all mapped external providers.
+   * Skips syncing back to the source provider to avoid loops.
    */
-  private async handleStatusChanged(event: TicketStatusChangedEvent): Promise<OutboundSyncResult[]> {
+  private async handleStatusChanged(event: WorkStatusChangedEvent): Promise<OutboundSyncResult[]> {
     const results: OutboundSyncResult[] = []
 
     // Try Linear sync (via Linear-specific mapping table)
-    try {
-      const linearResult = await this.syncStatusToLinear(event)
-      if (linearResult) {
-        results.push(linearResult)
+    // Skip if the event originated from Linear to avoid loops
+    if (event.source !== 'linear') {
+      try {
+        const linearResult = await this.syncStatusToLinear(event)
+        if (linearResult) {
+          results.push(linearResult)
+        }
+      } catch {
+        // Sync errors are non-fatal
       }
-    } catch {
-      // Sync errors are non-fatal
     }
 
     // Try provider-agnostic sync via external_execution_map
@@ -101,19 +107,22 @@ export class OutboundSyncHandler {
   }
 
   /**
-   * Handle a PR link by syncing to all mapped external providers.
+   * Handle a PR creation by syncing to all mapped external providers.
+   * Skips syncing back to the source provider to avoid loops.
    */
-  private async handlePRLinked(event: TicketPRLinkedEvent): Promise<OutboundSyncResult[]> {
+  private async handlePRLinked(event: WorkPRCreatedEvent): Promise<OutboundSyncResult[]> {
     const results: OutboundSyncResult[] = []
 
-    // Try Linear sync
-    try {
-      const linearResult = await this.syncPRToLinear(event)
-      if (linearResult) {
-        results.push(linearResult)
+    // Try Linear sync (skip if event came from Linear)
+    if (event.source !== 'linear') {
+      try {
+        const linearResult = await this.syncPRToLinear(event)
+        if (linearResult) {
+          results.push(linearResult)
+        }
+      } catch {
+        // Sync errors are non-fatal
       }
-    } catch {
-      // Sync errors are non-fatal
     }
 
     // Update provider-agnostic mapping with PR URL
@@ -131,24 +140,24 @@ export class OutboundSyncHandler {
   // ===========================================================================
 
   /**
-   * Sync a status change to Linear if the ticket has a Linear mapping.
+   * Sync a status change to Linear if the work item has a Linear mapping.
    */
-  private async syncStatusToLinear(event: TicketStatusChangedEvent): Promise<OutboundSyncResult | null> {
+  private async syncStatusToLinear(event: WorkStatusChangedEvent): Promise<OutboundSyncResult | null> {
     if (!isLinearConfigured(this.db)) return null
 
     const config = loadLinearConfig(this.db)
     if (!config) return null
 
     const mapper = new LinearMapper(this.db)
-    const mapping = mapper.getByTicketId(event.ticketId)
+    const mapping = mapper.getByTicketId(event.workItemId)
     if (!mapping) return null
 
     // Only sync outbound or bidirectional mappings
     if (mapping.syncDirection === 'inbound') return null
 
-    const category = event.newStatusCategory
+    const category = event.newCategory
     if (!category) {
-      return { provider: 'linear', success: false, error: 'No status category on ticket' }
+      return { provider: 'linear', success: false, error: 'No status category on work item' }
     }
 
     try {
@@ -170,14 +179,14 @@ export class OutboundSyncHandler {
       await client.updateIssueState(mapping.linearIssueId, matchingState.id)
 
       // Post a comment about the status change
-      if (event.newStatusName) {
+      if (event.newStatus) {
         await client.addComment(
           mapping.linearIssueId,
-          `Status updated to **${event.newStatusName}** (via prlt)`,
+          `Status updated to **${event.newStatus}** (via prlt)`,
         )
       }
 
-      mapper.updateSyncTimestamp(event.ticketId)
+      mapper.updateSyncTimestamp(event.workItemId)
       return { provider: 'linear', success: true }
     } catch (err) {
       return {
@@ -189,16 +198,16 @@ export class OutboundSyncHandler {
   }
 
   /**
-   * Sync a PR link to Linear if the ticket has a Linear mapping.
+   * Sync a PR link to Linear if the work item has a Linear mapping.
    */
-  private async syncPRToLinear(event: TicketPRLinkedEvent): Promise<OutboundSyncResult | null> {
+  private async syncPRToLinear(event: WorkPRCreatedEvent): Promise<OutboundSyncResult | null> {
     if (!isLinearConfigured(this.db)) return null
 
     const config = loadLinearConfig(this.db)
     if (!config) return null
 
     const mapper = new LinearMapper(this.db)
-    const mapping = mapper.getByTicketId(event.ticketId)
+    const mapping = mapper.getByTicketId(event.workItemId)
     if (!mapping) return null
 
     // Only sync outbound or bidirectional mappings
@@ -208,7 +217,7 @@ export class OutboundSyncHandler {
       const client = new LinearClient(config.apiKey)
       const sync = new LinearSync(client, mapper)
       const success = await sync.syncPRLink(
-        event.ticketId,
+        event.workItemId,
         event.prUrl,
         event.prTitle ?? 'Pull Request',
       )
@@ -230,17 +239,19 @@ export class OutboundSyncHandler {
   /**
    * Sync status changes to providers tracked via the external_execution_map table.
    * Updates the state snapshot so that future inbound syncs can detect drift.
+   * Skips the source provider to avoid sync loops.
    */
-  private async syncStatusToMappedProviders(event: TicketStatusChangedEvent): Promise<OutboundSyncResult[]> {
+  private async syncStatusToMappedProviders(event: WorkStatusChangedEvent): Promise<OutboundSyncResult[]> {
     const results: OutboundSyncResult[] = []
 
-    // Find all external mappings that reference this ticket via execution links
-    // or via the latest_state_snapshot containing the ticketId
-    const mappings = this.findMappingsForTicket(event.ticketId)
+    // Find all external mappings that reference this work item
+    const mappings = this.findMappingsForWorkItem(event.workItemId)
 
     for (const mapping of mappings) {
       // Skip Linear here (handled separately above with its full API integration)
       if (mapping.provider === 'linear') continue
+      // Skip the source provider to avoid sync loops
+      if (mapping.provider === event.source) continue
 
       try {
         // Update the state snapshot to reflect the new status
@@ -249,8 +260,8 @@ export class OutboundSyncHandler {
           externalId: mapping.externalId,
           latestStateSnapshot: {
             ...((mapping.latestStateSnapshot as Record<string, unknown>) ?? {}),
-            ticketStatus: event.newStatusName,
-            ticketCategory: event.newStatusCategory,
+            ticketStatus: event.newStatus,
+            ticketCategory: event.newCategory,
             lastOutboundSync: new Date().toISOString(),
           },
           lastSyncedAt: new Date(),
@@ -270,12 +281,15 @@ export class OutboundSyncHandler {
   }
 
   /**
-   * Record a PR URL in all external mappings for a ticket.
+   * Record a PR URL in all external mappings for a work item.
    */
-  private recordPRInMappings(event: TicketPRLinkedEvent): void {
-    const mappings = this.findMappingsForTicket(event.ticketId)
+  private recordPRInMappings(event: WorkPRCreatedEvent): void {
+    const mappings = this.findMappingsForWorkItem(event.workItemId)
 
     for (const mapping of mappings) {
+      // Skip the source provider to avoid sync loops
+      if (mapping.provider === event.source) continue
+
       try {
         this.mappingStore.upsertMapping({
           provider: mapping.provider,
@@ -290,20 +304,20 @@ export class OutboundSyncHandler {
   }
 
   /**
-   * Find external execution mappings associated with a ticket.
-   * Checks the latest_state_snapshot for pmoTicketId references.
+   * Find external execution mappings associated with a work item.
+   * Checks the latest_state_snapshot for work item ID references.
    */
-  private findMappingsForTicket(ticketId: string): Array<{
+  private findMappingsForWorkItem(workItemId: string): Array<{
     provider: ExternalMappingProvider
     externalId: string
     latestStateSnapshot: Record<string, unknown> | null
   }> {
-    // Query external_execution_map where latest_state_snapshot contains the ticketId
+    // Query external_execution_map where latest_state_snapshot contains the work item ID
     const rows = this.db.prepare(`
       SELECT provider, external_id, latest_state_snapshot
       FROM pmo_external_execution_map
       WHERE latest_state_snapshot LIKE ?
-    `).all(`%${ticketId}%`) as Array<{
+    `).all(`%${workItemId}%`) as Array<{
       provider: ExternalMappingProvider
       external_id: string
       latest_state_snapshot: string | null

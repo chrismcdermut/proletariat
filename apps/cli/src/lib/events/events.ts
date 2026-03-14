@@ -8,6 +8,12 @@
 
 import type { ExecutionStatus } from '../execution/types.js'
 import type { StateCategory } from '../pmo/types.js'
+import type {
+  WorkStartedEvent,
+  WorkStatusChangedEvent,
+  WorkPRCreatedEvent,
+  WorkCompletedEvent,
+} from '../work-lifecycle/events.js'
 
 // =============================================================================
 // Event Payloads
@@ -108,6 +114,12 @@ export interface RuntimeEventMap {
   'agent:output': AgentOutputEvent
   'ticket:status_changed': TicketStatusChangedEvent
   'ticket:pr_linked': TicketPRLinkedEvent
+
+  // Work-lifecycle domain events (provider-agnostic)
+  'work:started': WorkStartedEvent
+  'work:status_changed': WorkStatusChangedEvent
+  'work:pr_created': WorkPRCreatedEvent
+  'work:completed': WorkCompletedEvent
 }
 
 /** Union of all event names. */
