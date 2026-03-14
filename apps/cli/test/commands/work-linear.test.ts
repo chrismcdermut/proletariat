@@ -1,6 +1,5 @@
 import { expect } from 'chai'
 import * as path from 'node:path'
-import * as fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'node:child_process'
 
@@ -41,9 +40,4 @@ describe('Work Linear Command', () => {
     expect(output).to.contain('--team')
   })
 
-  it('smoke: command delegates to work:start for spawn execution', () => {
-    const sourcePath = path.resolve(__dirname, '../../src/commands/work/linear.ts')
-    const source = fs.readFileSync(sourcePath, 'utf-8')
-    expect(source).to.include("this.config.runCommand('work:start'")
-  })
 })

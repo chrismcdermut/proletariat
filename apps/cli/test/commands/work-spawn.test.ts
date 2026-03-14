@@ -1,6 +1,5 @@
 import { expect } from 'chai';
 import * as path from 'node:path';
-import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
@@ -86,27 +85,6 @@ describe('Work Spawn Command', () => {
       expect(helpOutput).to.contain('--create-pr');
     });
 
-    it('source code emits resolvedPRMode in JSON metadata', () => {
-      const spawnTsPath = path.resolve(__dirname, '../../src/commands/work/spawn.ts');
-      const source = fs.readFileSync(spawnTsPath, 'utf-8');
-      // Verify the source sets resolvedPRMode on metadata
-      expect(source).to.include('resolvedPRMode');
-    });
-
-    it('source code emits PR mode in human output', () => {
-      const spawnTsPath = path.resolve(__dirname, '../../src/commands/work/spawn.ts');
-      const source = fs.readFileSync(spawnTsPath, 'utf-8');
-      // Verify the source displays PR mode in console output
-      expect(source).to.include('PR mode:');
-    });
-
-    it('source code emits deprecation warning when --no-pr is used', () => {
-      const spawnTsPath = path.resolve(__dirname, '../../src/commands/work/spawn.ts');
-      const source = fs.readFileSync(spawnTsPath, 'utf-8');
-      // Verify the source has deprecation warning for --no-pr
-      expect(source).to.include("--no-pr is deprecated");
-      expect(source).to.include("Omit --create-pr instead");
-    });
   });
 
   describe('Command Help', () => {

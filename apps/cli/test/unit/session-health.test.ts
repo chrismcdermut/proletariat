@@ -1,44 +1,6 @@
 /* eslint-disable max-nested-callbacks */
 import { expect } from 'chai'
-
-/**
- * Unit tests for session health detection logic.
- *
- * Tests the core state detection patterns used by `prlt session health`
- * to classify agent sessions as HUNG, WORKING, DONE, IDLE, or UNKNOWN.
- *
- * Since detectState is not exported, we replicate the detection logic here
- * to test the pattern matching independently.
- */
-
-// Replicate the detection logic for testing
-type AgentHealthState = 'HUNG' | 'WORKING' | 'DONE' | 'IDLE' | 'UNKNOWN'
-
-function detectState(paneContent: string | null): AgentHealthState {
-  if (!paneContent) return 'UNKNOWN'
-
-  const lines = paneContent.split('\n')
-  const lastLines = lines.slice(-10).join('\n')
-
-  if (/0 tokens/.test(lastLines)) {
-    return 'HUNG'
-  }
-
-  if (/esc to interrupt/i.test(lastLines)) {
-    return 'WORKING'
-  }
-
-  if (/agent work complete/i.test(lastLines) || /work ready/i.test(lastLines)) {
-    return 'DONE'
-  }
-
-  const lastNonEmpty = [...lines].reverse().find(l => l.trim().length > 0) || ''
-  if (/[$❯#>]\s*$/.test(lastNonEmpty) || /^\s*\$\s*$/.test(lastNonEmpty)) {
-    return 'IDLE'
-  }
-
-  return 'UNKNOWN'
-}
+import { detectState } from '../../src/commands/session/health.js'
 
 describe('Session Health Detection', () => {
   describe('detectState', () => {
@@ -184,8 +146,6 @@ describe('Session Health Detection', () => {
     // =====================================================================
     describe('priority ordering', () => {
       it('should prioritize HUNG over WORKING when both patterns present', () => {
-        // This could happen if previous output had "esc to interrupt" but
-        // now shows "0 tokens" indicating it got stuck
         const pane = [
           '  esc to interrupt',
           '  ↓ 0 tokens',
@@ -230,12 +190,10 @@ describe('Session Health Detection', () => {
       })
 
       it('should only check last 10 lines for patterns', () => {
-        // "0 tokens" appears early but not in the last 10 lines
         const lines = ['  ↓ 0 tokens']
         for (let i = 0; i < 15; i++) {
           lines.push(`Normal output line ${i}`)
         }
-        // Should not be HUNG since it's outside the last 10 lines
         expect(detectState(lines.join('\n'))).to.equal('UNKNOWN')
       })
     })
