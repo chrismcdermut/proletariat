@@ -7,7 +7,7 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
-import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import type { AgentWork } from '../../lib/execution/types.js'
 
 export default class ExecutionStop extends PMOCommand {
@@ -52,12 +52,16 @@ export default class ExecutionStop extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(ExecutionStop)
+    const jsonMode = shouldOutputJson(flags)
 
     // Get workspace info
     let workspaceInfo
     try {
       workspaceInfo = getWorkspaceInfo()
     } catch {
+      if (jsonMode) {
+        outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('execution stop', flags))
+      }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 
@@ -182,6 +186,9 @@ export default class ExecutionStop extends PMOCommand {
     // Get execution
     const execution = executionStorage.getExecution(id!)
     if (!execution) {
+      if (shouldOutputJson(flags as Record<string, unknown>)) {
+        outputErrorAsJson('EXECUTION_NOT_FOUND', `Execution "${id}" not found.`, createMetadata('execution stop', flags as Record<string, unknown>))
+      }
       this.error(`Execution "${id}" not found.`)
     }
 

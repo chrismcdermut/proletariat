@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../lib/pmo/base-command.js'
-import { shouldOutputJson } from '../lib/prompt-json.js'
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../lib/prompt-json.js'
 import { styles, divider } from '../lib/styles.js'
 import {
   loadDietConfig,
@@ -50,6 +50,9 @@ export default class Pull extends PMOCommand {
     // Get project workflow statuses to find the target "Ready" status
     const project = await this.storage.getProject(projectId)
     if (!project) {
+      if (jsonMode) {
+        outputErrorAsJson('PROJECT_NOT_FOUND', `Project not found: ${projectId}`, createMetadata('pull', flags))
+      }
       this.error(`Project not found: ${projectId}`)
     }
 
@@ -60,10 +63,16 @@ export default class Pull extends PMOCommand {
     const readyStatuses = statuses.filter(s => s.category === 'unstarted')
 
     if (!hasBacklog) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_BACKLOG', 'No backlog statuses found in workflow. Cannot pull tickets.', createMetadata('pull', flags))
+      }
       this.error('No backlog statuses found in workflow. Cannot pull tickets.')
     }
 
     if (readyStatuses.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson('NO_READY_STATUS', 'No ready/unstarted statuses found in workflow. Cannot pull tickets.', createMetadata('pull', flags))
+      }
       this.error('No ready/unstarted statuses found in workflow. Cannot pull tickets.')
     }
 

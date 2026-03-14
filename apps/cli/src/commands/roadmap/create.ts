@@ -2,7 +2,7 @@ import { Flags, Args } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import { slugify } from '../../lib/pmo/utils.js';
-import { shouldOutputJson } from '../../lib/prompt-json.js';
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 
 export default class RoadmapCreate extends PMOCommand {
   static description = 'Create a new roadmap';
@@ -119,6 +119,9 @@ export default class RoadmapCreate extends PMOCommand {
     // Check if roadmap already exists
     const existing = await this.storage.getRoadmap(roadmapId);
     if (existing) {
+      if (jsonMode) {
+        outputErrorAsJson('ROADMAP_EXISTS', `Roadmap "${roadmapId}" already exists.`, createMetadata('roadmap create', flags));
+      }
       this.error(`Roadmap "${roadmapId}" already exists.`);
     }
 
