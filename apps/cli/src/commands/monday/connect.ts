@@ -9,17 +9,17 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import {
+  MONDAY_API_TOKEN_ENV_VAR,
   MondayClient,
   isMondayConfigured,
   loadMondayConfig,
-  saveMondayApiToken,
   saveMondayBoard,
   saveMondayAccountName,
   clearMondayConfig,
   getMondayApiToken,
   getMondayBoardId,
 } from '../../lib/monday/index.js'
-import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { upsertProviderSource, removeProviderSourcesByProvider, saveProviderApiKey } from '../../lib/work-source/provider-sources.js'
 
 export default class MondayConnect extends PMOCommand {
   static description = 'Connect PRLT to Monday.com and store workspace credentials'
@@ -108,11 +108,12 @@ export default class MondayConnect extends PMOCommand {
     }
 
     let apiToken = getMondayApiToken(db)
+    let tokenFromEnv = !!apiToken
     if (!apiToken) {
       if (jsonMode) {
         outputErrorAsJson(
           'API_TOKEN_REQUIRED',
-          'Monday API token required. Set MONDAY_API_TOKEN or PRLT_MONDAY_API_TOKEN, or run interactively.',
+          `Monday API token required. Set ${MONDAY_API_TOKEN_ENV_VAR} or MONDAY_API_TOKEN environment variable, or run interactively.`,
           createMetadata('monday connect', flags),
         )
         this.exit(1)
@@ -126,6 +127,7 @@ export default class MondayConnect extends PMOCommand {
         validate: (value: string) => value.trim().length > 0 || 'API token is required',
       }])
       apiToken = answers.token
+      tokenFromEnv = false
     }
 
     if (!apiToken) {
@@ -146,7 +148,11 @@ export default class MondayConnect extends PMOCommand {
 
     try {
       const info = await client.verify()
-      saveMondayApiToken(db, apiToken)
+
+      // Save token under env var name in DB as convenience fallback
+      if (!tokenFromEnv) {
+        saveProviderApiKey(db, MONDAY_API_TOKEN_ENV_VAR, apiToken)
+      }
       saveMondayAccountName(db, info.accountName)
 
       let boardName: string | null = null
@@ -169,7 +175,7 @@ export default class MondayConnect extends PMOCommand {
       upsertProviderSource(db, {
         id: 'monday',
         provider: 'monday',
-        apiKeyRef: 'monday.api_token',
+        apiKeyRef: MONDAY_API_TOKEN_ENV_VAR,
         teamProjectId: boardId ?? 'default',
         prefix: 'MON-',
         label: boardName ?? info.accountName,
@@ -189,6 +195,9 @@ export default class MondayConnect extends PMOCommand {
 
       this.log(colors.success(`Connected to Monday account: ${info.accountName}`))
       this.log(colors.textMuted(`  Signed in as ${info.userName}${info.email ? ` (${info.email})` : ''}`))
+      if (!tokenFromEnv) {
+        this.log(colors.textMuted(`  Tip: Set ${MONDAY_API_TOKEN_ENV_VAR} in your shell profile for persistent access.`))
+      }
       if (boardId) {
         this.log(colors.textMuted(`  Default board: ${boardName ?? 'Unknown'} (${boardId})`))
       } else {

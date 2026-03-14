@@ -6,6 +6,7 @@
 
 export { LinearClient } from './client.js'
 export {
+  LINEAR_API_KEY_ENV_VAR,
   isLinearConfigured,
   loadLinearConfig,
   saveLinearApiKey,

@@ -10,6 +10,9 @@ import { loadProviderSources, resolveApiKey } from '../work-source/provider-sour
 
 const SETTINGS_TABLE = 'workspace_settings'
 
+/** Default environment variable name used as apiKeyRef for Shortcut provider sources. */
+export const SHORTCUT_API_TOKEN_ENV_VAR = 'PRLT_SHORTCUT_API_TOKEN'
+
 const SHORTCUT_CONFIG_KEYS = {
   apiToken: 'shortcut.api_token',
   workspaceSlug: 'shortcut.workspace_slug',
@@ -40,28 +43,19 @@ function deleteSetting(db: Database.Database, key: string): void {
 }
 
 /**
- * Check if Shortcut is configured.
- * Returns true if either:
- * - Database has shortcut.api_token stored, OR
- * - Environment variables PRLT_SHORTCUT_API_TOKEN/SHORTCUT_API_TOKEN are set
+ * Check if Shortcut is configured (API token is available via any resolution path).
  */
 export function isShortcutConfigured(db: Database.Database): boolean {
-  const hasDbConfig = getSetting(db, SHORTCUT_CONFIG_KEYS.apiToken) !== null
-  if (hasDbConfig) return true
-
-  const hasEnvToken = !!(process.env.PRLT_SHORTCUT_API_TOKEN || process.env.SHORTCUT_API_TOKEN)
-  return hasEnvToken
+  return getShortcutApiToken(db) !== null
 }
 
 /**
- * Load Shortcut configuration from the database + environment.
- * Returns null if not configured.
+ * Load Shortcut configuration by resolving the API token through the provider-sources
+ * chain (provider source apiKeyRef → legacy env vars → legacy DB key).
+ * Returns null if no API token can be resolved.
  */
 export function loadShortcutConfig(db: Database.Database): ShortcutConfig | null {
-  const apiToken = getSetting(db, SHORTCUT_CONFIG_KEYS.apiToken)
-    || process.env.PRLT_SHORTCUT_API_TOKEN
-    || process.env.SHORTCUT_API_TOKEN
-
+  const apiToken = getShortcutApiToken(db)
   if (!apiToken) return null
 
   return {

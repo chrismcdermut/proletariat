@@ -383,3 +383,16 @@ export function resolveApiKey(
 
   return null
 }
+
+/**
+ * Save an API key value in workspace_settings under the given apiKeyRef name.
+ * Used by connect commands to store interactively-entered keys as a convenience
+ * fallback until the user sets the corresponding environment variable.
+ */
+export function saveProviderApiKey(
+  db: Database.Database,
+  apiKeyRef: string,
+  apiKey: string,
+): void {
+  setRawSetting(db, apiKeyRef, apiKey)
+}

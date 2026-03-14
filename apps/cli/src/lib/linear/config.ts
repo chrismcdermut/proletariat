@@ -10,6 +10,9 @@ import { loadProviderSources, resolveApiKey } from '../work-source/provider-sour
 
 const SETTINGS_TABLE = 'workspace_settings'
 
+/** Default environment variable name used as apiKeyRef for Linear provider sources. */
+export const LINEAR_API_KEY_ENV_VAR = 'PRLT_LINEAR_API_KEY'
+
 // Config keys stored in workspace_settings table
 const LINEAR_CONFIG_KEYS = {
   apiKey: 'linear.api_key',
@@ -51,18 +54,19 @@ function deleteSetting(db: Database.Database, key: string): void {
 // =============================================================================
 
 /**
- * Check if Linear is configured (API key is stored).
+ * Check if Linear is configured (API key is available via any resolution path).
  */
 export function isLinearConfigured(db: Database.Database): boolean {
-  return getSetting(db, LINEAR_CONFIG_KEYS.apiKey) !== null
+  return getLinearApiKey(db) !== null
 }
 
 /**
- * Load Linear configuration from the database.
- * Returns null if not configured.
+ * Load Linear configuration by resolving the API key through the provider-sources
+ * chain (provider source apiKeyRef → legacy env vars → legacy DB key).
+ * Returns null if no API key can be resolved.
  */
 export function loadLinearConfig(db: Database.Database): LinearConfig | null {
-  const apiKey = getSetting(db, LINEAR_CONFIG_KEYS.apiKey)
+  const apiKey = getLinearApiKey(db)
   if (!apiKey) return null
 
   return {

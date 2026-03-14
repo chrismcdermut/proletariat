@@ -9,16 +9,16 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import {
+  ASANA_ACCESS_TOKEN_ENV_VAR,
   AsanaClient,
   clearAsanaConfig,
   getAsanaAccessToken,
   isAsanaConfigured,
   loadAsanaConfig,
-  saveAsanaAccessToken,
   saveAsanaProject,
   saveAsanaWorkspace,
 } from '../../lib/asana/index.js'
-import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { upsertProviderSource, removeProviderSourcesByProvider, saveProviderApiKey } from '../../lib/work-source/provider-sources.js'
 
 function isLikelyGid(value: string): boolean {
   return /^\d+$/.test(value)
@@ -143,12 +143,13 @@ export default class AsanaConnect extends PMOCommand {
     }
 
     let accessToken = getAsanaAccessToken(db)
+    let tokenFromEnv = !!accessToken
 
     if (!accessToken) {
       if (jsonMode) {
         outputErrorAsJson(
           'ACCESS_TOKEN_REQUIRED',
-          'Asana access token required. Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN.',
+          `Asana access token required. Set ${ASANA_ACCESS_TOKEN_ENV_VAR} or ASANA_ACCESS_TOKEN environment variable, or run interactively.`,
           createMetadata('asana connect', flags),
         )
         this.exit(1)
@@ -169,13 +170,14 @@ export default class AsanaConnect extends PMOCommand {
         validate: (input: string) => input.trim().length > 0 || 'Access token is required',
       }])
       accessToken = inputToken
+      tokenFromEnv = false
     }
 
     if (!accessToken) {
       if (jsonMode) {
         outputErrorAsJson(
           'ACCESS_TOKEN_REQUIRED',
-          'Asana access token required. Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN.',
+          `Asana access token required. Set ${ASANA_ACCESS_TOKEN_ENV_VAR} or ASANA_ACCESS_TOKEN environment variable, or run interactively.`,
           createMetadata('asana connect', flags),
         )
       } else {
@@ -191,7 +193,7 @@ export default class AsanaConnect extends PMOCommand {
       if (jsonMode) {
         outputErrorAsJson(
           'ACCESS_TOKEN_REQUIRED',
-          'Asana access token required. Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN.',
+          `Asana access token required. Set ${ASANA_ACCESS_TOKEN_ENV_VAR} or ASANA_ACCESS_TOKEN environment variable, or run interactively.`,
           createMetadata('asana connect', flags),
         )
         this.exit(1)
@@ -204,7 +206,11 @@ export default class AsanaConnect extends PMOCommand {
 
     try {
       const user = await client.verify()
-      saveAsanaAccessToken(db, accessToken)
+
+      // Save token under env var name in DB as convenience fallback
+      if (!tokenFromEnv) {
+        saveProviderApiKey(db, ASANA_ACCESS_TOKEN_ENV_VAR, accessToken)
+      }
 
       let workspaceGid: string | undefined
       let workspaceName: string | undefined
@@ -289,7 +295,7 @@ export default class AsanaConnect extends PMOCommand {
       upsertProviderSource(db, {
         id: 'asana',
         provider: 'asana',
-        apiKeyRef: 'asana.access_token',
+        apiKeyRef: ASANA_ACCESS_TOKEN_ENV_VAR,
         teamProjectId: projectGid ?? workspaceGid ?? 'default',
         prefix: 'ASANA-',
         label: projectName ?? workspaceName ?? 'Asana',
@@ -308,6 +314,9 @@ export default class AsanaConnect extends PMOCommand {
 
       this.log(colors.success('Connected to Asana'))
       this.log(colors.textMuted(`  User: ${user.name}${user.email ? ` (${user.email})` : ''}`))
+      if (!tokenFromEnv) {
+        this.log(colors.textMuted(`  Tip: Set ${ASANA_ACCESS_TOKEN_ENV_VAR} in your shell profile for persistent access.`))
+      }
       if (workspaceName) {
         this.log(colors.textMuted(`  Workspace: ${workspaceName}`))
       }

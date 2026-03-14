@@ -1,5 +1,6 @@
 export { AsanaClient } from './client.js'
 export {
+  ASANA_ACCESS_TOKEN_ENV_VAR,
   isAsanaConfigured,
   loadAsanaConfig,
   saveAsanaAccessToken,

@@ -1,5 +1,7 @@
 export { TrelloClient } from './client.js'
 export {
+  TRELLO_API_KEY_ENV_VAR,
+  TRELLO_API_TOKEN_ENV_VAR,
   isTrelloConfigured,
   loadTrelloConfig,
   saveTrelloConfig,

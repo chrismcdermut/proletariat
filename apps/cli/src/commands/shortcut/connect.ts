@@ -11,14 +11,14 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import {
+  SHORTCUT_API_TOKEN_ENV_VAR,
   isShortcutConfigured,
   loadShortcutConfig,
-  saveShortcutApiToken,
   saveShortcutWorkspaceSlug,
   clearShortcutConfig,
   getShortcutApiToken,
 } from '../../lib/shortcut/index.js'
-import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { upsertProviderSource, removeProviderSourcesByProvider, saveProviderApiKey } from '../../lib/work-source/provider-sources.js'
 
 const SHORTCUT_API_URL = 'https://api.app.shortcut.com/api/v3'
 
@@ -144,12 +144,13 @@ export default class ShortcutConnect extends PMOCommand {
 
     // Try environment variable first
     let apiToken = getShortcutApiToken(db)
+    let tokenFromEnv = !!apiToken
 
     if (!apiToken) {
       if (jsonMode) {
         outputErrorAsJson(
           'API_TOKEN_REQUIRED',
-          'Shortcut API token required. Set SHORTCUT_API_TOKEN or PRLT_SHORTCUT_API_TOKEN environment variable, or run interactively.',
+          `Shortcut API token required. Set ${SHORTCUT_API_TOKEN_ENV_VAR} or SHORTCUT_API_TOKEN environment variable, or run interactively.`,
           createMetadata('shortcut connect', flags),
         )
         this.exit(1)
@@ -173,6 +174,7 @@ export default class ShortcutConnect extends PMOCommand {
         },
       }])
       apiToken = inputToken
+      tokenFromEnv = false
     }
 
     // Verify the API token
@@ -184,14 +186,16 @@ export default class ShortcutConnect extends PMOCommand {
     try {
       const info = await verifyShortcutToken(apiToken!)
 
-      // Save API token
-      saveShortcutApiToken(db, apiToken!)
+      // Save token under env var name in DB as convenience fallback
+      if (!tokenFromEnv) {
+        saveProviderApiKey(db, SHORTCUT_API_TOKEN_ENV_VAR, apiToken!)
+      }
 
       // Register as provider source
       upsertProviderSource(db, {
         id: 'shortcut',
         provider: 'shortcut',
-        apiKeyRef: 'shortcut.api_token',
+        apiKeyRef: SHORTCUT_API_TOKEN_ENV_VAR,
         teamProjectId: 'default',
         prefix: 'SC-',
         label: 'Shortcut',
@@ -200,6 +204,10 @@ export default class ShortcutConnect extends PMOCommand {
       if (!jsonMode) {
         this.log(colors.success('Connected to Shortcut'))
         this.log(colors.textMuted(`  Signed in as ${info.userName} (${info.email})`))
+        if (!tokenFromEnv) {
+          this.log('')
+          this.log(colors.textMuted(`  Tip: Set ${SHORTCUT_API_TOKEN_ENV_VAR} in your shell profile for persistent access.`))
+        }
       }
 
       if (jsonMode) {

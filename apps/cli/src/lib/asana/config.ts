@@ -4,6 +4,9 @@ import { loadProviderSources, resolveApiKey } from '../work-source/provider-sour
 
 const SETTINGS_TABLE = 'workspace_settings'
 
+/** Default environment variable name used as apiKeyRef for Asana provider sources. */
+export const ASANA_ACCESS_TOKEN_ENV_VAR = 'PRLT_ASANA_ACCESS_TOKEN'
+
 const ASANA_CONFIG_KEYS = {
   accessToken: 'asana.access_token',
   workspaceGid: 'asana.workspace_gid',
@@ -31,12 +34,20 @@ function deleteSetting(db: Database.Database, key: string): void {
   db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(key)
 }
 
+/**
+ * Check if Asana is configured (access token is available via any resolution path).
+ */
 export function isAsanaConfigured(db: Database.Database): boolean {
-  return getSetting(db, ASANA_CONFIG_KEYS.accessToken) !== null
+  return getAsanaAccessToken(db) !== null
 }
 
+/**
+ * Load Asana configuration by resolving the access token through the provider-sources
+ * chain (provider source apiKeyRef → legacy env vars → legacy DB key).
+ * Returns null if no access token can be resolved.
+ */
 export function loadAsanaConfig(db: Database.Database): AsanaConfig | null {
-  const accessToken = getSetting(db, ASANA_CONFIG_KEYS.accessToken)
+  const accessToken = getAsanaAccessToken(db)
   if (!accessToken) return null
 
   return {

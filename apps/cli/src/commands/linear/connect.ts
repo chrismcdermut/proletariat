@@ -11,16 +11,16 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import {
+  LINEAR_API_KEY_ENV_VAR,
   LinearClient,
   isLinearConfigured,
   loadLinearConfig,
-  saveLinearApiKey,
   saveLinearDefaultTeam,
   saveLinearOrganization,
   clearLinearConfig,
   getLinearApiKey,
 } from '../../lib/linear/index.js'
-import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { upsertProviderSource, removeProviderSourcesByProvider, saveProviderApiKey } from '../../lib/work-source/provider-sources.js'
 
 export default class LinearConnect extends PMOCommand {
   static description = 'Connect to Linear workspace and configure authentication'
@@ -113,12 +113,13 @@ export default class LinearConnect extends PMOCommand {
 
     // Try environment variable first
     let apiKey = getLinearApiKey(db)
+    let keyFromEnv = !!apiKey
 
     if (!apiKey) {
       if (jsonMode) {
         outputErrorAsJson(
           'API_KEY_REQUIRED',
-          'Linear API key required. Configure a Linear provider source, set PRLT_LINEAR_API_KEY, or run interactively.',
+          `Linear API key required. Set ${LINEAR_API_KEY_ENV_VAR} or LINEAR_API_KEY environment variable, or run interactively.`,
           createMetadata('linear connect', flags),
         )
         this.exit(1)
@@ -143,6 +144,7 @@ export default class LinearConnect extends PMOCommand {
         },
       }])
       apiKey = inputKey
+      keyFromEnv = false
     }
 
     // Verify the API key
@@ -156,13 +158,19 @@ export default class LinearConnect extends PMOCommand {
       client = new LinearClient(apiKey!)
       const info = await client.verify()
 
-      // Save API key and org name
-      saveLinearApiKey(db, apiKey!)
+      // Save key under env var name in DB as convenience fallback
+      if (!keyFromEnv) {
+        saveProviderApiKey(db, LINEAR_API_KEY_ENV_VAR, apiKey!)
+      }
       saveLinearOrganization(db, info.organizationName)
 
       if (!jsonMode) {
         this.log(colors.success(`Connected to ${info.organizationName}`))
         this.log(colors.textMuted(`  Signed in as ${info.userName} (${info.email})`))
+        if (!keyFromEnv) {
+          this.log('')
+          this.log(colors.textMuted(`  Tip: Set ${LINEAR_API_KEY_ENV_VAR} in your shell profile for persistent access.`))
+        }
       }
 
       // Handle team selection
@@ -272,7 +280,7 @@ export default class LinearConnect extends PMOCommand {
       upsertProviderSource(db, {
         id: 'linear',
         provider: 'linear',
-        apiKeyRef: 'linear.api_key',
+        apiKeyRef: LINEAR_API_KEY_ENV_VAR,
         teamProjectId: 'default',
         prefix: 'LIN-',
         label: info.organizationName,
@@ -312,7 +320,7 @@ export default class LinearConnect extends PMOCommand {
       upsertProviderSource(db, {
         id: 'linear',
         provider: 'linear',
-        apiKeyRef: 'linear.api_key',
+        apiKeyRef: LINEAR_API_KEY_ENV_VAR,
         teamProjectId: matched!.key,
         prefix: `${matched!.key}-`,
         label: matched!.name,
@@ -382,7 +390,7 @@ export default class LinearConnect extends PMOCommand {
     upsertProviderSource(db, {
       id: 'linear',
       provider: 'linear',
-      apiKeyRef: 'linear.api_key',
+      apiKeyRef: LINEAR_API_KEY_ENV_VAR,
       teamProjectId: selectedTeamKey,
       prefix: `${selectedTeamKey}-`,
       label: selectedTeamName,

@@ -9,17 +9,17 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import {
+  TRELLO_API_KEY_ENV_VAR,
+  TRELLO_API_TOKEN_ENV_VAR,
   TrelloClient,
   clearTrelloConfig,
   getTrelloApiKey,
   getTrelloApiToken,
   isTrelloConfigured,
   loadTrelloConfig,
-  saveTrelloApiKey,
-  saveTrelloApiToken,
   saveTrelloBoard,
 } from '../../lib/trello/index.js'
-import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { upsertProviderSource, removeProviderSourcesByProvider, saveProviderApiKey } from '../../lib/work-source/provider-sources.js'
 
 export default class TrelloConfigure extends PMOCommand {
   static description = 'Connect to Trello and configure authentication'
@@ -110,12 +110,14 @@ export default class TrelloConfigure extends PMOCommand {
     // Try environment variable first
     let apiKey = getTrelloApiKey(db)
     let apiToken = getTrelloApiToken(db)
+    let keyFromEnv = !!apiKey
+    let tokenFromEnv = !!apiToken
 
     if (!apiKey) {
       if (jsonMode) {
         outputErrorAsJson(
           'API_KEY_REQUIRED',
-          'Trello API key required. Set TRELLO_API_KEY or PRLT_TRELLO_API_KEY environment variable, or run interactively.',
+          `Trello API key required. Set ${TRELLO_API_KEY_ENV_VAR} or TRELLO_API_KEY environment variable, or run interactively.`,
           createMetadata('trello configure', flags),
         )
         this.exit(1)
@@ -139,13 +141,14 @@ export default class TrelloConfigure extends PMOCommand {
         },
       }])
       apiKey = inputKey
+      keyFromEnv = false
     }
 
     if (!apiToken) {
       if (jsonMode) {
         outputErrorAsJson(
           'API_TOKEN_REQUIRED',
-          'Trello API token required. Set TRELLO_API_TOKEN or PRLT_TRELLO_API_TOKEN environment variable, or run interactively.',
+          `Trello API token required. Set ${TRELLO_API_TOKEN_ENV_VAR} or TRELLO_API_TOKEN environment variable, or run interactively.`,
           createMetadata('trello configure', flags),
         )
         this.exit(1)
@@ -167,6 +170,7 @@ export default class TrelloConfigure extends PMOCommand {
         },
       }])
       apiToken = inputToken
+      tokenFromEnv = false
     }
 
     // Verify the credentials
@@ -179,13 +183,20 @@ export default class TrelloConfigure extends PMOCommand {
       const client = new TrelloClient(apiKey!, apiToken!)
       const member = await client.verify()
 
-      // Save credentials
-      saveTrelloApiKey(db, apiKey!)
-      saveTrelloApiToken(db, apiToken!)
+      // Save credentials under env var names in DB as convenience fallback
+      if (!keyFromEnv) {
+        saveProviderApiKey(db, TRELLO_API_KEY_ENV_VAR, apiKey!)
+      }
+      if (!tokenFromEnv) {
+        saveProviderApiKey(db, TRELLO_API_TOKEN_ENV_VAR, apiToken!)
+      }
 
       if (!jsonMode) {
         this.log(colors.success('Connected to Trello'))
         this.log(colors.textMuted(`  Signed in as ${member.fullName} (@${member.username})`))
+        if (!keyFromEnv || !tokenFromEnv) {
+          this.log(colors.textMuted(`  Tip: Set ${TRELLO_API_KEY_ENV_VAR} and ${TRELLO_API_TOKEN_ENV_VAR} in your shell profile for persistent access.`))
+        }
       }
 
       // Board selection
@@ -236,7 +247,7 @@ export default class TrelloConfigure extends PMOCommand {
       upsertProviderSource(db, {
         id: 'trello',
         provider: 'trello',
-        apiKeyRef: 'trello.api_key',
+        apiKeyRef: TRELLO_API_KEY_ENV_VAR,
         teamProjectId: boardId ?? 'default',
         prefix: 'TRL-',
         label: boardName ?? 'Trello',

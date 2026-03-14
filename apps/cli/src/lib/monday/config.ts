@@ -4,6 +4,9 @@ import { loadProviderSources, resolveApiKey } from '../work-source/provider-sour
 
 const SETTINGS_TABLE = 'workspace_settings'
 
+/** Default environment variable name used as apiKeyRef for Monday provider sources. */
+export const MONDAY_API_TOKEN_ENV_VAR = 'PRLT_MONDAY_API_TOKEN'
+
 const MONDAY_CONFIG_KEYS = {
   apiToken: 'monday.api_token',
   boardId: 'monday.board_id',
@@ -30,12 +33,20 @@ function deleteSetting(db: Database.Database, key: string): void {
   db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(key)
 }
 
+/**
+ * Check if Monday is configured (API token is available via any resolution path).
+ */
 export function isMondayConfigured(db: Database.Database): boolean {
-  return getSetting(db, MONDAY_CONFIG_KEYS.apiToken) !== null
+  return getMondayApiToken(db) !== null
 }
 
+/**
+ * Load Monday configuration by resolving the API token through the provider-sources
+ * chain (provider source apiKeyRef → legacy env vars → legacy DB key).
+ * Returns null if no API token can be resolved.
+ */
 export function loadMondayConfig(db: Database.Database): MondayConfig | null {
-  const apiToken = getSetting(db, MONDAY_CONFIG_KEYS.apiToken)
+  const apiToken = getMondayApiToken(db)
   if (!apiToken) return null
 
   return {

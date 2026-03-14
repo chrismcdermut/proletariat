@@ -1,5 +1,6 @@
 export { MondayClient } from './client.js'
 export {
+  MONDAY_API_TOKEN_ENV_VAR,
   isMondayConfigured,
   loadMondayConfig,
   saveMondayApiToken,

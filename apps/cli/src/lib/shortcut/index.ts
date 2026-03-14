@@ -5,6 +5,7 @@
  */
 
 export {
+  SHORTCUT_API_TOKEN_ENV_VAR,
   isShortcutConfigured,
   loadShortcutConfig,
   saveShortcutConfig,
