@@ -315,7 +315,9 @@ export default class TicketCreate extends PMOCommand {
       return;
     }
 
-    const ticket = await this.storage.createTicket(projectId, {
+    // Create ticket through the provider (routes to configured backend)
+    const provider = this.resolveProjectProvider(projectId, 'pmo');
+    const createResult = await provider.createTicket(projectId, {
       id: ticketData.id,
       title: ticketData.title,
       statusName: ticketData.statusName,
@@ -325,6 +327,12 @@ export default class TicketCreate extends PMOCommand {
       epicId: ticketData.epicId,
       labels: ticketData.labels,
     });
+
+    if (!createResult.success || !createResult.ticket) {
+      return handleError('CREATE_FAILED', `Failed to create ticket: ${createResult.error}`);
+    }
+
+    const ticket = createResult.ticket;
 
     // Add subtasks from template if applicable
     if (template && template.suggestedSubtasks.length > 0) {

@@ -386,6 +386,19 @@ export class LinearClient {
   }
 
   /**
+   * Archive (soft-delete) an issue in Linear.
+   */
+  async archiveIssue(issueId: string): Promise<void> {
+    await this.query<{ issueArchive: { success: boolean } }>(`
+      mutation ArchiveIssue($issueId: String!) {
+        issueArchive(id: $issueId) {
+          success
+        }
+      }
+    `, { issueId })
+  }
+
+  /**
    * Add a comment to an issue.
    */
   async addComment(issueId: string, body: string): Promise<void> {

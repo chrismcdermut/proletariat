@@ -126,8 +126,13 @@ export default class TicketDelete extends PMOCommand {
       }
     }
 
-    // Delete ticket
-    await this.storage.deleteTicket(ticketId!);
+    // Delete ticket through the provider (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId || '');
+    const result = await provider.deleteTicket(ticketId!);
+
+    if (!result.success) {
+      return handleError('DELETE_FAILED', `Failed to delete ticket: ${result.error}`);
+    }
 
     // Auto-export to board.md after write
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -137,12 +142,13 @@ export default class TicketDelete extends PMOCommand {
       this.log(JSON.stringify({
         success: true,
         message: `Deleted ${ticketId}`,
+        provider: result.provider,
       }, null, 2));
       return;
     }
 
     this.log(styles.success(`\n✅ Ticket ${styles.emphasis(ticketId)} deleted`));
-    this.log(styles.muted('   Removed from database and board'));
+    this.log(styles.muted(`   Removed from ${result.provider === 'pmo' ? 'database and board' : `${result.provider} and local mirror`}`));
   }
 
   private async executeBulk(
@@ -198,17 +204,26 @@ export default class TicketDelete extends PMOCommand {
 
     this.log('');
 
-    // Delete each ticket
+    // Delete each ticket through the provider
     let successCount = 0;
     let failCount = 0;
 
     // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
+        const ticket = allTickets.find(t => t.id === ticketId);
+        const ticketProjectId = ticket?.projectId || '';
         // eslint-disable-next-line no-await-in-loop
-        await this.storage.deleteTicket(ticketId);
-        this.log(styles.success(`Deleted ${ticketId}`));
-        successCount++;
+        const provider = await this.resolveTicketProvider(ticketId, ticketProjectId);
+        // eslint-disable-next-line no-await-in-loop
+        const result = await provider.deleteTicket(ticketId);
+        if (result.success) {
+          this.log(styles.success(`Deleted ${ticketId} (via ${result.provider})`));
+          successCount++;
+        } else {
+          this.log(styles.error(`Failed to delete ${ticketId}: ${result.error}`));
+          failCount++;
+        }
       } catch (error) {
         this.log(styles.error(`Failed to delete ${ticketId}: ${error instanceof Error ? error.message : String(error)}`));
         failCount++;

@@ -234,8 +234,25 @@ export default class TicketMove extends PMOCommand {
       return;
     }
 
-    // Move ticket (targetColumn is guaranteed to be string after validation above)
-    const moved = await this.storage.moveTicket(projectId, ticketId!, targetColumn!, flags.position);
+    // Move ticket through the provider (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId!, projectId);
+    const moveResult = await provider.moveTicket(ticketId!, targetColumn!);
+
+    if (!moveResult.success) {
+      return handleError('MOVE_FAILED', `Failed to move ticket: ${moveResult.error}`);
+    }
+
+    // If position was specified, apply it via local storage (positions are PMO-only)
+    if (flags.position !== undefined) {
+      try {
+        await this.storage.moveTicket(projectId, ticketId!, targetColumn!, flags.position);
+      } catch {
+        // Non-fatal: the move succeeded, position is best-effort
+      }
+    }
+
+    // Refresh ticket to get updated status
+    const moved = await this.storage.getTicket(ticketId!) || ticket;
 
     // Auto-export to board.md after write
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -245,6 +262,7 @@ export default class TicketMove extends PMOCommand {
       this.log(JSON.stringify({
         success: true,
         ticket: formatTicket(moved),
+        provider: moveResult.provider,
       }, null, 2));
       return;
     }
@@ -256,6 +274,9 @@ export default class TicketMove extends PMOCommand {
     }
     if (flags.position !== undefined) {
       this.log(styles.muted(`   Position: ${flags.position}`));
+    }
+    if (moveResult.provider !== 'pmo') {
+      this.log(styles.muted(`   Provider: ${moveResult.provider}`));
     }
   }
 
@@ -343,9 +364,16 @@ export default class TicketMove extends PMOCommand {
     for (const ticketId of selectedTickets) {
       try {
         // eslint-disable-next-line no-await-in-loop
-        await this.storage.moveTicket(projectId, ticketId, targetColumn);
-        this.log(styles.success(`Moved ${ticketId} to ${targetColumn}`));
-        successCount++;
+        const provider = await this.resolveTicketProvider(ticketId, projectId);
+        // eslint-disable-next-line no-await-in-loop
+        const result = await provider.moveTicket(ticketId, targetColumn);
+        if (result.success) {
+          this.log(styles.success(`Moved ${ticketId} to ${targetColumn}`));
+          successCount++;
+        } else {
+          this.log(styles.error(`Failed to move ${ticketId}: ${result.error}`));
+          failCount++;
+        }
       } catch (error) {
         this.log(styles.error(`Failed to move ${ticketId}: ${error instanceof Error ? error.message : String(error)}`));
         failCount++;

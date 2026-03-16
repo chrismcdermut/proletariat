@@ -12,6 +12,8 @@ import {
   type JsonFlags,
 } from '../prompt-json.js';
 import { withSignalSafePrompt } from '../signal-handler.js';
+import { resolveTicketProvider, resolveProjectProvider } from '../providers/resolver.js';
+import type { TicketProvider, ProviderStorage } from '../providers/types.js';
 
 /**
  * Base flags for JSON/agent mode support
@@ -529,5 +531,44 @@ export abstract class PMOCommand extends PromptCommand {
   /** PMO directory path */
   protected get pmoPath() {
     return this.pmoContext.pmoPath;
+  }
+
+  /**
+   * Resolve the correct ticket provider for a specific ticket.
+   * Uses the ticket's metadata to determine whether to route through
+   * Linear, Jira, etc. or use local PMO.
+   *
+   * @param ticketId - The ticket ID to resolve the provider for
+   * @param projectId - The project the ticket belongs to
+   * @returns The appropriate TicketProvider
+   */
+  protected async resolveTicketProvider(ticketId: string, projectId: string): Promise<TicketProvider> {
+    const ticket = await this.storage.getTicket(ticketId);
+    const db = this.storage.getDatabase();
+    return resolveTicketProvider(
+      ticketId,
+      projectId,
+      db,
+      this.storage as unknown as ProviderStorage,
+      ticket?.metadata,
+    );
+  }
+
+  /**
+   * Resolve the correct provider for project-level operations (list, create).
+   * Uses workspace configuration to determine the active provider.
+   *
+   * @param projectId - The project ID
+   * @param source - Optional source hint ('pmo', 'linear', or 'auto')
+   * @returns The appropriate TicketProvider
+   */
+  protected resolveProjectProvider(projectId: string, source?: string): TicketProvider {
+    const db = this.storage.getDatabase();
+    return resolveProjectProvider(
+      db,
+      this.storage as unknown as ProviderStorage,
+      projectId,
+      source,
+    );
   }
 }
