@@ -1233,8 +1233,12 @@ export default class WorkStart extends PMOCommand {
       const coderName = await getOrPromptCoderName(db)
 
       // Use ticket's existing branch or generate a new one
+      // When ticket was imported from an external source, use the external key
+      // (e.g. PRLT-962) instead of the internal PMO ID (e.g. TKT-134) for branch naming
+      const externalMeta = getTicketExternalMetadata(ticket)
+      const branchTicketId = externalMeta.key || ticket.id
       const branch = ticket.branch || generateBranchName(
-        ticket.id,
+        branchTicketId,
         ticket.title,
         coderName,
         assignedAgent,
