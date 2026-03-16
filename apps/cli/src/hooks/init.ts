@@ -54,13 +54,11 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
-  // Initialize analytics (async, non-blocking on failure)
+  // Initialize analytics — fire-and-forget, events go to disk queue
   // Store command start time for duration tracking in postrun hook
   ;(globalThis as Record<string, unknown>).__prlt_command_start = Date.now()
   ;(globalThis as Record<string, unknown>).__prlt_command_id = id
-  initAnalytics(config.version).catch(() => {
-    // Analytics initialization should never block CLI execution
-  })
+  initAnalytics(config.version)
 
   if (shouldValidateNativeModules(id)) {
     await validateBetterSqlite3NativeBinding({ context: `command "${id}"` })
