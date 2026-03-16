@@ -7,7 +7,7 @@
  */
 
 import type { ExecutionStatus } from '../execution/types.js'
-import type { StateCategory } from '../pmo/types.js'
+import type { StateCategory, WorkflowRuleTrigger } from '../pmo/types.js'
 import type {
   WorkStartedEvent,
   WorkStatusChangedEvent,
@@ -99,6 +99,22 @@ export interface TicketPRLinkedEvent {
 }
 
 // =============================================================================
+// Workflow Rule Events
+// =============================================================================
+
+/** Emitted when a workflow rule matches a ticket state change. */
+export interface WorkflowRuleMatchedEvent {
+  ruleId: string
+  ticketId: string
+  projectId: string
+  actionId: string
+  trigger: WorkflowRuleTrigger
+  fromState: string | null
+  toState: string
+  timestamp: Date
+}
+
+// =============================================================================
 // Event Map
 // =============================================================================
 
@@ -115,6 +131,7 @@ export interface RuntimeEventMap {
   'agent:output': AgentOutputEvent
   'ticket:status_changed': TicketStatusChangedEvent
   'ticket:pr_linked': TicketPRLinkedEvent
+  'workflow_rule:matched': WorkflowRuleMatchedEvent
 
   // Work-lifecycle domain events (provider-agnostic)
   'work:started': WorkStartedEvent

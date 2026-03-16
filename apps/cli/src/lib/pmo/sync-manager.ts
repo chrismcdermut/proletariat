@@ -26,6 +26,7 @@ import { parseBoard } from './markdown.js';
 import { initWorkLifecycleAdapter } from '../work-lifecycle/adapter.js';
 import { initOutboundSync } from '../external-issues/outbound-sync.js';
 import { initHookManager } from '../work-lifecycle/hooks/index.js';
+import { initWorkflowRuleEvaluator } from '../work-lifecycle/rule-evaluator.js';
 
 /**
  * Get the board path for a project
@@ -293,6 +294,9 @@ export function getStorageWithAutoSync(
 
   // Initialize work-lifecycle hooks (user-configured event-driven actions)
   initHookManager(storage.getDatabase());
+
+  // Initialize workflow rule evaluator (evaluates rules when tickets change state)
+  initWorkflowRuleEvaluator(storage.getDatabase());
 
   return storage;
 }
