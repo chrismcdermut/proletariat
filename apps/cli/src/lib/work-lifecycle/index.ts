@@ -36,3 +36,9 @@ export {
   initWorkflowRuleEvaluator,
   stopWorkflowRuleEvaluator,
 } from './rule-evaluator.js'
+
+export {
+  ActionChainingHandler,
+  initActionChaining,
+  stopActionChaining,
+} from './action-chaining.js'
