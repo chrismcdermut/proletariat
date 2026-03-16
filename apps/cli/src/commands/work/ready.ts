@@ -26,6 +26,8 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
+import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
+import { detectRepoWorktrees } from '../../lib/execution/context.js';
 
 export default class WorkReady extends PMOCommand {
   static description = 'Mark work as ready for review (moves ticket to In Review column)';
@@ -168,6 +170,34 @@ export default class WorkReady extends PMOCommand {
       if (runningExecution) {
         executionStorage.updateStatus(runningExecution.id, 'completed');
         this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+      }
+
+      // PRLT-984: Commit validation — warn if no meaningful code was committed
+      if (runningExecution?.branch && runningExecution?.agentName) {
+        try {
+          const agentRecord = workspaceInfo.agents.find(a => a.name === runningExecution.agentName);
+          let agentDir: string | undefined;
+          if (agentRecord?.worktree_path) {
+            agentDir = path.join(workspaceInfo.path, agentRecord.worktree_path);
+          } else if (agentRecord?.type === 'ephemeral') {
+            agentDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.ephemeralAgentsDir, runningExecution.agentName);
+          } else if (agentRecord) {
+            agentDir = path.join(workspaceInfo.path, 'agents', workspaceInfo.persistentAgentsDir, runningExecution.agentName);
+          }
+
+          if (agentDir && fs.existsSync(agentDir)) {
+            const repoWorktrees = detectRepoWorktrees(agentDir);
+            const validation = tryValidateCommits(agentDir, runningExecution.branch, repoWorktrees);
+            if (validation && !validation.passed) {
+              this.log(styles.warning(`   ⚠ Commit validation: ${validation.details}`));
+              this.log(styles.warning(`     Agent may not have implemented meaningful code.`));
+            } else if (validation?.passed) {
+              this.log(styles.muted(`   ✓ Commit validation: ${validation.details}`));
+            }
+          }
+        } catch {
+          // Non-fatal — don't block work ready for validation failures
+        }
       }
 
       // Handle PR creation

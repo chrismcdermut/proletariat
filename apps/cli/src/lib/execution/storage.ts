@@ -17,6 +17,23 @@ import {
   PermissionMode,
 } from './types.js'
 
+// =============================================================================
+// Cleaned Execution Info
+// =============================================================================
+
+/**
+ * Details about a stale execution that was cleaned up.
+ * Includes enough context for post-execution validation (commit checks).
+ */
+export interface CleanedExecution {
+  ticketId: string
+  executionId: string
+  agentName: string
+  branch?: string
+  environment: ExecutionEnvironment
+  containerId?: string
+}
+
 const T = PMO_TABLES
 
 // =============================================================================
@@ -327,11 +344,19 @@ export class ExecutionStorage {
   }
 
   /**
-   * Clean up stale executions and return details about what was cleaned up.
-   * Returns an array of ticket IDs for executions that were cleaned up,
-   * enabling callers to run post-execution hooks (e.g., implement→Review transition).
+   * Clean up stale executions and return just ticket IDs.
+   * Convenience method for callers that don't need full execution details.
    */
-  cleanupStaleExecutionsDetailed(): string[] {
+  cleanupStaleTicketIds(): string[] {
+    return this.cleanupStaleExecutionsDetailed().map(e => e.ticketId)
+  }
+
+  /**
+   * Clean up stale executions and return details about what was cleaned up.
+   * Returns an array of cleaned execution details for post-execution hooks
+   * (e.g., commit validation and implement→Review transition).
+   */
+  cleanupStaleExecutionsDetailed(): CleanedExecution[] {
     // Get all "running" or "starting" executions
     const activeExecutions = this.listExecutions({ status: 'running' })
       .concat(this.listExecutions({ status: 'starting' }))
@@ -346,7 +371,7 @@ export class ExecutionStorage {
     // Get map of container -> tmux sessions
     const containerTmuxSessions = this.getContainerTmuxSessionMap()
 
-    const cleanedTicketIds: string[] = []
+    const cleanedExecutions: CleanedExecution[] = []
 
     for (const exec of activeExecutions) {
       if (!exec.sessionId) {
@@ -355,7 +380,14 @@ export class ExecutionStorage {
         const ageMs = Date.now() - exec.startedAt.getTime()
         if (ageMs > 5 * 60 * 1000) {
           this.updateStatus(exec.id, 'stopped')
-          cleanedTicketIds.push(exec.ticketId)
+          cleanedExecutions.push({
+            ticketId: exec.ticketId,
+            executionId: exec.id,
+            agentName: exec.agentName,
+            branch: exec.branch,
+            environment: exec.environment,
+            containerId: exec.containerId,
+          })
         }
         continue
       }
@@ -374,11 +406,18 @@ export class ExecutionStorage {
       if (!sessionExists) {
         // Session doesn't exist, mark execution as stopped
         this.updateStatus(exec.id, 'stopped')
-        cleanedTicketIds.push(exec.ticketId)
+        cleanedExecutions.push({
+          ticketId: exec.ticketId,
+          executionId: exec.id,
+          agentName: exec.agentName,
+          branch: exec.branch,
+          environment: exec.environment,
+          containerId: exec.containerId,
+        })
       }
     }
 
-    return cleanedTicketIds
+    return cleanedExecutions
   }
 
   /**
