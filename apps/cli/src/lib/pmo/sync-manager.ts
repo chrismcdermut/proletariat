@@ -27,6 +27,7 @@ import { initWorkLifecycleAdapter } from '../work-lifecycle/adapter.js';
 import { initOutboundSync } from '../external-issues/outbound-sync.js';
 import { initHookManager } from '../work-lifecycle/hooks/index.js';
 import { initWorkflowRuleEvaluator } from '../work-lifecycle/rule-evaluator.js';
+import { initActionChaining } from '../work-lifecycle/action-chaining.js';
 
 /**
  * Get the board path for a project
@@ -297,6 +298,9 @@ export function getStorageWithAutoSync(
 
   // Initialize workflow rule evaluator (evaluates rules when tickets change state)
   initWorkflowRuleEvaluator(storage.getDatabase());
+
+  // Initialize action chaining (auto-spawns next action on workflow rule matches)
+  initActionChaining(storage.getDatabase(), storage, pmoPath);
 
   return storage;
 }
