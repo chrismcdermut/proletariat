@@ -90,6 +90,7 @@ import {
   isLocalTicketId,
 } from '../../lib/work-source/index.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
+import { handlePostExecutionTransition } from '../../lib/work-lifecycle/index.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -1004,9 +1005,27 @@ export default class WorkStart extends PMOCommand {
         if (activeStaffAgents.length > 0) {
           // Clean up stale executions before checking availability (TKT-604)
           // This fixes agents appearing as "busy" when their sessions have terminated
-          const cleanedUp = executionStorage.cleanupStaleExecutions()
-          if (cleanedUp > 0 && !jsonMode) {
-            this.log(styles.muted(`   Cleaned up ${cleanedUp} stale execution(s)`))
+          const cleanedTicketIds = executionStorage.cleanupStaleExecutionsDetailed()
+          if (cleanedTicketIds.length > 0 && !jsonMode) {
+            this.log(styles.muted(`   Cleaned up ${cleanedTicketIds.length} stale execution(s)`))
+          }
+
+          // Post-execution hook: auto-transition tickets that have PRs to Review
+          if (cleanedTicketIds.length > 0) {
+            for (const cleanedTicketId of cleanedTicketIds) {
+              try {
+                const result = await handlePostExecutionTransition(
+                  { ticketId: cleanedTicketId },
+                  this.storage,
+                  db,
+                )
+                if (result.transitioned && !jsonMode) {
+                  this.log(styles.muted(`   Auto-transitioned ${cleanedTicketId}: ${result.fromState} → ${result.toState}`))
+                }
+              } catch {
+                // Non-fatal — don't block work start for transition failures
+              }
+            }
           }
 
           // Get list of busy agents (already running something)
@@ -2469,9 +2488,25 @@ export default class WorkStart extends PMOCommand {
     const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
 
     // Clean up stale executions before checking availability (TKT-604)
-    const cleanedUp = executionStorage.cleanupStaleExecutions()
-    if (cleanedUp > 0) {
-      this.log(styles.muted(`   Cleaned up ${cleanedUp} stale execution(s)`))
+    const batchCleanedTicketIds = executionStorage.cleanupStaleExecutionsDetailed()
+    if (batchCleanedTicketIds.length > 0) {
+      this.log(styles.muted(`   Cleaned up ${batchCleanedTicketIds.length} stale execution(s)`))
+
+      // Post-execution hook: auto-transition tickets that have PRs to Review
+      for (const cleanedTicketId of batchCleanedTicketIds) {
+        try {
+          const result = await handlePostExecutionTransition(
+            { ticketId: cleanedTicketId },
+            this.storage,
+            db,
+          )
+          if (result.transitioned) {
+            this.log(styles.muted(`   Auto-transitioned ${cleanedTicketId}: ${result.fromState} → ${result.toState}`))
+          }
+        } catch {
+          // Non-fatal
+        }
+      }
     }
 
     const busyAgentNames = new Set<string>()

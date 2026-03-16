@@ -320,15 +320,24 @@ export class ExecutionStorage {
   /**
    * Clean up stale executions where the tmux session no longer exists.
    * This fixes the bug where agents appear "busy" after sessions terminate unexpectedly.
-   * Returns the number of stale executions cleaned up.
+   * Returns the ticket IDs of cleaned-up executions (for post-execution hooks).
    */
   cleanupStaleExecutions(): number {
+    return this.cleanupStaleExecutionsDetailed().length
+  }
+
+  /**
+   * Clean up stale executions and return details about what was cleaned up.
+   * Returns an array of ticket IDs for executions that were cleaned up,
+   * enabling callers to run post-execution hooks (e.g., implement→Review transition).
+   */
+  cleanupStaleExecutionsDetailed(): string[] {
     // Get all "running" or "starting" executions
     const activeExecutions = this.listExecutions({ status: 'running' })
       .concat(this.listExecutions({ status: 'starting' }))
 
     if (activeExecutions.length === 0) {
-      return 0
+      return []
     }
 
     // Get list of actual tmux sessions on host
@@ -337,7 +346,7 @@ export class ExecutionStorage {
     // Get map of container -> tmux sessions
     const containerTmuxSessions = this.getContainerTmuxSessionMap()
 
-    let cleanedCount = 0
+    const cleanedTicketIds: string[] = []
 
     for (const exec of activeExecutions) {
       if (!exec.sessionId) {
@@ -346,7 +355,7 @@ export class ExecutionStorage {
         const ageMs = Date.now() - exec.startedAt.getTime()
         if (ageMs > 5 * 60 * 1000) {
           this.updateStatus(exec.id, 'stopped')
-          cleanedCount++
+          cleanedTicketIds.push(exec.ticketId)
         }
         continue
       }
@@ -365,11 +374,11 @@ export class ExecutionStorage {
       if (!sessionExists) {
         // Session doesn't exist, mark execution as stopped
         this.updateStatus(exec.id, 'stopped')
-        cleanedCount++
+        cleanedTicketIds.push(exec.ticketId)
       }
     }
 
-    return cleanedCount
+    return cleanedTicketIds
   }
 
   /**

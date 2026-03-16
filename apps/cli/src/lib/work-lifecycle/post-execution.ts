@@ -37,7 +37,7 @@ export interface PostExecutionStorage {
   getProjectBoard: (projectId: string) => Promise<{
     columns: Array<{ name: string }>
   } | null>
-  moveTicket: (projectId: string, ticketId: string, columnName: string) => Promise<void>
+  moveTicket: (projectId: string, ticketId: string, columnName: string) => Promise<unknown>
 }
 
 /**
