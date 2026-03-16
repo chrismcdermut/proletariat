@@ -599,6 +599,20 @@ export const pmoActions = sqliteTable('pmo_actions', {
 })
 
 /**
+ * Workflow rules (state-to-action wiring)
+ */
+export const pmoWorkflowRules = sqliteTable('pmo_workflow_rules', {
+  id: text('id').primaryKey(),
+  fromState: text('from_state'),
+  toState: text('to_state').notNull(),
+  actionId: text('action_id').notNull().references(() => pmoActions.id, { onDelete: 'cascade' }),
+  trigger: text('trigger').notNull().default('manual'),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at'),
+})
+
+/**
  * Ticket templates
  */
 export const pmoTicketTemplates = sqliteTable('pmo_ticket_templates', {

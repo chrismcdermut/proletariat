@@ -51,6 +51,8 @@ import {
   TicketTemplateFilter,
   WorkAction,
   WorkActionFilter,
+  WorkflowRule,
+  WorkflowRuleFilter,
   Workflow,
   WorkflowFilter,
   WorkflowStatus,
@@ -67,6 +69,7 @@ import {
   seedBuiltinPhases,
   seedBuiltinPhaseTemplates,
   seedBuiltinActions,
+  seedBuiltinWorkflowRules,
   seedBuiltinTicketTemplates,
   seedBuiltinCategories,
   seedBuiltinLabels,
@@ -82,6 +85,7 @@ import { StatusStorage } from './statuses.js'
 import { TemplateStorage } from './templates.js'
 import { PhaseStorage } from './phases.js'
 import { ActionStorage } from './actions.js'
+import { WorkflowRuleStorage } from './workflow-rules.js'
 import { ViewStorage } from './views.js'
 import { RoadmapStorage } from './roadmaps.js'
 import { CategoryStorage } from './categories.js'
@@ -107,6 +111,7 @@ export class SQLiteStorage implements PMOStorage {
   private templateStorage: TemplateStorage
   private phaseStorage: PhaseStorage
   private actionStorage: ActionStorage
+  private workflowRuleStorage: WorkflowRuleStorage
   private viewStorage: ViewStorage
   private roadmapStorage: RoadmapStorage
   private categoryStorage: CategoryStorage
@@ -142,6 +147,7 @@ export class SQLiteStorage implements PMOStorage {
     this.templateStorage = new TemplateStorage(ctx)
     this.phaseStorage = new PhaseStorage(ctx)
     this.actionStorage = new ActionStorage(ctx)
+    this.workflowRuleStorage = new WorkflowRuleStorage(ctx)
     this.viewStorage = new ViewStorage(ctx)
     this.roadmapStorage = new RoadmapStorage(ctx)
     this.categoryStorage = new CategoryStorage(ctx)
@@ -180,6 +186,7 @@ export class SQLiteStorage implements PMOStorage {
     seedBuiltinPhases(this.db)
     seedBuiltinPhaseTemplates(this.db)
     seedBuiltinActions(this.db)
+    seedBuiltinWorkflowRules(this.db)
     seedBuiltinTicketTemplates(this.db)
     seedBuiltinCategories(this.db)
     seedBuiltinLabels(this.db)
@@ -723,6 +730,34 @@ export class SQLiteStorage implements PMOStorage {
 
   async getSuggestedAction(stateName: string): Promise<WorkAction | null> {
     return this.actionStorage.getSuggestedAction(stateName)
+  }
+
+  // ===========================================================================
+  // Workflow Rule Operations
+  // ===========================================================================
+
+  async listWorkflowRules(filter?: WorkflowRuleFilter): Promise<WorkflowRule[]> {
+    return this.workflowRuleStorage.listWorkflowRules(filter)
+  }
+
+  async getWorkflowRule(id: string): Promise<WorkflowRule | null> {
+    return this.workflowRuleStorage.getWorkflowRule(id)
+  }
+
+  async createWorkflowRule(rule: Partial<WorkflowRule>): Promise<WorkflowRule> {
+    return this.workflowRuleStorage.createWorkflowRule(rule)
+  }
+
+  async updateWorkflowRule(id: string, changes: Partial<WorkflowRule>): Promise<WorkflowRule> {
+    return this.workflowRuleStorage.updateWorkflowRule(id, changes)
+  }
+
+  async deleteWorkflowRule(id: string): Promise<void> {
+    return this.workflowRuleStorage.deleteWorkflowRule(id)
+  }
+
+  async getWorkflowRulesForState(toState: string): Promise<WorkflowRule[]> {
+    return this.workflowRuleStorage.getWorkflowRulesForState(toState)
   }
 
   // ===========================================================================

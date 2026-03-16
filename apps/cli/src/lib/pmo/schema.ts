@@ -39,6 +39,7 @@ export const PMO_TABLES = {
   phases: 'pmo_phases',  // Project lifecycle phases (workspace-scoped)
   phase_templates: 'pmo_phase_templates',  // Phase configuration templates
   actions: 'pmo_actions',  // Work actions (reusable agent prompts)
+  workflow_rules: 'pmo_workflow_rules',  // Workflow rules (state-to-action wiring)
   ticket_templates: 'pmo_ticket_templates',  // Ticket templates for quick creation
   // Roadmap tables (ordered collections of projects for documentation)
   roadmaps: 'pmo_roadmaps',  // Named roadmap definitions
@@ -476,6 +477,20 @@ export const PMO_TABLE_SCHEMAS = {
       updated_at TIMESTAMP
     )`,
 
+  // Workflow rules — wire state transitions to actions
+  workflow_rules: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.workflow_rules} (
+      id TEXT PRIMARY KEY,
+      from_state TEXT,
+      to_state TEXT NOT NULL,
+      action_id TEXT NOT NULL,
+      trigger TEXT NOT NULL DEFAULT 'manual' CHECK (trigger IN ('manual', 'on_enter')),
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP,
+      FOREIGN KEY (action_id) REFERENCES ${PMO_TABLES.actions}(id) ON DELETE CASCADE
+    )`,
+
   // Ticket templates for quick ticket creation
   ticket_templates: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_templates} (
@@ -762,6 +777,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.containers,  // Docker containers per agent
   PMO_TABLE_SCHEMAS.id_sequences,  // Sequence counters for ID generation
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)
+  PMO_TABLE_SCHEMAS.workflow_rules,  // Workflow rules (state-to-action wiring)
   PMO_TABLE_SCHEMAS.ticket_templates,  // Ticket templates for quick creation
   PMO_TABLE_SCHEMAS.label_groups,  // Label groups (before labels for FK)
   PMO_TABLE_SCHEMAS.labels,  // Labels (before ticket_labels for FK)
