@@ -127,7 +127,7 @@ export default class TicketDelete extends PMOCommand {
     }
 
     // Delete ticket through the provider (routes to Linear/Jira/PMO as appropriate)
-    const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId);
+    const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId || '');
     const result = await provider.deleteTicket(ticketId!);
 
     if (!result.success) {
