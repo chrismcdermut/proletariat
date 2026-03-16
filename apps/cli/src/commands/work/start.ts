@@ -1039,6 +1039,8 @@ export default class WorkStart extends PMOCommand {
                 )
                 if (result.blockedByValidation && !jsonMode) {
                   this.log(styles.warning(`   ⚠ ${cleaned.ticketId}: agent completed without meaningful code — ${result.validation?.details}`))
+                  // Persist validation failure on the execution record
+                  executionStorage.updateStatus(cleaned.executionId, 'failed', undefined, `Commit validation failed: ${result.validation?.details}`)
                 } else if (result.transitioned && !jsonMode) {
                   const via = result.provider && result.provider !== 'pmo' ? ` via ${result.provider}` : ''
                   const validationInfo = result.validation ? ` (${result.validation.details})` : ''
@@ -2546,6 +2548,8 @@ export default class WorkStart extends PMOCommand {
           )
           if (result.blockedByValidation) {
             this.log(styles.warning(`   ⚠ ${cleaned.ticketId}: agent completed without meaningful code — ${result.validation?.details}`))
+            // Persist validation failure on the execution record
+            executionStorage.updateStatus(cleaned.executionId, 'failed', undefined, `Commit validation failed: ${result.validation?.details}`)
           } else if (result.transitioned) {
             const via = result.provider && result.provider !== 'pmo' ? ` via ${result.provider}` : ''
             const validationInfo = result.validation ? ` (${result.validation.details})` : ''
