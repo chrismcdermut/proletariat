@@ -24,3 +24,9 @@ export {
   initHookManager,
   stopHookManager,
 } from './hooks/index.js'
+
+export {
+  handlePostExecutionTransition,
+  type PostExecutionContext,
+  type PostExecutionResult,
+} from './post-execution.js'

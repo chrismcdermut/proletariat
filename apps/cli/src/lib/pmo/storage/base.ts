@@ -1476,6 +1476,69 @@ tmux_kill_session({ session: "qa-test" })
       position: 9,
     },
     {
+      id: 'merge',
+      name: 'Merge',
+      description: 'Verify CI is green, merge the PR, and clean up the branch',
+      prompt: `${PRLT_USAGE_RULE}
+
+---
+
+# Action: Merge
+
+Merge this ticket's pull request after verifying it is ready:
+
+1. **Check CI status** — ensure all checks are passing:
+   \`\`\`bash
+   gh pr checks
+   \`\`\`
+
+2. **Verify approval** — ensure the PR has been approved:
+   \`\`\`bash
+   gh pr view --json reviews
+   \`\`\`
+
+3. **Merge the PR** — use squash merge by default:
+   \`\`\`bash
+   gh pr merge --squash --delete-branch
+   \`\`\`
+
+4. **Clean up** — the \`--delete-branch\` flag handles remote branch deletion.
+   Locally, prune stale tracking branches:
+   \`\`\`bash
+   git fetch --prune
+   \`\`\`
+
+## Important Rules
+- Do NOT merge if CI checks are failing — report the failures instead
+- Do NOT merge if the PR has not been approved — report the status instead
+- Do NOT force-merge or bypass required checks
+- If merge conflicts exist, report them — do NOT attempt to resolve them in this action
+
+${PRLT_COMMANDS_COMMON}
+${PRLT_COMMANDS_REVIEW}`,
+      endPrompt: `After merging:
+
+1. **If merge was successful**, mark the ticket as complete:
+   \`\`\`bash
+   prlt work complete {{TICKET_ID}}
+   \`\`\`
+
+2. **If merge failed** (CI failures, conflicts, missing approval), report the issue:
+   \`\`\`bash
+   prlt ticket edit {{TICKET_ID}} --add-subtask "Fix: <description of merge blocker>"
+   \`\`\`
+
+**STOP:** After completing the above, your task is done. Do not take any further actions.`,
+      fromState: 'Review',
+      toState: 'Done',
+      executor: 'claude',
+      environment: 'devcontainer',
+      permissionMode: 'bypassPermissions',
+      modifiesCode: false,
+      isDefault: true,
+      position: 10,
+    },
+    {
       id: 'test',
       name: 'Write Tests',
       description: 'Add comprehensive tests for the implementation',
