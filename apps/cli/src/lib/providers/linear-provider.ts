@@ -13,7 +13,6 @@ import { LinearClient } from '../linear/client.js'
 import { LinearMapper } from '../linear/mapper.js'
 import { getLinearApiKey } from '../linear/config.js'
 import { findMatchingLinearState } from '../external-issues/outbound-sync.js'
-import { getEventBus } from '../events/event-bus.js'
 import type { PostExecutionStorage } from '../work-lifecycle/post-execution.js'
 import type { TicketProvider, ProviderMoveResult } from './types.js'
 
