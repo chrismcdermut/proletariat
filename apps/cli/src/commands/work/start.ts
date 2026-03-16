@@ -16,7 +16,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
-import { StateCategory, WorkAction } from '../../lib/pmo/types.js'
+import { WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import {
   getWorkspaceInfo,
@@ -1253,10 +1253,10 @@ export default class WorkStart extends PMOCommand {
         // Interactive action selection
         // Get ticket's current status to determine suggested action
         const ticketStatus = await this.storage.getStatus(ticket.statusId || '')
-        const currentCategory: StateCategory = ticketStatus?.category || 'unstarted'
+        const currentStateName = ticketStatus?.name || ticket.statusName || 'Todo'
 
-        // Get suggested action for this category
-        const suggestedAction = await this.storage.getSuggestedAction(currentCategory)
+        // Get suggested action for this state
+        const suggestedAction = await this.storage.getSuggestedAction(currentStateName)
 
         // Get all actions for selection
         const allActions = await this.storage.listActions()
@@ -1266,7 +1266,7 @@ export default class WorkStart extends PMOCommand {
 
         if (suggestedAction) {
           actionChoiceList.push({
-            name: `${suggestedAction.name} - ${suggestedAction.description || 'Suggested for ' + currentCategory} (Recommended)`,
+            name: `${suggestedAction.name} - ${suggestedAction.description || 'Suggested for ' + currentStateName} (Recommended)`,
             value: suggestedAction.id,
           })
         }
@@ -1319,7 +1319,7 @@ export default class WorkStart extends PMOCommand {
             description: 'Unstructured exploration and debugging',
             prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
             modifiesCode: false,
-            defaultMoveToCategory: 'started',
+            toState: 'In Progress',
             isBuiltin: false,
             createdAt: new Date(),
           }
@@ -2321,23 +2321,35 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`   Assigned to: ${assignedAgent}`))
         }
 
-        // Move ticket to target column based on action's defaultMoveToCategory
-        // If action has a target category, find the matching column; otherwise use "started" default
-        const targetCategory = selectedAction?.defaultMoveToCategory || 'started'
+        // Move ticket to target column based on action's toState
+        // If action has a to_state, use that state name directly; otherwise fall back to "In Progress" default
+        const targetStateName = selectedAction?.toState
 
         const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
         const columnNames = board ? board.columns.map(col => col.name) : []
 
-        // Map category to column type for lookup
-        const columnType = targetCategory === 'started' ? 'in_progress' :
-                          targetCategory === 'unstarted' ? 'planned' :
-                          targetCategory === 'completed' ? 'done' : 'in_progress'
-
-        // Get the configured column name for this type (e.g., "In Progress" for in_progress)
-        const workColumnName = getWorkColumnSetting(db, columnType)
-
-        // Find the actual column on the board (case-insensitive, partial match)
-        const targetColumnName = findColumnByName(columnNames, workColumnName)
+        let targetColumnName: string | null = null
+        if (targetStateName) {
+          // Try direct state name match first
+          targetColumnName = findColumnByName(columnNames, targetStateName)
+          if (!targetColumnName) {
+            // Fall back to category-based lookup for backward compatibility
+            type ColumnTypeKey = 'planned' | 'in_progress' | 'review' | 'done'
+            const categoryMap: Record<string, ColumnTypeKey> = {
+              'Backlog': 'planned',
+              'Todo': 'planned',
+              'In Progress': 'in_progress',
+              'Done': 'done',
+            }
+            const columnType = categoryMap[targetStateName] || 'in_progress' as ColumnTypeKey
+            const workColumnName = getWorkColumnSetting(db, columnType)
+            targetColumnName = findColumnByName(columnNames, workColumnName)
+          }
+        } else {
+          // No target state specified — default to "In Progress"
+          const workColumnName = getWorkColumnSetting(db, 'in_progress')
+          targetColumnName = findColumnByName(columnNames, workColumnName)
+        }
 
         if (targetColumnName && ticket.statusName !== targetColumnName) {
           try {

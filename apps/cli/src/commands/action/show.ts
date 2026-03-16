@@ -51,14 +51,38 @@ export default class ActionShow extends PMOCommand {
       this.log(`${styles.muted('Description:')} ${action.description}`);
     }
 
-    if (action.suggestedForCategories?.length) {
-      this.log(`${styles.muted('Suggested for:')} ${action.suggestedForCategories.join(', ')}`);
+    if (action.fromState) {
+      this.log(`${styles.muted('From state:')} ${action.fromState}`);
+    } else {
+      this.log(`${styles.muted('From state:')} (any)`);
     }
 
-    if (action.defaultMoveToCategory) {
-      this.log(`${styles.muted('Moves to:')} ${action.defaultMoveToCategory}`);
+    if (action.toState) {
+      this.log(`${styles.muted('To state:')} ${action.toState}`);
     }
 
+    if (action.executor) {
+      this.log(`${styles.muted('Executor:')} ${action.executor}`);
+    }
+
+    if (action.environment) {
+      this.log(`${styles.muted('Environment:')} ${action.environment}`);
+    }
+
+    if (action.permissionMode) {
+      this.log(`${styles.muted('Permission mode:')} ${action.permissionMode}`);
+    }
+
+    if (action.model) {
+      this.log(`${styles.muted('Model:')} ${action.model}`);
+    }
+
+    if (action.timeout) {
+      this.log(`${styles.muted('Timeout:')} ${action.timeout}s`);
+    }
+
+    this.log(`${styles.muted('Modifies code:')} ${action.modifiesCode ? 'Yes' : 'No'}`);
+    this.log(`${styles.muted('Default:')} ${action.isDefault ? 'Yes' : 'No'}`);
     this.log(`${styles.muted('Built-in:')} ${action.isBuiltin ? 'Yes' : 'No'}`);
 
     this.log('');
