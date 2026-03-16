@@ -12,7 +12,14 @@
  * Privacy:
  * - Anonymous machine ID (UUID) stored in ~/.proletariat/telemetry.json
  * - No file paths, usernames, or ticket content ever sent
- * - Events are fired async and never block command execution
+ * - Events are written to a local queue file and flushed on the next run
+ *
+ * Write-ahead log:
+ * - trackEvent() writes events to ~/.proletariat/telemetry-queue.json synchronously
+ * - On the next command run (or during this run's shutdown if Statsig initialized in time),
+ *   queued events are flushed to Statsig and the queue is cleared
+ * - Events are delayed by at most one command invocation — acceptable for analytics
+ * - This adds zero latency and ensures no events are lost regardless of Statsig init timing
  */
 
 import * as fs from 'node:fs'
@@ -23,8 +30,8 @@ import { getMachineConfigDir, ensureMachineConfigDir } from '../machine-config.j
 // Statsig client SDK key (public — safe to embed in open source repos)
 const STATSIG_CLIENT_KEY = 'client-kvxMxRhn9NFSmH8orl7e2W9nYTfWVS7Kjf7yRTdIecc'
 
-// Max time to wait for init + flush during shutdown — keeps CLI exit snappy
-const SHUTDOWN_TIMEOUT_MS = 500
+// Cap the queue size to prevent unbounded growth if events never flush
+const MAX_QUEUE_SIZE = 1000
 
 /**
  * Telemetry configuration stored in ~/.proletariat/telemetry.json
@@ -58,19 +65,21 @@ interface StatsigClientInstance {
   shutdown(): void
 }
 
+/**
+ * A queued telemetry event persisted to disk.
+ */
+interface QueuedEvent {
+  name: string
+  value?: string | number | null
+  metadata?: Record<string, string> | null
+  timestamp: string
+}
+
 // Module-level state
 let statsigClient: StatsigClientInstance | null = null
 let telemetryConfig: TelemetryConfig | null = null
 let cliVersion: string | null = null
 let initPromise: Promise<void> | null = null
-
-// Events logged before the Statsig client finishes initializing.
-// These are replayed once init completes (in shutdownAnalytics).
-let pendingEvents: Array<{
-  name: string
-  value?: string | number | null
-  metadata?: Record<string, string> | null
-}> = []
 
 // ─── Telemetry Config ────────────────────────────────────────────────────────
 
@@ -220,19 +229,110 @@ export function getMachineId(): string {
   return readTelemetryConfig().machineId
 }
 
+// ─── Event Queue (Write-Ahead Log) ───────────────────────────────────────────
+
+function getQueuePath(): string {
+  return path.join(getMachineConfigDir(), 'telemetry-queue.json')
+}
+
+/**
+ * Append an event to the on-disk queue. Synchronous — adds zero async latency.
+ */
+function writeEventToQueue(event: QueuedEvent): void {
+  try {
+    ensureMachineConfigDir()
+    const queuePath = getQueuePath()
+    let queue: QueuedEvent[] = []
+
+    if (fs.existsSync(queuePath)) {
+      try {
+        const raw = fs.readFileSync(queuePath, 'utf-8')
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) queue = parsed
+      } catch {
+        // Corrupted file — start fresh
+      }
+    }
+
+    queue.push(event)
+
+    // Cap queue size to prevent unbounded growth
+    if (queue.length > MAX_QUEUE_SIZE) {
+      queue = queue.slice(queue.length - MAX_QUEUE_SIZE)
+    }
+
+    // Atomic write via temp file + rename
+    const tempPath = `${queuePath}.tmp.${process.pid}`
+    fs.writeFileSync(tempPath, JSON.stringify(queue), 'utf-8')
+    fs.renameSync(tempPath, queuePath)
+  } catch {
+    // Never let queue errors affect the CLI
+  }
+}
+
+/**
+ * Atomically read and clear the queue file.
+ * Uses rename to claim the file so concurrent processes don't double-send.
+ */
+function readAndClearQueue(): QueuedEvent[] {
+  const queuePath = getQueuePath()
+  const claimPath = `${queuePath}.flush.${process.pid}`
+
+  try {
+    // Atomic rename — only one process can claim the file
+    fs.renameSync(queuePath, claimPath)
+  } catch {
+    // File doesn't exist or another process already claimed it
+    return []
+  }
+
+  try {
+    const raw = fs.readFileSync(claimPath, 'utf-8')
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  } finally {
+    try { fs.unlinkSync(claimPath) } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Flush queued events to Statsig. Requires an initialized Statsig client.
+ * Called during shutdown or at the start of the next command run.
+ */
+export function flushQueuedEvents(): void {
+  if (!statsigClient) return
+
+  const events = readAndClearQueue()
+  for (const event of events) {
+    try {
+      statsigClient.logEvent(event.name, event.value, event.metadata)
+    } catch {
+      // Drop individual events silently
+    }
+  }
+}
+
 // ─── Statsig Client ──────────────────────────────────────────────────────────
 
 /**
- * Initialize the Statsig SDK. Called from the init hook.
+ * Initialize the Statsig SDK and flush any queued events from previous runs.
+ * Called from the init hook. The Statsig init is fire-and-forget — event
+ * tracking does not depend on it (events go to the disk queue instead).
+ * Statsig is still needed for feature flags.
+ *
  * No-op if telemetry is disabled.
  */
-export function initAnalytics(version: string): Promise<void> {
+export function initAnalytics(version: string): void {
   cliVersion = version
 
-  if (!isTelemetryEnabled()) return Promise.resolve()
+  if (!isTelemetryEnabled()) return
 
   showTelemetryNotice()
 
+  // Start Statsig init in background — not needed for event logging,
+  // but enables feature flags and allows queue flush if init completes in time
   initPromise = (async () => {
     try {
       const { StatsigClient: StatsigClientClass } = await import('@statsig/js-client')
@@ -246,19 +346,22 @@ export function initAnalytics(version: string): Promise<void> {
       // Share Statsig client with feature-flags for synchronous gate checks
       const { setStatsigClient } = await import('./feature-flags.js')
       setStatsigClient(client)
+
+      // Statsig is ready — flush any events queued from previous runs
+      flushQueuedEvents()
     } catch {
       // If Statsig can't initialize, fail silently — analytics should never break the CLI
       statsigClient = null
     }
   })()
-
-  return initPromise
 }
 
 // ─── Event Tracking ──────────────────────────────────────────────────────────
 
 /**
- * Track an analytics event. Fire-and-forget — never blocks.
+ * Track an analytics event. Writes to a local disk queue synchronously —
+ * never blocks on network I/O. Events are flushed to Statsig on the next
+ * command run (or during this run's shutdown if Statsig initialized in time).
  *
  * @param eventName - Event name (e.g., 'command_run')
  * @param value - Optional numeric or string value
@@ -277,12 +380,12 @@ export function trackEvent(eventName: string, value?: string | number | null, me
         ? { cli_version: cliVersion }
         : null
 
-    if (statsigClient) {
-      statsigClient.logEvent(eventName, value, stringMetadata)
-    } else if (initPromise) {
-      // Client is still initializing — buffer the event for replay at shutdown
-      pendingEvents.push({ name: eventName, value, metadata: stringMetadata })
-    }
+    writeEventToQueue({
+      name: eventName,
+      value,
+      metadata: stringMetadata,
+      timestamp: new Date().toISOString(),
+    })
   } catch {
     // Never let analytics errors affect the CLI
   }
@@ -375,52 +478,25 @@ export function trackMCPToolCalled(options: {
 // ─── Shutdown ────────────────────────────────────────────────────────────────
 
 /**
- * Replay events that were buffered while the Statsig client was initializing.
- */
-function flushPendingEvents(): void {
-  if (!statsigClient || pendingEvents.length === 0) return
-  for (const event of pendingEvents) {
-    try {
-      statsigClient.logEvent(event.name, event.value, event.metadata)
-    } catch {
-      // Drop individual events silently
-    }
-  }
-  pendingEvents = []
-}
-
-/**
- * Flush pending events and shut down the Statsig client.
- * Called from the postrun hook. Caps total wait at SHUTDOWN_TIMEOUT_MS
- * so analytics never adds more than 500ms to CLI exit time.
+ * Flush queued events (if Statsig is ready) and shut down the Statsig client.
+ * No timeout, no waiting for init — events are safely on disk if Statsig
+ * didn't initialize in time, and will be flushed on the next command run.
  */
 export async function shutdownAnalytics(): Promise<void> {
-  // Wait for init to complete so buffered events can be flushed,
-  // but cap the wait to avoid blocking CLI exit.
-  if (initPromise) {
+  // Abandon any in-progress init — events are on disk, no need to wait
+  initPromise = null
+
+  // If Statsig initialized during this run, flush queued events and shut down
+  if (statsigClient) {
+    flushQueuedEvents()
+
     try {
-      await Promise.race([
-        initPromise,
-        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)),
-      ])
+      statsigClient.shutdown()
     } catch {
-      // Init may have failed — continue to cleanup
+      // Never let shutdown errors affect the CLI
     }
-    initPromise = null
-  }
 
-  // Replay any events that were buffered while init was in progress
-  flushPendingEvents()
-
-  if (!statsigClient) return
-
-  try {
-    statsigClient.shutdown()
-  } catch {
-    // Never let shutdown errors affect the CLI
-  } finally {
     statsigClient = null
-    // Clear feature-flags module reference
     try {
       const { setStatsigClient } = await import('./feature-flags.js')
       setStatsigClient(null)
