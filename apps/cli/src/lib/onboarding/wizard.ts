@@ -166,7 +166,6 @@ export function runOnboardingJsonMode(flags: Record<string, unknown>): void {
         metadata,
       );
       return
-      // never reaches here — outputPromptAsJson exits
     }
 
     outputSuccessAsJson({
@@ -181,7 +180,6 @@ export function runOnboardingJsonMode(flags: Record<string, unknown>): void {
       })),
     }, metadata);
     return
-    // never reaches here — outputSuccessAsJson exits
   }
 
   // No setup method provided — output a prompt with available choices
@@ -190,7 +188,6 @@ export function runOnboardingJsonMode(flags: Record<string, unknown>): void {
     metadata,
   );
   return
-  // never reaches here — outputPromptAsJson exits
 }
 
 /**

@@ -8,10 +8,9 @@ import { flushPendingVersionCheck } from '../lib/update-check.js'
  *
  * Tracks the command_run event and flushes pending analytics, version check,
  * and Sentry crash reports. The init hook also registers a process.on('exit')
- * handler as a fallback for telemetry tracking, since many code paths call
- * process.exit() directly (JSON output helpers, signal handlers) which
- * bypasses the oclif postrun lifecycle. The __prlt_telemetry_tracked flag
- * prevents double-counting between the two mechanisms.
+ * handler as a safety net for telemetry tracking in case signal handlers
+ * call process.exit() directly. The __prlt_telemetry_tracked flag prevents
+ * double-counting between the two mechanisms.
  */
 const hook: Hook<'postrun'> = async function ({ Command, argv }) {
   // Mark as tracked so the process.on('exit') fallback in init.ts skips

@@ -143,10 +143,12 @@ export async function showUpdatePrompt(info: UpdateInfo): Promise<UpdateAction> 
 // ---------------------------------------------------------------------------
 
 /**
- * Execute the update command, then exit.
+ * Execute the update command, then signal the caller to stop.
  * Runs synchronously so the user sees output in real time.
+ * Returns 'updated' on success or 'failed' on failure, so the
+ * init hook can exit cleanly through oclif lifecycle.
  */
-async function executeUpdate(info: UpdateInfo): Promise<never> {
+async function executeUpdate(info: UpdateInfo): Promise<'updated' | 'failed'> {
   console.log('')
   console.log(`Running: ${info.updateCommand}`)
   console.log('')
@@ -158,7 +160,7 @@ async function executeUpdate(info: UpdateInfo): Promise<never> {
     })
     console.log('')
     console.log('Update complete! Run your command again to use the new version.')
-    process.exit(0)
+    return 'updated'
   } catch {
     console.error('')
     console.error('Update failed. You can try running the command manually:')
@@ -169,7 +171,7 @@ async function executeUpdate(info: UpdateInfo): Promise<never> {
       await printStaleTapGuidance()
     }
 
-    process.exit(1)
+    return 'failed'
   }
 }
 
@@ -184,25 +186,27 @@ async function executeUpdate(info: UpdateInfo): Promise<never> {
  * 3. If an update is available, show interactive prompt
  * 4. Handle the user's choice
  *
- * Returns true if the process should continue (skip/skip_version),
- * or never returns (update now → process.exit).
+ * Returns 'continue' if the command should proceed, or 'stop' if the
+ * init hook should halt (e.g., after an update attempt).
  */
-export async function handleUpdatePrompt(info: UpdateInfo): Promise<void> {
-  if (shouldSuppressPrompt()) return
+export async function handleUpdatePrompt(info: UpdateInfo): Promise<'continue' | 'stop'> {
+  if (shouldSuppressPrompt()) return 'continue'
 
   // Show stale tap guidance when detected (even if no version update is cached)
   if (info.staleTap?.isStale) {
     await printStaleTapGuidance()
   }
 
-  if (!info.updateAvailable) return
+  if (!info.updateAvailable) return 'continue'
 
   const action = await showUpdatePrompt(info)
 
   switch (action) {
-    case 'update':
-      await executeUpdate(info)
-      break // unreachable — executeUpdate calls process.exit
+    case 'update': {
+      const result = await executeUpdate(info)
+      process.exitCode = result === 'updated' ? 0 : 1
+      return 'stop'
+    }
 
     case 'skip':
       // Session-only dismiss — do nothing, just continue
@@ -214,4 +218,6 @@ export async function handleUpdatePrompt(info: UpdateInfo): Promise<void> {
       }
       break
   }
+
+  return 'continue'
 }

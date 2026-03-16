@@ -169,7 +169,7 @@ export default class TicketEdit extends PMOCommand {
           currentValues: { title: ticket.title, description: ticket.description, priority: ticket.priority, category: ticket.category },
         };
         outputPromptAsJson(formConfig, createMetadata('ticket edit', flags));
-        return; // outputPromptAsJson exits, but TypeScript doesn't know
+        return;
       }
 
       // Interactive mode - prompt for all editable fields

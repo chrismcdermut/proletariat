@@ -383,7 +383,6 @@ export class FlagResolver<TFlags extends Record<string, unknown> = Record<string
       };
     }
 
-    // Output and exit
     outputPromptAsJson(
       config,
       createMetadata(this.options.commandName, this.options.flags as Record<string, unknown>)
