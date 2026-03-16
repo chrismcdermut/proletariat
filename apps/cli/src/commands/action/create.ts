@@ -118,12 +118,12 @@ export default class ActionCreate extends PMOCommand {
           name,
           prompt,
           description,
-          fromState: fromState || '',
-          toState: toState || '',
-          executor: executor || '',
-          environment: environment || '',
-          permissionMode: permissionMode || '',
-          model: model || '',
+          fromState,
+          toState,
+          executor,
+          environment,
+          permissionMode,
+          model,
         },
       });
 

@@ -648,34 +648,24 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.prompt).to.equal('Test prompt');
       });
 
-      it('Step 4: should show suggestedFor checkbox after description provided', async () => {
+      it('Step 4: should show fromState input after description provided', async () => {
         const output = await execInProcess('action create "Step4 Test" --prompt "Test prompt" --description "Test desc" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
         expect(json).to.not.be.null;
-        expect(json!.prompt.type).to.equal('checkbox');
-        expect(json!.prompt.name).to.equal('suggestedFor');
-        expect(json!.prompt.choices).to.be.an('array');
-        expect(json!.prompt.choices!.length).to.be.greaterThan(0);
-
-        // Verify each choice has proper structure with command
-        for (const choice of json!.prompt.choices!) {
-          expect(choice.name).to.be.a('string');
-          expect(choice.value).to.be.a('string');
-          expect(choice.command).to.include('prlt action create');
-          expect(choice.command).to.include('Step4 Test');
-        }
+        expect(json!.prompt.type).to.equal('input');
+        expect(json!.prompt.name).to.equal('fromState');
+        expect(json!.prompt.message).to.include('From state');
       });
 
-      it('should include all category options in suggestedFor choices', async () => {
-        const output = await execInProcess('action create "Categories Test" --prompt "Test" --description "Test" --interactive --machine');
+      it('should show toState input after fromState provided', async () => {
+        const output = await execInProcess('action create "ToState Test" --prompt "Test" --description "Test" --from-state "In Progress" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
         expect(json).to.not.be.null;
-        const values = json!.prompt.choices!.map(c => c.value);
-        expect(values).to.include('backlog');
-        expect(values).to.include('started');
-        expect(values).to.include('completed');
+        expect(json!.prompt.type).to.equal('input');
+        expect(json!.prompt.name).to.equal('toState');
+        expect(json!.prompt.message).to.include('To state');
       });
 
       it('should complete full create flow and verify database', async () => {
@@ -691,9 +681,9 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         const step3 = extractJson<MachinePromptResponse>(await execInProcess('action create "Full Flow" --prompt "Flow prompt" --interactive --machine'));
         expect(step3!.prompt.name).to.equal('description');
 
-        // Step 4: Get suggestedFor checkbox
+        // Step 4: Get fromState input
         const step4 = extractJson<MachinePromptResponse>(await execInProcess('action create "Full Flow" --prompt "Flow prompt" --description "Flow desc" --interactive --machine'));
-        expect(step4!.prompt.name).to.equal('suggestedFor');
+        expect(step4!.prompt.name).to.equal('fromState');
 
         // Final: Create with all flags (skip interactive prompts)
         const finalOutput = await execInProcess('action create "Full Flow Final" --prompt "Final prompt" --description "Final desc" --from-state started --to-state completed --machine');
@@ -754,19 +744,14 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.description).to.equal('New desc');
       });
 
-      it('Step 4: should show suggestedFor checkbox after prompt provided', async () => {
+      it('Step 4: should show fromState input after prompt provided', async () => {
         const output = await execInProcess('action update update-multi-step --name "New Name" --description "New desc" --prompt "New prompt" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
         expect(json).to.not.be.null;
-        expect(json!.prompt.type).to.equal('checkbox');
-        expect(json!.prompt.name).to.equal('suggestedFor');
-        expect(json!.prompt.choices).to.be.an('array');
-
-        // Verify choices have commands with accumulated flags
-        const choice = json!.prompt.choices![0];
-        expect(choice.command).to.include('update-multi-step');
-        expect(choice.command).to.include('New Name');
+        expect(json!.prompt.type).to.equal('input');
+        expect(json!.prompt.name).to.equal('fromState');
+        expect(json!.prompt.message).to.include('From state');
       });
 
       it('should complete multi-step update and verify database changes', async () => {

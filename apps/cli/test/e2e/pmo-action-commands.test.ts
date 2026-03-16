@@ -82,10 +82,10 @@ describe('PMO Action Commands E2E Tests', () => {
     });
 
     it('should filter by --from-state', async () => {
-      const output = await execInProcess('action list --from-state backlog');
+      const output = await execInProcess('action list --from-state Backlog');
 
       expect(output).to.contain('Groom');
-      // Implement is suggested for unstarted/started, not backlog
+      // Implement has fromState 'Todo', not 'Backlog'
     });
 
     it('should output JSON with --json flag', async () => {
@@ -106,8 +106,8 @@ describe('PMO Action Commands E2E Tests', () => {
 
       expect(output).to.contain('Groom');
       expect(output).to.contain('Prompt:');
-      expect(output).to.contain('Suggested for:');
-      expect(output).to.contain('backlog');
+      expect(output).to.contain('From state:');
+      expect(output).to.contain('Backlog');
     });
 
     it('should show full prompt text', async () => {
@@ -117,11 +117,11 @@ describe('PMO Action Commands E2E Tests', () => {
       expect(output).to.contain('acceptance criteria');
     });
 
-    it('should show moves-to category', async () => {
+    it('should show to-state', async () => {
       const output = await execInProcess('action show groom');
 
-      expect(output).to.contain('Moves to:');
-      expect(output).to.contain('unstarted');
+      expect(output).to.contain('To state:');
+      expect(output).to.contain('Todo');
     });
 
     it('should show built-in status', async () => {
