@@ -140,6 +140,7 @@ export default class WorkflowSetup extends PMOCommand {
         const msg = 'No external provider connected. Run "prlt linear connect" (or jira/asana) first.';
         if (jsonMode) {
           outputErrorAsJson('NO_PROVIDER', msg, createMetadata('workflow setup', flags));
+          return
         }
         this.error(msg);
       }
@@ -155,6 +156,7 @@ export default class WorkflowSetup extends PMOCommand {
         const msg = 'Linear is not configured. Run "prlt linear connect" first.';
         if (jsonMode) {
           outputErrorAsJson('LINEAR_NOT_CONFIGURED', msg, createMetadata('workflow setup', flags));
+          return
         }
         this.error(msg);
       }
@@ -170,6 +172,7 @@ export default class WorkflowSetup extends PMOCommand {
           const msg = 'No Linear teams found.';
           if (jsonMode) {
             outputErrorAsJson('NO_TEAMS', msg, createMetadata('workflow setup', flags));
+            return
           }
           this.error(msg);
         }
@@ -194,6 +197,7 @@ export default class WorkflowSetup extends PMOCommand {
       const msg = `Provider "${provider}" is not yet supported for workflow setup. Currently supported: linear`;
       if (jsonMode) {
         outputErrorAsJson('UNSUPPORTED_PROVIDER', msg, createMetadata('workflow setup', flags));
+        return
       }
       this.error(msg);
     }
@@ -202,6 +206,7 @@ export default class WorkflowSetup extends PMOCommand {
       const msg = 'No workflow states found from provider.';
       if (jsonMode) {
         outputErrorAsJson('NO_STATES', msg, createMetadata('workflow setup', flags));
+        return
       }
       this.error(msg);
     }

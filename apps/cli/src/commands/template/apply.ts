@@ -133,10 +133,10 @@ export default class TemplateApply extends PMOCommand {
     const board = await this.storage.getBoard(projectId);
     const columns = board.columns.map(col => col.name);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('template apply', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -240,10 +240,10 @@ export default class TemplateApply extends PMOCommand {
     flags: Record<string, unknown>,
     jsonMode: boolean
   ): Promise<void> {
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('template apply', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

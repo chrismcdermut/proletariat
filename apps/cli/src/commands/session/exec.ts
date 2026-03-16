@@ -73,6 +73,7 @@ export default class SessionExec extends PMOCommand {
           'No command specified. Usage: prlt session exec <agent> -- <command>',
           createMetadata('session exec', flags),
         )
+        return
       } else {
         this.log('')
         this.log(styles.error('No command specified.'))
@@ -98,6 +99,7 @@ export default class SessionExec extends PMOCommand {
           'Not in a workspace. Run from a proletariat HQ directory.',
           createMetadata('session exec', flags),
         )
+        return
       } else {
         this.log('')
         this.log(styles.error('Not in a workspace. Run from a proletariat HQ directory.'))
@@ -130,6 +132,7 @@ export default class SessionExec extends PMOCommand {
             `No active session found for "${target}".`,
             createMetadata('session exec', flags),
           )
+          return
         } else {
           this.log('')
           this.log(styles.error(`No active session found for "${target}".`))
@@ -223,6 +226,7 @@ export default class SessionExec extends PMOCommand {
           stdout: stdout.trim(),
           stderr: stderr.trim(),
         }, createMetadata('session exec', flags))
+        return
       } else {
         if (stdout.trim()) {
           process.stdout.write(stdout)

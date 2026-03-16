@@ -41,6 +41,7 @@ export default class WorkHooksRemove extends PMOCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('work hooks remove', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -59,6 +60,7 @@ export default class WorkHooksRemove extends PMOCommand {
         if (hooks.length === 0) {
           if (jsonMode) {
             outputErrorAsJson('NO_HOOKS', 'No hooks configured.', createMetadata('work hooks remove', flags))
+            return
           }
           this.log(styles.info('No hooks configured.'))
           return
@@ -85,6 +87,7 @@ export default class WorkHooksRemove extends PMOCommand {
       if (!hook) {
         if (jsonMode) {
           outputErrorAsJson('NOT_FOUND', `Hook "${hookName}" not found.`, createMetadata('work hooks remove', flags))
+          return
         }
         this.error(`Hook "${hookName}" not found.`)
       }
@@ -104,6 +107,7 @@ export default class WorkHooksRemove extends PMOCommand {
           },
           createMetadata('work hooks remove', flags),
         )
+        return
       }
 
       this.log(styles.success(`Hook "${hook.name}" removed.`))

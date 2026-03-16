@@ -181,10 +181,10 @@ export default class TicketResolve extends PMOCommand {
 
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket resolve', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -236,10 +236,10 @@ export default class TicketResolve extends PMOCommand {
     jsonMode: boolean,
     flags: Record<string, unknown>
   ): Promise<void> {
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket resolve', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

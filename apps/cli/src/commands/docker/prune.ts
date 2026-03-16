@@ -46,6 +46,7 @@ export default class DockerPrune extends Command {
     if (!isDockerRunning()) {
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker prune', flags))
+        return
       }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }

@@ -151,10 +151,10 @@ export default class Create extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
     const metadata = createMetadata('repo create', flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, metadata);
-        this.exit(1);
+        return
       }
       this.error(message);
     };

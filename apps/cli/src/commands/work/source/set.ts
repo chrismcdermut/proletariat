@@ -36,6 +36,7 @@ export default class WorkSourceSet extends PMOCommand {
       const message = 'Usage: prlt work source set <provider[:context]>'
       if (jsonMode) {
         outputErrorAsJson('SOURCE_REQUIRED', message, createMetadata('work source set', flags))
+        return
       }
       this.error(message)
     }
@@ -47,6 +48,7 @@ export default class WorkSourceSet extends PMOCommand {
       const message = error instanceof Error ? error.message : 'Invalid work source.'
       if (jsonMode) {
         outputErrorAsJson('INVALID_SOURCE', message, createMetadata('work source set', flags))
+        return
       }
       this.error(message)
     }
@@ -63,6 +65,7 @@ export default class WorkSourceSet extends PMOCommand {
           ref,
         },
       }, createMetadata('work source set', flags))
+      return
     }
 
     this.log(styles.success(`Default work source set to ${ref}`))

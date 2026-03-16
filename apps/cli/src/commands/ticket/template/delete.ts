@@ -38,9 +38,10 @@ export default class TicketTemplateDelete extends PMOCommand {
     const { args, flags } = await this.parse(TicketTemplateDelete);
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket template delete', flags));
+        return
       }
       this.error(message);
     };

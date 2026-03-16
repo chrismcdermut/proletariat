@@ -743,6 +743,7 @@ export default class OrchestratorStart extends PromptCommand {
           directory: hqPath,
           name: orchestratorName,
         }, createMetadata('orchestrator start', flags as Record<string, unknown>))
+        return
       }
 
       if (displayMode === 'background') {
@@ -764,6 +765,7 @@ export default class OrchestratorStart extends PromptCommand {
     } else {
       if (jsonMode) {
         outputErrorAsJson('EXECUTION_FAILED', `Failed to start orchestrator: ${result.error}`, createMetadata('orchestrator start', flags))
+        return
       }
       this.error(`Failed to start orchestrator: ${result.error}`)
     }

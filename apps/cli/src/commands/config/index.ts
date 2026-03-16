@@ -68,7 +68,7 @@ export default class Config extends PromptCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('config', flags))
-        this.exit(1)
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -91,6 +91,7 @@ export default class Config extends PromptCommand {
           if (!key || !value) {
             if (jsonMode) {
               outputErrorAsJson('INVALID_SET_FORMAT', `Invalid format: "${setValue}". Use: --set "key value"`, createMetadata('config', flags))
+              return
             } else {
               this.error(`Invalid format: "${setValue}". Use: --set "key value"`)
             }
@@ -128,6 +129,7 @@ export default class Config extends PromptCommand {
               allowlistDomains: config.firewall.allowlistDomains,
             },
           }, createMetadata('config', flags))
+          return
         } else {
           this.log('')
           this.log(styles.header('Workspace Configuration'))
@@ -324,6 +326,7 @@ export default class Config extends PromptCommand {
         const jsonMode = shouldOutputJson(jsonModeConfig?.flags ?? {})
         if (jsonMode) {
           outputErrorAsJson('UNKNOWN_SETTING', `Unknown setting: ${setting}`, createMetadata('config', jsonModeConfig?.flags ?? {}))
+          return
         }
         this.error(`Unknown setting: ${setting}`)
       }
@@ -363,6 +366,7 @@ export default class Config extends PromptCommand {
       default:
         if (jsonMode) {
           outputErrorAsJson('UNKNOWN_KEY', `Unknown config key: ${key}`, createMetadata('config', {}))
+          return
         } else {
           this.warn(`Unknown config key: ${key}`)
         }
@@ -371,6 +375,7 @@ export default class Config extends PromptCommand {
 
     if (jsonMode) {
       outputSuccessAsJson({ key, value }, createMetadata('config', {}))
+      return
     } else {
       this.log(styles.success(`Set ${key} = ${value}`))
     }

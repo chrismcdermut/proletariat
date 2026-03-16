@@ -54,10 +54,10 @@ export default class EpicMove extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('epic move', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

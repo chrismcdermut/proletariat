@@ -488,14 +488,14 @@ export function createMetadata(
 export function outputPromptAsJson(
   config: PromptConfig,
   metadata: OutputMetadata
-): never {
+): void {
   const output: PromptJsonOutput = {
     type: 'prompt',
     prompt: config,
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
-  process.exit(EXIT_NEEDS_INPUT)
+  process.exitCode = EXIT_NEEDS_INPUT
 }
 
 /**
@@ -511,7 +511,7 @@ export function outputPromptAsJson(
 export function outputSuccessAsJson(
   result: Record<string, unknown>,
   metadata: OutputMetadata
-): never {
+): void {
   const output: SuccessJsonOutput = {
     type: 'success',
     prompt: null,
@@ -520,7 +520,7 @@ export function outputSuccessAsJson(
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
-  process.exit(EXIT_SUCCESS)
+  process.exitCode = EXIT_SUCCESS
 }
 
 /**
@@ -538,7 +538,7 @@ export function outputErrorAsJson(
   code: string,
   message: string,
   metadata: OutputMetadata
-): never {
+): void {
   const output: ErrorJsonOutput = {
     type: 'error',
     error: {
@@ -548,7 +548,7 @@ export function outputErrorAsJson(
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
-  process.exit(EXIT_ERROR)
+  process.exitCode = EXIT_ERROR
 }
 
 /**
@@ -665,7 +665,7 @@ export function outputDryRunSuccessAsJson(
   entityType: string,
   wouldCreate: Record<string, unknown>,
   metadata: OutputMetadata
-): never {
+): void {
   const output: DryRunJsonOutput = {
     type: 'dry-run',
     valid: true,
@@ -676,7 +676,7 @@ export function outputDryRunSuccessAsJson(
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
-  process.exit(EXIT_SUCCESS)
+  process.exitCode = EXIT_SUCCESS
 }
 
 /**
@@ -691,7 +691,7 @@ export function outputDryRunSuccessAsJson(
 export function outputDryRunErrorsAsJson(
   errors: Array<{ field: string; error: string }>,
   metadata: OutputMetadata
-): never {
+): void {
   const output: DryRunJsonOutput = {
     type: 'dry-run',
     valid: false,
@@ -699,7 +699,7 @@ export function outputDryRunErrorsAsJson(
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
-  process.exit(EXIT_ERROR)
+  process.exitCode = EXIT_ERROR
 }
 
 /**
@@ -718,7 +718,7 @@ export function outputConfirmationNeededAsJson(
   confirmCommand: string,
   message: string,
   metadata: OutputMetadata
-): never {
+): void {
   const output: ConfirmationNeededJsonOutput = {
     type: 'confirmation_needed',
     plan,
@@ -727,7 +727,7 @@ export function outputConfirmationNeededAsJson(
     metadata,
   }
   console.log(JSON.stringify(output, null, 2))
-  process.exit(EXIT_NEEDS_INPUT)
+  process.exitCode = EXIT_NEEDS_INPUT
 }
 
 /**

@@ -45,9 +45,10 @@ export default class TemplateSave extends PMOCommand {
     const { args, flags } = await this.parse(TemplateSave);
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('template save', flags));
+        return
       }
       this.error(message);
     };

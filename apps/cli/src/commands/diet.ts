@@ -54,6 +54,7 @@ export default class Diet extends PMOCommand {
         const message = error instanceof Error ? error.message : String(error)
         if (jsonMode) {
           outputErrorAsJson('INVALID_DIET', message, createMetadata('diet', flags))
+          return
         }
         this.error(message)
       }

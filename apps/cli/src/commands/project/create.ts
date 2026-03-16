@@ -105,6 +105,7 @@ export default class ProjectCreate extends PMOCommand {
           buildFormPromptConfig(fields),
           createMetadata('project create', flags)
         );
+        return
       }
 
       projectData = await this.promptProjectData(fields);
@@ -128,10 +129,12 @@ export default class ProjectCreate extends PMOCommand {
             [{ field: 'id', error: `Project "${projectId}" already exists` }],
             createMetadata('project create', flags)
           );
+          return
         }
       }
       if (jsonMode) {
         outputErrorAsJson('PROJECT_EXISTS', `Project "${projectId}" already exists.`, createMetadata('project create', flags));
+        return
       }
       this.error(`Project "${projectId}" already exists.`);
     }
@@ -151,6 +154,7 @@ export default class ProjectCreate extends PMOCommand {
 
       if (jsonMode) {
         outputDryRunSuccessAsJson('project', wouldCreate, createMetadata('project create', flags));
+        return
       }
 
       // Human-readable dry-run output

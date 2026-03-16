@@ -76,7 +76,7 @@ export default class WorkspaceRemove extends PromptCommand {
     if (matches.length === 0) {
       if (shouldOutputJson(flags as { json?: boolean })) {
         outputErrorAsJson('WORKSPACE_NOT_FOUND', `Workspace not found: ${input}`, createMetadata('workspace remove', flags));
-        this.exit(1);
+        return ''
       }
       this.error(`Workspace not found: ${input}`);
     }

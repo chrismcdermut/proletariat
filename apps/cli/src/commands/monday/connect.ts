@@ -115,7 +115,7 @@ export default class MondayConnect extends PMOCommand {
           'Monday API token required. Set MONDAY_API_TOKEN or PRLT_MONDAY_API_TOKEN, or run interactively.',
           createMetadata('monday connect', flags),
         )
-        this.exit(1)
+        return
       }
 
       const answers = await inquirer.prompt([{
@@ -155,7 +155,7 @@ export default class MondayConnect extends PMOCommand {
         if (!board) {
           if (jsonMode) {
             outputErrorAsJson('BOARD_NOT_FOUND', `Monday board ${boardId} was not found or is inaccessible.`, createMetadata('monday connect', flags))
-            this.exit(1)
+            return
           }
           this.error(`Monday board ${boardId} was not found or is inaccessible.`)
         }
@@ -199,7 +199,7 @@ export default class MondayConnect extends PMOCommand {
       const message = error instanceof Error ? error.message : String(error)
       if (jsonMode) {
         outputErrorAsJson('MONDAY_AUTH_FAILED', `Authentication failed: ${message}`, createMetadata('monday connect', flags))
-        this.exit(1)
+        return
       }
       this.error(`Authentication failed: ${message}`)
     }
@@ -256,7 +256,7 @@ export default class MondayConnect extends PMOCommand {
       const message = error instanceof Error ? error.message : String(error)
       if (jsonMode) {
         outputErrorAsJson('MONDAY_AUTH_INVALID', `Stored Monday token is invalid or expired: ${message}`, createMetadata('monday connect', flags))
-        this.exit(1)
+        return
       }
 
       this.log(colors.error('Stored Monday token is invalid or expired.'))

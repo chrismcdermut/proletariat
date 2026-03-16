@@ -65,9 +65,10 @@ export default class FeedbackList extends Command {
     const jsonMode = isMachineOutput(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('feedback list', flags));
+        return
       }
       this.error(message);
     };
@@ -139,6 +140,7 @@ export default class FeedbackList extends Command {
           },
           createMetadata('feedback list', flags)
         );
+        return
       }
 
       // Display issues in human-friendly format

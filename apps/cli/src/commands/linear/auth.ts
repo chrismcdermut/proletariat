@@ -94,7 +94,7 @@ export default class LinearAuth extends PMOCommand {
         } catch (error) {
           if (jsonMode) {
             outputErrorAsJson('LINEAR_AUTH_INVALID', 'Stored Linear API key is invalid or expired.', createMetadata('linear auth', flags))
-            this.exit(1)
+            return
           }
           this.log(colors.error('Stored Linear API key is invalid or expired.'))
           this.log(colors.textMuted('Run "prlt linear auth --force" to re-authenticate.'))
@@ -103,7 +103,7 @@ export default class LinearAuth extends PMOCommand {
       } else {
         if (jsonMode) {
           outputErrorAsJson('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear auth" to authenticate.', createMetadata('linear auth', flags))
-          this.exit(1)
+          return
         }
         this.log(colors.warning('Linear is not configured.'))
         this.log(colors.textMuted('Run "prlt linear auth" to authenticate.'))
@@ -151,7 +151,7 @@ export default class LinearAuth extends PMOCommand {
           'Linear API key required. Configure a Linear provider source, set PRLT_LINEAR_API_KEY, or run interactively.',
           createMetadata('linear auth', flags),
         )
-        this.exit(1)
+        return
       }
 
       this.log('')
@@ -204,7 +204,7 @@ export default class LinearAuth extends PMOCommand {
     } catch (error) {
       if (jsonMode) {
         outputErrorAsJson('LINEAR_AUTH_FAILED', `Authentication failed: ${error instanceof Error ? error.message : String(error)}`, createMetadata('linear auth', flags))
-        this.exit(1)
+        return
       }
       this.error(`Authentication failed: ${error instanceof Error ? error.message : String(error)}`)
     }

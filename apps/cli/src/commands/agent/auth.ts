@@ -173,6 +173,7 @@ export default class Auth extends PromptCommand {
     if (!apiKey) {
       if (jsonMode) {
         outputErrorAsJson('API_KEY_NOT_SET', 'ANTHROPIC_API_KEY is not set in your environment. Export it and try again.', createMetadata('agent auth', flags));
+        return
       }
       this.error('ANTHROPIC_API_KEY is not set in your environment.\nExport it with: export ANTHROPIC_API_KEY=sk-ant-...');
     }
@@ -245,6 +246,7 @@ export default class Auth extends PromptCommand {
 
       if (jsonMode) {
         outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.', createMetadata('agent auth', flags));
+        return
       }
       this.error('Docker is not running. Please start Docker Desktop and try again.');
     }
@@ -281,6 +283,7 @@ export default class Auth extends PromptCommand {
       } else {
         if (jsonMode) {
           outputErrorAsJson('NO_CREDENTIALS', 'No Claude Code credentials found. Run "prlt agent auth" to authenticate.', createMetadata('agent auth', flags));
+          return
         }
         this.log(colors.warning('✗ No Claude Code credentials found'));
         this.log(colors.textSecondary('  Run "prlt agent auth" to authenticate'));
@@ -337,6 +340,7 @@ export default class Auth extends PromptCommand {
     // JSON mode cannot handle interactive login flow
     if (jsonMode) {
       outputErrorAsJson('INTERACTIVE_REQUIRED', 'Authentication requires interactive login. Run without --json flag to authenticate.', createMetadata('agent auth', flags));
+      return
     }
 
     // Run the OAuth login flow

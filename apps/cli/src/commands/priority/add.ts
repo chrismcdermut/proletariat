@@ -45,7 +45,7 @@ export default class PriorityAdd extends PMOCommand {
     if (priorities.includes(args.value)) {
       if (jsonMode) {
         outputErrorAsJson('DUPLICATE_PRIORITY', `Priority "${args.value}" already exists`, createMetadata('priority add', flags));
-        this.exit(1);
+        return
       }
       this.error(`Priority "${args.value}" already exists in the scale: ${priorities.join(', ')}`);
     }
@@ -60,7 +60,7 @@ export default class PriorityAdd extends PMOCommand {
       if (afterIndex === -1) {
         if (jsonMode) {
           outputErrorAsJson('PRIORITY_NOT_FOUND', `Priority "${flags.after}" not found`, createMetadata('priority add', flags));
-          this.exit(1);
+          return
         }
         this.error(`Priority "${flags.after}" not found in the scale: ${priorities.join(', ')}`);
       }

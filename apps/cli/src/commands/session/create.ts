@@ -53,6 +53,7 @@ export default class SessionCreate extends PMOCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('TMUX_NOT_FOUND', 'tmux is not installed or not in PATH.', createMetadata('session create', flags))
+        return
       }
       this.error('tmux is not installed or not in PATH.')
     }
@@ -63,6 +64,7 @@ export default class SessionCreate extends PMOCommand {
       // If we get here, session exists
       if (jsonMode) {
         outputErrorAsJson('SESSION_EXISTS', `A tmux session named "${sessionName}" already exists.`, createMetadata('session create', flags))
+        return
       }
       this.error(`A tmux session named "${sessionName}" already exists.`)
     } catch {
@@ -86,6 +88,7 @@ export default class SessionCreate extends PMOCommand {
       const message = `Failed to create tmux session "${sessionName}": ${error instanceof Error ? error.message : error}`
       if (jsonMode) {
         outputErrorAsJson('CREATE_FAILED', message, createMetadata('session create', flags))
+        return
       }
       this.error(message)
     }
@@ -96,6 +99,7 @@ export default class SessionCreate extends PMOCommand {
         detached: flags.detach,
         command: flags.command || null,
       }, createMetadata('session create', flags))
+      return
     }
 
     this.log('')

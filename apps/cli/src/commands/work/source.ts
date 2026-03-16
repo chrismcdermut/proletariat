@@ -49,6 +49,7 @@ export default class WorkSource extends PMOCommand {
         activeSource: defaultResult,
         registeredSources: registeredResult,
       }, createMetadata('work source', flags))
+      return
     }
 
     this.log(styles.header('Work Source'))

@@ -683,6 +683,7 @@ export async function promptExecutionSettings(
         buildPromptConfig('list', 'selectedOutputMode', 'How should Claude display output?', outputChoices, 'interactive'),
         createMetadata(jsonMode.commandName, jsonMode.flags)
       )
+      return { executionConfig, permissionMode: 'safe' as PermissionMode, createPR: false }
     }
 
     const { selectedOutputMode } = await inquirer.prompt([
@@ -715,6 +716,7 @@ export async function promptExecutionSettings(
         buildPromptConfig('list', 'permissionMode', `Permission mode for Claude Code${containerNote}:`, permissionChoices, 'safe'),
         createMetadata(jsonMode.commandName, jsonMode.flags)
       )
+      return { executionConfig, permissionMode: 'safe' as PermissionMode, createPR: false }
     }
 
     const { permissionMode: selectedMode } = await inquirer.prompt([
@@ -745,6 +747,7 @@ export async function promptExecutionSettings(
           buildPromptConfig('list', 'prChoice', 'Create a pull request when work is ready?', prChoices, 'yes'),
           createMetadata(jsonMode.commandName, jsonMode.flags)
         )
+        return { executionConfig, permissionMode: resolvedPermissionMode, createPR: false }
       }
 
       const { prChoice } = await inquirer.prompt([

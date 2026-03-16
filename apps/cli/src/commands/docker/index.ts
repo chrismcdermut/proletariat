@@ -104,6 +104,7 @@ export default class Docker extends PromptCommand {
       const { flags: parsedFlags } = await this.parse(Docker)
       if (shouldOutputJson(parsedFlags)) {
         outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker', parsedFlags))
+        return null
       }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }

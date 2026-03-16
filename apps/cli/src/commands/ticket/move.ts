@@ -62,10 +62,10 @@ export default class TicketMove extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket move', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -391,7 +391,7 @@ export default class TicketMove extends PMOCommand {
     if (!targetProject) {
       if (jsonMode) {
         outputErrorAsJson('PROJECT_NOT_FOUND', `Project not found: ${targetProjectId}`, createMetadata('ticket move', flags));
-        this.exit(1);
+        return
       }
       this.error(`Project not found: ${targetProjectId}`);
     }

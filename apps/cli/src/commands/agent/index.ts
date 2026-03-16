@@ -155,12 +155,14 @@ export default class Agent extends PMOCommand {
         default:
           if (jsonMode) {
             outputErrorAsJson('UNKNOWN_ACTION', `Unknown action: ${action}`, createMetadata('agent', flags));
+            return
           }
           this.error(`Unknown action: ${action}`);
       }
     } catch (error) {
       if (jsonMode) {
         outputErrorAsJson('EXECUTION_FAILED', `Failed to execute agent ${action}: ${error instanceof Error ? error.message : String(error)}`, createMetadata('agent', flags));
+        return
       }
       this.error(`Failed to execute agent ${action}: ${error instanceof Error ? error.message : String(error)}`);
     }

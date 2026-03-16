@@ -38,9 +38,10 @@ export default class PhaseTemplateDelete extends PMOCommand {
     const { args, flags } = await this.parse(PhaseTemplateDelete);
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('phase template delete', flags));
+        return
       }
       this.error(message);
     };

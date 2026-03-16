@@ -29,10 +29,10 @@ export default class GHToken extends Command {
     const jsonMode = isMachineOutput(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('gh token', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

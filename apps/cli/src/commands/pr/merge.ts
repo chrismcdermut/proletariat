@@ -72,10 +72,10 @@ export default class PRMerge extends PMOCommand {
 
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('pr merge', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

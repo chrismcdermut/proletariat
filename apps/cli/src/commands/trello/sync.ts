@@ -53,7 +53,7 @@ export default class TrelloSyncCommand extends PMOCommand {
     if (!isTrelloConfigured(db)) {
       if (jsonMode) {
         outputErrorAsJson('TRELLO_NOT_CONFIGURED', 'Trello is not configured. Run "prlt trello configure" first.', createMetadata('trello sync', flags))
-        this.exit(1)
+        return
       }
       this.error('Trello is not configured. Run "prlt trello configure" first.')
     }
@@ -68,7 +68,7 @@ export default class TrelloSyncCommand extends PMOCommand {
       if (!ticket) {
         if (jsonMode) {
           outputErrorAsJson('TICKET_NOT_FOUND', `Ticket ${flags.ticket} not found.`, createMetadata('trello sync', flags))
-          this.exit(1)
+          return
         }
         this.error(`Ticket ${flags.ticket} not found.`)
       }
@@ -95,7 +95,7 @@ export default class TrelloSyncCommand extends PMOCommand {
         if (!listId) {
           if (jsonMode) {
             outputErrorAsJson('TRELLO_LIST_REQUIRED', 'List ID is required for --create-missing. Use --list.', createMetadata('trello sync', flags))
-            this.exit(1)
+            return
           }
           this.error('List ID is required for --create-missing. Use --list.')
         }

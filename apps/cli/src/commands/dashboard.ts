@@ -227,6 +227,7 @@ export default class Dashboard extends PMOCommand {
       },
       createMetadata('dashboard', flags)
     )
+    return
   }
 
   // ===========================================================================

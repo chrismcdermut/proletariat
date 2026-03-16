@@ -71,6 +71,7 @@ export default class Open extends PromptCommand {
       } catch {
         if (jsonMode) {
           outputErrorAsJson('NO_WORKSPACE', 'Not in an HQ or workspace. --agent requires an HQ.', createMetadata('open', flags));
+          return
         }
         this.error('Not in an HQ or workspace. --agent requires an HQ.');
       }
@@ -81,6 +82,7 @@ export default class Open extends PromptCommand {
         const msg = `Agent "${flags.agent}" not found. Available: ${available || 'none'}`;
         if (jsonMode) {
           outputErrorAsJson('AGENT_NOT_FOUND', msg, createMetadata('open', flags));
+          return
         }
         this.error(msg);
       }
@@ -101,6 +103,7 @@ export default class Open extends PromptCommand {
     if (!fs.existsSync(workDir)) {
       if (jsonMode) {
         outputErrorAsJson('DIRECTORY_NOT_FOUND', `Directory not found: ${workDir}`, createMetadata('open', flags));
+        return
       }
       this.error(`Directory not found: ${workDir}`);
     }
@@ -190,6 +193,7 @@ export default class Open extends PromptCommand {
           sessionId: result.sessionId,
           sessionName,
         }, createMetadata('open', flags as Record<string, unknown>));
+        return
       }
 
       this.log(styles.success(`✓ Claude Code opened in new tab`));
@@ -199,6 +203,7 @@ export default class Open extends PromptCommand {
     } else {
       if (jsonMode) {
         outputErrorAsJson('EXECUTION_FAILED', `Failed to open: ${result.error}`, createMetadata('open', flags));
+        return
       }
       this.error(`Failed to open: ${result.error}`);
     }
