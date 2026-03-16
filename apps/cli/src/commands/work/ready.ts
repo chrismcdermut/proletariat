@@ -295,7 +295,7 @@ export default class WorkReady extends PMOCommand {
    * Handle PR creation for the ticket.
    */
   private async handlePRCreation(
-    ticket: { id: string; title: string; description?: string },
+    ticket: { id: string; title: string; description?: string; metadata?: Record<string, string> },
     draft: boolean,
     branchFromExecution?: string,
     worktreePath?: string
@@ -355,10 +355,12 @@ export default class WorkReady extends PMOCommand {
       }
 
       // Generate PR content
-      const prTitle = generatePRTitle(ticket.id, ticket.title);
+      // Use external key (e.g. PRLT-962) for PR title/body when ticket was imported
+      const displayTicketId = ticket.metadata?.external_key || ticket.id;
+      const prTitle = generatePRTitle(displayTicketId, ticket.title);
       const commits = getCommitLog(baseBranch);
       const prBody = generatePRBody({
-        ticketId: ticket.id,
+        ticketId: displayTicketId,
         ticketTitle: ticket.title,
         ticketDescription: ticket.description,
         commits: commits.slice(0, 10),
