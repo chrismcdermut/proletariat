@@ -476,11 +476,12 @@ export function createMetadata(
 }
 
 /**
- * Output a prompt configuration as JSON and exit
+ * Output a prompt configuration as JSON and set exit code
  *
  * Use this when a command would normally show an interactive prompt.
- * Outputs the prompt config so agents can understand what input is needed,
- * then exits with EXIT_NEEDS_INPUT (2) to signal the command needs more input.
+ * Outputs the prompt config so agents can understand what input is needed.
+ * Sets process.exitCode to EXIT_NEEDS_INPUT (2). Callers should return
+ * after calling this to let oclif handle lifecycle cleanup.
  *
  * @param config - Prompt configuration
  * @param metadata - Command metadata
@@ -499,11 +500,11 @@ export function outputPromptAsJson(
 }
 
 /**
- * Output success result as JSON and exit
+ * Output success result as JSON and set exit code
  *
  * Use this when all required data was provided via flags
- * and no prompt is needed. Exits with EXIT_SUCCESS (0) to signal
- * successful command completion.
+ * and no prompt is needed. Sets process.exitCode to EXIT_SUCCESS (0).
+ * Callers should return after calling this.
  *
  * @param result - Command-specific result data
  * @param metadata - Command metadata
@@ -524,11 +525,12 @@ export function outputSuccessAsJson(
 }
 
 /**
- * Output error as JSON and exit
+ * Output error as JSON and set exit code
  *
  * Use this when an error occurs and --json flag is active.
- * Provides structured error output for programmatic handling,
- * then exits with EXIT_ERROR (1).
+ * Provides structured error output for programmatic handling.
+ * Sets process.exitCode to EXIT_ERROR (1). Callers should return
+ * after calling this.
  *
  * @param code - Machine-readable error code (e.g., "NO_TICKETS_AVAILABLE")
  * @param message - Human-readable error message
@@ -652,7 +654,7 @@ export function buildFormPromptConfig(
 }
 
 /**
- * Output a successful dry-run result as JSON and exit
+ * Output a successful dry-run result as JSON and set exit code
  *
  * Use this when --dry-run is set and all validation passes.
  * Shows what would be created without actually creating it.
@@ -680,7 +682,7 @@ export function outputDryRunSuccessAsJson(
 }
 
 /**
- * Output a dry-run validation failure as JSON and exit
+ * Output a dry-run validation failure as JSON and set exit code
  *
  * Use this when --dry-run is set and validation fails.
  * Shows the validation errors without attempting to create.
@@ -703,7 +705,7 @@ export function outputDryRunErrorsAsJson(
 }
 
 /**
- * Output a confirmation needed response as JSON and exit
+ * Output a confirmation needed response as JSON and set exit code
  *
  * Use this in non-TTY mode when all required flags are provided but --yes is not set.
  * This allows agents to preview what will happen before confirming execution.

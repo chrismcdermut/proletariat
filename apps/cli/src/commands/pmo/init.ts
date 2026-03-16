@@ -305,7 +305,7 @@ export default class PMOInit extends PromptCommand {
         buildPromptConfig('list', 'action', message, actionChoices),
         createMetadata('pmo init', flags)
       );
-      return null; // unreachable - outputPromptAsJson calls process.exit
+      return null;
     } else {
       this.log(chalk.yellow('\n⚠️  PMO already exists'));
       this.log(chalk.gray(`   Location: ${pmoPath}`));
@@ -343,7 +343,7 @@ export default class PMOInit extends PromptCommand {
         },
         createMetadata('pmo init', flags)
       );
-      return null; // unreachable - outputPromptAsJson calls process.exit
+      return null;
     } else {
       // Show warning and require typed confirmation
       this.log(chalk.red('\n⚠️  WARNING: This will permanently delete:'));
