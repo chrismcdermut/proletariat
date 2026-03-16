@@ -102,9 +102,11 @@ class Prlt < Formula
 
   def post_install
     # Homebrew's std_npm_args uses --ignore-scripts, which skips better-sqlite3's
-    # native module compilation. Rebuild it here so the CLI can use SQLite.
+    # native module compilation. Rebuild from source here so the CLI works on any
+    # Node ABI (including Node 25.x / ABI 141 where prebuilt binaries may not
+    # exist yet).
     cd libexec/"lib/node_modules/@proletariat/cli" do
-      system "npm", "rebuild", "better-sqlite3"
+      system "npm", "rebuild", "better-sqlite3", "--build-from-source"
     end
   end
 

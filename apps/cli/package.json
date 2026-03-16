@@ -112,7 +112,7 @@
     "directory": "apps/cli"
   },
   "scripts": {
-    "postinstall": "(npm rebuild better-sqlite3 || true) && node ./bin/validate-better-sqlite3.cjs",
+    "postinstall": "(npm rebuild better-sqlite3 --build-from-source || true) && node ./bin/validate-better-sqlite3.cjs",
     "build": "shx rm -rf dist && tsc -b",
     "rebuild": "pnpm install && pnpm build",
     "clean": "shx rm -rf dist",

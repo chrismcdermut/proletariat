@@ -61,10 +61,11 @@ export function buildBetterSqlite3ValidationMessage(
     `Error: ${reason}`,
     '',
     'Fix steps:',
-    '1. Rebuild native bindings: npm rebuild better-sqlite3',
+    '1. Rebuild native bindings: npm rebuild better-sqlite3 --build-from-source',
     '2. If globally installed, reinstall: pnpm install -g @proletariat/cli --force',
     '   (or: npm install -g @proletariat/cli --force)',
-    '3. If running from source, reinstall workspace deps: pnpm install',
+    '3. If installed via Homebrew: brew reinstall prlt',
+    '4. If running from source, reinstall workspace deps: pnpm install',
   ]
 
   if (nodeMajorHint) {

@@ -54,6 +54,11 @@ export default class New extends Command {
       default: true,
       allowNo: true,
     }),
+    force: Flags.boolean({
+      description: 'Overwrite existing directory (useful after a failed previous run)',
+      default: false,
+      char: 'f',
+    }),
   };
 
   async run(): Promise<void> {
@@ -99,8 +104,21 @@ export default class New extends Command {
       customTheme: agentResult.customTheme,
     };
 
-    // Initialize the HQ
-    await initializeHQ(options);
+    // Initialize the HQ (clean up partial directory on failure)
+    try {
+      await initializeHQ(options);
+    } catch (error) {
+      // Clean up partially created directory to avoid "Directory already exists" on retry
+      if (fs.existsSync(hqPath)) {
+        try {
+          fs.rmSync(hqPath, { recursive: true, force: true });
+          console.log(chalk.gray('Cleaned up partial directory.'));
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+      throw error;
+    }
 
     // Show next steps
     await showNextSteps(options);
@@ -115,6 +133,7 @@ export default class New extends Command {
     agents?: string;
     repos?: string;
     pmo: boolean;
+    force: boolean;
   }): Promise<void> {
     // If --name not provided, output a prompt so agents can supply it
     if (!flags.name) {
@@ -149,12 +168,16 @@ export default class New extends Command {
 
     // Check if directory already exists
     if (fs.existsSync(hqPath)) {
-      this.outputJson({
-        success: false,
-        error: 'Directory already exists',
-        path: hqPath,
-      });
-      this.exit(1);
+      if (flags.force) {
+        fs.rmSync(hqPath, { recursive: true, force: true });
+      } else {
+        this.outputJson({
+          success: false,
+          error: 'Directory already exists. Use --force to overwrite (e.g. after a failed previous run).',
+          path: hqPath,
+        });
+        this.exit(1);
+      }
     }
 
     // Parse agents
@@ -213,6 +236,15 @@ export default class New extends Command {
     } catch (error) {
       // Restore console.log on error
       console.log = originalLog;
+
+      // Clean up partially created directory to avoid "Directory already exists" on retry
+      if (fs.existsSync(hqPath)) {
+        try {
+          fs.rmSync(hqPath, { recursive: true, force: true });
+        } catch {
+          // Best-effort cleanup — don't mask the original error
+        }
+      }
 
       this.outputJson({
         success: false,
