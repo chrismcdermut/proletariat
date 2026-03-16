@@ -1816,7 +1816,7 @@ export default class WorkSpawn extends PMOCommand {
             description: 'Custom prompt/instruction',
             prompt: batchCustomMessage || '',
             modifiesCode: true, // Assume custom prompts may modify code
-            defaultMoveToCategory: 'started',
+            toState: 'In Progress',
             isBuiltin: false,
             createdAt: new Date(),
           }
@@ -1828,7 +1828,7 @@ export default class WorkSpawn extends PMOCommand {
             description: 'Unstructured exploration and debugging',
             prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
             modifiesCode: false,
-            defaultMoveToCategory: 'started',
+            toState: 'In Progress',
             isBuiltin: false,
             createdAt: new Date(),
           }

@@ -657,12 +657,20 @@ function setupMinimalPMO(db: Database.Database) {
       name TEXT NOT NULL UNIQUE,
       description TEXT,
       prompt TEXT NOT NULL,
-      suggested_for_categories TEXT,
-      default_move_to_category TEXT,
+      end_prompt TEXT,
+      from_state TEXT,
+      to_state TEXT,
+      executor TEXT CHECK (executor IN ('claude', 'codex', 'opencode', 'custom')),
+      environment TEXT CHECK (environment IN ('devcontainer', 'docker', 'host', 'vm')),
+      permission_mode TEXT CHECK (permission_mode IN ('full', 'readonly', 'bypassPermissions')),
+      timeout INTEGER,
+      model TEXT,
       modifies_code INTEGER NOT NULL DEFAULT 1,
+      is_default INTEGER NOT NULL DEFAULT 0,
       is_builtin INTEGER NOT NULL DEFAULT 0,
       position INTEGER NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_pmo_columns_project ON pmo_columns(project_id);
     CREATE INDEX IF NOT EXISTS idx_pmo_tickets_project ON pmo_tickets(project_id);

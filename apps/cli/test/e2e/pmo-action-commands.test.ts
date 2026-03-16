@@ -81,11 +81,11 @@ describe('PMO Action Commands E2E Tests', () => {
       expect(output).not.to.contain('Implement');
     });
 
-    it('should filter by --suggested-for', async () => {
-      const output = await execInProcess('action list --suggested-for backlog');
+    it('should filter by --from-state', async () => {
+      const output = await execInProcess('action list --from-state Backlog');
 
       expect(output).to.contain('Groom');
-      // Implement is suggested for unstarted/started, not backlog
+      // Implement has fromState 'Todo', not 'Backlog'
     });
 
     it('should output JSON with --json flag', async () => {
@@ -106,8 +106,8 @@ describe('PMO Action Commands E2E Tests', () => {
 
       expect(output).to.contain('Groom');
       expect(output).to.contain('Prompt:');
-      expect(output).to.contain('Suggested for:');
-      expect(output).to.contain('backlog');
+      expect(output).to.contain('From state:');
+      expect(output).to.contain('Backlog');
     });
 
     it('should show full prompt text', async () => {
@@ -117,11 +117,11 @@ describe('PMO Action Commands E2E Tests', () => {
       expect(output).to.contain('acceptance criteria');
     });
 
-    it('should show moves-to category', async () => {
+    it('should show to-state', async () => {
       const output = await execInProcess('action show groom');
 
-      expect(output).to.contain('Moves to:');
-      expect(output).to.contain('unstarted');
+      expect(output).to.contain('To state:');
+      expect(output).to.contain('Todo');
     });
 
     it('should show built-in status', async () => {
@@ -158,22 +158,20 @@ describe('PMO Action Commands E2E Tests', () => {
       expect(action.description).to.equal('Check docs for accuracy');
     });
 
-    it('should create action with suggested-for categories', async () => {
-      await execInProcess('action create "Polish" --prompt "Polish the code" --suggested-for "completed,started"');
+    it('should create action with from-state', async () => {
+      await execInProcess('action create "Polish" --prompt "Polish the code" --from-state "completed"');
 
-      const action = db.prepare('SELECT suggested_for_categories FROM pmo_actions WHERE name = ?').get('Polish') as { suggested_for_categories: string };
+      const action = db.prepare('SELECT from_state FROM pmo_actions WHERE name = ?').get('Polish') as { from_state: string };
       expect(action).to.not.be.undefined;
-      const categories = JSON.parse(action.suggested_for_categories);
-      expect(categories).to.include('completed');
-      expect(categories).to.include('started');
+      expect(action.from_state).to.equal('completed');
     });
 
-    it('should create action with move-to category', async () => {
-      await execInProcess('action create "Finish Up" --prompt "Complete the work" --move-to completed');
+    it('should create action with to-state', async () => {
+      await execInProcess('action create "Finish Up" --prompt "Complete the work" --to-state completed');
 
-      const action = db.prepare('SELECT default_move_to_category FROM pmo_actions WHERE name = ?').get('Finish Up') as { default_move_to_category: string };
+      const action = db.prepare('SELECT to_state FROM pmo_actions WHERE name = ?').get('Finish Up') as { to_state: string };
       expect(action).to.not.be.undefined;
-      expect(action.default_move_to_category).to.equal('completed');
+      expect(action.to_state).to.equal('completed');
     });
 
     it('should slugify action ID from name', async () => {
@@ -227,20 +225,18 @@ describe('PMO Action Commands E2E Tests', () => {
       expect(action.description).to.equal('New description');
     });
 
-    it('should update suggested-for categories', async () => {
-      await execInProcess('action update updatable --suggested-for "started,completed"');
+    it('should update from-state', async () => {
+      await execInProcess('action update updatable --from-state "started"');
 
-      const action = db.prepare('SELECT suggested_for_categories FROM pmo_actions WHERE id = ?').get('updatable') as { suggested_for_categories: string };
-      const categories = JSON.parse(action.suggested_for_categories);
-      expect(categories).to.include('started');
-      expect(categories).to.include('completed');
+      const action = db.prepare('SELECT from_state FROM pmo_actions WHERE id = ?').get('updatable') as { from_state: string };
+      expect(action.from_state).to.equal('started');
     });
 
-    it('should update move-to category', async () => {
-      await execInProcess('action update updatable --move-to completed');
+    it('should update to-state', async () => {
+      await execInProcess('action update updatable --to-state completed');
 
-      const action = db.prepare('SELECT default_move_to_category FROM pmo_actions WHERE id = ?').get('updatable') as { default_move_to_category: string };
-      expect(action.default_move_to_category).to.equal('completed');
+      const action = db.prepare('SELECT to_state FROM pmo_actions WHERE id = ?').get('updatable') as { to_state: string };
+      expect(action.to_state).to.equal('completed');
     });
 
     it('should error when action not found', async () => {

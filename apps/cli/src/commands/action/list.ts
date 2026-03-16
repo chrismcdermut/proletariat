@@ -1,7 +1,7 @@
 import { Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { StateCategory, WorkAction } from '../../lib/pmo/types.js';
+import { WorkAction } from '../../lib/pmo/types.js';
 import { shouldOutputJson } from '../../lib/prompt-json.js';
 
 export default class ActionList extends PMOCommand {
@@ -11,7 +11,7 @@ export default class ActionList extends PMOCommand {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --builtin',
     '<%= config.bin %> <%= command.id %> --custom',
-    '<%= config.bin %> <%= command.id %> --suggested-for started',
+    '<%= config.bin %> <%= command.id %> --from-state "In Progress"',
   ];
 
   static flags = {
@@ -24,19 +24,18 @@ export default class ActionList extends PMOCommand {
       description: 'Show only custom actions',
       exclusive: ['builtin'],
     }),
-    'suggested-for': Flags.string({
-      description: 'Filter to actions suggested for a category',
-      options: ['backlog', 'unstarted', 'started', 'completed', 'canceled'],
+    'from-state': Flags.string({
+      description: 'Filter to actions matching a from_state (includes actions with null from_state)',
     }),
   };
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(ActionList);
 
-    const filter: { isBuiltin?: boolean; suggestedFor?: StateCategory } = {};
+    const filter: { isBuiltin?: boolean; fromState?: string } = {};
     if (flags.builtin) filter.isBuiltin = true;
     if (flags.custom) filter.isBuiltin = false;
-    if (flags['suggested-for']) filter.suggestedFor = flags['suggested-for'] as StateCategory;
+    if (flags['from-state']) filter.fromState = flags['from-state'];
 
     const actions = await this.storage.listActions(filter);
 
@@ -87,11 +86,14 @@ export default class ActionList extends PMOCommand {
     }
 
     const details: string[] = [];
-    if (action.suggestedForCategories?.length) {
-      details.push(`Suggested for: ${action.suggestedForCategories.join(', ')}`);
+    if (action.fromState) {
+      details.push(`From: ${action.fromState}`);
     }
-    if (action.defaultMoveToCategory) {
-      details.push(`Moves to: ${action.defaultMoveToCategory}`);
+    if (action.toState) {
+      details.push(`To: ${action.toState}`);
+    }
+    if (action.executor) {
+      details.push(`Executor: ${action.executor}`);
     }
     if (details.length > 0) {
       this.log(`    ${styles.muted(details.join(' | '))}`);

@@ -3,7 +3,7 @@
  */
 
 import { PMO_TABLES } from '../schema.js'
-import { PMOError, StateCategory, WorkAction, WorkActionFilter } from '../types.js'
+import { PMOError, WorkAction, WorkActionFilter, ActionExecutor, ActionEnvironment, ActionPermissionMode } from '../types.js'
 import { slugify } from '../utils.js'
 import { StorageContext, WorkActionRow } from './types.js'
 
@@ -25,9 +25,10 @@ export class ActionStorage {
       params.push(filter.isBuiltin ? 1 : 0)
     }
 
-    if (filter?.suggestedFor) {
-      conditions.push('suggested_for_categories LIKE ?')
-      params.push(`%"${filter.suggestedFor}"%`)
+    if (filter?.fromState) {
+      // Match actions where from_state equals the given state name, or from_state is null (matches any)
+      conditions.push('(from_state = ? OR from_state IS NULL)')
+      params.push(filter.fromState)
     }
 
     if (filter?.search) {
@@ -39,7 +40,7 @@ export class ActionStorage {
       sql += ` WHERE ${conditions.join(' AND ')}`
     }
 
-    sql += ' ORDER BY is_builtin DESC, position ASC, name ASC'
+    sql += ' ORDER BY is_builtin DESC, is_default DESC, position ASC, name ASC'
 
     const rows = this.ctx.db.prepare(sql).all(...params) as WorkActionRow[]
 
@@ -84,18 +85,27 @@ export class ActionStorage {
     const modifiesCode = action.modifiesCode !== false
 
     this.ctx.db.prepare(`
-      INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_state, to_state,
+        executor, environment, permission_mode, timeout, model, modifies_code, is_default, is_builtin, position, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       action.name,
       action.description || null,
       action.prompt,
       action.endPrompt || null,
-      action.suggestedForCategories ? JSON.stringify(action.suggestedForCategories) : null,
-      action.defaultMoveToCategory || null,
+      action.fromState || null,
+      action.toState || null,
+      action.executor || null,
+      action.environment || null,
+      action.permissionMode || null,
+      action.timeout || null,
+      action.model || null,
       modifiesCode ? 1 : 0,
+      action.isDefault ? 1 : 0,
       action.isBuiltin ? 1 : 0,
+      action.position || 0,
+      now,
       now
     )
 
@@ -105,11 +115,19 @@ export class ActionStorage {
       description: action.description,
       prompt: action.prompt,
       endPrompt: action.endPrompt,
-      suggestedForCategories: action.suggestedForCategories,
-      defaultMoveToCategory: action.defaultMoveToCategory,
+      fromState: action.fromState,
+      toState: action.toState,
+      executor: action.executor,
+      environment: action.environment,
+      permissionMode: action.permissionMode,
+      timeout: action.timeout,
+      model: action.model,
       modifiesCode,
+      isDefault: action.isDefault,
       isBuiltin: action.isBuiltin || false,
+      position: action.position || 0,
       createdAt: new Date(now),
+      updatedAt: new Date(now),
     }
   }
 
@@ -155,22 +173,46 @@ export class ActionStorage {
       updates.push('end_prompt = ?')
       params.push(changes.endPrompt || null)
     }
-    if (changes.suggestedForCategories !== undefined) {
-      updates.push('suggested_for_categories = ?')
-      params.push(
-        changes.suggestedForCategories ? JSON.stringify(changes.suggestedForCategories) : null
-      )
+    if (changes.fromState !== undefined) {
+      updates.push('from_state = ?')
+      params.push(changes.fromState || null)
     }
-    if (changes.defaultMoveToCategory !== undefined) {
-      updates.push('default_move_to_category = ?')
-      params.push(changes.defaultMoveToCategory || null)
+    if (changes.toState !== undefined) {
+      updates.push('to_state = ?')
+      params.push(changes.toState || null)
+    }
+    if (changes.executor !== undefined) {
+      updates.push('executor = ?')
+      params.push(changes.executor || null)
+    }
+    if (changes.environment !== undefined) {
+      updates.push('environment = ?')
+      params.push(changes.environment || null)
+    }
+    if (changes.permissionMode !== undefined) {
+      updates.push('permission_mode = ?')
+      params.push(changes.permissionMode || null)
+    }
+    if (changes.timeout !== undefined) {
+      updates.push('timeout = ?')
+      params.push(changes.timeout || null)
+    }
+    if (changes.model !== undefined) {
+      updates.push('model = ?')
+      params.push(changes.model || null)
     }
     if (changes.modifiesCode !== undefined) {
       updates.push('modifies_code = ?')
       params.push(changes.modifiesCode ? 1 : 0)
     }
+    if (changes.isDefault !== undefined) {
+      updates.push('is_default = ?')
+      params.push(changes.isDefault ? 1 : 0)
+    }
 
     if (updates.length > 0) {
+      updates.push('updated_at = ?')
+      params.push(new Date().toISOString())
       params.push(id)
       this.ctx.db.prepare(`UPDATE ${T.actions} SET ${updates.join(', ')} WHERE id = ?`).run(
         ...params
@@ -197,11 +239,39 @@ export class ActionStorage {
   }
 
   /**
-   * Get suggested action for a state category.
+   * Get suggested action for a state name.
+   * Matches actions where from_state equals the given state name, or from_state is null.
+   * Prefers exact from_state matches with is_default=true, then by position.
    */
-  async getSuggestedAction(category: StateCategory): Promise<WorkAction | null> {
-    const actions = await this.listActions({ suggestedFor: category })
-    return actions.length > 0 ? actions[0] : null
+  async getSuggestedAction(stateName: string): Promise<WorkAction | null> {
+    // First try to find a default action with exact from_state match
+    const exactMatch = this.ctx.db.prepare(`
+      SELECT * FROM ${T.actions}
+      WHERE from_state = ? AND is_default = 1
+      ORDER BY position ASC
+      LIMIT 1
+    `).get(stateName) as WorkActionRow | undefined
+
+    if (exactMatch) {
+      return this.rowToAction(exactMatch)
+    }
+
+    // Fall back to any action matching this state (exact match first, then null from_state)
+    const anyMatch = this.ctx.db.prepare(`
+      SELECT * FROM ${T.actions}
+      WHERE from_state = ? OR from_state IS NULL
+      ORDER BY
+        CASE WHEN from_state = ? THEN 0 ELSE 1 END,
+        is_default DESC,
+        position ASC
+      LIMIT 1
+    `).get(stateName, stateName) as WorkActionRow | undefined
+
+    if (anyMatch) {
+      return this.rowToAction(anyMatch)
+    }
+
+    return null
   }
 
   private rowToAction(row: WorkActionRow): WorkAction {
@@ -211,13 +281,19 @@ export class ActionStorage {
       description: row.description || undefined,
       prompt: row.prompt,
       endPrompt: row.end_prompt || undefined,
-      suggestedForCategories: row.suggested_for_categories
-        ? (JSON.parse(row.suggested_for_categories) as StateCategory[])
-        : undefined,
-      defaultMoveToCategory: row.default_move_to_category as StateCategory | undefined,
+      fromState: row.from_state || undefined,
+      toState: row.to_state || undefined,
+      executor: (row.executor as ActionExecutor) || undefined,
+      environment: (row.environment as ActionEnvironment) || undefined,
+      permissionMode: (row.permission_mode as ActionPermissionMode) || undefined,
+      timeout: row.timeout || undefined,
+      model: row.model || undefined,
       modifiesCode: row.modifies_code === 1,
+      isDefault: row.is_default === 1,
       isBuiltin: row.is_builtin === 1,
+      position: row.position,
       createdAt: new Date(row.created_at),
+      updatedAt: row.updated_at ? new Date(row.updated_at) : undefined,
     }
   }
 }

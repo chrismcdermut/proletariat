@@ -40,7 +40,6 @@ import {
   SpecDependency,
   SpecDependencyType,
   SpecFilter,
-  StateCategory,
   Subtask,
   SyncResult,
   SyncStatus,
@@ -722,8 +721,8 @@ export class SQLiteStorage implements PMOStorage {
     return this.actionStorage.deleteAction(id)
   }
 
-  async getSuggestedAction(category: StateCategory): Promise<WorkAction | null> {
-    return this.actionStorage.getSuggestedAction(category)
+  async getSuggestedAction(stateName: string): Promise<WorkAction | null> {
+    return this.actionStorage.getSuggestedAction(stateName)
   }
 
   // ===========================================================================
