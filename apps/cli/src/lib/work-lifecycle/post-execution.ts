@@ -5,14 +5,16 @@
  * Primary use case: when the implement action completes and a PR was created,
  * automatically move the ticket from In Progress to Review.
  *
- * This hook replaces the need for a separate "create-pr" action. The implement
- * action's endPrompt handles PR creation via `prlt work ready --pr`, and this
- * hook ensures the state transition happens systematically.
+ * Uses the provider abstraction to write directly to the configured provider
+ * (Linear, Jira, etc.) — not through the local PMO as a cache layer.
+ * The local PMO is just the default provider for users without integrations.
  */
 
 import Database from 'better-sqlite3'
 import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
 import type { StateCategory } from '../pmo/types.js'
+import { resolveTicketProvider } from '../providers/resolver.js'
+import type { TicketProvider, ProviderMoveResult } from '../providers/types.js'
 
 export interface PostExecutionContext {
   ticketId: string
@@ -23,6 +25,10 @@ export interface PostExecutionResult {
   transitioned: boolean
   fromState?: string
   toState?: string
+  /** Which provider handled the transition */
+  provider?: string
+  /** Error from the provider (transition may have partially succeeded) */
+  providerError?: string
 }
 
 /** Minimal storage interface for post-execution transitions. */
@@ -47,12 +53,17 @@ export interface PostExecutionStorage {
  * 1. Is in a "started" category (e.g., In Progress)
  * 2. Has a PR URL in its metadata
  *
- * Then automatically move the ticket to the Review column.
- * If no PR was created, the ticket stays in its current state.
+ * Then automatically move the ticket to the Review column via the appropriate
+ * provider (Linear, Jira, or local PMO).
+ *
+ * Provider resolution:
+ * - If the ticket has an external_source (e.g., 'linear') and that provider
+ *   is configured, write directly to that provider's API.
+ * - Otherwise, write to the local PMO (default for users without integrations).
  *
  * @param context - Execution context with ticket and optional action info
  * @param storage - PMO storage instance for ticket operations
- * @param db - Database for work column settings
+ * @param db - Database for work column settings and provider config
  * @returns Result indicating whether a transition occurred
  */
 export async function handlePostExecutionTransition(
@@ -97,13 +108,33 @@ export async function handlePostExecutionTransition(
     return { transitioned: false }
   }
 
-  // Move ticket to Review
+  // Resolve the appropriate provider for this ticket
+  const provider = resolveTicketProvider(
+    context.ticketId,
+    ticket.projectId,
+    db,
+    storage,
+    ticket.metadata,
+  )
+
+  // Move ticket via the provider
   const previousState = ticket.statusName
-  await storage.moveTicket(ticket.projectId, context.ticketId, reviewColumn)
+  const moveResult = await provider.moveTicket(context.ticketId, reviewColumn)
+
+  if (!moveResult.success) {
+    return {
+      transitioned: false,
+      fromState: previousState,
+      toState: reviewColumn,
+      provider: moveResult.provider,
+      providerError: moveResult.error,
+    }
+  }
 
   return {
     transitioned: true,
     fromState: previousState,
     toState: reviewColumn,
+    provider: moveResult.provider,
   }
 }

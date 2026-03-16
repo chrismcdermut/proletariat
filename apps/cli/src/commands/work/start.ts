@@ -1020,7 +1020,8 @@ export default class WorkStart extends PMOCommand {
                   db,
                 )
                 if (result.transitioned && !jsonMode) {
-                  this.log(styles.muted(`   Auto-transitioned ${cleanedTicketId}: ${result.fromState} → ${result.toState}`))
+                  const via = result.provider && result.provider !== 'pmo' ? ` via ${result.provider}` : ''
+                  this.log(styles.muted(`   Auto-transitioned ${cleanedTicketId}: ${result.fromState} → ${result.toState}${via}`))
                 }
               } catch {
                 // Non-fatal — don't block work start for transition failures
@@ -2505,7 +2506,8 @@ export default class WorkStart extends PMOCommand {
             db,
           )
           if (result.transitioned) {
-            this.log(styles.muted(`   Auto-transitioned ${cleanedTicketId}: ${result.fromState} → ${result.toState}`))
+            const via = result.provider && result.provider !== 'pmo' ? ` via ${result.provider}` : ''
+            this.log(styles.muted(`   Auto-transitioned ${cleanedTicketId}: ${result.fromState} → ${result.toState}${via}`))
           }
         } catch {
           // Non-fatal
