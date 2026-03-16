@@ -23,8 +23,8 @@ import { getMachineConfigDir, ensureMachineConfigDir } from '../machine-config.j
 // Statsig client SDK key (public — safe to embed in open source repos)
 const STATSIG_CLIENT_KEY = 'client-kvxMxRhn9NFSmH8orl7e2W9nYTfWVS7Kjf7yRTdIecc'
 
-// Flush timeout — don't let analytics delay CLI exit
-const FLUSH_TIMEOUT_MS = 2000
+// Max time to wait for init + flush during shutdown — keeps CLI exit snappy
+const SHUTDOWN_TIMEOUT_MS = 500
 
 /**
  * Telemetry configuration stored in ~/.proletariat/telemetry.json
@@ -63,6 +63,14 @@ let statsigClient: StatsigClientInstance | null = null
 let telemetryConfig: TelemetryConfig | null = null
 let cliVersion: string | null = null
 let initPromise: Promise<void> | null = null
+
+// Events logged before the Statsig client finishes initializing.
+// These are replayed once init completes (in shutdownAnalytics).
+let pendingEvents: Array<{
+  name: string
+  value?: string | number | null
+  metadata?: Record<string, string> | null
+}> = []
 
 // ─── Telemetry Config ────────────────────────────────────────────────────────
 
@@ -257,7 +265,7 @@ export function initAnalytics(version: string): Promise<void> {
  * @param metadata - Event-specific metadata
  */
 export function trackEvent(eventName: string, value?: string | number | null, metadata?: Record<string, unknown> | null): void {
-  if (!statsigClient || !isTelemetryEnabled()) return
+  if (!isTelemetryEnabled()) return
 
   try {
     // Convert metadata values to strings as required by the client SDK
@@ -268,7 +276,13 @@ export function trackEvent(eventName: string, value?: string | number | null, me
       : cliVersion
         ? { cli_version: cliVersion }
         : null
-    statsigClient.logEvent(eventName, value, stringMetadata)
+
+    if (statsigClient) {
+      statsigClient.logEvent(eventName, value, stringMetadata)
+    } else if (initPromise) {
+      // Client is still initializing — buffer the event for replay at shutdown
+      pendingEvents.push({ name: eventName, value, metadata: stringMetadata })
+    }
   } catch {
     // Never let analytics errors affect the CLI
   }
@@ -361,25 +375,46 @@ export function trackMCPToolCalled(options: {
 // ─── Shutdown ────────────────────────────────────────────────────────────────
 
 /**
+ * Replay events that were buffered while the Statsig client was initializing.
+ */
+function flushPendingEvents(): void {
+  if (!statsigClient || pendingEvents.length === 0) return
+  for (const event of pendingEvents) {
+    try {
+      statsigClient.logEvent(event.name, event.value, event.metadata)
+    } catch {
+      // Drop individual events silently
+    }
+  }
+  pendingEvents = []
+}
+
+/**
  * Flush pending events and shut down the Statsig client.
- * Called from the postrun hook. Times out to avoid blocking CLI exit.
+ * Called from the postrun hook. Caps total wait at SHUTDOWN_TIMEOUT_MS
+ * so analytics never adds more than 500ms to CLI exit time.
  */
 export async function shutdownAnalytics(): Promise<void> {
-  // Wait for init to complete so late-tracked events have a client
+  // Wait for init to complete so buffered events can be flushed,
+  // but cap the wait to avoid blocking CLI exit.
   if (initPromise) {
     try {
-      await initPromise
+      await Promise.race([
+        initPromise,
+        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)),
+      ])
     } catch {
       // Init may have failed — continue to cleanup
     }
     initPromise = null
   }
 
+  // Replay any events that were buffered while init was in progress
+  flushPendingEvents()
+
   if (!statsigClient) return
 
   try {
-    // Give the client a moment to flush, but don't block the CLI
-    await new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS))
     statsigClient.shutdown()
   } catch {
     // Never let shutdown errors affect the CLI
