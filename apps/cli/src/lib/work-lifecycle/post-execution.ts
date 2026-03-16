@@ -14,7 +14,7 @@ import Database from 'better-sqlite3'
 import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
 import type { StateCategory } from '../pmo/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
-import type { TicketProvider, ProviderMoveResult } from '../providers/types.js'
+import type { TicketProvider, ProviderMoveResult, ProviderStorage } from '../providers/types.js'
 
 export interface PostExecutionContext {
   ticketId: string
@@ -31,7 +31,10 @@ export interface PostExecutionResult {
   providerError?: string
 }
 
-/** Minimal storage interface for post-execution transitions. */
+/**
+ * Minimal storage interface for post-execution transitions.
+ * @deprecated Use ProviderStorage from providers/types.ts instead.
+ */
 export interface PostExecutionStorage {
   getTicket: (id: string) => Promise<{
     id: string
@@ -68,7 +71,7 @@ export interface PostExecutionStorage {
  */
 export async function handlePostExecutionTransition(
   context: PostExecutionContext,
-  storage: PostExecutionStorage,
+  storage: PostExecutionStorage | ProviderStorage,
   db: Database.Database,
 ): Promise<PostExecutionResult> {
   // Get the ticket to check current state and PR status
@@ -109,11 +112,13 @@ export async function handlePostExecutionTransition(
   }
 
   // Resolve the appropriate provider for this ticket
+  // Cast to ProviderStorage — at runtime the actual object is SQLiteStorage
+  // which implements the full interface. For post-execution, only moveTicket is used.
   const provider = resolveTicketProvider(
     context.ticketId,
     ticket.projectId,
     db,
-    storage,
+    storage as ProviderStorage,
     ticket.metadata,
   )
 
