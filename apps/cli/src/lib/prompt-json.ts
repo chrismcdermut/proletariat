@@ -16,6 +16,8 @@
  * - EXIT_NEEDS_INPUT (2): Command needs additional input (prompt required)
  */
 
+import { Errors } from '@oclif/core'
+
 /**
  * Exit code for successful command completion
  */
@@ -476,12 +478,12 @@ export function createMetadata(
 }
 
 /**
- * Output a prompt configuration as JSON and set exit code
+ * Output a prompt configuration as JSON and halt command execution
  *
  * Use this when a command would normally show an interactive prompt.
- * Outputs the prompt config so agents can understand what input is needed.
- * Sets process.exitCode to EXIT_NEEDS_INPUT (2). Callers should return
- * after calling this to let oclif handle lifecycle cleanup.
+ * Outputs the prompt config so agents can understand what input is needed,
+ * then throws oclif ExitError to stop execution while still allowing
+ * postrun hooks to fire (unlike process.exit which bypasses them).
  *
  * @param config - Prompt configuration
  * @param metadata - Command metadata
@@ -489,7 +491,7 @@ export function createMetadata(
 export function outputPromptAsJson(
   config: PromptConfig,
   metadata: OutputMetadata
-): void {
+): never {
   const output: PromptJsonOutput = {
     type: 'prompt',
     prompt: config,
@@ -497,14 +499,15 @@ export function outputPromptAsJson(
   }
   console.log(JSON.stringify(output, null, 2))
   process.exitCode = EXIT_NEEDS_INPUT
+  throw new Errors.ExitError(EXIT_NEEDS_INPUT)
 }
 
 /**
- * Output success result as JSON and set exit code
+ * Output success result as JSON and halt command execution
  *
  * Use this when all required data was provided via flags
- * and no prompt is needed. Sets process.exitCode to EXIT_SUCCESS (0).
- * Callers should return after calling this.
+ * and no prompt is needed. Throws oclif ExitError to stop execution
+ * while still allowing postrun hooks to fire.
  *
  * @param result - Command-specific result data
  * @param metadata - Command metadata
@@ -512,7 +515,7 @@ export function outputPromptAsJson(
 export function outputSuccessAsJson(
   result: Record<string, unknown>,
   metadata: OutputMetadata
-): void {
+): never {
   const output: SuccessJsonOutput = {
     type: 'success',
     prompt: null,
@@ -522,15 +525,16 @@ export function outputSuccessAsJson(
   }
   console.log(JSON.stringify(output, null, 2))
   process.exitCode = EXIT_SUCCESS
+  throw new Errors.ExitError(EXIT_SUCCESS)
 }
 
 /**
- * Output error as JSON and set exit code
+ * Output error as JSON and halt command execution
  *
  * Use this when an error occurs and --json flag is active.
  * Provides structured error output for programmatic handling.
- * Sets process.exitCode to EXIT_ERROR (1). Callers should return
- * after calling this.
+ * Throws oclif ExitError to stop execution while still allowing
+ * postrun hooks to fire.
  *
  * @param code - Machine-readable error code (e.g., "NO_TICKETS_AVAILABLE")
  * @param message - Human-readable error message
@@ -540,7 +544,7 @@ export function outputErrorAsJson(
   code: string,
   message: string,
   metadata: OutputMetadata
-): void {
+): never {
   const output: ErrorJsonOutput = {
     type: 'error',
     error: {
@@ -551,6 +555,7 @@ export function outputErrorAsJson(
   }
   console.log(JSON.stringify(output, null, 2))
   process.exitCode = EXIT_ERROR
+  throw new Errors.ExitError(EXIT_ERROR)
 }
 
 /**
@@ -654,10 +659,12 @@ export function buildFormPromptConfig(
 }
 
 /**
- * Output a successful dry-run result as JSON and set exit code
+ * Output a successful dry-run result as JSON and halt command execution
  *
  * Use this when --dry-run is set and all validation passes.
  * Shows what would be created without actually creating it.
+ * Throws oclif ExitError to stop execution while still allowing
+ * postrun hooks to fire.
  *
  * @param entityType - Type of entity that would be created (e.g., "ticket", "project")
  * @param wouldCreate - Data about what would be created
@@ -667,7 +674,7 @@ export function outputDryRunSuccessAsJson(
   entityType: string,
   wouldCreate: Record<string, unknown>,
   metadata: OutputMetadata
-): void {
+): never {
   const output: DryRunJsonOutput = {
     type: 'dry-run',
     valid: true,
@@ -679,13 +686,16 @@ export function outputDryRunSuccessAsJson(
   }
   console.log(JSON.stringify(output, null, 2))
   process.exitCode = EXIT_SUCCESS
+  throw new Errors.ExitError(EXIT_SUCCESS)
 }
 
 /**
- * Output a dry-run validation failure as JSON and set exit code
+ * Output a dry-run validation failure as JSON and halt command execution
  *
  * Use this when --dry-run is set and validation fails.
  * Shows the validation errors without attempting to create.
+ * Throws oclif ExitError to stop execution while still allowing
+ * postrun hooks to fire.
  *
  * @param errors - Array of validation errors
  * @param metadata - Command metadata
@@ -693,7 +703,7 @@ export function outputDryRunSuccessAsJson(
 export function outputDryRunErrorsAsJson(
   errors: Array<{ field: string; error: string }>,
   metadata: OutputMetadata
-): void {
+): never {
   const output: DryRunJsonOutput = {
     type: 'dry-run',
     valid: false,
@@ -702,13 +712,16 @@ export function outputDryRunErrorsAsJson(
   }
   console.log(JSON.stringify(output, null, 2))
   process.exitCode = EXIT_ERROR
+  throw new Errors.ExitError(EXIT_ERROR)
 }
 
 /**
- * Output a confirmation needed response as JSON and set exit code
+ * Output a confirmation needed response as JSON and halt command execution
  *
  * Use this in non-TTY mode when all required flags are provided but --yes is not set.
  * This allows agents to preview what will happen before confirming execution.
+ * Throws oclif ExitError to stop execution while still allowing
+ * postrun hooks to fire.
  *
  * @param plan - Details of what will happen if confirmed
  * @param confirmCommand - The full command to run with --yes to execute
@@ -720,7 +733,7 @@ export function outputConfirmationNeededAsJson(
   confirmCommand: string,
   message: string,
   metadata: OutputMetadata
-): void {
+): never {
   const output: ConfirmationNeededJsonOutput = {
     type: 'confirmation_needed',
     plan,
@@ -730,6 +743,7 @@ export function outputConfirmationNeededAsJson(
   }
   console.log(JSON.stringify(output, null, 2))
   process.exitCode = EXIT_NEEDS_INPUT
+  throw new Errors.ExitError(EXIT_NEEDS_INPUT)
 }
 
 /**
