@@ -441,8 +441,24 @@ export interface RoadmapProject {
 // =============================================================================
 
 /**
+ * Executor types for work actions.
+ */
+export type ActionExecutor = 'claude' | 'codex' | 'opencode' | 'custom'
+
+/**
+ * Environment types for work actions.
+ */
+export type ActionEnvironment = 'devcontainer' | 'docker' | 'host' | 'vm'
+
+/**
+ * Permission modes for work actions.
+ */
+export type ActionPermissionMode = 'full' | 'readonly' | 'bypassPermissions'
+
+/**
  * Work action - defines what an agent should do with a ticket.
  * Actions are reusable prompts that can be applied to any ticket.
+ * Uses state-name-based wiring (from_state/to_state) instead of category-based.
  */
 export interface WorkAction {
   id: string
@@ -450,11 +466,19 @@ export interface WorkAction {
   description?: string
   prompt: string                              // The start prompt (instruction for what to do)
   endPrompt?: string                          // The end prompt (completion instructions)
-  suggestedForCategories?: StateCategory[]    // When to suggest this action
-  defaultMoveToCategory?: StateCategory       // Where to move ticket after
+  fromState?: string                          // State name to match (nullable — matches any state)
+  toState?: string                            // Target state name after action completes
+  executor?: ActionExecutor                   // Which executor to use (claude | codex | opencode | custom)
+  environment?: ActionEnvironment             // Execution environment (devcontainer | docker | host | vm)
+  permissionMode?: ActionPermissionMode       // Permission mode (full | readonly | bypassPermissions)
+  timeout?: number                            // Timeout in seconds
+  model?: string                              // Model override (nullable — let executor pick default)
   modifiesCode: boolean                       // Whether this action modifies code (needs branch)
+  isDefault?: boolean                         // Whether this is the default action for its from_state
   isBuiltin: boolean
+  position?: number
   createdAt: Date
+  updatedAt?: Date
 }
 
 /**
@@ -857,7 +881,7 @@ export interface PhaseTemplateFilter {
 
 export interface WorkActionFilter {
   isBuiltin?: boolean
-  suggestedFor?: StateCategory    // Filter to actions suggested for this category
+  fromState?: string              // Filter to actions matching this from_state (or null from_state = any)
   search?: string
 }
 
@@ -1034,7 +1058,7 @@ export interface PMOStorage {
   createAction(action: Partial<WorkAction>): Promise<WorkAction>
   updateAction(id: string, changes: Partial<WorkAction>): Promise<WorkAction>
   deleteAction(id: string): Promise<void>
-  getSuggestedAction(category: StateCategory): Promise<WorkAction | null>
+  getSuggestedAction(stateName: string): Promise<WorkAction | null>
 
   // Project Operations
   getProject(id: string): Promise<Project | null>

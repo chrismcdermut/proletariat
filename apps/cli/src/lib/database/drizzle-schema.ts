@@ -583,12 +583,19 @@ export const pmoActions = sqliteTable('pmo_actions', {
   description: text('description'),
   prompt: text('prompt').notNull(),
   endPrompt: text('end_prompt'),
-  suggestedForCategories: text('suggested_for_categories'),
-  defaultMoveToCategory: text('default_move_to_category'),
+  fromState: text('from_state'),
+  toState: text('to_state'),
+  executor: text('executor'),
+  environment: text('environment'),
+  permissionMode: text('permission_mode'),
+  timeout: integer('timeout'),
+  model: text('model'),
   modifiesCode: integer('modifies_code', { mode: 'boolean' }).notNull().default(true),
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
   position: integer('position').notNull().default(0),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at'),
 })
 
 /**

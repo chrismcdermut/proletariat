@@ -186,12 +186,19 @@ export interface WorkActionRow {
   description: string | null
   prompt: string
   end_prompt: string | null
-  suggested_for_categories: string | null
-  default_move_to_category: string | null
+  from_state: string | null
+  to_state: string | null
+  executor: string | null
+  environment: string | null
+  permission_mode: string | null
+  timeout: number | null
+  model: string | null
   modifies_code: number
+  is_default: number
   is_builtin: number
   position: number
   created_at: string
+  updated_at: string | null
 }
 
 export interface BoardViewRow {

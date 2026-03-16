@@ -820,9 +820,13 @@ Requirements:
 **Tip:** Use \`prlt ticket view <id>\` to see full ticket details at any time.
 
 After updating, output a brief summary of your grooming changes.`,
-      suggestedForCategories: ['backlog'],
-      defaultMoveToCategory: 'unstarted',
+      fromState: 'Backlog',
+      toState: 'Todo',
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'readonly',
       modifiesCode: false,
+      isDefault: true,
       position: 0,
     },
     {
@@ -872,8 +876,13 @@ ${PRLT_COMMANDS_RESOLVE}`,
 \`\`\`bash
 prlt ticket edit {{TICKET_ID}} --description "..." --remove-label "needs-clarification" --add-label "ready"
 \`\`\``,
-      suggestedForCategories: [],
+      fromState: null,
+      toState: null,
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'readonly',
       modifiesCode: false,
+      isDefault: false,
       position: 1,
     },
     {
@@ -927,9 +936,13 @@ ${PRLT_COMMANDS_CODE}`,
    This moves the ticket to review and creates a pull request.
 
 **IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
-      suggestedForCategories: ['unstarted', 'started'],
-      defaultMoveToCategory: 'started',
+      fromState: 'Todo',
+      toState: 'In Progress',
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'full',
       modifiesCode: true,
+      isDefault: true,
       position: 2,
     },
     {
@@ -975,9 +988,13 @@ ${PRLT_COMMANDS_CODE}`,
    This moves the ticket to review and creates a pull request.
 
 **IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
-      suggestedForCategories: ['started'],
-      defaultMoveToCategory: 'started',
+      fromState: 'In Progress',
+      toState: 'In Progress',
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'full',
       modifiesCode: true,
+      isDefault: true,
       position: 3,
     },
     {
@@ -1074,8 +1091,13 @@ prlt ticket edit <TICKET_ID> --add-subtask "Fix: <description of issue>"
 \`\`\`
 
 **STOP:** After posting your review and logging any findings, your task is complete. Do not take any further actions, do not attempt to fix any issues, do not type additional instructions, and do not continue the conversation. Simply output your summary and use \`/exit\` to end the session.`,
-      suggestedForCategories: ['started', 'completed'],
+      fromState: null,
+      toState: null,
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'readonly',
       modifiesCode: false,
+      isDefault: false,
       position: 4,
     },
     {
@@ -1144,8 +1166,13 @@ COMMENT - Some suggestions, no blockers."
 \`\`\`
 
 **CRITICAL REMINDER:** After posting your review, STOP. Do NOT merge the PR. Do NOT run tests. Do NOT modify code. Do NOT push anything. Your job is done after the \`gh pr review\` command.`,
-      suggestedForCategories: ['completed'],
+      fromState: 'Done',
+      toState: null,
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'readonly',
       modifiesCode: false,
+      isDefault: true,
       position: 5,
     },
     {
@@ -1205,8 +1232,13 @@ ${PRLT_COMMANDS_REVIEW}`,
    ### Verdict
    APPROVED - Code looks great, no issues found."
    \`\`\``,
-      suggestedForCategories: ['started', 'completed'],
+      fromState: null,
+      toState: null,
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'full',
       modifiesCode: true,
+      isDefault: false,
       position: 6,
     },
     {
@@ -1268,9 +1300,13 @@ ${PRLT_COMMANDS_CODE}`,
    \`\`\`
 
 The PR will be updated automatically with your pushed changes.`,
-      suggestedForCategories: ['completed'],
-      defaultMoveToCategory: 'started',
+      fromState: 'Done',
+      toState: 'In Progress',
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'full',
       modifiesCode: true,
+      isDefault: false,
       position: 7,
     },
     {
@@ -1430,8 +1466,13 @@ Clean up your tmux session:
 \`\`\`
 tmux_kill_session({ session: "qa-test" })
 \`\`\``,
-      suggestedForCategories: [],
+      fromState: null,
+      toState: null,
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'readonly',
       modifiesCode: false,
+      isDefault: false,
       position: 9,
     },
     {
@@ -1475,8 +1516,13 @@ ${PRLT_COMMANDS_CODE}`,
    \`\`\`
 
 **IMPORTANT:** Use the global \`prlt\` command.`,
-      suggestedForCategories: ['started', 'completed'],
+      fromState: null,
+      toState: null,
+      executor: 'claude',
+      environment: 'host',
+      permissionMode: 'full',
       modifiesCode: true,
+      isDefault: false,
       position: 8,
     },
   ]
@@ -1484,17 +1530,23 @@ ${PRLT_COMMANDS_CODE}`,
   // Use INSERT OR REPLACE to always update builtin actions with latest prompts
   // This ensures prompt improvements are applied to existing databases
   const upsertAction = db.prepare(`
-    INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, suggested_for_categories, default_move_to_category, modifies_code, is_builtin, position, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_state, to_state,
+      executor, environment, permission_mode, modifies_code, is_default, is_builtin, position, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       description = excluded.description,
       prompt = excluded.prompt,
       end_prompt = excluded.end_prompt,
-      suggested_for_categories = excluded.suggested_for_categories,
-      default_move_to_category = excluded.default_move_to_category,
+      from_state = excluded.from_state,
+      to_state = excluded.to_state,
+      executor = excluded.executor,
+      environment = excluded.environment,
+      permission_mode = excluded.permission_mode,
       modifies_code = excluded.modifies_code,
-      position = excluded.position
+      is_default = excluded.is_default,
+      position = excluded.position,
+      updated_at = excluded.updated_at
     WHERE is_builtin = 1
   `)
 
@@ -1506,10 +1558,15 @@ ${PRLT_COMMANDS_CODE}`,
       action.description,
       action.prompt,
       action.endPrompt || null,
-      JSON.stringify(action.suggestedForCategories),
-      action.defaultMoveToCategory || null,
+      action.fromState || null,
+      action.toState || null,
+      action.executor || 'claude',
+      action.environment || 'host',
+      action.permissionMode || 'full',
       action.modifiesCode ? 1 : 0,
+      action.isDefault ? 1 : 0,
       action.position,
+      now,
       now
     )
   }
