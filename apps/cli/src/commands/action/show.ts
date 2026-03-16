@@ -35,6 +35,7 @@ export default class ActionShow extends PMOCommand {
     if (!action) {
       if (jsonMode) {
         outputErrorAsJson('ACTION_NOT_FOUND', `Action not found: ${args.id}`, createMetadata('action show', flags));
+        return
       }
       this.error(`Action not found: ${args.id}`);
     }

@@ -540,6 +540,7 @@ export default class WorkStart extends PMOCommand {
     if (flags['create-pr'] && flags['no-pr']) {
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('CONFLICTING_FLAGS', '--create-pr and --no-pr are mutually exclusive', createMetadata('work start', flags))
+        return
       }
       this.error('--create-pr and --no-pr are mutually exclusive');
     }
@@ -554,6 +555,7 @@ export default class WorkStart extends PMOCommand {
     if (flags['skip-permissions'] && flags['permission-mode']) {
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('CONFLICTING_FLAGS', 'Cannot use both --skip-permissions and --permission-mode flags. Use only one: --skip-permissions OR --permission-mode danger/safe', createMetadata('work start', flags))
+        return
       }
       this.error(
         'Cannot use both --skip-permissions and --permission-mode flags.\n' +
@@ -570,10 +572,10 @@ export default class WorkStart extends PMOCommand {
     const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work start' } : null
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('work start', flags))
-        this.exit(1)
+        return
       }
       this.error(message)
     }
@@ -2529,6 +2531,7 @@ export default class WorkStart extends PMOCommand {
       db.close()
       if (batchJsonMode) {
         outputErrorAsJson('NO_AVAILABLE_AGENTS', 'No available agents. All agents are busy with other work.', createMetadata('work start', flags as Record<string, unknown>))
+        return
       }
       this.error('No available agents. All agents are busy with other work.')
     }

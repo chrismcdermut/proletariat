@@ -118,7 +118,7 @@ export default class TrelloConfigure extends PMOCommand {
           'Trello API key required. Set TRELLO_API_KEY or PRLT_TRELLO_API_KEY environment variable, or run interactively.',
           createMetadata('trello configure', flags),
         )
-        this.exit(1)
+        return
       }
 
       this.log('')
@@ -148,7 +148,7 @@ export default class TrelloConfigure extends PMOCommand {
           'Trello API token required. Set TRELLO_API_TOKEN or PRLT_TRELLO_API_TOKEN environment variable, or run interactively.',
           createMetadata('trello configure', flags),
         )
-        this.exit(1)
+        return
       }
 
       this.log('')
@@ -264,7 +264,7 @@ export default class TrelloConfigure extends PMOCommand {
       const message = `Authentication failed: ${error instanceof Error ? error.message : String(error)}`
       if (jsonMode) {
         outputErrorAsJson('TRELLO_CONNECT_FAILED', message, createMetadata('trello configure', flags))
-        this.exit(1)
+        return
       }
       this.error(message)
     }
@@ -282,7 +282,7 @@ export default class TrelloConfigure extends PMOCommand {
           'Trello is not configured. Run "prlt trello configure" to authenticate.',
           createMetadata('trello configure', flags),
         )
-        this.exit(1)
+        return
       }
       this.log(colors.warning('Trello is not configured.'))
       this.log(colors.textMuted('Run "prlt trello configure" to authenticate.'))
@@ -319,7 +319,7 @@ export default class TrelloConfigure extends PMOCommand {
           `Stored Trello credentials are invalid or expired: ${message}`,
           createMetadata('trello configure', flags),
         )
-        this.exit(1)
+        return
       }
       this.log(colors.error('Stored Trello credentials are invalid or expired.'))
       this.log(colors.textMuted(`  Error: ${message}`))

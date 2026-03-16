@@ -76,6 +76,7 @@ export default class ExecutionLogs extends PMOCommand {
           const jsonMode = shouldOutputJson(flags)
           if (jsonMode) {
             outputErrorAsJson('NO_EXECUTIONS', 'No executions found.', createMetadata('execution logs', flags))
+            return
             db.close()
             this.exit(1)
           }

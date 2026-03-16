@@ -90,6 +90,7 @@ export default class EpicProgress extends PMOCommand {
       const { flags } = await this.parse(EpicProgress);
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('EPIC_NOT_FOUND', `Epic not found: ${epicId}`, createMetadata('epic progress', flags));
+        return
       }
       this.error(`Epic not found: ${epicId}`);
     }

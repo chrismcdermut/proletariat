@@ -465,10 +465,10 @@ export abstract class PMOCommand extends PromptCommand {
       commandName: string;
       flags: Record<string, unknown>;
     }
-  ): never {
+  ): void {
     if (options.jsonMode) {
       outputErrorAsJson(code, message, createMetadata(options.commandName, options.flags));
-      this.exit(1);
+      return
     }
     this.error(message);
   }

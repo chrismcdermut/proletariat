@@ -121,6 +121,7 @@ export default class RoadmapCreate extends PMOCommand {
     if (existing) {
       if (jsonMode) {
         outputErrorAsJson('ROADMAP_EXISTS', `Roadmap "${roadmapId}" already exists.`, createMetadata('roadmap create', flags));
+        return
       }
       this.error(`Roadmap "${roadmapId}" already exists.`);
     }

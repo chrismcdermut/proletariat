@@ -66,6 +66,7 @@ export default class DockerClean extends Command {
     } catch {
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('docker clean', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -78,6 +79,7 @@ export default class DockerClean extends Command {
     } catch {
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('DB_ERROR', 'Could not open workspace database.', createMetadata('docker clean', flags))
+        return
       }
       this.error('Could not open workspace database.')
     }

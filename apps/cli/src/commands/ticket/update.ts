@@ -97,6 +97,7 @@ export default class TicketUpdate extends PMOCommand {
     if (!ticket) {
       if (jsonMode) {
         outputErrorAsJson('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`, createMetadata('ticket update', flags));
+        return
       }
       this.error(`Ticket "${ticketId}" not found.`);
     }

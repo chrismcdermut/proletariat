@@ -50,7 +50,7 @@ export default class LinearSyncCommand extends PMOCommand {
     if (!isLinearConfigured(db)) {
       if (jsonMode) {
         outputErrorAsJson('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear connect" first.', createMetadata('linear sync', flags))
-        this.exit(1)
+        return
       }
       this.error('Linear is not configured. Run "prlt linear connect" first.')
     }
@@ -106,7 +106,7 @@ export default class LinearSyncCommand extends PMOCommand {
       if (!ticket) {
         if (jsonMode) {
           outputErrorAsJson('TICKET_NOT_FOUND', `Ticket ${flags.ticket} not found.`, createMetadata('linear sync', flags))
-          this.exit(1)
+          return
         }
         this.error(`Ticket ${flags.ticket} not found.`)
       }
@@ -129,7 +129,7 @@ export default class LinearSyncCommand extends PMOCommand {
       if (!team) {
         if (jsonMode) {
           outputErrorAsJson('TEAM_NOT_FOUND', `Linear team ${mapping.linearTeamKey} not found.`, createMetadata('linear sync', flags))
-          this.exit(1)
+          return
         }
         this.error(`Linear team ${mapping.linearTeamKey} not found.`)
       }

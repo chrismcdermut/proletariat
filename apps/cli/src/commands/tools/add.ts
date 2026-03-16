@@ -68,6 +68,7 @@ export default class ToolsAdd extends PromptCommand {
     if (!hqPath) {
       if (jsonMode) {
         outputErrorAsJson('NO_WORKSPACE', 'Not in a proletariat workspace', meta())
+        return
       } else {
         this.error('Not in a proletariat workspace. Run `prlt init` first.')
       }
@@ -80,6 +81,7 @@ export default class ToolsAdd extends PromptCommand {
       if (!flags.url && !flags.command) {
         if (jsonMode) {
           outputErrorAsJson('MISSING_FLAG', 'MCP server requires --url or --command', meta())
+          return
         } else {
           this.error('MCP server requires either --url (remote) or --command (local)')
         }
@@ -89,6 +91,7 @@ export default class ToolsAdd extends PromptCommand {
       if (args.name in registry['mcp-servers']) {
         if (jsonMode) {
           outputErrorAsJson('DUPLICATE', `MCP server '${args.name}' already exists`, meta())
+          return
         } else {
           this.error(`MCP server '${args.name}' already exists. Remove it first with: prlt tools remove ${args.name}`)
         }
@@ -108,6 +111,7 @@ export default class ToolsAdd extends PromptCommand {
           { name: args.name, type: 'mcp', description: flags.description },
           meta()
         )
+        return
       } else {
         this.log(chalk.green(`\nMCP server '${args.name}' registered successfully.`))
         if (flags.url) this.log(chalk.dim(`  URL: ${flags.url}`))
@@ -120,6 +124,7 @@ export default class ToolsAdd extends PromptCommand {
       if (args.name in registry['cli-tools']) {
         if (jsonMode) {
           outputErrorAsJson('DUPLICATE', `CLI tool '${args.name}' already exists`, meta())
+          return
         } else {
           this.error(`CLI tool '${args.name}' already exists. Remove it first with: prlt tools remove ${args.name}`)
         }
@@ -138,6 +143,7 @@ export default class ToolsAdd extends PromptCommand {
           { name: args.name, type: 'cli', command, description: flags.description },
           meta()
         )
+        return
       } else {
         this.log(chalk.green(`\nCLI tool '${args.name}' registered successfully.`))
         this.log(chalk.dim(`  Command: ${command}`))

@@ -46,6 +46,7 @@ export default class WorkspaceAdd extends Command {
     if (!fs.existsSync(workspacePath)) {
       if (jsonMode) {
         outputErrorAsJson('PATH_NOT_FOUND', `Path does not exist: ${workspacePath}`, createMetadata('workspace add', flags));
+        return
       }
       this.error(`Path does not exist: ${workspacePath}`);
     }
@@ -55,6 +56,7 @@ export default class WorkspaceAdd extends Command {
     if (!stats.isDirectory()) {
       if (jsonMode) {
         outputErrorAsJson('NOT_A_DIRECTORY', `Path is not a directory: ${workspacePath}`, createMetadata('workspace add', flags));
+        return
       }
       this.error(`Path is not a directory: ${workspacePath}`);
     }
@@ -64,6 +66,7 @@ export default class WorkspaceAdd extends Command {
     if (!fs.existsSync(configPath)) {
       if (jsonMode) {
         outputErrorAsJson('NOT_A_WORKSPACE', 'Not a valid workspace: missing .proletariat/config.json. Run "prlt new" to create a new workspace.', createMetadata('workspace add', flags));
+        return
       }
       this.error(
         `Not a valid workspace: missing .proletariat/config.json\n` +
@@ -77,6 +80,7 @@ export default class WorkspaceAdd extends Command {
       if (config.type !== 'hq') {
         if (jsonMode) {
           outputErrorAsJson('INVALID_WORKSPACE_TYPE', `Invalid workspace type: ${config.type}. Only HQ workspaces can be registered.`, createMetadata('workspace add', flags));
+          return
         }
         this.error(
           `Invalid workspace type: ${config.type}\n` +
@@ -86,6 +90,7 @@ export default class WorkspaceAdd extends Command {
     } catch (error) {
       if (jsonMode) {
         outputErrorAsJson('CONFIG_READ_FAILED', `Failed to read workspace config: ${(error as Error).message}`, createMetadata('workspace add', flags));
+        return
       }
       this.error(`Failed to read workspace config: ${(error as Error).message}`);
     }

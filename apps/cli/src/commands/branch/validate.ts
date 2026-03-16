@@ -44,6 +44,7 @@ export default class BranchValidate extends PMOCommand {
       if (!isGitRepo()) {
         if (jsonMode) {
           outputErrorAsJson('NOT_GIT_REPO', 'Not in a git repository.', createMetadata('branch validate', flags))
+          return
         }
         this.error('Not in a git repository.')
       }
@@ -52,6 +53,7 @@ export default class BranchValidate extends PMOCommand {
       if (!currentBranch) {
         if (jsonMode) {
           outputErrorAsJson('NO_BRANCH', 'Could not determine current branch.', createMetadata('branch validate', flags))
+          return
         }
         this.error('Could not determine current branch.')
       }

@@ -59,7 +59,7 @@ export default class TrelloImport extends PMOCommand {
     if (!isTrelloConfigured(db)) {
       if (jsonMode) {
         outputErrorAsJson('TRELLO_NOT_CONFIGURED', 'Trello is not configured. Run "prlt trello configure" first.', createMetadata('trello import', flags))
-        this.exit(1)
+        return
       }
       this.error('Trello is not configured. Run "prlt trello configure" first.')
     }
@@ -70,7 +70,7 @@ export default class TrelloImport extends PMOCommand {
     if (!apiKey || !apiToken) {
       if (jsonMode) {
         outputErrorAsJson('TRELLO_NO_CREDENTIALS', 'Trello credentials not found.', createMetadata('trello import', flags))
-        this.exit(1)
+        return
       }
       this.error('Trello credentials not found. Run "prlt trello configure" first.')
     }
@@ -78,7 +78,7 @@ export default class TrelloImport extends PMOCommand {
     if (!config.boardId) {
       if (jsonMode) {
         outputErrorAsJson('TRELLO_NO_BOARD', 'No Trello board configured. Run "prlt trello configure" and select a board.', createMetadata('trello import', flags))
-        this.exit(1)
+        return
       }
       this.error('No Trello board configured. Run "prlt trello configure" and select a board.')
     }
@@ -102,7 +102,7 @@ export default class TrelloImport extends PMOCommand {
       const msg = error instanceof Error ? error.message : 'Failed to fetch cards from Trello.'
       if (jsonMode) {
         outputErrorAsJson('TRELLO_FETCH_FAILED', msg, createMetadata('trello import', flags))
-        this.exit(1)
+        return
       }
       this.error(msg)
     }

@@ -91,6 +91,7 @@ export default class CategoryRename extends PMOCommand {
     if (!category) {
       if (jsonMode) {
         outputErrorAsJson('CATEGORY_NOT_FOUND', `Category "${oldName}" not found for type "${categoryType}"`, createMetadata('category rename', flags));
+        return
       }
       this.error(`Category "${oldName}" not found for type "${categoryType}"`);
     }
@@ -98,6 +99,7 @@ export default class CategoryRename extends PMOCommand {
     if (category.isBuiltin) {
       if (jsonMode) {
         outputErrorAsJson('BUILTIN_CATEGORY', `Cannot rename built-in category "${oldName}"`, createMetadata('category rename', flags));
+        return
       }
       this.error(`Cannot rename built-in category "${oldName}"`);
     }
@@ -133,12 +135,14 @@ export default class CategoryRename extends PMOCommand {
     if (!newName) {
       if (jsonMode) {
         outputErrorAsJson('NAME_REQUIRED', 'New name is required', createMetadata('category rename', flags));
+        return
       }
       this.error('New name is required');
     }
     if (!oldName) {
       if (jsonMode) {
         outputErrorAsJson('NAME_REQUIRED', 'Old name is required', createMetadata('category rename', flags));
+        return
       }
       this.error('Old name is required');
     }
@@ -147,6 +151,7 @@ export default class CategoryRename extends PMOCommand {
     if (!/^[a-z][a-z0-9-]*$/.test(newName)) {
       if (jsonMode) {
         outputErrorAsJson('INVALID_NAME', 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens', createMetadata('category rename', flags));
+        return
       }
       this.error('Category name must start with a letter and contain only lowercase letters, numbers, and hyphens');
     }
@@ -171,6 +176,7 @@ export default class CategoryRename extends PMOCommand {
       if (error instanceof Error) {
         if (jsonMode) {
           outputErrorAsJson('RENAME_FAILED', error.message, createMetadata('category rename', flags));
+          return
         }
         this.error(error.message);
       }

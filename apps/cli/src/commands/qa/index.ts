@@ -258,7 +258,7 @@ Clean up your tmux session when done.`,
     } catch {
       if (jsonMode) {
         outputErrorAsJson('WORKSPACE_ERROR', 'Failed to get workspace info', createMetadata('qa', flags))
-        this.exit(1)
+        return
       }
       this.error('Failed to get workspace info')
     }
@@ -287,7 +287,7 @@ Clean up your tmux session when done.`,
       } catch {
         if (jsonMode) {
           outputErrorAsJson('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.', createMetadata('qa', flags))
-          this.exit(1)
+          return
         }
         this.error('PMO not found. Run "prlt pmo init" first.')
       }
@@ -301,7 +301,7 @@ Clean up your tmux session when done.`,
         db.close()
         if (jsonMode) {
           outputErrorAsJson('NO_PROJECTS', 'No projects found. Create a project first, or use --seed.', createMetadata('qa', flags))
-          this.exit(1)
+          return
         }
         this.error('No projects found. Create a project first, or use --seed to create test data.')
       } else if (projects.length === 1) {
@@ -541,7 +541,7 @@ Clean up your tmux session when done.`,
       if (!imageCheck.available) {
         if (jsonMode) {
           outputErrorAsJson('CONTAINER_IMAGE_UNAVAILABLE', imageCheck.error!, createMetadata('qa', flags))
-          this.exit(1)
+          return
         }
         this.error(imageCheck.error!)
       }

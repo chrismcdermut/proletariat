@@ -53,7 +53,7 @@ export default class AsanaSyncCommand extends PMOCommand {
     if (!isAsanaConfigured(db)) {
       if (jsonMode) {
         outputErrorAsJson('ASANA_NOT_CONFIGURED', 'Asana is not configured. Run "prlt asana connect" first.', createMetadata('asana sync', flags))
-        this.exit(1)
+        return
       }
       this.error('Asana is not configured. Run "prlt asana connect" first.')
     }
@@ -68,7 +68,7 @@ export default class AsanaSyncCommand extends PMOCommand {
       if (!ticket) {
         if (jsonMode) {
           outputErrorAsJson('TICKET_NOT_FOUND', `Ticket ${flags.ticket} not found.`, createMetadata('asana sync', flags))
-          this.exit(1)
+          return
         }
         this.error(`Ticket ${flags.ticket} not found.`)
       }
@@ -95,7 +95,7 @@ export default class AsanaSyncCommand extends PMOCommand {
         if (!projectGid) {
           if (jsonMode) {
             outputErrorAsJson('ASANA_PROJECT_REQUIRED', 'Project gid is required for --create-missing. Use --project or run "prlt asana connect --project ...".', createMetadata('asana sync', flags))
-            this.exit(1)
+            return
           }
           this.error('Project gid is required for --create-missing. Use --project or run "prlt asana connect --project ...".')
         }

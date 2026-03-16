@@ -43,10 +43,10 @@ export default class Remove extends PMOCommand {
 
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('media remove', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -120,6 +120,7 @@ export default class Remove extends PMOCommand {
     } else {
       if (jsonMode) {
         outputErrorAsJson('REMOVE_FAILED', `Failed to remove media: ${result.error}`, createMetadata('media remove', flags));
+        return
       }
       this.error(`Failed to remove media: ${result.error}`);
     }

@@ -135,6 +135,7 @@ export default class WorkflowRuleCreate extends PMOCommand {
     if (!toState || !actionId) {
       if (jsonMode) {
         outputErrorAsJson('MISSING_REQUIRED', 'to-state and action-id are required.', createMetadata('workflow-rule create', flags));
+        return
       }
       this.error('to-state and action-id are required.');
     }

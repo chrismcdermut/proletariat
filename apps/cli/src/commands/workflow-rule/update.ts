@@ -54,10 +54,10 @@ export default class WorkflowRuleUpdate extends PMOCommand {
 
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('workflow-rule update', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

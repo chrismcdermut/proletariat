@@ -47,6 +47,7 @@ export default class WorkHooksToggle extends PMOCommand {
     if (!parsedFlags.enable && !parsedFlags.disable) {
       if (jsonMode) {
         outputErrorAsJson('MISSING_FLAG', 'Specify --enable or --disable.', createMetadata('work hooks toggle', flags))
+        return
       }
       this.error('Specify --enable or --disable.')
     }
@@ -57,6 +58,7 @@ export default class WorkHooksToggle extends PMOCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('work hooks toggle', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -71,6 +73,7 @@ export default class WorkHooksToggle extends PMOCommand {
       if (!hook) {
         if (jsonMode) {
           outputErrorAsJson('NOT_FOUND', `Hook "${args.name}" not found.`, createMetadata('work hooks toggle', flags))
+          return
         }
         this.error(`Hook "${args.name}" not found.`)
       }
@@ -86,6 +89,7 @@ export default class WorkHooksToggle extends PMOCommand {
           },
           createMetadata('work hooks toggle', flags),
         )
+        return
       }
 
       const statusText = enabled ? styles.success('enabled') : styles.muted('disabled')

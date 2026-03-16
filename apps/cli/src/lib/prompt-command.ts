@@ -165,7 +165,7 @@ export abstract class PromptCommand extends Command {
           },
           createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
         );
-        // outputPromptAsJson calls process.exit, never returns
+        return {} as T
       }
       return {} as T;
     }

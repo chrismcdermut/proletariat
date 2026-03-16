@@ -42,7 +42,7 @@ export default class PrioritySet extends PMOCommand {
     if (newPriorities.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_PRIORITIES', 'At least one priority value is required', createMetadata('priority set', flags));
-        this.exit(1);
+        return
       }
       this.error('At least one priority value is required.\n\nUsage: prlt priority set <value1> <value2> ...\nExample: prlt priority set P0 P1 P2 P3');
     }
@@ -53,7 +53,7 @@ export default class PrioritySet extends PMOCommand {
       if (seen.has(p)) {
         if (jsonMode) {
           outputErrorAsJson('DUPLICATE_PRIORITY', `Duplicate priority value: "${p}"`, createMetadata('priority set', flags));
-          this.exit(1);
+          return
         }
         this.error(`Duplicate priority value: "${p}". Each priority must be unique.`);
       }

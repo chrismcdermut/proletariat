@@ -60,10 +60,10 @@ export default class PRLink extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('pr link', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -95,7 +95,7 @@ export default class PRLink extends PMOCommand {
       if (activeTickets.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_ACTIVE_TICKETS', 'No active tickets found.', createMetadata('pr link', flags));
-          this.exit(1);
+          return
         }
         this.log(styles.info('No active tickets found.'));
         return;
@@ -181,7 +181,7 @@ export default class PRLink extends PMOCommand {
       if (openPRs.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_OPEN_PRS', 'No open PRs found. Create one first with "prlt pr create".', createMetadata('pr link', flags));
-          this.exit(1);
+          return
         }
         this.error('No open PRs found. Create one first with "prlt pr create".');
       }

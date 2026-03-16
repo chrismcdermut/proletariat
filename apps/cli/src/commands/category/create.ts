@@ -83,6 +83,7 @@ export default class CategoryCreate extends PMOCommand {
     if (!name) {
       if (jsonMode) {
         outputErrorAsJson('NAME_REQUIRED', 'Category name is required', createMetadata('category create', flags));
+        return
       }
       this.error('Category name is required');
     }
@@ -91,6 +92,7 @@ export default class CategoryCreate extends PMOCommand {
     if (!/^[a-z][a-z0-9-]*$/.test(name)) {
       if (jsonMode) {
         outputErrorAsJson('INVALID_NAME', 'Category name must start with a letter and contain only lowercase letters, numbers, and hyphens', createMetadata('category create', flags));
+        return
       }
       this.error('Category name must start with a letter and contain only lowercase letters, numbers, and hyphens');
     }
@@ -135,6 +137,7 @@ export default class CategoryCreate extends PMOCommand {
       if (error instanceof Error) {
         if (jsonMode) {
           outputErrorAsJson('CREATE_FAILED', error.message, createMetadata('category create', flags));
+          return
         }
         this.error(error.message);
       }

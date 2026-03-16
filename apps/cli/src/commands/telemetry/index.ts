@@ -28,6 +28,7 @@ export default class Telemetry extends Command {
         envOverride: status.envOverride,
         envVar: status.envVar ?? null,
       }, createMetadata('telemetry', flags))
+      return
     }
 
     this.log('')

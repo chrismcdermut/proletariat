@@ -152,7 +152,7 @@ export default class ShortcutConnect extends PMOCommand {
           'Shortcut API token required. Set SHORTCUT_API_TOKEN or PRLT_SHORTCUT_API_TOKEN environment variable, or run interactively.',
           createMetadata('shortcut connect', flags),
         )
-        this.exit(1)
+        return
       }
 
       this.log('')
@@ -220,7 +220,7 @@ export default class ShortcutConnect extends PMOCommand {
       const message = `Authentication failed: ${error instanceof Error ? error.message : String(error)}`
       if (jsonMode) {
         outputErrorAsJson('SHORTCUT_CONNECT_FAILED', message, createMetadata('shortcut connect', flags))
-        this.exit(1)
+        return
       }
       this.error(message)
     }
@@ -238,7 +238,7 @@ export default class ShortcutConnect extends PMOCommand {
           'Shortcut is not configured. Run "prlt shortcut connect" to authenticate.',
           createMetadata('shortcut connect', flags),
         )
-        this.exit(1)
+        return
       }
       this.log(colors.warning('Shortcut is not configured.'))
       this.log(colors.textMuted('Run "prlt shortcut connect" to authenticate.'))
@@ -275,7 +275,7 @@ export default class ShortcutConnect extends PMOCommand {
           `Stored Shortcut API token is invalid or expired: ${message}`,
           createMetadata('shortcut connect', flags),
         )
-        this.exit(1)
+        return
       }
       this.log(colors.error('Stored Shortcut API token is invalid or expired.'))
       this.log(colors.textMuted(`  Error: ${message}`))

@@ -118,10 +118,10 @@ export default class BranchCreate extends PMOCommand {
     const jsonMode = shouldOutputJson(flags)
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('branch create', flags))
-        this.exit(1)
+        return
       }
       this.error(message)
     }

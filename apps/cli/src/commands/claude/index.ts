@@ -123,7 +123,7 @@ export default class Claude extends PromptCommand {
     if (!fs.existsSync(workDir)) {
       if (jsonMode) {
         outputErrorAsJson('DIRECTORY_NOT_FOUND', `Directory not found: ${workDir}`, createMetadata('claude', flags))
-        this.exit(1)
+        return
       }
       this.error(`Directory not found: ${workDir}`)
     }
@@ -381,7 +381,7 @@ export default class Claude extends PromptCommand {
       if (!imageCheck.available) {
         if (jsonMode) {
           outputErrorAsJson('CONTAINER_IMAGE_UNAVAILABLE', imageCheck.error!, createMetadata('claude', flags))
-          this.exit(1)
+          return
         }
         this.error(imageCheck.error!)
       }
@@ -522,7 +522,7 @@ export default class Claude extends PromptCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('WORKSPACE_ERROR', 'Failed to get workspace info', createMetadata('claude', flags))
-        this.exit(1)
+        return
       }
       this.error('Failed to get workspace info')
     }
@@ -545,7 +545,7 @@ export default class Claude extends PromptCommand {
       } catch {
         if (jsonMode) {
           outputErrorAsJson('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.', createMetadata('claude', flags))
-          this.exit(1)
+          return
         }
         this.error('PMO not found. Run "prlt pmo init" first.')
       }
@@ -559,7 +559,7 @@ export default class Claude extends PromptCommand {
           db.close()
           if (jsonMode) {
             outputErrorAsJson('NO_PROJECTS', 'No projects found. Create a project first.', createMetadata('claude', flags))
-            this.exit(1)
+            return
           }
           this.error('No projects found. Create a project first.')
         }

@@ -225,6 +225,7 @@ export default class Board extends PMOCommand {
       const { flags: parsedFlags } = await this.parse(Board);
       if (shouldOutputJson(parsedFlags)) {
         outputErrorAsJson('BOARD_NOT_FOUND', 'board.md not found. Run "prlt board export" first to create it.', createMetadata('board', parsedFlags));
+        return
       }
       this.error('board.md not found. Run "prlt board export" first to create it.');
     }

@@ -46,10 +46,10 @@ export default class StatusDelete extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('status delete', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -98,6 +98,7 @@ export default class StatusDelete extends PMOCommand {
       if (error instanceof Error && error.message.includes('ticket(s) are using it')) {
         if (jsonMode) {
           outputErrorAsJson('STATUS_IN_USE', error.message + ' Move tickets to another status before deleting.', createMetadata('status delete', flags));
+          return
         }
         this.error(error.message + '\nMove tickets to another status before deleting.');
       }

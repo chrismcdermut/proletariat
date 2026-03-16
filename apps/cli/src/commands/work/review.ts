@@ -96,10 +96,10 @@ export default class WorkReview extends PMOCommand {
 
     const jsonMode = shouldOutputJson(flags)
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('work review', flags))
-        this.exit(1)
+        return
       }
       this.error(message)
     }
@@ -246,6 +246,7 @@ export default class WorkReview extends PMOCommand {
               verdict: 'APPROVED',
               cycles: cycle,
             }, createMetadata('work review', flags))
+            return
           }
 
           db.close()
@@ -334,6 +335,7 @@ export default class WorkReview extends PMOCommand {
           prUrl,
           verdict: finalVerdict,
         }, createMetadata('work review', flags))
+        return
       }
 
       db.close()

@@ -55,9 +55,10 @@ export default class FeedbackView extends Command {
     const issueNumber = args.number;
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('feedback view', flags));
+        return
       }
       this.error(message);
     };
@@ -111,6 +112,7 @@ export default class FeedbackView extends Command {
           },
           createMetadata('feedback view', flags)
         );
+        return
       }
 
       // Display issue in human-friendly format

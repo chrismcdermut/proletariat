@@ -49,10 +49,10 @@ export default class TicketComplete extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket complete', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

@@ -155,6 +155,7 @@ export default class AutocompleteSetup extends PromptCommand {
       },
       createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
     );
+    return
   }
 
   /**

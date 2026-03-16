@@ -182,6 +182,7 @@ export default class SessionRestart extends PMOCommand {
           'Not in a workspace. Run from a proletariat HQ directory.',
           createMetadata('session restart', flags),
         )
+        return
       } else {
         this.log('')
         this.log(styles.error('Not in a workspace. Run from a proletariat HQ directory.'))
@@ -214,6 +215,7 @@ export default class SessionRestart extends PMOCommand {
             `No active session found for "${target}".`,
             createMetadata('session restart', flags),
           )
+          return
         } else {
           this.log('')
           this.log(styles.error(`No active session found for "${target}".`))
@@ -252,6 +254,7 @@ export default class SessionRestart extends PMOCommand {
             `Could not find tmux session for agent "${match.agentName}".`,
             createMetadata('session restart', flags),
           )
+          return
         } else {
           this.log('')
           this.log(styles.error(`Could not find tmux session for agent "${match.agentName}".`))
@@ -354,6 +357,7 @@ export default class SessionRestart extends PMOCommand {
           cleanExit: reachedPrompt,
           restartCount: newRestartCount,
         }, createMetadata('session restart', flags))
+        return
       } else {
         this.log('')
         this.log(styles.success(`Agent ${match.agentName} restarted successfully.`))

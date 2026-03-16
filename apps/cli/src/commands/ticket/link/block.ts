@@ -40,10 +40,10 @@ export default class TicketLinkBlock extends PMOCommand {
 
     const projectId = await this.requireProject();
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket link block', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

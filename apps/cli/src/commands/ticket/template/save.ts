@@ -45,9 +45,10 @@ export default class TicketTemplateSave extends PMOCommand {
     const { args, flags } = await this.parse(TicketTemplateSave);
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket template save', flags));
+        return
       }
       this.error(message);
     };
