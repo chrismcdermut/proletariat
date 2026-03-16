@@ -201,6 +201,17 @@ export interface WorkActionRow {
   updated_at: string | null
 }
 
+export interface WorkflowRuleRow {
+  id: string
+  from_state: string | null
+  to_state: string
+  action_id: string
+  trigger: string
+  enabled: number
+  created_at: string
+  updated_at: string | null
+}
+
 export interface BoardViewRow {
   id: string
   project_id: string

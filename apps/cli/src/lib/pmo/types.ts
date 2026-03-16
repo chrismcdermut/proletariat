@@ -456,6 +456,37 @@ export type ActionEnvironment = 'devcontainer' | 'docker' | 'host' | 'vm'
 export type ActionPermissionMode = 'full' | 'readonly' | 'bypassPermissions'
 
 /**
+ * Trigger types for workflow rules.
+ */
+export type WorkflowRuleTrigger = 'manual' | 'on_enter'
+
+/**
+ * Workflow rule - wires a state transition to an action.
+ * Rules define: "when a ticket enters <to_state>, fire <action>".
+ */
+export interface WorkflowRule {
+  id: string
+  fromState?: string                         // Source state (nullable — any source state)
+  toState: string                            // Target state that triggers the rule
+  actionId: string                           // FK to actions
+  trigger: WorkflowRuleTrigger               // manual | on_enter
+  enabled: boolean
+  createdAt: Date
+  updatedAt?: Date
+}
+
+/**
+ * Filter options for listing workflow rules.
+ */
+export interface WorkflowRuleFilter {
+  toState?: string
+  fromState?: string
+  actionId?: string
+  trigger?: WorkflowRuleTrigger
+  enabled?: boolean
+}
+
+/**
  * Work action - defines what an agent should do with a ticket.
  * Actions are reusable prompts that can be applied to any ticket.
  * Uses state-name-based wiring (from_state/to_state) instead of category-based.
@@ -1059,6 +1090,14 @@ export interface PMOStorage {
   updateAction(id: string, changes: Partial<WorkAction>): Promise<WorkAction>
   deleteAction(id: string): Promise<void>
   getSuggestedAction(stateName: string): Promise<WorkAction | null>
+
+  // Workflow Rule Operations
+  listWorkflowRules(filter?: WorkflowRuleFilter): Promise<WorkflowRule[]>
+  getWorkflowRule(id: string): Promise<WorkflowRule | null>
+  createWorkflowRule(rule: Partial<WorkflowRule>): Promise<WorkflowRule>
+  updateWorkflowRule(id: string, changes: Partial<WorkflowRule>): Promise<WorkflowRule>
+  deleteWorkflowRule(id: string): Promise<void>
+  getWorkflowRulesForState(toState: string): Promise<WorkflowRule[]>
 
   // Project Operations
   getProject(id: string): Promise<Project | null>

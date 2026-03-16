@@ -30,3 +30,9 @@ export {
   type PostExecutionContext,
   type PostExecutionResult,
 } from './post-execution.js'
+
+export {
+  WorkflowRuleEvaluator,
+  initWorkflowRuleEvaluator,
+  stopWorkflowRuleEvaluator,
+} from './rule-evaluator.js'

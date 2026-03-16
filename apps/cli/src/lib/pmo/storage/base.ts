@@ -22,6 +22,7 @@ export function initializePMOTables(db: Database.Database): void {
   seedBuiltinPhases(db)
   seedBuiltinPhaseTemplates(db)
   seedBuiltinActions(db)
+  seedBuiltinWorkflowRules(db)
   seedBuiltinTicketTemplates(db)
   seedDefaultPriorities(db)  // Seed default priority scale if not set
   seedBuiltinLabels(db)  // Seed built-in label groups and labels
@@ -1629,6 +1630,86 @@ ${PRLT_COMMANDS_CODE}`,
       action.modifiesCode ? 1 : 0,
       action.isDefault ? 1 : 0,
       action.position,
+      now,
+      now
+    )
+  }
+}
+
+/**
+ * Seed built-in workflow rules.
+ * Wires default actions to standard Linear/kanban states.
+ */
+export function seedBuiltinWorkflowRules(db: Database.Database): void {
+  const builtinRules = [
+    {
+      id: 'backlog-groom',
+      fromState: null,
+      toState: 'Backlog',
+      actionId: 'groom',
+      trigger: 'manual',
+    },
+    {
+      id: 'todo-implement',
+      fromState: null,
+      toState: 'Todo',
+      actionId: 'implement',
+      trigger: 'manual',
+    },
+    {
+      id: 'in-progress-continue',
+      fromState: null,
+      toState: 'In Progress',
+      actionId: 'continue',
+      trigger: 'manual',
+    },
+    {
+      id: 'done-review',
+      fromState: null,
+      toState: 'Done',
+      actionId: 'review',
+      trigger: 'manual',
+    },
+    {
+      id: 'done-review-comment',
+      fromState: null,
+      toState: 'Done',
+      actionId: 'review-comment',
+      trigger: 'manual',
+    },
+  ]
+
+  // Verify pmo_workflow_rules table exists
+  const tableExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_workflow_rules'"
+  ).get()
+  if (!tableExists) return
+
+  const upsertRule = db.prepare(`
+    INSERT INTO ${T.workflow_rules} (id, from_state, to_state, action_id, trigger, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      from_state = excluded.from_state,
+      to_state = excluded.to_state,
+      action_id = excluded.action_id,
+      trigger = excluded.trigger,
+      updated_at = excluded.updated_at
+  `)
+
+  const now = new Date().toISOString()
+  for (const rule of builtinRules) {
+    // Only insert if the referenced action exists
+    const actionExists = db.prepare(`
+      SELECT id FROM ${T.actions} WHERE id = ?
+    `).get(rule.actionId)
+    if (!actionExists) continue
+
+    upsertRule.run(
+      rule.id,
+      rule.fromState,
+      rule.toState,
+      rule.actionId,
+      rule.trigger,
       now,
       now
     )
