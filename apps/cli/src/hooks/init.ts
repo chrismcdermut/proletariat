@@ -5,7 +5,7 @@ import { findHQRoot } from '../lib/workspace.js'
 import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
 import { handleUpdatePrompt } from '../lib/update-prompt.js'
 import { initSentry } from '../lib/telemetry.js'
-import { initAnalytics, shutdownAnalytics } from '../lib/telemetry/analytics.js'
+import { initAnalytics, shutdownAnalytics, trackCommandRun } from '../lib/telemetry/analytics.js'
 
 /**
  * Init hook - runs before every command
@@ -55,10 +55,37 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   }
 
   // Initialize analytics — fire-and-forget, events go to disk queue
-  // Store command start time for duration tracking in postrun hook
-  ;(globalThis as Record<string, unknown>).__prlt_command_start = Date.now()
+  // Store command start time for duration tracking
+  const commandStart = Date.now()
+  ;(globalThis as Record<string, unknown>).__prlt_command_start = commandStart
   ;(globalThis as Record<string, unknown>).__prlt_command_id = id
   initAnalytics(config.version)
+
+  // Register a process.on('exit') handler to track the command_run event.
+  // This is more reliable than the oclif postrun hook because process.exit()
+  // calls (from JSON output helpers, signal handlers, etc.) bypass postrun
+  // but still fire 'exit' listeners. trackCommandRun → writeEventToQueue
+  // uses fs.writeFileSync, so it works in synchronous exit handlers.
+  if (id) {
+    const cmdArgv = argv ?? []
+    process.on('exit', (code) => {
+      // Guard against double-tracking if postrun already ran
+      if ((globalThis as Record<string, unknown>).__prlt_telemetry_tracked) return
+      ;(globalThis as Record<string, unknown>).__prlt_telemetry_tracked = true
+
+      const durationMs = Date.now() - commandStart
+      const flagsUsed = cmdArgv
+        .filter((arg: string) => arg.startsWith('-'))
+        .map((arg: string) => arg.replace(/=.*/, ''))
+
+      trackCommandRun({
+        command: id,
+        durationMs,
+        success: code === 0,
+        flags: flagsUsed,
+      })
+    })
+  }
 
   if (shouldValidateNativeModules(id)) {
     await validateBetterSqlite3NativeBinding({ context: `command "${id}"` })
