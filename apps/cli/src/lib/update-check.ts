@@ -29,7 +29,7 @@ export interface VersionCheckCache {
   dismissed_version: string | null
 }
 
-export type PackageManager = 'brew' | 'npm'
+export type PackageManager = 'brew' | 'npm' | 'standalone'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -131,13 +131,15 @@ export function shouldCheck(cache: VersionCheckCache): boolean {
  *
  * Priority:
  * 1. PRLT_MANAGED_BY env var (explicit override)
- * 2. Binary path heuristic (Homebrew prefixes → brew, otherwise npm)
+ * 2. Standalone install metadata file (~/.local/lib/proletariat/.install-metadata.json)
+ * 3. Binary path heuristic (Homebrew prefixes → brew, ~/.local/bin → standalone, otherwise npm)
  */
 export function detectPackageManager(): PackageManager {
   // 1. Env var override
   const envOverride = process.env[PACKAGE_MANAGER_ENV]?.toLowerCase()
   if (envOverride === 'brew' || envOverride === 'homebrew') return 'brew'
   if (envOverride === 'npm') return 'npm'
+  if (envOverride === 'standalone') return 'standalone'
 
   // 2. Binary path heuristic
   try {
@@ -150,8 +152,23 @@ export function detectPackageManager(): PackageManager {
     if (binPath.startsWith('/opt/homebrew/') || binPath.startsWith('/usr/local/')) {
       return 'brew'
     }
+
+    // Standalone installer uses ~/.local/bin or custom PRLT_INSTALL_DIR
+    const homeDir = process.env.HOME || ''
+    if (homeDir && binPath.startsWith(path.join(homeDir, '.local'))) {
+      return 'standalone'
+    }
   } catch {
-    // which failed — fall through to npm
+    // which failed — fall through
+  }
+
+  // 3. Check for standalone install metadata file
+  const homeDir = process.env.HOME || ''
+  if (homeDir) {
+    const metadataPath = path.join(homeDir, '.local', 'lib', 'proletariat', '.install-metadata.json')
+    if (fs.existsSync(metadataPath)) {
+      return 'standalone'
+    }
   }
 
   return 'npm'
@@ -164,7 +181,32 @@ export function getUpdateCommand(pm: PackageManager): string {
   if (pm === 'brew') {
     return 'brew upgrade chrismcdermut/proletariat/prlt'
   }
+  if (pm === 'standalone') {
+    return 'prlt self-update'
+  }
   return 'npm install -g @proletariat/cli'
+}
+
+/**
+ * Get the standalone install directory from metadata or default.
+ * Returns null if not a standalone install.
+ */
+export function getStandaloneInstallDir(): string | null {
+  const homeDir = process.env.HOME || ''
+  if (!homeDir) return null
+
+  const metadataPath = path.join(homeDir, '.local', 'lib', 'proletariat', '.install-metadata.json')
+  try {
+    if (fs.existsSync(metadataPath)) {
+      const content = fs.readFileSync(metadataPath, 'utf-8')
+      const metadata = JSON.parse(content) as { install_dir?: string }
+      return metadata.install_dir ?? path.join(homeDir, '.local')
+    }
+  } catch {
+    // ignore
+  }
+
+  return path.join(homeDir, '.local')
 }
 
 // ---------------------------------------------------------------------------
