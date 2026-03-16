@@ -9,7 +9,6 @@ import {
   outputErrorAsJson,
   createMetadata,
   buildPromptConfig,
-  isMachineOutput,
   type PromptChoice,
 } from '../../lib/prompt-json.js';
 import {
@@ -22,7 +21,6 @@ import {
   isLinearConfigured,
   loadLinearConfig,
   getLinearApiKey,
-  type LinearWorkflowState,
 } from '../../lib/linear/index.js';
 import type { StateCategory, WorkAction } from '../../lib/pmo/types.js';
 
@@ -238,6 +236,27 @@ export default class WorkflowSetup extends PMOCommand {
     }
 
     // 6. Accept defaults or customize
+    if (jsonMode && !flags['accept-defaults']) {
+      // In JSON mode without --accept-defaults, output the plan for review
+      const plan = wirings.map(w => ({
+        state: w.stateName,
+        category: w.category,
+        action: w.actionId ?? 'none',
+        trigger: w.trigger,
+      }));
+
+      outputSuccessAsJson(
+        {
+          provider: provider,
+          providerLabel,
+          states: plan,
+          message: 'Default wiring plan. Re-run with --accept-defaults to apply, or run interactively to customize.',
+        },
+        createMetadata('workflow setup', flags),
+      );
+      return;
+    }
+
     if (!flags['accept-defaults'] && !jsonMode) {
       const { action } = await inquirer.prompt([{
         type: 'list',
@@ -252,54 +271,55 @@ export default class WorkflowSetup extends PMOCommand {
       if (action === 'customize') {
         await this.customizeWirings(wirings, allActions);
       }
-    } else if (jsonMode) {
-      // In JSON mode, output the default wiring plan for review
-      const plan = wirings.map(w => ({
-        state: w.stateName,
-        category: w.category,
-        action: w.actionId ?? 'none',
-        trigger: w.trigger,
-      }));
+    }
+
+    // 7. Save wiring to workflow_rules table (re-runnable: delete existing rules first)
+    await this.saveWirings(wirings);
+
+    if (jsonMode) {
+      const savedRules = wirings
+        .filter(w => w.actionId)
+        .map(w => ({
+          state: w.stateName,
+          category: w.category,
+          action: w.actionId,
+          trigger: w.trigger,
+        }));
 
       outputSuccessAsJson(
         {
           provider: provider,
           providerLabel,
-          states: plan,
-          message: 'Default wiring plan. Use --accept-defaults to apply, or run interactively to customize.',
+          rulesCreated: savedRules.length,
+          rules: savedRules,
         },
         createMetadata('workflow setup', flags),
       );
       return;
     }
 
-    // 7. Save wiring to workflow_rules table (re-runnable: delete existing rules first)
-    await this.saveWirings(wirings);
+    this.log('');
+    this.log(styles.success('Workflow rules saved successfully!'));
+    this.log('');
 
-    if (!jsonMode) {
-      this.log('');
-      this.log(styles.success('Workflow rules saved successfully!'));
-      this.log('');
-
-      // Show summary
-      const activeRules = wirings.filter(w => w.actionId);
-      if (activeRules.length > 0) {
-        this.log(styles.emphasis('Active rules:'));
-        for (const rule of activeRules) {
-          this.log(`  ${styles.muted(`${rule.stateName} \u2192 ${rule.actionId} (${rule.trigger})`)}`);
-        }
+    // Show summary
+    const activeRules = wirings.filter(w => w.actionId);
+    if (activeRules.length > 0) {
+      this.log(styles.emphasis('Active rules:'));
+      for (const rule of activeRules) {
+        this.log(`  ${styles.muted(`${rule.stateName} \u2192 ${rule.actionId} (${rule.trigger})`)}`);
       }
-
-      const skippedStates = wirings.filter(w => !w.actionId);
-      if (skippedStates.length > 0) {
-        this.log('');
-        this.log(styles.muted(`States with no action: ${skippedStates.map(s => s.stateName).join(', ')}`));
-      }
-
-      this.log('');
-      this.log(styles.muted('View rules: prlt workflow rules'));
-      this.log(styles.muted('Re-run setup: prlt workflow setup'));
     }
+
+    const skippedStates = wirings.filter(w => !w.actionId);
+    if (skippedStates.length > 0) {
+      this.log('');
+      this.log(styles.muted(`States with no action: ${skippedStates.map(s => s.stateName).join(', ')}`));
+    }
+
+    this.log('');
+    this.log(styles.muted('View rules: prlt workflow rules'));
+    this.log(styles.muted('Re-run setup: prlt workflow setup'));
   }
 
   /**
