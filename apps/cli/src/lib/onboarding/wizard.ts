@@ -165,7 +165,7 @@ export function runOnboardingJsonMode(flags: Record<string, unknown>): void {
         buildPromptConfig('list', 'setup', 'How would you like to set up your headquarters?', choices),
         metadata,
       );
-      // never reaches here — outputPromptAsJson exits
+      return
     }
 
     outputSuccessAsJson({
@@ -179,7 +179,7 @@ export function runOnboardingJsonMode(flags: Record<string, unknown>): void {
         displayName: t.displayName,
       })),
     }, metadata);
-    // never reaches here — outputSuccessAsJson exits
+    return
   }
 
   // No setup method provided — output a prompt with available choices
@@ -187,7 +187,7 @@ export function runOnboardingJsonMode(flags: Record<string, unknown>): void {
     buildPromptConfig('list', 'setup', 'How would you like to set up your headquarters?', choices),
     metadata,
   );
-  // never reaches here — outputPromptAsJson exits
+  return
 }
 
 /**

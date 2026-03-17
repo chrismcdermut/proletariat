@@ -299,6 +299,7 @@ export default class SessionPeek extends PMOCommand {
         content: filteredContent,
         ...(sinceFlag ? { filteredSince: sinceFlag } : {}),
       }, createMetadata('session peek', flags))
+      return
     } else {
       // Raw text output — pipeable and scriptable
       process.stdout.write((filteredContent || '') + '\n')

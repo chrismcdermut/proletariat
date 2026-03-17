@@ -227,7 +227,6 @@ export abstract class PMOCommand extends PromptCommand {
         },
         createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
-      // outputPromptAsJson calls process.exit, so this is unreachable
       return '';
     }
 
@@ -331,7 +330,6 @@ export abstract class PMOCommand extends PromptCommand {
         },
         createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
-      // outputPromptAsJson exits, so this is unreachable
       return null;
     }
 
@@ -414,7 +412,6 @@ export abstract class PMOCommand extends PromptCommand {
         },
         createMetadata(effectiveJsonMode.commandName, effectiveJsonMode.flags)
       );
-      // outputPromptAsJson exits, so this is unreachable
       return '';
     }
 
@@ -465,10 +462,10 @@ export abstract class PMOCommand extends PromptCommand {
       commandName: string;
       flags: Record<string, unknown>;
     }
-  ): never {
+  ): void {
     if (options.jsonMode) {
       outputErrorAsJson(code, message, createMetadata(options.commandName, options.flags));
-      this.exit(1);
+      return
     }
     this.error(message);
   }

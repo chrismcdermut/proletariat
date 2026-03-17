@@ -56,9 +56,10 @@ export default class FeedbackSubmit extends PromptCommand {
     const jsonMode = isMachineOutput(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('feedback submit', flags));
+        return
       }
       this.error(message);
     };
@@ -233,6 +234,7 @@ export default class FeedbackSubmit extends PromptCommand {
         },
         createMetadata('feedback submit', flags)
       );
+      return
     }
 
     this.log(chalk.green('  ✓ Issue created successfully!\n'));

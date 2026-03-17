@@ -48,10 +48,10 @@ export default class Add extends PMOCommand {
 
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('media add', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -108,6 +108,7 @@ export default class Add extends PMOCommand {
     } else {
       if (jsonMode) {
         outputErrorAsJson('ADD_FAILED', `Failed to add media: ${result.error}`, createMetadata('media add', flags));
+        return
       }
       this.error(`Failed to add media: ${result.error}`);
     }

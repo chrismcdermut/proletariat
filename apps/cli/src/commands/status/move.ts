@@ -57,10 +57,10 @@ export default class StatusMove extends PMOCommand {
     });
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('status move', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -141,6 +141,7 @@ export default class StatusMove extends PMOCommand {
     if (newPosition! < 0) {
       if (jsonMode) {
         outputErrorAsJson('INVALID_POSITION', 'Position must be >= 0', createMetadata('status move', flags));
+        return
       }
       this.error('Position must be >= 0');
     }

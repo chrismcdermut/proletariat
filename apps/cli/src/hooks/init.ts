@@ -61,11 +61,11 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   ;(globalThis as Record<string, unknown>).__prlt_command_id = id
   initAnalytics(config.version)
 
-  // Register a process.on('exit') handler to track the command_run event.
-  // This is more reliable than the oclif postrun hook because process.exit()
-  // calls (from JSON output helpers, signal handlers, etc.) bypass postrun
-  // but still fire 'exit' listeners. trackCommandRun → writeEventToQueue
-  // uses fs.writeFileSync, so it works in synchronous exit handlers.
+  // Register a process.on('exit') handler as a safety net for telemetry.
+  // Most commands now return normally through oclif lifecycle (postrun hook),
+  // but signal handlers still call process.exit() directly.
+  // trackCommandRun → writeEventToQueue uses fs.writeFileSync, so it works
+  // in synchronous exit handlers.
   if (id) {
     const cmdArgv = argv ?? []
     process.on('exit', (code) => {
@@ -96,8 +96,12 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   // Then trigger a background fetch so the cache is fresh for the next startup.
   try {
     const updateInfo = getCachedUpdateInfo(config.version)
-    await handleUpdatePrompt(updateInfo)
+    const updateResult = await handleUpdatePrompt(updateInfo)
     triggerBackgroundCheck(updateInfo.packageManager)
+    if (updateResult === 'stop') {
+      // User chose to update — exitCode already set, let oclif lifecycle complete
+      return
+    }
   } catch {
     // Never let update-check errors break the CLI
   }
@@ -113,7 +117,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
       const { run } = await import('@oclif/core')
       await run(['new'], config)
       await shutdownAnalytics()
-      process.exit(0)
+      return
     }
     return
   }
@@ -130,7 +134,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
 
     console.log(chalk.default.blue(`\n✅ Setup complete! You can now run: prlt ${id}\n`))
     await shutdownAnalytics()
-    process.exit(0)
+    return
   }
 }
 

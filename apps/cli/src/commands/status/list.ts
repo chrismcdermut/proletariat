@@ -42,6 +42,7 @@ export default class StatusList extends PMOCommand {
     if (!project?.workflowId) {
       if (jsonMode) {
         outputErrorAsJson('NO_WORKFLOW', `Project "${projectId}" has no workflow assigned.`, createMetadata('status list', flags));
+        return
       }
       this.error(`Project "${projectId}" has no workflow assigned.`);
     }

@@ -41,6 +41,7 @@ export default class List extends PMOCommand {
     if (!hqPath) {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_HQ', 'Not in an HQ directory. Run "prlt new" first.', createMetadata('media list', flags));
+        return
       }
       this.error('Not in an HQ directory. Run "prlt new" first.');
     }

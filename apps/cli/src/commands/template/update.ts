@@ -45,9 +45,10 @@ export default class TemplateUpdate extends PMOCommand {
     const { args, flags } = await this.parse(TemplateUpdate);
     const jsonMode = shouldOutputJson(flags);
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('template update', flags));
+        return
       }
       this.error(message);
     };

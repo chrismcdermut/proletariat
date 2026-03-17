@@ -40,6 +40,7 @@ export default class WorkHooksList extends PMOCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('work hooks list', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -69,6 +70,7 @@ export default class WorkHooksList extends PMOCommand {
           },
           createMetadata('work hooks list', flags),
         )
+        return
       }
 
       if (hooks.length === 0) {

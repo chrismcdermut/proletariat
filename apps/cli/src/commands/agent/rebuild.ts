@@ -54,7 +54,7 @@ export default class AgentRebuild extends PMOCommand {
     if (!isDockerRunning()) {
       if (jsonMode) {
         outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Please start Docker Desktop and try again.', createMetadata('agent rebuild', flags));
-        this.exit(1);
+        return
       }
       this.error('Docker is not running. Please start Docker Desktop and try again.');
     }

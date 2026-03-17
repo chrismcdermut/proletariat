@@ -238,6 +238,7 @@ export default class SessionInspect extends PMOCommand {
           'Not in a workspace. Run from a proletariat HQ directory.',
           createMetadata('session inspect', flags),
         )
+        return
       } else {
         this.log('')
         this.log(styles.error('Not in a workspace. Run from a proletariat HQ directory.'))
@@ -271,6 +272,7 @@ export default class SessionInspect extends PMOCommand {
             `No active session found for "${target}".`,
             createMetadata('session inspect', flags),
           )
+          return
         } else {
           this.log('')
           this.log(styles.error(`No active session found for "${target}".`))
@@ -309,6 +311,7 @@ export default class SessionInspect extends PMOCommand {
             `Could not find tmux session for agent "${match.agentName}".`,
             createMetadata('session inspect', flags),
           )
+          return
         } else {
           this.log('')
           this.log(styles.error(`Could not find tmux session for agent "${match.agentName}".`))

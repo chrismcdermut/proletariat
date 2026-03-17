@@ -129,10 +129,10 @@ export default class TicketCreate extends PMOCommand {
     const projectName = await this.getProjectName(projectId);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket create', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -265,6 +265,7 @@ export default class TicketCreate extends PMOCommand {
             [{ field: 'column', error: `Invalid column "${ticketData.statusName}". Available: ${columns.join(', ')}` }],
             createMetadata('ticket create', flags)
           );
+          return
         }
         this.error(`Invalid column "${ticketData.statusName}". Available columns: ${columns.join(', ')}`);
       }
@@ -286,6 +287,7 @@ export default class TicketCreate extends PMOCommand {
 
       if (jsonMode) {
         outputDryRunSuccessAsJson('ticket', wouldCreate, createMetadata('ticket create', flags));
+        return
       }
 
       // Human-readable dry-run output
@@ -448,7 +450,7 @@ export default class TicketCreate extends PMOCommand {
         buildPromptConfig('list', 'source', message, choices),
         createMetadata('ticket create', flags as Record<string, unknown>)
       );
-      // outputPromptAsJson calls process.exit — unreachable
+      return 'pmo'
     }
 
     const { selectedSource } = await inquirer.prompt([{
@@ -473,10 +475,10 @@ export default class TicketCreate extends PMOCommand {
   ): Promise<void> {
     const db = this.storage.getDatabase();
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket create', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -515,6 +517,7 @@ export default class TicketCreate extends PMOCommand {
           buildPromptConfig('input', 'title', 'Enter ticket title:', undefined, undefined),
           createMetadata('ticket create', flags)
         );
+        return
         // unreachable
       }
 
@@ -587,6 +590,7 @@ export default class TicketCreate extends PMOCommand {
 
       if (jsonMode) {
         outputDryRunSuccessAsJson('ticket', wouldCreate, createMetadata('ticket create', flags));
+        return
       }
 
       this.log(styles.warning('\n[DRY RUN] Would create Linear issue:'));

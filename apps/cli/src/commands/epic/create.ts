@@ -103,6 +103,7 @@ export default class EpicCreate extends PMOCommand {
           buildFormPromptConfig(fields),
           createMetadata('epic create', flags)
         );
+        return
       }
 
       epicData = await this.promptEpicData(fields, specChoices.length > 1, jsonMode ? { flags, commandName: 'epic create' } : null);
@@ -125,10 +126,12 @@ export default class EpicCreate extends PMOCommand {
               [{ field: 'spec', error: `Spec not found: ${epicData.specId}` }],
               createMetadata('epic create', flags)
             );
+            return
           }
         }
         if (jsonMode) {
           outputErrorAsJson('SPEC_NOT_FOUND', `Spec not found: ${epicData.specId}`, createMetadata('epic create', flags));
+          return
         }
         this.error(`Spec not found: ${epicData.specId}`);
       }
@@ -147,6 +150,7 @@ export default class EpicCreate extends PMOCommand {
 
       if (jsonMode) {
         outputDryRunSuccessAsJson('epic', wouldCreate, createMetadata('epic create', flags));
+        return
       }
 
       // Human-readable dry-run output

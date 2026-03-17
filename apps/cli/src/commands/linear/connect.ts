@@ -121,7 +121,7 @@ export default class LinearConnect extends PMOCommand {
           'Linear API key required. Configure a Linear provider source, set PRLT_LINEAR_API_KEY, or run interactively.',
           createMetadata('linear connect', flags),
         )
-        this.exit(1)
+        return
       }
 
       this.log('')
@@ -171,7 +171,7 @@ export default class LinearConnect extends PMOCommand {
       const message = `Authentication failed: ${error instanceof Error ? error.message : String(error)}`
       if (jsonMode) {
         outputErrorAsJson('LINEAR_CONNECT_FAILED', message, createMetadata('linear connect', flags))
-        this.exit(1)
+        return
       }
       this.error(message)
     }
@@ -189,7 +189,7 @@ export default class LinearConnect extends PMOCommand {
           'Linear is not configured. Run "prlt linear connect" to authenticate.',
           createMetadata('linear connect', flags),
         )
-        this.exit(1)
+        return
       }
       this.log(colors.warning('Linear is not configured.'))
       this.log(colors.textMuted('Run "prlt linear connect" to authenticate.'))
@@ -249,7 +249,7 @@ export default class LinearConnect extends PMOCommand {
           `Stored Linear API key is invalid or expired: ${message}`,
           createMetadata('linear connect', flags),
         )
-        this.exit(1)
+        return
       }
       this.log(colors.error('Stored Linear API key is invalid or expired.'))
       this.log(colors.textMuted(`  Error: ${message}`))
@@ -304,7 +304,7 @@ export default class LinearConnect extends PMOCommand {
         const message = `Team "${flags.team}" not found. Available teams: ${available}`
         if (jsonMode) {
           outputErrorAsJson('TEAM_NOT_FOUND', message, createMetadata('linear connect', flags))
-          this.exit(1)
+          return
         }
         this.error(message)
       }

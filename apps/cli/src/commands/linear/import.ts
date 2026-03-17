@@ -79,7 +79,7 @@ export default class LinearImport extends PMOCommand {
     if (!isLinearConfigured(db)) {
       if (jsonMode) {
         outputErrorAsJson('LINEAR_NOT_CONFIGURED', 'Linear is not configured. Run "prlt linear connect" first.', createMetadata('linear import', flags))
-        this.exit(1)
+        return
       }
       this.error('Linear is not configured. Run "prlt linear connect" first.')
     }
@@ -105,7 +105,7 @@ export default class LinearImport extends PMOCommand {
     if (!workflow) {
       if (jsonMode) {
         outputErrorAsJson('NO_WORKFLOW', 'Project has no workflow configured.', createMetadata('linear import', flags))
-        this.exit(1)
+        return
       }
       this.error('Project has no workflow configured.')
     }
@@ -145,7 +145,7 @@ export default class LinearImport extends PMOCommand {
         if (teams.length === 0) {
           if (jsonMode) {
             outputErrorAsJson('NO_TEAMS', 'No teams found in your Linear workspace.', createMetadata('linear import', flags))
-            this.exit(1)
+            return
           }
           this.error('No teams found in your Linear workspace.')
         }
@@ -162,6 +162,7 @@ export default class LinearImport extends PMOCommand {
               buildPromptConfig('list', 'teamKey', 'Select a team to import from:', teamChoices),
               createMetadata('linear import', flags),
             )
+            return
           }
 
           const teamChoices = teams.map((t) => ({

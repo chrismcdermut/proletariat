@@ -58,7 +58,7 @@ export default class AsanaImport extends PMOCommand {
     if (!isAsanaConfigured(db)) {
       if (jsonMode) {
         outputErrorAsJson('ASANA_NOT_CONFIGURED', 'Asana is not configured. Run "prlt asana connect" first.', createMetadata('asana import', flags))
-        this.exit(1)
+        return
       }
       this.error('Asana is not configured. Run "prlt asana connect" first.')
     }
@@ -68,7 +68,7 @@ export default class AsanaImport extends PMOCommand {
     if (!accessToken) {
       if (jsonMode) {
         outputErrorAsJson('ASANA_NO_TOKEN', 'Asana access token not found.', createMetadata('asana import', flags))
-        this.exit(1)
+        return
       }
       this.error('Asana access token not found. Run "prlt asana connect" first.')
     }
@@ -76,7 +76,7 @@ export default class AsanaImport extends PMOCommand {
     if (!config.projectGid) {
       if (jsonMode) {
         outputErrorAsJson('ASANA_NO_PROJECT', 'No Asana project configured. Run "prlt asana connect" and select a project.', createMetadata('asana import', flags))
-        this.exit(1)
+        return
       }
       this.error('No Asana project configured. Run "prlt asana connect" and select a project.')
     }
@@ -100,7 +100,7 @@ export default class AsanaImport extends PMOCommand {
       const msg = error instanceof Error ? error.message : 'Failed to fetch tasks from Asana.'
       if (jsonMode) {
         outputErrorAsJson('ASANA_FETCH_FAILED', msg, createMetadata('asana import', flags))
-        this.exit(1)
+        return
       }
       this.error(msg)
     }

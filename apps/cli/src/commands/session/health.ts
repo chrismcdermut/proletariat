@@ -207,6 +207,7 @@ export default class SessionHealth extends PMOCommand {
           'Not in a workspace. Run from a proletariat HQ directory.',
           createMetadata('session health', flags),
         )
+        return []
       }
       this.log('')
       this.log(styles.error('Not in a workspace. Run from a proletariat HQ directory.'))
@@ -380,6 +381,7 @@ export default class SessionHealth extends PMOCommand {
             watch: 'prlt session health --watch',
           },
         }, createMetadata('session health', flags))
+        return []
       }
 
       // Display status table

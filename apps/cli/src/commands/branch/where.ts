@@ -47,6 +47,7 @@ export default class BranchWhere extends PMOCommand {
     if (!isGitRepo()) {
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('NOT_GIT_REPO', 'Not in a git repository.', createMetadata('branch where', flags))
+        return
       }
       this.error('Not in a git repository.')
     }

@@ -52,6 +52,7 @@ export default class Pull extends PMOCommand {
     if (!project) {
       if (jsonMode) {
         outputErrorAsJson('PROJECT_NOT_FOUND', `Project not found: ${projectId}`, createMetadata('pull', flags))
+        return
       }
       this.error(`Project not found: ${projectId}`)
     }
@@ -65,6 +66,7 @@ export default class Pull extends PMOCommand {
     if (!hasBacklog) {
       if (jsonMode) {
         outputErrorAsJson('NO_BACKLOG', 'No backlog statuses found in workflow. Cannot pull tickets.', createMetadata('pull', flags))
+        return
       }
       this.error('No backlog statuses found in workflow. Cannot pull tickets.')
     }
@@ -72,6 +74,7 @@ export default class Pull extends PMOCommand {
     if (readyStatuses.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_READY_STATUS', 'No ready/unstarted statuses found in workflow. Cannot pull tickets.', createMetadata('pull', flags))
+        return
       }
       this.error('No ready/unstarted statuses found in workflow. Cannot pull tickets.')
     }

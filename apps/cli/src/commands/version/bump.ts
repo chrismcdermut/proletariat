@@ -68,6 +68,7 @@ export default class VersionBump extends Command {
       const msg = `Failed to read package.json at ${pkgPath}`
       if (jsonMode) {
         outputErrorAsJson('PACKAGE_READ_ERROR', msg, createMetadata('version bump', flags))
+        return
       }
       this.error(msg)
     }
@@ -137,6 +138,7 @@ export default class VersionBump extends Command {
           },
           createMetadata('version bump', flags),
         )
+        return
       }
 
       this.log(`\n${styles.success('PR created:')} ${prUrl}\n`)
@@ -148,6 +150,7 @@ export default class VersionBump extends Command {
       const msg = error instanceof Error ? error.message : String(error)
       if (jsonMode) {
         outputErrorAsJson('GIT_ERROR', msg, createMetadata('version bump', flags))
+        return
       }
       this.error(`Git operation failed: ${msg}`)
     }

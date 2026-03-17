@@ -37,7 +37,7 @@ export default class PriorityRemove extends PMOCommand {
     if (!priorities.includes(args.value)) {
       if (jsonMode) {
         outputErrorAsJson('PRIORITY_NOT_FOUND', `Priority "${args.value}" not found`, createMetadata('priority remove', flags));
-        this.exit(1);
+        return
       }
       this.error(`Priority "${args.value}" not found in the scale: ${priorities.join(', ')}`);
     }
@@ -46,7 +46,7 @@ export default class PriorityRemove extends PMOCommand {
     if (priorities.length <= 1) {
       if (jsonMode) {
         outputErrorAsJson('MIN_PRIORITIES', 'Cannot remove the last priority. Use "prlt priority set" to replace the scale.', createMetadata('priority remove', flags));
-        this.exit(1);
+        return
       }
       this.error('Cannot remove the last priority. Use "prlt priority set" to replace the scale.');
     }

@@ -76,7 +76,7 @@ export default class AsanaConnect extends PMOCommand {
       if (!isAsanaConfigured(db)) {
         if (jsonMode) {
           outputErrorAsJson('ASANA_NOT_CONFIGURED', 'Asana is not configured. Run "prlt asana connect".', createMetadata('asana connect', flags))
-          this.exit(1)
+          return
         }
         this.log(colors.warning('Asana is not configured.'))
         this.log(colors.textMuted('Run "prlt asana connect" to authenticate.'))
@@ -109,7 +109,7 @@ export default class AsanaConnect extends PMOCommand {
       } catch {
         if (jsonMode) {
           outputErrorAsJson('ASANA_AUTH_INVALID', 'Stored Asana token is invalid or expired.', createMetadata('asana connect', flags))
-          this.exit(1)
+          return
         }
         this.log(colors.error('Stored Asana token is invalid or expired.'))
         this.log(colors.textMuted('Run "prlt asana connect --force" to re-authenticate.'))
@@ -151,7 +151,7 @@ export default class AsanaConnect extends PMOCommand {
           'Asana access token required. Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN.',
           createMetadata('asana connect', flags),
         )
-        this.exit(1)
+        return
       }
 
       this.log('')
@@ -178,6 +178,7 @@ export default class AsanaConnect extends PMOCommand {
           'Asana access token required. Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN.',
           createMetadata('asana connect', flags),
         )
+        return
       } else {
         this.log(colors.error('Asana access token is required.'))
       }
@@ -194,7 +195,7 @@ export default class AsanaConnect extends PMOCommand {
           'Asana access token required. Set ASANA_ACCESS_TOKEN or PRLT_ASANA_ACCESS_TOKEN.',
           createMetadata('asana connect', flags),
         )
-        this.exit(1)
+        return
       }
 
       this.log(colors.error('Asana access token is required.'))
@@ -323,7 +324,7 @@ export default class AsanaConnect extends PMOCommand {
           `Connection failed: ${error instanceof Error ? error.message : String(error)}`,
           createMetadata('asana connect', flags),
         )
-        this.exit(1)
+        return
       }
 
       this.error(`Connection failed: ${error instanceof Error ? error.message : String(error)}`)

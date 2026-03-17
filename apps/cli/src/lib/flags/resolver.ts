@@ -301,9 +301,9 @@ export class FlagResolver<TFlags extends Record<string, unknown> = Record<string
         : prompt.default;
 
       if (this.options.jsonMode) {
-        // JSON MODE: Output prompt config and exit
+        // JSON MODE: Output prompt config and return
         await this.outputJsonPrompt(prompt, message, choices, defaultValue);
-        // outputPromptAsJson calls process.exit, so we never reach here
+        return this.resolvedFlags as TFlags
       } else {
         // INTERACTIVE MODE: Prompt for value
         const value = await this.promptInteractive(prompt, message, choices, defaultValue);
@@ -330,7 +330,7 @@ export class FlagResolver<TFlags extends Record<string, unknown> = Record<string
     message: string,
     choices: ResolverChoice<unknown>[] | undefined,
     defaultValue: unknown
-  ): Promise<never> {
+  ): Promise<void> {
     // Build prompt config
     const config: PromptConfig = {
       type: prompt.type,
@@ -383,15 +383,12 @@ export class FlagResolver<TFlags extends Record<string, unknown> = Record<string
       };
     }
 
-    // Output and exit
     outputPromptAsJson(
       config,
       createMetadata(this.options.commandName, this.options.flags as Record<string, unknown>)
     );
 
-    // outputPromptAsJson calls process.exit, but TypeScript doesn't know that
-    // This line is never reached
-    throw new Error('Unreachable');
+    return
   }
 
   /**

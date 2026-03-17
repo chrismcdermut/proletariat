@@ -93,10 +93,10 @@ export default class TicketEdit extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket edit', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };
@@ -169,7 +169,7 @@ export default class TicketEdit extends PMOCommand {
           currentValues: { title: ticket.title, description: ticket.description, priority: ticket.priority, category: ticket.category },
         };
         outputPromptAsJson(formConfig, createMetadata('ticket edit', flags));
-        return; // outputPromptAsJson exits, but TypeScript doesn't know
+        return;
       }
 
       // Interactive mode - prompt for all editable fields

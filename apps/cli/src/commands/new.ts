@@ -122,6 +122,7 @@ export default class New extends Command {
         buildPromptConfig('input', 'name', 'Enter a name for your headquarters:', undefined, undefined),
         createMetadata('new', flags as Record<string, unknown>),
       );
+      return
     }
 
     const hqName = flags.name;

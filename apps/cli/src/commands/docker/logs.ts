@@ -54,6 +54,7 @@ export default class DockerLogs extends Command {
     if (!isDockerRunning()) {
       if (jsonMode) {
         outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker logs', flags))
+        return
       }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }
@@ -65,6 +66,7 @@ export default class DockerLogs extends Command {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('docker logs', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -77,6 +79,7 @@ export default class DockerLogs extends Command {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('DB_ERROR', 'Could not open workspace database.', createMetadata('docker logs', flags))
+        return
       }
       this.error('Could not open workspace database.')
     }
@@ -90,6 +93,7 @@ export default class DockerLogs extends Command {
         db.close()
         if (jsonMode) {
           outputErrorAsJson('CONTAINER_NOT_FOUND', result.error || 'Could not find container', createMetadata('docker logs', flags))
+          return
         }
         this.error(result.error || 'Could not find container')
       }
@@ -130,6 +134,7 @@ export default class DockerLogs extends Command {
         proc.on('error', (err) => {
           if (jsonMode) {
             outputErrorAsJson('LOGS_FAILED', `Failed to get logs: ${err.message}`, createMetadata('docker logs', flags))
+            return
           }
           this.error(`Failed to get logs: ${err.message}`)
         })
@@ -146,6 +151,7 @@ export default class DockerLogs extends Command {
           if (error instanceof Error && 'stderr' in error) {
             if (jsonMode) {
               outputErrorAsJson('LOGS_FAILED', `Failed to get logs: ${(error as { stderr: string }).stderr}`, createMetadata('docker logs', flags))
+              return
             }
             this.error(`Failed to get logs: ${(error as { stderr: string }).stderr}`)
           }

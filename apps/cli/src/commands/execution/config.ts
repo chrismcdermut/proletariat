@@ -74,7 +74,7 @@ export default class ExecutionConfig extends PMOCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('execution config', flags))
-        this.exit(1)
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -95,6 +95,7 @@ export default class ExecutionConfig extends PMOCommand {
           if (!key || !value) {
             if (jsonMode) {
               outputErrorAsJson('INVALID_SET_FORMAT', `Invalid format: "${setValue}". Use: --set "key value"`, createMetadata('execution config', flags))
+              return
             } else {
               this.error(`Invalid format: "${setValue}". Use: --set "key value"`)
             }
@@ -124,6 +125,7 @@ export default class ExecutionConfig extends PMOCommand {
             outputMode: config.outputMode,
             permissionMode: config.permissionMode,
           }, createMetadata('execution config', flags))
+          return
         } else {
           this.log('')
           this.log(styles.header('Execution Configuration'))
@@ -362,6 +364,7 @@ export default class ExecutionConfig extends PMOCommand {
         const jsonMode = shouldOutputJson(jsonModeConfig?.flags ?? {})
         if (jsonMode) {
           outputErrorAsJson('UNKNOWN_SETTING', `Unknown setting: ${setting}`, createMetadata('execution config', jsonModeConfig?.flags ?? {}))
+          return
         }
         this.error(`Unknown setting: ${setting}`)
       }
@@ -388,6 +391,7 @@ export default class ExecutionConfig extends PMOCommand {
       const errorMsg = `Invalid value "${value}" for ${key}. Valid options: ${validValues.join(', ')}`
       if (jsonMode) {
         outputErrorAsJson('INVALID_VALUE', errorMsg, createMetadata('execution config', {}))
+        return
       } else {
         this.error(errorMsg)
       }
@@ -421,6 +425,7 @@ export default class ExecutionConfig extends PMOCommand {
       default:
         if (jsonMode) {
           outputErrorAsJson('UNKNOWN_KEY', `Unknown config key: ${key}`, createMetadata('execution config', {}))
+          return
         } else {
           this.warn(`Unknown config key: ${key}`)
         }
@@ -429,6 +434,7 @@ export default class ExecutionConfig extends PMOCommand {
 
     if (jsonMode) {
       outputSuccessAsJson({ key, value }, createMetadata('execution config', {}))
+      return
     } else {
       this.log(styles.success(`Set ${key} = ${value}`))
     }

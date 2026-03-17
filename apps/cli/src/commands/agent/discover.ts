@@ -100,6 +100,7 @@ export default class Discover extends Command {
     } catch (error) {
       if (jsonMode) {
         outputErrorAsJson('DISCOVER_FAILED', error instanceof Error ? error.message : String(error), createMetadata('agent discover', flags));
+        return
       }
       this.error(error instanceof Error ? error.message : String(error));
     }

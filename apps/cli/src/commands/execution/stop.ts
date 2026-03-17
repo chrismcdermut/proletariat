@@ -61,6 +61,7 @@ export default class ExecutionStop extends PMOCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('execution stop', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -188,6 +189,7 @@ export default class ExecutionStop extends PMOCommand {
     if (!execution) {
       if (shouldOutputJson(flags as Record<string, unknown>)) {
         outputErrorAsJson('EXECUTION_NOT_FOUND', `Execution "${id}" not found.`, createMetadata('execution stop', flags as Record<string, unknown>))
+        return
       }
       this.error(`Execution "${id}" not found.`)
     }

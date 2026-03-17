@@ -87,6 +87,7 @@ export default class CategoryDelete extends PMOCommand {
     if (!category) {
       if (jsonMode) {
         outputErrorAsJson('CATEGORY_NOT_FOUND', `Category "${name}" not found for type "${categoryType}"`, createMetadata('category delete', flags));
+        return
       }
       this.error(`Category "${name}" not found for type "${categoryType}"`);
     }
@@ -94,6 +95,7 @@ export default class CategoryDelete extends PMOCommand {
     if (category.isBuiltin) {
       if (jsonMode) {
         outputErrorAsJson('BUILTIN_CATEGORY', `Cannot delete built-in category "${name}"`, createMetadata('category delete', flags));
+        return
       }
       this.error(`Cannot delete built-in category "${name}"`);
     }
@@ -134,6 +136,7 @@ export default class CategoryDelete extends PMOCommand {
       if (error instanceof Error) {
         if (jsonMode) {
           outputErrorAsJson('DELETE_FAILED', error.message, createMetadata('category delete', flags));
+          return
         }
         this.error(error.message);
       }

@@ -53,6 +53,7 @@ export default class ExecutionList extends PMOCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('execution list', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }

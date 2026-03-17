@@ -52,10 +52,10 @@ export default class LinkList extends PMOCommand {
 
     const jsonMode = shouldOutputJson(flags)
 
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('link list', flags))
-        this.exit(1)
+        return
       }
       this.error(message)
     }

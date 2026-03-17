@@ -50,6 +50,7 @@ export default class DockerStop extends Command {
     if (!isDockerRunning()) {
       if (jsonMode) {
         outputErrorAsJson('DOCKER_NOT_RUNNING', 'Docker is not running. Start Docker Desktop or the Docker daemon first.', createMetadata('docker stop', flags))
+        return
       }
       this.error('Docker is not running. Start Docker Desktop or the Docker daemon first.')
     }
@@ -61,6 +62,7 @@ export default class DockerStop extends Command {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('docker stop', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -73,6 +75,7 @@ export default class DockerStop extends Command {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('DB_ERROR', 'Could not open workspace database.', createMetadata('docker stop', flags))
+        return
       }
       this.error('Could not open workspace database.')
     }
@@ -86,6 +89,7 @@ export default class DockerStop extends Command {
         db.close()
         if (jsonMode) {
           outputErrorAsJson('CONTAINER_NOT_FOUND', result.error || 'Could not find container', createMetadata('docker stop', flags))
+          return
         }
         this.error(result.error || 'Could not find container')
       }

@@ -88,7 +88,7 @@ export default class AutocompleteSetup extends PromptCommand {
         },
         createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
       );
-      return; // unreachable - outputPromptAsJson exits
+      return;
     }
 
     // Interactive mode without --shell
@@ -155,6 +155,7 @@ export default class AutocompleteSetup extends PromptCommand {
       },
       createMetadata(jsonModeConfig.commandName, jsonModeConfig.flags)
     );
+    return
   }
 
   /**

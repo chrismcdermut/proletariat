@@ -26,6 +26,7 @@ export default class TelemetryDisable extends Command {
 
     if (jsonMode) {
       outputSuccessAsJson({ enabled: false }, createMetadata('telemetry disable', flags))
+      return
     }
 
     this.log(styles.success('Telemetry disabled. No data will be collected.'))

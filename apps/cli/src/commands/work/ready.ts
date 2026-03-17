@@ -69,6 +69,7 @@ export default class WorkReady extends PMOCommand {
     if (flags.pr && flags['no-pr']) {
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('CONFLICTING_FLAGS', '--pr and --no-pr are mutually exclusive', createMetadata('work ready', flags));
+        return
       }
       this.error('--pr and --no-pr are mutually exclusive');
     }
@@ -77,10 +78,10 @@ export default class WorkReady extends PMOCommand {
     const jsonMode = shouldOutputJson(flags);
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('work ready', flags));
-        this.exit(1);
+        return
       }
       this.error(message);
     };

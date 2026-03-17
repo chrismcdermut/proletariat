@@ -85,6 +85,7 @@ export default class TemplateDelete extends PMOCommand {
     if (templates.length === 0) {
       if (jsonMode) {
         outputErrorAsJson('NO_TEMPLATES', `No custom ${typeName} templates to delete.`, createMetadata('template delete', flags));
+        return
       }
       this.log(styles.muted(`\nNo custom ${typeName} templates to delete.`));
       return;

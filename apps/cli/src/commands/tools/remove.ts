@@ -38,6 +38,7 @@ export default class ToolsRemove extends Command {
     if (!hqPath) {
       if (jsonMode) {
         outputErrorAsJson('NO_WORKSPACE', 'Not in a proletariat workspace', meta())
+        return
       } else {
         this.error('Not in a proletariat workspace. Run `prlt init` first.')
       }
@@ -49,6 +50,7 @@ export default class ToolsRemove extends Command {
     if (!removed) {
       if (jsonMode) {
         outputErrorAsJson('NOT_FOUND', `Tool '${args.name}' not found or is a built-in tool`, meta())
+        return
       } else {
         this.error(`Tool '${args.name}' not found in registry, or is a built-in tool that cannot be removed.`)
       }
@@ -57,6 +59,7 @@ export default class ToolsRemove extends Command {
 
     if (jsonMode) {
       outputSuccessAsJson({ name: args.name, removed: true }, meta())
+      return
     } else {
       this.log(chalk.green(`\nTool '${args.name}' removed from registry.`))
       this.log('')

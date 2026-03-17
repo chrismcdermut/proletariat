@@ -26,6 +26,7 @@ export default class TelemetryEnable extends Command {
 
     if (jsonMode) {
       outputSuccessAsJson({ enabled: true }, createMetadata('telemetry enable', flags))
+      return
     }
 
     this.log(styles.success('Telemetry enabled. Thank you for helping improve prlt!'))

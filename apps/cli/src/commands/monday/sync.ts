@@ -43,7 +43,7 @@ export default class MondaySyncCommand extends PMOCommand {
     if (!isMondayConfigured(db)) {
       if (jsonMode) {
         outputErrorAsJson('MONDAY_NOT_CONFIGURED', 'Monday is not configured. Run "prlt monday connect" first.', createMetadata('monday sync', flags))
-        this.exit(1)
+        return
       }
       this.error('Monday is not configured. Run "prlt monday connect" first.')
     }
@@ -52,7 +52,7 @@ export default class MondaySyncCommand extends PMOCommand {
     if (!config.boardId) {
       if (jsonMode) {
         outputErrorAsJson('MONDAY_BOARD_REQUIRED', 'No Monday board configured. Run "prlt monday connect --board <id>" first.', createMetadata('monday sync', flags))
-        this.exit(1)
+        return
       }
       this.error('No Monday board configured. Run "prlt monday connect --board <id>" first.')
     }
@@ -164,7 +164,7 @@ export default class MondaySyncCommand extends PMOCommand {
     if (!ticket) {
       if (jsonMode) {
         outputErrorAsJson('TICKET_NOT_FOUND', `Ticket ${ticketId} not found.`, createMetadata('monday sync', flags))
-        this.exit(1)
+        return
       }
       this.error(`Ticket ${ticketId} not found.`)
     }
@@ -208,7 +208,7 @@ export default class MondaySyncCommand extends PMOCommand {
       const message = error instanceof Error ? error.message : String(error)
       if (jsonMode) {
         outputErrorAsJson('MONDAY_SYNC_FAILED', `Failed to sync ${ticketId}: ${message}`, createMetadata('monday sync', flags))
-        this.exit(1)
+        return
       }
       this.error(`Failed to sync ${ticketId}: ${message}`)
     }

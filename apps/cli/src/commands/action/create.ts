@@ -230,6 +230,7 @@ export default class ActionCreate extends PMOCommand {
     if (!name || !prompt) {
       if (jsonMode) {
         outputErrorAsJson('MISSING_REQUIRED', 'Name and prompt are required.', createMetadata('action create', flags));
+        return
       }
       this.error('Name and prompt are required.');
     }

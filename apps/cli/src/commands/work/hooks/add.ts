@@ -57,6 +57,7 @@ export default class WorkHooksAdd extends PMOCommand {
     } catch {
       if (jsonMode) {
         outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.', createMetadata('work hooks add', flags))
+        return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
     }
@@ -78,6 +79,7 @@ export default class WorkHooksAdd extends PMOCommand {
             buildPromptConfig('input', 'name', message, choices),
             createMetadata('work hooks add', flags),
           )
+          return
         }
 
         const result = await withSignalSafePrompt(() =>
@@ -96,6 +98,7 @@ export default class WorkHooksAdd extends PMOCommand {
       if (existing) {
         if (jsonMode) {
           outputErrorAsJson('DUPLICATE_NAME', `Hook "${name}" already exists.`, createMetadata('work hooks add', flags))
+          return
         }
         this.error(`Hook "${name}" already exists.`)
       }
@@ -111,6 +114,7 @@ export default class WorkHooksAdd extends PMOCommand {
             buildPromptConfig('list', 'event', message, eventChoices),
             createMetadata('work hooks add', flags),
           )
+          return
         }
 
         const result = await withSignalSafePrompt(() =>
@@ -139,6 +143,7 @@ export default class WorkHooksAdd extends PMOCommand {
             buildPromptConfig('list', 'actionType', message, actionChoices),
             createMetadata('work hooks add', flags),
           )
+          return
         }
 
         const result = await withSignalSafePrompt(() =>
@@ -167,6 +172,7 @@ export default class WorkHooksAdd extends PMOCommand {
             buildPromptConfig('input', 'actionValue', message),
             createMetadata('work hooks add', flags),
           )
+          return
         }
 
         const result = await withSignalSafePrompt(() =>
@@ -208,6 +214,7 @@ export default class WorkHooksAdd extends PMOCommand {
           },
           createMetadata('work hooks add', flags),
         )
+        return
       }
 
       this.log(styles.success(`Hook "${hook.name}" created.`))

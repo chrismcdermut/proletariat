@@ -43,10 +43,10 @@ export default class ExecutionView extends PMOCommand {
     const jsonMode = shouldOutputJson(flags)
 
     // Helper to handle errors in JSON mode
-    const handleError = (code: string, message: string): never => {
+    const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('execution view', flags))
-        this.exit(1)
+        return
       }
       this.error(message)
     }
@@ -74,6 +74,7 @@ export default class ExecutionView extends PMOCommand {
         if (executions.length === 0) {
           if (jsonMode) {
             outputErrorAsJson('NO_EXECUTIONS', 'No executions found.', createMetadata('execution view', flags))
+            return
             db.close()
             this.exit(1)
           }
@@ -131,6 +132,7 @@ export default class ExecutionView extends PMOCommand {
           exitCode: execution.exitCode ?? null,
           errorMessage: execution.errorMessage || null,
         }, createMetadata('execution view', flags))
+        return
       }
 
       // Display execution details
