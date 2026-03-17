@@ -86,6 +86,12 @@ export default class LinearConnect extends PMOCommand {
         const client = new LinearClient(existingConfig.apiKey)
         const info = await client.verify()
 
+        // If --team flag was provided, update the default team without re-auth
+        if (flags.team) {
+          await this.handleTeamSelection(client, flags, jsonMode, db, info)
+          return
+        }
+
         if (jsonMode) {
           outputSuccessAsJson({
             authenticated: true,
