@@ -239,72 +239,79 @@ export default class SessionHealth extends PMOCommand {
         let containerId: string | undefined
         let actualSessionId = exec.sessionId
 
-        // Try to find session if sessionId is NULL
-        if (!exec.sessionId) {
-          if (isContainer && exec.containerId) {
-            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+        // Try to find the tmux session for this execution.
+        // First try exact sessionId match, then fall back to fuzzy matching
+        // by ticketId + agentName (handles cases where sessionId in DB is
+        // stale, truncated, or doesn't match the actual tmux session name).
+        if (isContainer && exec.containerId) {
+          const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+          containerId = exec.containerId
+          if (exec.sessionId && containerSessions.includes(exec.sessionId)) {
+            exists = true
+          } else {
+            // Fuzzy match: find by ticketId + agentName
             const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
             if (match) {
               actualSessionId = match
               exists = true
-              containerId = exec.containerId
             }
+          }
+        } else {
+          if (exec.sessionId && hostTmuxSessions.includes(exec.sessionId)) {
+            exists = true
           } else {
+            // Fuzzy match: find by ticketId + agentName
             const match = findSessionForExecution(exec.ticketId, exec.agentName, hostTmuxSessions)
             if (match) {
               actualSessionId = match
               exists = true
             }
           }
-          if (!actualSessionId) continue
+        }
+        if (!exists || !actualSessionId) continue
+
+        if (isContainer && containerId) {
+          matchedContainerSessions.add(`${containerId}:${actualSessionId}`)
         } else {
-          if (isContainer && exec.containerId) {
-            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-            exists = containerSessions.includes(exec.sessionId)
-            containerId = exec.containerId
-          } else {
-            exists = hostTmuxSessions.includes(exec.sessionId)
-          }
+          matchedHostSessions.add(actualSessionId)
         }
 
-        if (exists && actualSessionId) {
-          if (isContainer && containerId) {
-            matchedContainerSessions.add(`${containerId}:${actualSessionId}`)
-          } else {
-            matchedHostSessions.add(actualSessionId)
-          }
+        // Capture pane and detect state
+        const paneContent = captureTmuxPane(actualSessionId, 10, containerId)
+        const state = detectState(paneContent)
 
-          // Capture pane and detect state
-          const paneContent = captureTmuxPane(actualSessionId, 10, containerId)
-          const state = detectState(paneContent)
-
-          agents.push({
-            sessionId: actualSessionId,
-            ticketId: exec.ticketId,
-            agentName: exec.agentName,
-            state,
-            environment: isContainer ? 'container' : 'host',
-            containerId,
-            elapsed: formatElapsed(exec.startedAt),
-            paneContent: paneContent || undefined,
-          })
-        }
+        agents.push({
+          sessionId: actualSessionId,
+          ticketId: exec.ticketId,
+          agentName: exec.agentName,
+          state,
+          environment: isContainer ? 'container' : 'host',
+          containerId,
+          elapsed: formatElapsed(exec.startedAt),
+          paneContent: paneContent || undefined,
+        })
       }
 
-      // Also discover orphan tmux sessions matching prlt pattern
+      // Also discover orphan tmux sessions matching prlt pattern.
+      // For orphans, try to look up the DB record by ticketId + agentName
+      // to recover the elapsed time instead of showing '?'.
       for (const sessionName of hostTmuxSessions) {
         if (matchedHostSessions.has(sessionName)) continue
         const parsed = parseSessionName(sessionName)
         if (parsed) {
           const paneContent = captureTmuxPane(sessionName, 10)
           const state = detectState(paneContent)
+          const dbExec = executionStorage.getRunningExecution(parsed.ticketId)
+          const elapsed = dbExec && dbExec.agentName === parsed.agentName
+            ? formatElapsed(dbExec.startedAt)
+            : '?'
           agents.push({
             sessionId: sessionName,
             ticketId: parsed.ticketId,
             agentName: parsed.agentName,
             state,
             environment: 'host',
-            elapsed: '?',
+            elapsed,
             paneContent: paneContent || undefined,
           })
         }
@@ -316,6 +323,10 @@ export default class SessionHealth extends PMOCommand {
         if (parsed) {
           const paneContent = captureTmuxPane(sessionName, 10, cId)
           const state = detectState(paneContent)
+          const dbExec = executionStorage.getRunningExecution(parsed.ticketId)
+          const elapsed = dbExec && dbExec.agentName === parsed.agentName
+            ? formatElapsed(dbExec.startedAt)
+            : '?'
           agents.push({
             sessionId: sessionName,
             ticketId: parsed.ticketId,
@@ -323,7 +334,7 @@ export default class SessionHealth extends PMOCommand {
             state,
             environment: 'container',
             containerId: cId,
-            elapsed: '?',
+            elapsed,
             paneContent: paneContent || undefined,
           })
         }
