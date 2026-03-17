@@ -363,7 +363,7 @@ export function buildPrompt(context: ExecutionContext): string {
   if (context.isRevision) {
     prompt += `After addressing the feedback:\n`
     prompt += `1. Commit your changes using \`prlt commit "your message"\`\n`
-    prompt += `2. Push your changes: \`git push\`\n`
+    prompt += `2. Push your changes: \`git push origin HEAD\`\n`
     prompt += `\nThe PR will be updated automatically.`
   } else if (context.actionEndPrompt) {
     let endPrompt = context.actionEndPrompt.replace(/\{\{TICKET_ID\}\}/g, context.ticketId)
@@ -380,7 +380,7 @@ export function buildPrompt(context: ExecutionContext): string {
       prompt += `   cd /workspace/<repo-name>\n`
       prompt += `   git add -A\n`
       prompt += `   prlt commit "describe your change"\n`
-      prompt += `   git push\n`
+      prompt += `   git push origin HEAD\n`
       prompt += `   \`\`\`\n`
       prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
       prompt += `\n2. **Mark work as ready** by running:\n`
