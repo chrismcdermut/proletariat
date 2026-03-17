@@ -125,6 +125,19 @@ export default class WorkComplete extends PMOCommand {
       // Move to Done column (moveTicket also updates status_id)
       await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn);
 
+      // Sync to external provider (e.g., Linear) if ticket was imported from one
+      try {
+        const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId!);
+        if (provider.name !== 'pmo') {
+          const result = await provider.moveTicket(ticketId!, doneColumn);
+          if (result.success) {
+            this.log(styles.muted(`   Synced to ${result.provider}: ${doneColumn}`));
+          }
+        }
+      } catch {
+        // Non-fatal — don't block work complete for provider sync failures
+      }
+
       // Auto-export to board.md if configured
       await autoExportToBoard(this.pmoPath, this.storage);
 

@@ -3,6 +3,10 @@ import {
   PMOCommand,
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
+import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
+import Database from 'better-sqlite3';
+import * as path from 'node:path';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { styles } from '../../lib/styles.js';
 import {
   isGHInstalled,
@@ -147,8 +151,11 @@ export default class PRMerge extends PMOCommand {
     if (this.hasPMO) {
       try {
         const allTickets = await this.storage.listTickets(flags.project);
+        // Find linked ticket by pr_number or by extracting number from pr_url
         const linkedTicket = allTickets.find(t =>
-          t.metadata?.pr_number === String(prNumber)
+          t.metadata?.pr_number === String(prNumber) ||
+          t.metadata?.pr_url?.endsWith(`/pull/${prNumber}`) ||
+          t.metadata?.pr_url?.endsWith(`/${prNumber}`)
         );
         if (linkedTicket) {
           linkedTicketId = linkedTicket.id;
@@ -158,6 +165,49 @@ export default class PRMerge extends PMOCommand {
               pr_state: 'MERGED',
             },
           });
+
+          // Move ticket to Done column in local PMO and external provider
+          try {
+            let workspaceInfo;
+            try {
+              workspaceInfo = getWorkspaceInfo();
+            } catch {
+              workspaceInfo = null;
+            }
+            const dbPath = workspaceInfo
+              ? path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
+              : null;
+
+            if (dbPath) {
+              const db = new Database(dbPath);
+              try {
+                const targetColumnName = getWorkColumnSetting(db, 'done');
+                const board = linkedTicket.projectId
+                  ? await this.storage.getProjectBoard(linkedTicket.projectId)
+                  : null;
+                const columnNames = board ? board.columns.map(col => col.name) : [];
+                const doneColumn = findColumnByName(columnNames, targetColumnName);
+
+                if (doneColumn && linkedTicket.projectId) {
+                  // Move in local PMO
+                  await this.storage.moveTicket(linkedTicket.projectId, linkedTicket.id, doneColumn);
+
+                  // Sync to external provider (e.g., Linear)
+                  const provider = await this.resolveTicketProvider(linkedTicket.id, linkedTicket.projectId);
+                  if (provider.name !== 'pmo') {
+                    const moveResult = await provider.moveTicket(linkedTicket.id, doneColumn);
+                    if (moveResult.success) {
+                      this.log(styles.muted(`   Synced to ${moveResult.provider}: ${doneColumn}`));
+                    }
+                  }
+                }
+              } finally {
+                db.close();
+              }
+            }
+          } catch {
+            // Non-critical - don't fail the merge if ticket transition fails
+          }
         }
       } catch {
         // Non-critical - don't fail the merge if PMO update fails
