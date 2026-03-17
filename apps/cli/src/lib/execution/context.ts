@@ -39,7 +39,7 @@ export function detectRepoWorktrees(agentDir: string): string[] {
  *
  * @param agentDir - The agent's working directory
  * @param repoWorktrees - Array of repository names (from detectRepoWorktrees)
- * @param fallbackPath - Path to use if no worktrees found (defaults to process.cwd())
+ * @param fallbackPath - Path to use if no worktrees found (defaults to agentDir)
  * @returns The resolved worktree path
  */
 export function resolveWorktreePath(
@@ -54,7 +54,9 @@ export function resolveWorktreePath(
     // Multiple repos - use agent directory, let user navigate between them
     return agentDir
   } else {
-    // No git worktrees found - use fallback
-    return fallbackPath ?? process.cwd()
+    // No git worktrees found - fall back to agentDir so the path stays
+    // inside the Docker mount (process.cwd() is on the host and won't
+    // resolve inside a container)
+    return fallbackPath ?? agentDir
   }
 }
