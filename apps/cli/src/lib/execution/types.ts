@@ -154,6 +154,8 @@ export interface AgentWork {
   completedAt?: Date
   exitCode?: number
   errorMessage?: string
+  /** JSON-serialized CommitValidationResult from post-execution validation (PRLT-984) */
+  validationResult?: string
 }
 
 // =============================================================================

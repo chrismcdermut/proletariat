@@ -26,8 +26,9 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
-import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
+import { tryValidateCommits, type CommitValidationResult } from '../../lib/execution/commit-validation.js';
 import { detectRepoWorktrees } from '../../lib/execution/context.js';
+import { getEventBus } from '../../lib/events/event-bus.js';
 
 export default class WorkReady extends PMOCommand {
   static description = 'Mark work as ready for review (moves ticket to In Review column)';
@@ -59,6 +60,10 @@ export default class WorkReady extends PMOCommand {
     }),
     'no-pr': Flags.boolean({
       description: 'Skip PR creation prompt',
+      default: false,
+    }),
+    force: Flags.boolean({
+      description: 'Skip commit validation and mark work as ready even without meaningful code changes',
       default: false,
     }),
   };
@@ -173,7 +178,7 @@ export default class WorkReady extends PMOCommand {
         this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
       }
 
-      // PRLT-984: Commit validation — warn if no meaningful code was committed
+      // PRLT-984: Commit validation — block if no meaningful code was committed
       if (runningExecution?.branch && runningExecution?.agentName) {
         try {
           const agentRecord = workspaceInfo.agents.find(a => a.name === runningExecution.agentName);
@@ -190,14 +195,39 @@ export default class WorkReady extends PMOCommand {
             const repoWorktrees = detectRepoWorktrees(agentDir);
             const validation = tryValidateCommits(agentDir, runningExecution.branch, repoWorktrees);
             if (validation && !validation.passed) {
+              // Store validation result in execution record
+              executionStorage.storeValidationResult(runningExecution.id, validation);
+
+              // Emit validation failed event
+              getEventBus().emit('work:validation_failed', {
+                workItemId: ticketId!,
+                executionId: runningExecution.id,
+                agentName: runningExecution.agentName,
+                branch: runningExecution.branch,
+                validation,
+                timestamp: new Date(),
+              });
+
+              if (!flags.force) {
+                // Mark execution as failed due to validation
+                executionStorage.updateStatus(runningExecution.id, 'failed', undefined,
+                  `Commit validation failed: ${validation.details}`);
+                db.close();
+                this.log(styles.error(`Commit validation failed: ${validation.details}`));
+                this.log(styles.error(`Agent may not have implemented meaningful code.`));
+                this.log(styles.muted(`Use --force to mark as ready anyway, or have the agent implement the required changes.`));
+                this.error(`Cannot mark work as ready without meaningful code changes.`);
+                return;
+              }
               this.log(styles.warning(`   ⚠ Commit validation: ${validation.details}`));
-              this.log(styles.warning(`     Agent may not have implemented meaningful code.`));
+              this.log(styles.warning(`     Proceeding anyway (--force).`));
             } else if (validation?.passed) {
+              executionStorage.storeValidationResult(runningExecution.id, validation);
               this.log(styles.muted(`   ✓ Commit validation: ${validation.details}`));
             }
           }
         } catch {
-          // Non-fatal — don't block work ready for validation failures
+          // Non-fatal — if validation itself errors, don't block
         }
       }
 

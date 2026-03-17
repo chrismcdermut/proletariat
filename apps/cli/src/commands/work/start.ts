@@ -1043,10 +1043,16 @@ export default class WorkStart extends PMOCommand {
                   this.log(styles.warning(`   ⚠ ${cleaned.ticketId}: agent completed without meaningful code — ${result.validation?.details}`))
                   // Persist validation failure on the execution record
                   executionStorage.updateStatus(cleaned.executionId, 'failed', undefined, `Commit validation failed: ${result.validation?.details}`)
+                  if (result.validation) {
+                    executionStorage.storeValidationResult(cleaned.executionId, result.validation)
+                  }
                 } else if (result.transitioned && !jsonMode) {
                   const via = result.provider && result.provider !== 'pmo' ? ` via ${result.provider}` : ''
                   const validationInfo = result.validation ? ` (${result.validation.details})` : ''
                   this.log(styles.muted(`   Auto-transitioned ${cleaned.ticketId}: ${result.fromState} → ${result.toState}${via}${validationInfo}`))
+                  if (result.validation) {
+                    executionStorage.storeValidationResult(cleaned.executionId, result.validation)
+                  }
                 }
               } catch {
                 // Non-fatal — don't block work start for transition failures
@@ -2552,10 +2558,16 @@ export default class WorkStart extends PMOCommand {
             this.log(styles.warning(`   ⚠ ${cleaned.ticketId}: agent completed without meaningful code — ${result.validation?.details}`))
             // Persist validation failure on the execution record
             executionStorage.updateStatus(cleaned.executionId, 'failed', undefined, `Commit validation failed: ${result.validation?.details}`)
+            if (result.validation) {
+              executionStorage.storeValidationResult(cleaned.executionId, result.validation)
+            }
           } else if (result.transitioned) {
             const via = result.provider && result.provider !== 'pmo' ? ` via ${result.provider}` : ''
             const validationInfo = result.validation ? ` (${result.validation.details})` : ''
             this.log(styles.muted(`   Auto-transitioned ${cleaned.ticketId}: ${result.fromState} → ${result.toState}${via}${validationInfo}`))
+            if (result.validation) {
+              executionStorage.storeValidationResult(cleaned.executionId, result.validation)
+            }
           }
         } catch {
           // Non-fatal

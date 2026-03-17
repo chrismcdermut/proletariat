@@ -20,6 +20,7 @@ import type { StateCategory } from '../pmo/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
 import type { TicketProvider, ProviderMoveResult, ProviderStorage } from '../providers/types.js'
 import { tryValidateCommits, type CommitValidationResult } from '../execution/commit-validation.js'
+import { getEventBus } from '../events/event-bus.js'
 
 export interface PostExecutionContext {
   ticketId: string
@@ -123,6 +124,17 @@ export async function handlePostExecutionTransition(
       if (result) {
         validation = result
         if (!result.passed) {
+          // Emit validation failed event for hooks
+          if (context.agentName && context.branch) {
+            getEventBus().emit('work:validation_failed', {
+              workItemId: context.ticketId,
+              executionId: context.actionId || '',
+              agentName: context.agentName,
+              branch: context.branch,
+              validation: result,
+              timestamp: new Date(),
+            })
+          }
           return {
             transitioned: false,
             fromState: ticket.statusName,

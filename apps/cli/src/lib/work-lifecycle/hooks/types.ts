@@ -18,6 +18,7 @@ export type HookableEvent = Extract<
   | 'work:status_changed'
   | 'work:pr_created'
   | 'work:completed'
+  | 'work:validation_failed'
   | 'agent:spawned'
   | 'agent:stopped'
 >
@@ -28,6 +29,7 @@ export const HOOKABLE_EVENTS: HookableEvent[] = [
   'work:status_changed',
   'work:pr_created',
   'work:completed',
+  'work:validation_failed',
   'agent:spawned',
   'agent:stopped',
 ]

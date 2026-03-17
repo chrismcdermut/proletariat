@@ -14,6 +14,7 @@ import type {
   WorkPRCreatedEvent,
   WorkPRMergedEvent,
   WorkCompletedEvent,
+  WorkValidationFailedEvent,
 } from '../work-lifecycle/events.js'
 
 // =============================================================================
@@ -139,6 +140,7 @@ export interface RuntimeEventMap {
   'work:pr_created': WorkPRCreatedEvent
   'work:pr_merged': WorkPRMergedEvent
   'work:completed': WorkCompletedEvent
+  'work:validation_failed': WorkValidationFailedEvent
 }
 
 /** Union of all event names. */

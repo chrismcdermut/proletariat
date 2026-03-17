@@ -16,6 +16,7 @@ import {
   DisplayMode,
   PermissionMode,
 } from './types.js'
+import type { CommitValidationResult } from './commit-validation.js'
 
 // =============================================================================
 // Cleaned Execution Info
@@ -63,6 +64,7 @@ interface AgentWorkRow {
   completed_at: number | null
   exit_code: number | null
   error_message: string | null
+  validation_result: string | null
 }
 
 // =============================================================================
@@ -93,6 +95,7 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
     exitCode: row.exit_code ?? undefined,
     errorMessage: row.error_message || undefined,
+    validationResult: row.validation_result || undefined,
   }
 }
 
@@ -513,6 +516,38 @@ export class ExecutionStorage {
    */
   deleteExecution(id: string): void {
     this.db.prepare(`DELETE FROM ${T.agent_work} WHERE id = ?`).run(id)
+  }
+
+  /**
+   * Store commit validation result for an execution (PRLT-984).
+   * Stores as JSON string in the validation_result column.
+   */
+  storeValidationResult(id: string, result: CommitValidationResult): void {
+    try {
+      this.db.prepare(`
+        UPDATE ${T.agent_work}
+        SET validation_result = ?
+        WHERE id = ?
+      `).run(JSON.stringify(result), id)
+    } catch {
+      // Non-fatal — column might not exist on older databases
+    }
+  }
+
+  /**
+   * Get parsed commit validation result for an execution.
+   * Returns null if no result stored or column doesn't exist.
+   */
+  getValidationResult(id: string): CommitValidationResult | null {
+    try {
+      const row = this.db
+        .prepare(`SELECT validation_result FROM ${T.agent_work} WHERE id = ?`)
+        .get(id) as { validation_result: string | null } | undefined
+      if (!row?.validation_result) return null
+      return JSON.parse(row.validation_result) as CommitValidationResult
+    } catch {
+      return null
+    }
   }
 }
 

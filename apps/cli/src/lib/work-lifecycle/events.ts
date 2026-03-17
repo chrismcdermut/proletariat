@@ -10,6 +10,7 @@
  */
 
 import type { StateCategory } from '../pmo/types.js'
+import type { CommitValidationResult } from '../execution/commit-validation.js'
 
 /**
  * Sources that can emit work-lifecycle events.
@@ -66,5 +67,19 @@ export interface WorkCompletedEvent {
   source: WorkEventSource
   projectId?: string
   status: string | null
+  timestamp: Date
+}
+
+/**
+ * Emitted when post-execution commit validation fails (PRLT-984).
+ * Fired when an agent tries to mark work as complete/ready but
+ * has not committed meaningful code (only boilerplate or no commits).
+ */
+export interface WorkValidationFailedEvent {
+  workItemId: string
+  executionId: string
+  agentName: string
+  branch: string
+  validation: CommitValidationResult
   timestamp: Date
 }

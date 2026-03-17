@@ -1,4 +1,4 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
@@ -13,8 +13,9 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { trackWorkCompleted } from '../../lib/telemetry/analytics.js';
-import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
+import { tryValidateCommits, type CommitValidationResult } from '../../lib/execution/commit-validation.js';
 import { detectRepoWorktrees } from '../../lib/execution/context.js';
+import { getEventBus } from '../../lib/events/event-bus.js';
 
 export default class WorkComplete extends PMOCommand {
   static description = 'Mark work as complete (moves ticket to Done column)';
@@ -33,6 +34,10 @@ export default class WorkComplete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    force: Flags.boolean({
+      description: 'Skip commit validation and mark work as complete even without meaningful code changes',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
@@ -140,7 +145,7 @@ export default class WorkComplete extends PMOCommand {
 
         this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
 
-        // PRLT-984: Commit validation — warn if no meaningful code was committed
+        // PRLT-984: Commit validation — block completion if no meaningful code was committed
         if (runningExecution.branch && runningExecution.agentName) {
           try {
             const agentRecord = workspaceInfo.agents.find(a => a.name === runningExecution.agentName);
@@ -157,14 +162,39 @@ export default class WorkComplete extends PMOCommand {
               const repoWorktrees = detectRepoWorktrees(agentDir);
               const validation = tryValidateCommits(agentDir, runningExecution.branch, repoWorktrees);
               if (validation && !validation.passed) {
+                // Store validation result in execution record
+                executionStorage.storeValidationResult(runningExecution.id, validation);
+
+                // Emit validation failed event
+                getEventBus().emit('work:validation_failed', {
+                  workItemId: ticketId!,
+                  executionId: runningExecution.id,
+                  agentName: runningExecution.agentName,
+                  branch: runningExecution.branch,
+                  validation,
+                  timestamp: new Date(),
+                });
+
+                if (!flags.force) {
+                  // Revert: mark execution back to running since we're blocking completion
+                  executionStorage.updateStatus(runningExecution.id, 'failed', undefined,
+                    `Commit validation failed: ${validation.details}`);
+                  db.close();
+                  this.log(styles.error(`Commit validation failed: ${validation.details}`));
+                  this.log(styles.error(`Agent may not have implemented meaningful code.`));
+                  this.log(styles.muted(`Use --force to complete anyway, or have the agent implement the required changes.`));
+                  this.error(`Cannot mark work as complete without meaningful code changes.`);
+                  return;
+                }
                 this.log(styles.warning(`   ⚠ Commit validation: ${validation.details}`));
-                this.log(styles.warning(`     Agent may not have implemented meaningful code.`));
+                this.log(styles.warning(`     Proceeding anyway (--force).`));
               } else if (validation?.passed) {
+                executionStorage.storeValidationResult(runningExecution.id, validation);
                 this.log(styles.muted(`   ✓ Commit validation: ${validation.details}`));
               }
             }
           } catch {
-            // Non-fatal — don't block work complete for validation failures
+            // Non-fatal — if validation itself errors, don't block completion
           }
         }
       }

@@ -26,10 +26,14 @@ export interface CommitValidationResult {
   totalInsertions: number
   /** Total lines removed */
   totalDeletions: number
+  /** Lines added in non-boilerplate code files */
+  codeInsertions: number
   /** True if only boilerplate files (README, LICENSE, etc.) were modified */
   boilerplateOnly: boolean
   /** True if no commits were found on the branch */
   noCommits: boolean
+  /** Number of commits on the branch relative to base */
+  commitCount: number
   /** Human-readable summary of the validation result */
   details: string
 }
@@ -50,25 +54,52 @@ interface DiffFileStat {
  * without implementing actual functionality.
  */
 const BOILERPLATE_PATTERNS: RegExp[] = [
+  // README variants
   /^readme\.md$/i,
   /^readme$/i,
   /^readme\.txt$/i,
   /^readme\.rst$/i,
+  // License
   /^license$/i,
   /^license\.md$/i,
   /^license\.txt$/i,
+  // Git config
   /^\.gitignore$/i,
   /^\.gitkeep$/i,
+  /^\.gitattributes$/i,
+  // Package manager config (scaffolding without code)
   /^\.npmignore$/i,
+  /^\.npmrc$/i,
+  /^\.nvmrc$/i,
+  /^\.node-version$/i,
+  /^\.python-version$/i,
+  // Documentation
   /^changelog\.md$/i,
   /^changes\.md$/i,
-  /^\.editorconfig$/i,
-  /^\.prettierrc$/i,
-  /^\.prettierignore$/i,
-  /^\.eslintignore$/i,
   /^contributing\.md$/i,
   /^code_of_conduct\.md$/i,
+  /^security\.md$/i,
+  /^authors$/i,
+  /^authors\.md$/i,
+  // Editor / formatter config
+  /^\.editorconfig$/i,
+  /^\.prettierrc$/i,
+  /^\.prettierrc\.json$/i,
+  /^\.prettierrc\.ya?ml$/i,
+  /^\.prettierignore$/i,
+  /^\.eslintrc$/i,
+  /^\.eslintrc\.json$/i,
+  /^\.eslintrc\.ya?ml$/i,
+  /^\.eslintignore$/i,
+  // Docker config (not code)
   /^\.dockerignore$/i,
+  /^Dockerfile$/i,
+  /^docker-compose\.ya?ml$/i,
+  // CI config files alone are not meaningful code
+  /^\.github\/.*$/i,
+  /^\.gitlab-ci\.ya?ml$/i,
+  /^\.circleci\/.*$/i,
+  /^\.travis\.ya?ml$/i,
 ]
 
 function isBoilerplateFile(filePath: string): boolean {
@@ -182,8 +213,10 @@ export function validateCommits(
       codeFiles: 0,
       totalInsertions: 0,
       totalDeletions: 0,
+      codeInsertions: 0,
       boilerplateOnly: false,
       noCommits: true,
+      commitCount: 0,
       details: `Branch "${branch}" not found in repository`,
     }
   }
@@ -197,8 +230,10 @@ export function validateCommits(
       codeFiles: 0,
       totalInsertions: 0,
       totalDeletions: 0,
+      codeInsertions: 0,
       boilerplateOnly: false,
       noCommits: true,
+      commitCount: 0,
       details: 'No commits found on branch',
     }
   }
@@ -212,8 +247,10 @@ export function validateCommits(
       codeFiles: 0,
       totalInsertions: 0,
       totalDeletions: 0,
+      codeInsertions: 0,
       boilerplateOnly: false,
       noCommits: false,
+      commitCount,
       details: 'No file changes found in diff',
     }
   }
@@ -233,11 +270,11 @@ export function validateCommits(
   let details: string
   if (boilerplateOnly) {
     const fileNames = files.map(f => f.path).join(', ')
-    details = `Only boilerplate files modified (${fileNames})`
+    details = `Only boilerplate files modified: ${fileNames} (${commitCount} commit${commitCount !== 1 ? 's' : ''})`
   } else if (codeInsertions === 0) {
-    details = `${codeFiles.length} code file(s) touched but no insertions`
+    details = `${codeFiles.length} code file(s) touched but no insertions (${commitCount} commit${commitCount !== 1 ? 's' : ''})`
   } else {
-    details = `${codeFiles.length} code file(s), +${codeInsertions}/-${totalDeletions} lines`
+    details = `${codeFiles.length} code file(s), +${codeInsertions}/-${totalDeletions} lines across ${commitCount} commit${commitCount !== 1 ? 's' : ''}`
   }
 
   return {
@@ -246,8 +283,10 @@ export function validateCommits(
     codeFiles: codeFiles.length,
     totalInsertions,
     totalDeletions,
+    codeInsertions,
     boilerplateOnly,
     noCommits: false,
+    commitCount,
     details,
   }
 }
