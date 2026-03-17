@@ -35,6 +35,23 @@ export interface CleanedExecution {
   containerId?: string
 }
 
+// =============================================================================
+// Cleaned Execution Info
+// =============================================================================
+
+/**
+ * Details about a stale execution that was cleaned up.
+ * Includes enough context for post-execution validation (commit checks).
+ */
+export interface CleanedExecution {
+  ticketId: string
+  executionId: string
+  agentName: string
+  branch?: string
+  environment: ExecutionEnvironment
+  containerId?: string
+}
+
 const T = PMO_TABLES
 
 // =============================================================================
