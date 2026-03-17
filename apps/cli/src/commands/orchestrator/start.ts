@@ -12,8 +12,6 @@ import {
   outputErrorAsJson,
   outputSuccessAsJson,
   createMetadata,
-  buildPromptConfig,
-  outputPromptAsJson,
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -326,49 +324,46 @@ export default class OrchestratorStart extends PromptCommand {
         availableNames = buildAvailableOrchestratorNames(reservedNames)
       }
 
-      const nameChoices = [
-        ...availableNames.map(name => ({
-          name,
-          value: name,
-          command: `prlt orchestrator start --name ${name} --json`,
-        })),
-        { name: 'Custom...', value: '__custom__' },
-      ]
-      const nameMessage = 'Select orchestrator name:'
-
+      // JSON mode: auto-select first available name instead of prompting
       if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'selectedName', nameMessage, nameChoices),
-          createMetadata('orchestrator start', flags),
-        )
-        return
-      }
-
-      const { selectedName } = await this.prompt<{ selectedName: string }>([{
-        type: 'list',
-        name: 'selectedName',
-        message: nameMessage,
-        choices: nameChoices,
-      }])
-
-      if (selectedName === '__custom__') {
-        const defaultCustomName = availableNames[0] || 'main'
-        const { customName } = await this.prompt<{ customName: string }>([{
-          type: 'input',
-          name: 'customName',
-          message: 'Enter orchestrator name:',
-          default: defaultCustomName,
-          validate: (input: unknown) => {
-            const normalized = resolveOrchestratorName(sanitizeName(String(input ?? '')).toLowerCase())
-            if (reservedNames.has(normalized)) {
-              return `Name "${normalized}" is already in use by an agent or orchestrator session.`
-            }
-            return true
-          },
-        }])
-        orchestratorName = resolveOrchestratorName(customName)
+        orchestratorName = resolveOrchestratorName(availableNames[0])
       } else {
-        orchestratorName = resolveOrchestratorName(selectedName)
+        const nameChoices = [
+          ...availableNames.map(name => ({
+            name,
+            value: name,
+            command: `prlt orchestrator start --name ${name} --json`,
+          })),
+          { name: 'Custom...', value: '__custom__' },
+        ]
+        const nameMessage = 'Select orchestrator name:'
+
+        const { selectedName } = await this.prompt<{ selectedName: string }>([{
+          type: 'list',
+          name: 'selectedName',
+          message: nameMessage,
+          choices: nameChoices,
+        }])
+
+        if (selectedName === '__custom__') {
+          const defaultCustomName = availableNames[0] || 'main'
+          const { customName } = await this.prompt<{ customName: string }>([{
+            type: 'input',
+            name: 'customName',
+            message: 'Enter orchestrator name:',
+            default: defaultCustomName,
+            validate: (input: unknown) => {
+              const normalized = resolveOrchestratorName(sanitizeName(String(input ?? '')).toLowerCase())
+              if (reservedNames.has(normalized)) {
+                return `Name "${normalized}" is already in use by an agent or orchestrator session.`
+              }
+              return true
+            },
+          }])
+          orchestratorName = resolveOrchestratorName(customName)
+        } else {
+          orchestratorName = resolveOrchestratorName(selectedName)
+        }
       }
     }
 
@@ -422,10 +417,12 @@ export default class OrchestratorStart extends PromptCommand {
       this.error(`Orchestrator name "${conflict}" is already in use by a staff/temp agent. Choose a different name.`)
     }
 
-    // Executor selection
+    // Executor selection (JSON mode defaults to claude-code)
     let selectedExecutor: ExecutorType
     if (flags.executor) {
       selectedExecutor = flags.executor as ExecutorType
+    } else if (jsonMode) {
+      selectedExecutor = 'claude-code'
     } else {
       const executorChoices = [
         { name: 'Claude Code', value: 'claude-code', command: 'prlt orchestrator start --executor claude-code --json' },
@@ -434,14 +431,6 @@ export default class OrchestratorStart extends PromptCommand {
         { name: 'Request executor support...', value: 'request-support' },
       ]
       const executorMessage = 'Select executor:'
-
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'executor', executorMessage, executorChoices),
-          createMetadata('orchestrator start', flags),
-        )
-        return
-      }
 
       const { executor } = await this.prompt<{ executor: string }>([{
         type: 'list',
@@ -526,26 +515,20 @@ export default class OrchestratorStart extends PromptCommand {
       return
     }
 
-    // Permission mode selection
+    // Permission mode selection (JSON mode defaults to danger)
     let permissionMode: PermissionMode
     if (flags['skip-permissions']) {
       permissionMode = 'danger'
     } else if (flags['permission-mode']) {
       permissionMode = flags['permission-mode'] as PermissionMode
+    } else if (jsonMode) {
+      permissionMode = 'danger'
     } else {
       const permissionChoices = [
         { name: '⚠️  danger - Skip permission checks (faster)', value: 'danger', command: 'prlt orchestrator start --permission-mode danger --json' },
         { name: '🔒 safe   - Requires approval for dangerous operations', value: 'safe', command: 'prlt orchestrator start --permission-mode safe --json' },
       ]
       const permissionMessage = 'Permission mode:'
-
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'permissionMode', permissionMessage, permissionChoices),
-          createMetadata('orchestrator start', flags),
-        )
-        return
-      }
 
       const { permissionMode: selectedMode } = await this.prompt<{ permissionMode: string }>([{
         type: 'list',
@@ -635,12 +618,14 @@ export default class OrchestratorStart extends PromptCommand {
       executionConfig.shell = detectShell() || 'zsh'
     }
 
-    // Determine display mode
+    // Determine display mode (JSON mode defaults to background)
     let displayMode: DisplayMode
     if (flags.background) {
       displayMode = 'background'
     } else if (flags.foreground) {
       displayMode = 'foreground'
+    } else if (jsonMode) {
+      displayMode = 'background'
     } else {
       const displayChoices = [
         { name: 'New terminal tab — opens attached to the tmux session', value: 'terminal', command: `prlt orchestrator start${orchestratorName !== 'main' ? ` --name ${orchestratorName}` : ''} --json` },
@@ -649,20 +634,12 @@ export default class OrchestratorStart extends PromptCommand {
       ]
       const displayMessage = 'How do you want to view the orchestrator?'
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'displayMode', displayMessage, displayChoices),
-          createMetadata('orchestrator start', flags),
-        )
-        return
-      }
-
       const { displayMode: selectedMode } = await this.prompt<{ displayMode: DisplayMode }>([{
         type: 'list',
         name: 'displayMode',
         message: displayMessage,
         choices: displayChoices,
-      }], jsonMode ? { flags, commandName: 'orchestrator start' } : null)
+      }])
       displayMode = selectedMode
     }
 

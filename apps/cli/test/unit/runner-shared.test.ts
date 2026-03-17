@@ -64,6 +64,48 @@ describe('Runner Shared Utilities (TKT-140)', () => {
       const result = buildSessionName(ctx)
       expect(result).to.equal('TKT-999-review-test-agent')
     })
+
+    it('should use HQ-scoped naming for orchestrator contexts', () => {
+      const ctx = makeContext({
+        ticketId: 'prlt',
+        actionName: 'orchestrator',
+        agentName: 'main',
+        isOrchestrator: true,
+        hqName: 'proletariat',
+      })
+      expect(buildSessionName(ctx)).to.equal('prlt-orchestrator-proletariat-main')
+    })
+
+    it('should use HQ-scoped naming for named orchestrator', () => {
+      const ctx = makeContext({
+        ticketId: 'prlt',
+        actionName: 'orchestrator',
+        agentName: 'ops',
+        isOrchestrator: true,
+        hqName: 'my-project',
+      })
+      expect(buildSessionName(ctx)).to.equal('prlt-orchestrator-my-project-ops')
+    })
+
+    it('should fall back to default hqName when hqName is empty', () => {
+      const ctx = makeContext({
+        ticketId: 'prlt',
+        actionName: 'orchestrator',
+        agentName: 'main',
+        isOrchestrator: true,
+        hqName: '',
+      })
+      // Empty hqName means isOrchestrator && context.hqName is falsy, falls back to standard format
+      expect(buildSessionName(ctx)).to.equal('prlt-orchestrator-main')
+    })
+
+    it('should use standard naming when not orchestrator even with hqName', () => {
+      const ctx = makeContext({
+        hqName: 'proletariat',
+        actionName: 'implement',
+      })
+      expect(buildSessionName(ctx)).to.equal('TKT-999-implement-test-agent')
+    })
   })
 
   describe('buildWindowTitle', () => {
