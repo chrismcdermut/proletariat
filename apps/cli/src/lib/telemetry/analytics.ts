@@ -16,10 +16,10 @@
  *
  * Write-ahead log:
  * - trackEvent() writes events to ~/.proletariat/telemetry-queue.json synchronously
- * - On the next command run (or during this run's shutdown if Statsig initialized in time),
- *   queued events are flushed to Statsig and the queue is cleared
+ * - On the next command run, queued events are flushed to Statsig and the queue is cleared
  * - Events are delayed by at most one command invocation — acceptable for analytics
  * - This adds zero latency and ensures no events are lost regardless of Statsig init timing
+ * - Shutdown never flushes the queue — events persist until the next run confirms delivery
  */
 
 import * as fs from 'node:fs'
@@ -80,6 +80,7 @@ let statsigClient: StatsigClientInstance | null = null
 let telemetryConfig: TelemetryConfig | null = null
 let cliVersion: string | null = null
 let initPromise: Promise<void> | null = null
+let analyticsShutdown = false
 
 // ─── Telemetry Config ────────────────────────────────────────────────────────
 
@@ -341,6 +342,14 @@ export function initAnalytics(version: string): void {
         { userID: getMachineId(), custom: { cli_version: version } },
       )
       await client.initializeAsync()
+
+      // If shutdown already ran while we were initializing, don't set state
+      // or flush — just clean up the client and bail out
+      if (analyticsShutdown) {
+        try { client.shutdown() } catch { /* ignore */ }
+        return
+      }
+
       statsigClient = client
 
       // Share Statsig client with feature-flags for synchronous gate checks
@@ -483,13 +492,20 @@ export function trackMCPToolCalled(options: {
  * didn't initialize in time, and will be flushed on the next command run.
  */
 export async function shutdownAnalytics(): Promise<void> {
+  // Mark as shut down so the in-progress async Statsig init (if any)
+  // won't set statsigClient or flush the queue after we're done
+  analyticsShutdown = true
+
   // Abandon any in-progress init — events are on disk, no need to wait
   initPromise = null
 
-  // If Statsig initialized during this run, flush queued events and shut down
+  // Shut down the Statsig client if it initialized during this run.
+  // Do NOT flush the queue here — events written during this command
+  // (by trackCommandRun in the postrun hook) are safely on disk and will
+  // be flushed on the next command run when Statsig is warm. Flushing
+  // here would delete events from disk before we can confirm they were
+  // actually sent, violating the write-ahead log guarantee.
   if (statsigClient) {
-    flushQueuedEvents()
-
     try {
       statsigClient.shutdown()
     } catch {
