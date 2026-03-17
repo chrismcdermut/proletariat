@@ -545,6 +545,12 @@ else
     echo "Warning: No GitHub token found, git push will require manual auth"
 fi
 
+# Configure git push to automatically set upstream tracking branch
+# Without this, 'git push' fails on new branches created with 'git checkout -b'
+# because no upstream is configured. This makes 'git push' equivalent to
+# 'git push -u origin <current-branch>' on first push. (TKT-157 / GH#823)
+git config --global push.autoSetupRemote true
+
 # Configure git user identity for commit attribution
 # Uses env vars set by host (from gh/git config), with fallback detection
 configure_git_identity() {

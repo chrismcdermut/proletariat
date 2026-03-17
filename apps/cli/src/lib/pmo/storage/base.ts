@@ -913,7 +913,7 @@ Example workflow:
 # After completing a piece of work
 git add -A
 prlt commit "implement user validation"
-git push
+git push origin HEAD
 \`\`\`
 
 When complete, the ticket should be ready for code review.
@@ -926,7 +926,7 @@ ${PRLT_COMMANDS_CODE}`,
    cd /workspace/<repo-name>
    git add -A
    prlt commit "describe your change"
-   git push
+   git push origin HEAD
    \`\`\`
    This formats your commit as a conventional commit with the ticket ID.
 
@@ -968,7 +968,7 @@ Continue working on this ticket from where you left off.
 - Don't wait until the end to commit - your work could be lost!
 
 \`\`\`bash
-git add -A && prlt commit "your change" && git push
+git add -A && prlt commit "your change" && git push origin HEAD
 \`\`\`
 
 ${PRLT_COMMANDS_COMMON}
@@ -979,7 +979,7 @@ ${PRLT_COMMANDS_CODE}`,
    cd /workspace/<repo-name>
    git add -A
    prlt commit "describe your change"
-   git push
+   git push origin HEAD
    \`\`\`
 
 2. **Mark work as ready** by running:
@@ -1198,7 +1198,7 @@ Review this ticket's implementation thoroughly and fix any issues found:
 - Push after every 1-2 commits to save your work
 
 \`\`\`bash
-git add -A && prlt commit "fix: address code review findings" && git push
+git add -A && prlt commit "fix: address code review findings" && git push origin HEAD
 \`\`\`
 
 ${PRLT_COMMANDS_COMMON}
@@ -1220,7 +1220,7 @@ ${PRLT_COMMANDS_REVIEW}`,
    - ...
    "
    prlt commit "fix: address code review findings"
-   git push
+   git push origin HEAD
    \`\`\`
 
 2. **If no issues were found**, approve the PR:
@@ -1277,7 +1277,7 @@ Address the feedback on this ticket's pull request:
 - Push after every 1-2 commits to save your work
 
 \`\`\`bash
-git add -A && prlt commit "fix: address PR review feedback" && git push
+git add -A && prlt commit "fix: address PR review feedback" && git push origin HEAD
 \`\`\`
 
 ${PRLT_COMMANDS_COMMON}
@@ -1292,7 +1292,7 @@ ${PRLT_COMMANDS_CODE}`,
 
 2. **Push your changes**:
    \`\`\`bash
-   git push
+   git push origin HEAD
    \`\`\`
 
 3. **Optionally reply to resolved review threads** using the GitHub API:
@@ -1561,7 +1561,7 @@ Write comprehensive tests for this ticket's implementation:
 - Push after every 1-2 commits to save your work
 
 \`\`\`bash
-git add -A && prlt commit "add tests for X" && git push
+git add -A && prlt commit "add tests for X" && git push origin HEAD
 \`\`\`
 
 ${PRLT_COMMANDS_COMMON}
@@ -1571,7 +1571,7 @@ ${PRLT_COMMANDS_CODE}`,
    \`\`\`bash
    git add -A
    prlt commit "add tests for {{TICKET_ID}}"
-   git push
+   git push origin HEAD
    \`\`\`
 
 2. **Mark work as ready** by running:
