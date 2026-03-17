@@ -28,6 +28,7 @@ import { initOutboundSync } from '../external-issues/outbound-sync.js';
 import { initHookManager } from '../work-lifecycle/hooks/index.js';
 import { initWorkflowRuleEvaluator } from '../work-lifecycle/rule-evaluator.js';
 import { initActionChaining } from '../work-lifecycle/action-chaining.js';
+import { startContainerCleanupListener } from '../execution/container-cleanup.js';
 
 /**
  * Get the board path for a project
@@ -301,6 +302,9 @@ export function getStorageWithAutoSync(
 
   // Initialize action chaining (auto-spawns next action on workflow rule matches)
   initActionChaining(storage.getDatabase(), storage, pmoPath);
+
+  // PRLT-1005: Start container cleanup listener (auto-removes dead containers on agent completion)
+  startContainerCleanupListener();
 
   return storage;
 }

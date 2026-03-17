@@ -48,3 +48,13 @@ export {
   initActionChaining,
   stopActionChaining,
 } from './action-chaining.js'
+
+export {
+  startContainerCleanupListener,
+  stopContainerCleanupListener,
+  cleanupDeadContainers,
+  cleanupAgentContainer,
+  findDeadContainers,
+  type ContainerCleanupResult,
+  type DeadContainer,
+} from '../execution/container-cleanup.js'

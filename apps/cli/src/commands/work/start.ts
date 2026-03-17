@@ -1052,6 +1052,21 @@ export default class WorkStart extends PMOCommand {
                 // Non-fatal — don't block work start for transition failures
               }
             }
+
+            // PRLT-1005: Clean up dead containers for completed devcontainer executions
+            for (const cleaned of cleanedExecutions) {
+              if (cleaned.environment === 'devcontainer' && cleaned.agentName) {
+                try {
+                  const { cleanupAgentContainer } = await import('../../lib/execution/container-cleanup.js')
+                  const containerResult = cleanupAgentContainer(cleaned.agentName)
+                  if (containerResult.removed.length > 0 && !jsonMode) {
+                    this.log(styles.muted(`   Removed dead container for ${cleaned.agentName}`))
+                  }
+                } catch {
+                  // Non-fatal
+                }
+              }
+            }
           }
 
           // Get list of busy agents (already running something)
@@ -2559,6 +2574,21 @@ export default class WorkStart extends PMOCommand {
           }
         } catch {
           // Non-fatal
+        }
+      }
+
+      // PRLT-1005: Clean up dead containers for completed devcontainer executions
+      for (const cleaned of batchCleanedExecutions) {
+        if (cleaned.environment === 'devcontainer' && cleaned.agentName) {
+          try {
+            const { cleanupAgentContainer } = await import('../../lib/execution/container-cleanup.js')
+            const containerResult = cleanupAgentContainer(cleaned.agentName)
+            if (containerResult.removed.length > 0) {
+              this.log(styles.muted(`   Removed dead container for ${cleaned.agentName}`))
+            }
+          } catch {
+            // Non-fatal
+          }
         }
       }
     }
