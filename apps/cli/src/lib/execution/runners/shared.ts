@@ -61,8 +61,27 @@ export type Runner = (
 /**
  * Build a unified name for tmux sessions, window names, and tab titles.
  * Format: "{ticketId}-{action}-{agentName}"
+ *
+ * Orchestrator sessions use HQ-scoped naming:
+ * Format: "prlt-orchestrator-{hqName}-{agentName}"
+ * This must match buildOrchestratorSessionName() in orchestrator/start.ts
+ * so that `orchestrator status` can find the running session.
  */
 export function buildSessionName(context: ExecutionContext): string {
+  // Orchestrator sessions use HQ-scoped naming for consistency with
+  // buildOrchestratorSessionName() used by status/start commands
+  if (context.isOrchestrator && context.hqName) {
+    const safeHqName = (context.hqName || 'default')
+      .replace(/[^a-zA-Z0-9._-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'default'
+    const safeName = (context.agentName || 'main')
+      .replace(/[^a-zA-Z0-9._-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'main'
+    return `prlt-orchestrator-${safeHqName}-${safeName}`
+  }
+
   const action = (context.actionName || 'work')
     .replace(/[^a-zA-Z0-9._-]/g, '-')
     .replace(/-+/g, '-')
