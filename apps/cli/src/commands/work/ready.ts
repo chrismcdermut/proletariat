@@ -163,6 +163,19 @@ export default class WorkReady extends PMOCommand {
       // Move to Review column (moveTicket also updates status_id)
       await this.storage.moveTicket(ticket.projectId!, ticketId!, reviewColumn);
 
+      // Sync to external provider (e.g., Linear) if ticket was imported from one
+      try {
+        const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId!);
+        if (provider.name !== 'pmo') {
+          const result = await provider.moveTicket(ticketId!, reviewColumn);
+          if (result.success) {
+            this.log(styles.muted(`   Synced to ${result.provider}: ${reviewColumn}`));
+          }
+        }
+      } catch {
+        // Non-fatal — don't block work ready for provider sync failures
+      }
+
       // Auto-export to board.md if configured
       await autoExportToBoard(this.pmoPath, this.storage);
 
@@ -251,14 +264,19 @@ export default class WorkReady extends PMOCommand {
           }
         }
 
-        prUrl = await this.handlePRCreation(ticket, flags['draft-pr'], branch, worktreePath);
-        if (prUrl) {
-          // Store PR URL in ticket metadata
+        const prResult = await this.handlePRCreation(ticket, flags['draft-pr'], branch, worktreePath);
+        if (prResult) {
+          prUrl = prResult.url;
+          // Store PR URL and number in ticket metadata
+          const prMetadata: Record<string, string> = {
+            ...ticket.metadata,
+            pr_url: prResult.url,
+          };
+          if (prResult.number) {
+            prMetadata.pr_number = String(prResult.number);
+          }
           await this.storage.updateTicket(ticketId!, {
-            metadata: {
-              ...ticket.metadata,
-              pr_url: prUrl,
-            },
+            metadata: prMetadata,
           });
         }
       }
@@ -324,13 +342,14 @@ export default class WorkReady extends PMOCommand {
 
   /**
    * Handle PR creation for the ticket.
+   * Returns the PR URL and number if created successfully.
    */
   private async handlePRCreation(
     ticket: { id: string; title: string; description?: string; metadata?: Record<string, string> },
     draft: boolean,
     branchFromExecution?: string,
     worktreePath?: string
-  ): Promise<string | undefined> {
+  ): Promise<{ url: string; number?: number } | undefined> {
     // Use branch from execution record if available, otherwise try to detect
     const currentBranch = branchFromExecution || getCurrentBranch();
     if (!currentBranch) {
@@ -357,7 +376,7 @@ export default class WorkReady extends PMOCommand {
       if (existingPR) {
         if (existingPR.state === 'MERGED') {
           this.log(styles.muted(`   PR #${existingPR.number} already merged: ${existingPR.url}`));
-          return existingPR.url;
+          return { url: existingPR.url, number: existingPR.number };
         }
         if (existingPR.state === 'OPEN') {
           // Push any unpushed commits so the existing PR is up to date
@@ -366,7 +385,7 @@ export default class WorkReady extends PMOCommand {
             pushBranch(currentBranch);
           }
           this.log(styles.muted(`   PR #${existingPR.number} already exists: ${existingPR.url}`));
-          return existingPR.url;
+          return { url: existingPR.url, number: existingPR.number };
         }
       }
 
@@ -418,7 +437,7 @@ export default class WorkReady extends PMOCommand {
       }
 
       this.log(styles.success(`   PR #${result.number} created`));
-      return result.url;
+      return { url: result.url!, number: result.number };
     } finally {
       // Restore original cwd
       if (worktreePath) {
