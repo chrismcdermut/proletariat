@@ -114,6 +114,40 @@ npm rebuild better-sqlite3 && node ./bin/validate-better-sqlite3.cjs
 
 Under **Bun**, the validation script will warn instead of failing, since Bun's node-gyp issues are expected. The install will complete but `prlt` may not function until the native module is rebuilt with Node.js.
 
+### Install Path Conflicts (EEXIST / Multiple Versions)
+
+**Symptom**: `EEXIST: file already exists` when running `npm install -g`, or `brew upgrade` reports "already installed" on an old version, or `which prlt` points to the wrong binary.
+
+**Cause**: Multiple installation methods (Homebrew, npm, standalone) have placed binaries in different PATH locations. Your shell runs whichever one appears first in `PATH`.
+
+**Diagnosis**:
+
+```bash
+# See which binary is active
+which prlt
+
+# Check for multiple installations
+which -a prlt
+
+# Check install method detection
+prlt self-update --check
+```
+
+**Solution**: Uninstall all but one installation method, then reinstall the one you want.
+
+```bash
+# Remove Homebrew version
+brew uninstall prlt
+
+# Remove npm global version
+npm uninstall -g @proletariat/cli
+
+# Remove standalone version
+rm -rf ~/.local/lib/proletariat ~/.local/bin/prlt
+```
+
+Then install fresh using your preferred method. See the full [Switching Install Methods](./switching-install-methods.md) guide.
+
 ### Permission Denied During Install (EACCES)
 
 **Symptom**: `EACCES: permission denied, mkdir '/opt/homebrew/lib/node_modules/@proletariat'` or similar `EACCES` errors on `/usr/local/lib/node_modules`.

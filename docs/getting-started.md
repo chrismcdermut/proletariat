@@ -32,6 +32,14 @@ Works on both Apple Silicon (arm64) and Intel (x86_64).
 npm install -g @proletariat/cli
 ```
 
+### Standalone Installer
+
+Installs to `~/.local/bin` — avoids conflicts with Homebrew and npm global directories:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/chrismcdermut/proletariat/main/scripts/install.sh | bash
+```
+
 ### Verify
 
 ```bash
@@ -41,12 +49,21 @@ prlt --version
 ### Upgrade
 
 ```bash
+# Any install method (auto-detects)
+prlt self-update
+
+# Or manually:
 # Homebrew
 brew update && brew upgrade prlt
 
 # npm
 npm update -g @proletariat/cli
+
+# Standalone
+curl -fsSL https://raw.githubusercontent.com/chrismcdermut/proletariat/main/scripts/install.sh | bash
 ```
+
+> **Tip:** If you're switching between install methods, see the [Switching Install Methods](./switching-install-methods.md) guide to avoid path conflicts.
 
 ## Step 1: Create Your Headquarters
 

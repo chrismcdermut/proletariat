@@ -13,7 +13,7 @@
 
 import { execSync } from 'node:child_process'
 import type { UpdateInfo } from './update-check.js'
-import { dismissVersion, getStaleTapCommands } from './update-check.js'
+import { dismissVersion, getStaleTapCommands, getStandaloneInstallDir } from './update-check.js'
 
 // ---------------------------------------------------------------------------
 // Environment guards
@@ -143,18 +143,38 @@ export async function showUpdatePrompt(info: UpdateInfo): Promise<UpdateAction> 
 // ---------------------------------------------------------------------------
 
 /**
+ * Get the shell command to run for a standalone self-update.
+ * Downloads and pipes the installer script, passing the target version.
+ */
+function getStandaloneUpdateCommand(version: string | null): string {
+  const installDir = getStandaloneInstallDir()
+  const parts = ['curl -fsSL https://raw.githubusercontent.com/chrismcdermut/proletariat/main/scripts/install.sh | bash']
+  const args: string[] = []
+  if (version) args.push(`--version ${version}`)
+  if (installDir) args.push(`--prefix ${installDir}`)
+  if (args.length > 0) {
+    parts[0] += ` -s -- ${args.join(' ')}`
+  }
+  return parts[0]
+}
+
+/**
  * Execute the update command, then signal the caller to stop.
  * Runs synchronously so the user sees output in real time.
  * Returns 'updated' on success or 'failed' on failure, so the
  * init hook can exit cleanly through oclif lifecycle.
  */
 async function executeUpdate(info: UpdateInfo): Promise<'updated' | 'failed'> {
+  const command = info.packageManager === 'standalone'
+    ? getStandaloneUpdateCommand(info.latestVersion)
+    : info.updateCommand
+
   console.log('')
-  console.log(`Running: ${info.updateCommand}`)
+  console.log(`Running: ${command}`)
   console.log('')
 
   try {
-    execSync(info.updateCommand, {
+    execSync(command, {
       stdio: 'inherit',
       timeout: 120_000, // 2 minute timeout
     })
@@ -164,7 +184,7 @@ async function executeUpdate(info: UpdateInfo): Promise<'updated' | 'failed'> {
   } catch {
     console.error('')
     console.error('Update failed. You can try running the command manually:')
-    console.error(`  ${info.updateCommand}`)
+    console.error(`  ${command}`)
 
     // If brew upgrade failed and the tap is stale, show remediation
     if (info.packageManager === 'brew' && info.staleTap?.isStale) {
