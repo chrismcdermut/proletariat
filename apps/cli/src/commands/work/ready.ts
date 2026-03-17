@@ -344,14 +344,20 @@ export default class WorkReady extends PMOCommand {
       if (!hasBranchBeenPushed(currentBranch)) {
         this.log(styles.muted(`   Pushing branch to origin...`));
         if (!pushBranch(currentBranch)) {
-          this.log(styles.warning('Failed to push branch. Skipping PR creation.'));
-          return undefined;
+          // Re-check: maybe the branch was pushed by another process (race condition)
+          if (!hasBranchBeenPushed(currentBranch)) {
+            this.log(styles.warning('Failed to push branch. Skipping PR creation.'));
+            return undefined;
+          }
+          this.log(styles.muted(`   Branch already exists on remote, continuing with PR creation...`));
         }
       } else if (hasUnpushedCommits(currentBranch)) {
         this.log(styles.muted(`   Pushing unpushed commits...`));
         if (!pushBranch(currentBranch)) {
-          this.log(styles.warning('Failed to push commits. Skipping PR creation.'));
-          return undefined;
+          // Branch is already on the remote — proceed with PR creation even if
+          // pushing latest commits failed (e.g. branch was already up-to-date
+          // and git push returned a non-zero exit code, or a concurrent push).
+          this.log(styles.warning('Could not push latest commits, but branch exists on remote. Continuing with PR creation.'));
         }
       }
 
