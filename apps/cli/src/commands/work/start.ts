@@ -1007,23 +1007,46 @@ export default class WorkStart extends PMOCommand {
         if (activeStaffAgents.length > 0) {
           // Clean up stale executions before checking availability (TKT-604)
           // This fixes agents appearing as "busy" when their sessions have terminated
-          const cleanedTicketIds = executionStorage.cleanupStaleExecutionsDetailed()
-          if (cleanedTicketIds.length > 0 && !jsonMode) {
-            this.log(styles.muted(`   Cleaned up ${cleanedTicketIds.length} stale execution(s)`))
+          const cleanedExecutions = executionStorage.cleanupStaleExecutionsDetailed()
+          if (cleanedExecutions.length > 0 && !jsonMode) {
+            this.log(styles.muted(`   Cleaned up ${cleanedExecutions.length} stale execution(s)`))
           }
 
-          // Post-execution hook: auto-transition tickets that have PRs to Review
-          if (cleanedTicketIds.length > 0) {
-            for (const cleanedTicketId of cleanedTicketIds) {
+          // Post-execution hook: validate commits and auto-transition tickets that have PRs to Review
+          if (cleanedExecutions.length > 0) {
+            for (const cleaned of cleanedExecutions) {
               try {
+                // Resolve agent directory for commit validation (PRLT-984)
+                let agentDir: string | undefined
+                let repoWorktrees: string[] | undefined
+                if (cleaned.agentName) {
+                  try {
+                    agentDir = resolveAgentDir(workspaceInfo, cleaned.agentName)
+                    repoWorktrees = detectRepoWorktrees(agentDir)
+                  } catch {
+                    // Agent dir resolution may fail for ephemeral agents that were cleaned up
+                  }
+                }
+
                 const result = await handlePostExecutionTransition(
-                  { ticketId: cleanedTicketId },
+                  {
+                    ticketId: cleaned.ticketId,
+                    agentName: cleaned.agentName,
+                    branch: cleaned.branch,
+                    agentDir,
+                    repoWorktrees,
+                  },
                   this.storage,
                   db,
                 )
-                if (result.transitioned && !jsonMode) {
+                if (result.blockedByValidation && !jsonMode) {
+                  this.log(styles.warning(`   ⚠ ${cleaned.ticketId}: agent completed without meaningful code — ${result.validation?.details}`))
+                  // Persist validation failure on the execution record
+                  executionStorage.updateStatus(cleaned.executionId, 'failed', undefined, `Commit validation failed: ${result.validation?.details}`)
+                } else if (result.transitioned && !jsonMode) {
                   const via = result.provider && result.provider !== 'pmo' ? ` via ${result.provider}` : ''
-                  this.log(styles.muted(`   Auto-transitioned ${cleanedTicketId}: ${result.fromState} → ${result.toState}${via}`))
+                  const validationInfo = result.validation ? ` (${result.validation.details})` : ''
+                  this.log(styles.muted(`   Auto-transitioned ${cleaned.ticketId}: ${result.fromState} → ${result.toState}${via}${validationInfo}`))
                 }
               } catch {
                 // Non-fatal — don't block work start for transition failures
@@ -2495,21 +2518,44 @@ export default class WorkStart extends PMOCommand {
     const activeStaffAgents = getActiveStaffAgents(workspaceInfo, (msg) => this.log(msg))
 
     // Clean up stale executions before checking availability (TKT-604)
-    const batchCleanedTicketIds = executionStorage.cleanupStaleExecutionsDetailed()
-    if (batchCleanedTicketIds.length > 0) {
-      this.log(styles.muted(`   Cleaned up ${batchCleanedTicketIds.length} stale execution(s)`))
+    const batchCleanedExecutions = executionStorage.cleanupStaleExecutionsDetailed()
+    if (batchCleanedExecutions.length > 0) {
+      this.log(styles.muted(`   Cleaned up ${batchCleanedExecutions.length} stale execution(s)`))
 
-      // Post-execution hook: auto-transition tickets that have PRs to Review
-      for (const cleanedTicketId of batchCleanedTicketIds) {
+      // Post-execution hook: validate commits and auto-transition tickets that have PRs to Review
+      for (const cleaned of batchCleanedExecutions) {
         try {
+          // Resolve agent directory for commit validation (PRLT-984)
+          let agentDir: string | undefined
+          let repoWorktrees: string[] | undefined
+          if (cleaned.agentName) {
+            try {
+              agentDir = resolveAgentDir(workspaceInfo, cleaned.agentName)
+              repoWorktrees = detectRepoWorktrees(agentDir)
+            } catch {
+              // Agent dir resolution may fail for ephemeral agents that were cleaned up
+            }
+          }
+
           const result = await handlePostExecutionTransition(
-            { ticketId: cleanedTicketId },
+            {
+              ticketId: cleaned.ticketId,
+              agentName: cleaned.agentName,
+              branch: cleaned.branch,
+              agentDir,
+              repoWorktrees,
+            },
             this.storage,
             db,
           )
-          if (result.transitioned) {
+          if (result.blockedByValidation) {
+            this.log(styles.warning(`   ⚠ ${cleaned.ticketId}: agent completed without meaningful code — ${result.validation?.details}`))
+            // Persist validation failure on the execution record
+            executionStorage.updateStatus(cleaned.executionId, 'failed', undefined, `Commit validation failed: ${result.validation?.details}`)
+          } else if (result.transitioned) {
             const via = result.provider && result.provider !== 'pmo' ? ` via ${result.provider}` : ''
-            this.log(styles.muted(`   Auto-transitioned ${cleanedTicketId}: ${result.fromState} → ${result.toState}${via}`))
+            const validationInfo = result.validation ? ` (${result.validation.details})` : ''
+            this.log(styles.muted(`   Auto-transitioned ${cleaned.ticketId}: ${result.fromState} → ${result.toState}${via}${validationInfo}`))
           }
         } catch {
           // Non-fatal

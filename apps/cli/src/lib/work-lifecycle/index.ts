@@ -32,6 +32,12 @@ export {
 } from './post-execution.js'
 
 export {
+  validateCommits,
+  tryValidateCommits,
+  type CommitValidationResult,
+} from '../execution/commit-validation.js'
+
+export {
   WorkflowRuleEvaluator,
   initWorkflowRuleEvaluator,
   stopWorkflowRuleEvaluator,
