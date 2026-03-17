@@ -2026,28 +2026,44 @@ function cleanupOldPromptFiles(worktreePath: string, ticketId?: string): void {
 }
 
 /**
- * Write prompt to a file inside the worktree so the container can access it.
- * Returns the path to the prompt file (relative to worktree for container access).
+ * Write prompt to a file that's accessible inside the Docker container.
+ * Always writes to a path under agentDir (mounted at /workspace) so the
+ * container can read it — even when worktreePath is outside agentDir.
  * Cleans up old prompt files for the same ticket before writing.
  */
 function writePromptFile(context: ExecutionContext): { hostPath: string; containerPath: string } {
-  // Clean up old prompt files for this ticket before creating a new one
-  cleanupOldPromptFiles(context.worktreePath, context.ticketId)
-
   const prompt = buildPrompt(context)
   const filename = `.prlt-prompt-${context.ticketId}-${Date.now()}.txt`
-  const hostPath = path.join(context.worktreePath, filename)
 
-  fs.writeFileSync(hostPath, prompt, { mode: 0o644 })
-
-  // Container mounts agentDir at /workspace
-  // If worktreePath is a subdirectory of agentDir, we need the relative path
-  // e.g., agentDir=/agents/altman, worktreePath=/agents/altman/textdeck
-  //       -> containerPath=/workspace/textdeck/.prlt-prompt-....txt
+  // Container mounts agentDir at /workspace.
+  // Determine if worktreePath is inside agentDir — if so, write the prompt
+  // file there alongside the code. If worktreePath is OUTSIDE agentDir
+  // (e.g., when resolveWorktreePath falls back to cwd), write to agentDir
+  // itself so the file is always under the /workspace mount.
   const relativePath = path.relative(context.agentDir, context.worktreePath)
-  const containerPath = relativePath
-    ? `/workspace/${relativePath}/${filename}`
-    : `/workspace/${filename}`
+  const isInsideAgentDir = relativePath && !relativePath.startsWith('..')
+
+  let hostWriteDir: string
+  let containerPath: string
+
+  if (isInsideAgentDir) {
+    // worktreePath is inside agentDir — write prompt file there
+    // e.g., agentDir=/agents/altman, worktreePath=/agents/altman/textdeck
+    //       -> containerPath=/workspace/textdeck/.prlt-prompt-....txt
+    hostWriteDir = context.worktreePath
+    containerPath = `/workspace/${relativePath}/${filename}`
+  } else {
+    // worktreePath is outside agentDir (relative path would traverse up with ../)
+    // Write to agentDir root so the file is accessible at /workspace/
+    hostWriteDir = context.agentDir
+    containerPath = `/workspace/${filename}`
+  }
+
+  // Clean up old prompt files before creating a new one
+  cleanupOldPromptFiles(hostWriteDir, context.ticketId)
+
+  const hostPath = path.join(hostWriteDir, filename)
+  fs.writeFileSync(hostPath, prompt, { mode: 0o644 })
 
   return { hostPath, containerPath }
 }
@@ -2068,9 +2084,12 @@ export function buildDevcontainerCommand(
   displayMode: DisplayMode = 'terminal',
   mcpConfigFile?: string
 ): string {
-  // Calculate the relative path from agentDir to worktreePath for cd
+  // Calculate the relative path from agentDir to worktreePath for cd.
+  // Only use the relative path if worktreePath is inside agentDir — if it
+  // traverses upward (starts with ..), the path won't exist inside Docker.
   const relativePath = path.relative(context.agentDir, context.worktreePath)
-  const cdCmd = relativePath ? `cd /workspace/${relativePath} && ` : ''
+  const isInsideAgentDir = relativePath && !relativePath.startsWith('..')
+  const cdCmd = isInsideAgentDir ? `cd /workspace/${relativePath} && ` : ''
 
   // Build executor command using the centralized getExecutorCommand()
   // This ensures all runners use consistent executor invocation
