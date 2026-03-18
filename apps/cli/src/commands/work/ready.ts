@@ -28,6 +28,7 @@ import {
 } from '../../lib/prompt-json.js';
 import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
 import { detectRepoWorktrees } from '../../lib/execution/context.js';
+import { ensureRemoteUpToDate } from '../../lib/repos/git.js';
 
 export default class WorkReady extends PMOCommand {
   static description = 'Mark work as ready for review (moves ticket to In Review column)';
@@ -369,6 +370,9 @@ export default class WorkReady extends PMOCommand {
     }
 
     try {
+      // Ensure remote URL is up to date (detect transferred repos)
+      ensureRemoteUpToDate(undefined, (msg) => this.log(styles.muted(`   ${msg}`)));
+
       const baseBranch = getDefaultBaseBranch();
 
       // Check if PR already exists for this branch

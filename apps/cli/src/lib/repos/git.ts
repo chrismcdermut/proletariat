@@ -191,3 +191,113 @@ export function checkGitHubRepoArchived(ownerRepo: string): boolean {
     return false;
   }
 }
+
+/**
+ * Detect if a GitHub repository has been transferred to a new org/owner.
+ *
+ * Queries the GitHub API with the local remote's owner/repo and compares
+ * the API-returned full_name to detect if the repo was transferred.
+ * GitHub automatically redirects API calls for transferred repos.
+ *
+ * @param cwd - Working directory of the git repo
+ * @returns Object with transfer details, or null if no transfer detected or check fails
+ */
+export function detectTransferredRepo(cwd?: string): { oldOwnerRepo: string; newOwnerRepo: string } | null {
+  const originUrl = getOriginUrl(cwd || process.cwd());
+  if (!originUrl) return null;
+
+  const localOwnerRepo = parseGitHubOwnerRepo(originUrl);
+  if (!localOwnerRepo) return null;
+
+  try {
+    const result = execSync(`gh api repos/${localOwnerRepo} -q .full_name`, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+
+    if (!result) return null;
+
+    // Compare case-insensitively since GitHub treats owner/repo as case-insensitive
+    if (result.toLowerCase() !== localOwnerRepo.toLowerCase()) {
+      return { oldOwnerRepo: localOwnerRepo, newOwnerRepo: result };
+    }
+
+    return null;
+  } catch {
+    // API call failed — don't block the user
+    return null;
+  }
+}
+
+/**
+ * Build a new remote URL preserving the original URL format (HTTPS or SSH).
+ *
+ * @param originalUrl - The original remote URL (used to determine format)
+ * @param newOwnerRepo - The new "owner/repo" to use
+ * @returns The new URL in the same format as the original
+ */
+export function buildRemoteUrl(originalUrl: string, newOwnerRepo: string): string {
+  // SSH format: git@github.com:owner/repo.git
+  if (originalUrl.startsWith('git@github.com:')) {
+    const hadGitSuffix = originalUrl.endsWith('.git');
+    return `git@github.com:${newOwnerRepo}${hadGitSuffix ? '.git' : ''}`;
+  }
+
+  // SSH alternative: ssh://git@github.com/owner/repo.git
+  if (originalUrl.startsWith('ssh://git@github.com/')) {
+    const hadGitSuffix = originalUrl.endsWith('.git');
+    return `ssh://git@github.com/${newOwnerRepo}${hadGitSuffix ? '.git' : ''}`;
+  }
+
+  // HTTPS format: https://github.com/owner/repo.git
+  const hadGitSuffix = originalUrl.endsWith('.git');
+  return `https://github.com/${newOwnerRepo}${hadGitSuffix ? '.git' : ''}`;
+}
+
+/**
+ * Detect if a repo has been transferred and update the origin remote URL if so.
+ *
+ * @param cwd - Working directory of the git repo
+ * @returns Object describing what happened, or null if no action taken
+ */
+export function detectAndFixTransferredRepo(cwd?: string): { oldOwnerRepo: string; newOwnerRepo: string; oldUrl: string; newUrl: string } | null {
+  const transfer = detectTransferredRepo(cwd);
+  if (!transfer) return null;
+
+  const repoPath = cwd || process.cwd();
+  const originUrl = getOriginUrl(repoPath);
+  if (!originUrl) return null;
+
+  const newUrl = buildRemoteUrl(originUrl, transfer.newOwnerRepo);
+  setOriginUrl(repoPath, newUrl);
+
+  return {
+    oldOwnerRepo: transfer.oldOwnerRepo,
+    newOwnerRepo: transfer.newOwnerRepo,
+    oldUrl: originUrl,
+    newUrl,
+  };
+}
+
+/**
+ * Ensure the git remote is up to date before push/PR operations.
+ *
+ * This is the single entry point that should be called at the command level
+ * (in pr create and work ready) before any push or PR creation.
+ * It detects transferred repos and updates the remote URL.
+ *
+ * @param cwd - Working directory of the git repo
+ * @param log - Optional callback for logging messages to the user
+ * @returns Object describing what happened, or null if no action taken
+ */
+export function ensureRemoteUpToDate(
+  cwd?: string,
+  log?: (message: string) => void,
+): { oldOwnerRepo: string; newOwnerRepo: string; oldUrl: string; newUrl: string } | null {
+  const result = detectAndFixTransferredRepo(cwd);
+  if (result && log) {
+    log(`Repo transferred: ${result.oldOwnerRepo} → ${result.newOwnerRepo}. Updated remote URL.`);
+  }
+  return result;
+}

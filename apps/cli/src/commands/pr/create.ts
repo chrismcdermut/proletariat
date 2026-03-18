@@ -25,6 +25,7 @@ import {
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
 import { trackPRCreated } from '../../lib/telemetry/analytics.js';
+import { ensureRemoteUpToDate } from '../../lib/repos/git.js';
 
 export default class PRCreate extends PMOCommand {
   static description = 'Create a GitHub pull request from the current branch';
@@ -221,6 +222,9 @@ export default class PRCreate extends PMOCommand {
         commits: commits.slice(0, 10), // Limit to 10 commits
       });
     }
+
+    // Ensure remote URL is up to date (detect transferred repos)
+    ensureRemoteUpToDate(undefined, (msg) => this.log(styles.muted(`   ${msg}`)));
 
     // Push branch if not pushed
     if (!hasBranchBeenPushed(currentBranch)) {
