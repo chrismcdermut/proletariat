@@ -9,6 +9,7 @@ import { isDockerRunning } from '../../lib/execution/runners.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import type { AgentWork } from '../../lib/execution/types.js'
+import { cleanupContainer } from '../../lib/execution/container-cleanup.js'
 
 export default class ExecutionStop extends PMOCommand {
   static description = 'Stop running execution(s)'
@@ -262,8 +263,15 @@ export default class ExecutionStop extends PMOCommand {
               this.warn('Docker is not running. Cannot stop container.')
               return true
             }
-            // Note: We don't stop the container itself, just the tmux session inside
-            // The container can be reused for future work
+            // PRLT-1005: Clean up container when execution is explicitly stopped
+            try {
+              const gcResult = cleanupContainer(execution.containerId)
+              if (gcResult.removed) {
+                this.log(styles.muted(`   Container cleaned up`))
+              }
+            } catch {
+              // Non-fatal — execution is still considered stopped
+            }
           }
           return true
 

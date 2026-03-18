@@ -91,6 +91,7 @@ import {
 } from '../../lib/work-source/index.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
 import { handlePostExecutionTransition } from '../../lib/work-lifecycle/index.js'
+import { cleanupCompletedContainers } from '../../lib/execution/container-cleanup.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -1051,6 +1052,23 @@ export default class WorkStart extends PMOCommand {
                 }
               } catch {
                 // Non-fatal — don't block work start for transition failures
+              }
+            }
+
+            // PRLT-1005: Clean up containers for completed executions
+            const containerIdsToCleanup = cleanedExecutions
+              .filter(e => e.containerId && e.environment === 'devcontainer')
+              .map(e => e.containerId!)
+            if (containerIdsToCleanup.length > 0) {
+              const activeIds = new Set(
+                executionStorage.listExecutions({ status: 'running' })
+                  .concat(executionStorage.listExecutions({ status: 'starting' }))
+                  .filter(e => e.containerId)
+                  .map(e => e.containerId!)
+              )
+              const gcResult = cleanupCompletedContainers(containerIdsToCleanup, activeIds)
+              if (gcResult.removed > 0 && !jsonMode) {
+                this.log(styles.muted(`   Cleaned up ${gcResult.removed} dead container(s)`))
               }
             }
           }
@@ -2560,6 +2578,23 @@ export default class WorkStart extends PMOCommand {
           }
         } catch {
           // Non-fatal
+        }
+      }
+
+      // PRLT-1005: Clean up containers for completed executions
+      const batchContainerIdsToCleanup = batchCleanedExecutions
+        .filter(e => e.containerId && e.environment === 'devcontainer')
+        .map(e => e.containerId!)
+      if (batchContainerIdsToCleanup.length > 0) {
+        const activeIds = new Set(
+          executionStorage.listExecutions({ status: 'running' })
+            .concat(executionStorage.listExecutions({ status: 'starting' }))
+            .filter(e => e.containerId)
+            .map(e => e.containerId!)
+        )
+        const gcResult = cleanupCompletedContainers(batchContainerIdsToCleanup, activeIds)
+        if (gcResult.removed > 0) {
+          this.log(styles.muted(`   Cleaned up ${gcResult.removed} dead container(s)`))
         }
       }
     }

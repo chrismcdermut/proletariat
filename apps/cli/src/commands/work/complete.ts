@@ -15,6 +15,7 @@ import {
 import { trackWorkCompleted } from '../../lib/telemetry/analytics.js';
 import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
 import { detectRepoWorktrees } from '../../lib/execution/context.js';
+import { cleanupContainer } from '../../lib/execution/container-cleanup.js';
 
 export default class WorkComplete extends PMOCommand {
   static description = 'Mark work as complete (moves ticket to Done column)';
@@ -178,6 +179,19 @@ export default class WorkComplete extends PMOCommand {
             }
           } catch {
             // Non-fatal — don't block work complete for validation failures
+          }
+        }
+
+        // PRLT-1005: Clean up container for completed execution
+        if (runningExecution.containerId &&
+            (runningExecution.environment === 'devcontainer' || runningExecution.environment === 'docker')) {
+          try {
+            const gcResult = cleanupContainer(runningExecution.containerId);
+            if (gcResult.removed) {
+              this.log(styles.muted(`   Container cleaned up`));
+            }
+          } catch {
+            // Non-fatal — don't block work complete for container cleanup failures
           }
         }
       }
