@@ -17,6 +17,7 @@ import {
   getPRForBranch,
   generatePRTitle,
   generatePRBody,
+  ensureRemoteUpToDate,
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
@@ -220,6 +221,13 @@ export default class PRCreate extends PMOCommand {
         ticketDescription: ticket.description,
         commits: commits.slice(0, 10), // Limit to 10 commits
       });
+    }
+
+    // Detect and fix transferred repos before pushing
+    const remoteFixResult = ensureRemoteUpToDate();
+    if (remoteFixResult.fixed) {
+      this.log(styles.info(`Repository transferred: ${remoteFixResult.oldOwnerRepo} → ${remoteFixResult.newOwnerRepo}`));
+      this.log(styles.muted(`   Updated remote origin to new location.`));
     }
 
     // Push branch if not pushed

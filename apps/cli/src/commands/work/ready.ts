@@ -20,6 +20,7 @@ import {
   getPRForBranch,
   generatePRTitle,
   generatePRBody,
+  ensureRemoteUpToDate,
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
@@ -369,6 +370,13 @@ export default class WorkReady extends PMOCommand {
     }
 
     try {
+      // Detect and fix transferred repos before pushing
+      const remoteFixResult = ensureRemoteUpToDate();
+      if (remoteFixResult.fixed) {
+        this.log(styles.info(`   Repository transferred: ${remoteFixResult.oldOwnerRepo} → ${remoteFixResult.newOwnerRepo}`));
+        this.log(styles.muted(`   Updated remote origin to new location.`));
+      }
+
       const baseBranch = getDefaultBaseBranch();
 
       // Check if PR already exists for this branch

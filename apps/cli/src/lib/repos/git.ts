@@ -155,3 +155,145 @@ export function setOriginUrl(repoPath: string, newUrl: string): void {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
+
+// =============================================================================
+// Transferred Repo Detection
+// =============================================================================
+
+export interface TransferredRepoResult {
+  transferred: boolean;
+  oldOwnerRepo?: string;
+  newOwnerRepo?: string;
+  newUrl?: string;
+  error?: string;
+}
+
+/**
+ * Parse owner/repo from a GitHub remote URL.
+ *
+ * Handles formats:
+ * - https://github.com/owner/repo.git
+ * - https://github.com/owner/repo
+ * - git@github.com:owner/repo.git
+ * - git@github.com:owner/repo
+ * - ssh://git@github.com/owner/repo.git
+ */
+export function parseOwnerRepo(remoteUrl: string): string | null {
+  const httpsMatch = remoteUrl.match(/github\.com[/:]([^/]+)\/(.+?)(?:\.git)?$/);
+  const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
+
+  const match = httpsMatch || sshMatch;
+  if (match) {
+    return `${match[1]}/${match[2]}`;
+  }
+  return null;
+}
+
+/**
+ * Detect if a GitHub repo has been transferred to a new org/owner.
+ *
+ * When a repo is transferred on GitHub, the API at the old owner/repo path
+ * automatically redirects to the new location. We detect this by comparing
+ * the local remote's owner/repo with what the GitHub API returns.
+ *
+ * @param cwd - Working directory of the git repo
+ * @returns Transfer detection result
+ */
+export function detectTransferredRepo(cwd?: string): TransferredRepoResult {
+  try {
+    const remoteUrl = execSync('git remote get-url origin', {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+
+    // Only works for GitHub remote URLs
+    if (!remoteUrl.includes('github.com')) {
+      return { transferred: false };
+    }
+
+    const localOwnerRepo = parseOwnerRepo(remoteUrl);
+    if (!localOwnerRepo) {
+      return { transferred: false };
+    }
+
+    // Query GitHub API — redirects are followed automatically
+    let apiResult: string;
+    try {
+      apiResult = execSync(`gh api repos/${localOwnerRepo} --jq .full_name`, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }).trim();
+    } catch {
+      // API call failed — repo may not exist or gh not authenticated
+      return { transferred: false, error: 'Could not query GitHub API' };
+    }
+
+    if (!apiResult) {
+      return { transferred: false };
+    }
+
+    // Compare: if the API returns a different owner/repo, the repo was transferred
+    if (apiResult.toLowerCase() !== localOwnerRepo.toLowerCase()) {
+      // Build the new URL in the same format as the old one
+      const newUrl = buildNewRemoteUrl(remoteUrl, localOwnerRepo, apiResult);
+      return {
+        transferred: true,
+        oldOwnerRepo: localOwnerRepo,
+        newOwnerRepo: apiResult,
+        newUrl,
+      };
+    }
+
+    return { transferred: false };
+  } catch {
+    return { transferred: false };
+  }
+}
+
+/**
+ * Build a new remote URL preserving the protocol format of the old URL.
+ */
+function buildNewRemoteUrl(oldUrl: string, oldOwnerRepo: string, newOwnerRepo: string): string {
+  // Replace owner/repo in the URL, preserving the protocol format
+  return oldUrl.replace(
+    oldOwnerRepo,
+    newOwnerRepo,
+  );
+}
+
+/**
+ * Detect and fix a transferred GitHub repo by updating the origin remote.
+ *
+ * @param cwd - Working directory of the git repo
+ * @returns Description of what was done, or null if no fix was needed
+ */
+export function detectAndFixTransferredRepo(cwd?: string): {
+  fixed: boolean;
+  oldOwnerRepo?: string;
+  newOwnerRepo?: string;
+  message?: string;
+} {
+  const result = detectTransferredRepo(cwd);
+
+  if (!result.transferred || !result.newUrl) {
+    return { fixed: false };
+  }
+
+  try {
+    const effectiveCwd = cwd || process.cwd();
+    setOriginUrl(effectiveCwd, result.newUrl);
+    return {
+      fixed: true,
+      oldOwnerRepo: result.oldOwnerRepo,
+      newOwnerRepo: result.newOwnerRepo,
+      message: `Repository transferred from ${result.oldOwnerRepo} to ${result.newOwnerRepo}. Updated remote origin.`,
+    };
+  } catch {
+    return {
+      fixed: false,
+      message: `Repository appears transferred from ${result.oldOwnerRepo} to ${result.newOwnerRepo}, but failed to update remote.`,
+    };
+  }
+}

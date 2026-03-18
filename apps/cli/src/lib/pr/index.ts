@@ -6,6 +6,7 @@
  */
 
 import { execSync, spawnSync } from 'node:child_process';
+import { detectAndFixTransferredRepo } from '../repos/git.js';
 
 // =============================================================================
 // Types
@@ -264,8 +265,13 @@ export function hasBranchBeenPushed(branch: string, cwd?: string): boolean {
 
 /**
  * Push the current branch to origin.
+ *
+ * Automatically detects and fixes transferred repos before pushing.
  */
 export function pushBranch(branch: string, cwd?: string): boolean {
+  // Detect and fix transferred repos before pushing
+  ensureRemoteUpToDate(cwd);
+
   try {
     execSync(`git push -u origin ${branch}`, {
       cwd,
@@ -327,14 +333,45 @@ export function getCommitLog(base: string, cwd?: string): string[] {
 }
 
 // =============================================================================
+// Transferred Repo Detection
+// =============================================================================
+
+export interface RemoteFixResult {
+  fixed: boolean;
+  oldOwnerRepo?: string;
+  newOwnerRepo?: string;
+  message?: string;
+}
+
+/**
+ * Detect and fix a transferred GitHub repo before PR operations.
+ *
+ * When a repo is transferred on GitHub (e.g., from getCora/repo to getCoraAI/repo),
+ * the local remote still points to the old org. This causes `gh pr create` to fail
+ * with "No commits between" errors. This function detects the transfer via the
+ * GitHub API and updates the local remote URL.
+ *
+ * @param cwd - Working directory of the git repo
+ * @returns Fix result with details of any changes made
+ */
+export function ensureRemoteUpToDate(cwd?: string): RemoteFixResult {
+  return detectAndFixTransferredRepo(cwd);
+}
+
+// =============================================================================
 // PR Operations
 // =============================================================================
 
 /**
  * Create a GitHub pull request using `gh` CLI.
+ *
+ * Automatically detects and fixes transferred repos before creating the PR.
  */
 export function createPR(options: CreatePROptions): CreatePRResult {
   const { title, body, base, draft, cwd } = options;
+
+  // Detect and fix transferred repos before creating PR
+  ensureRemoteUpToDate(cwd);
 
   const args = ['pr', 'create', '--title', title];
 
