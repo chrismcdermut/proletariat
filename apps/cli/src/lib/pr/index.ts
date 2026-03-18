@@ -266,12 +266,10 @@ export function hasBranchBeenPushed(branch: string, cwd?: string): boolean {
 /**
  * Push the current branch to origin.
  *
- * Automatically detects and fixes transferred repos before pushing.
+ * Callers should call ensureRemoteUpToDate() before this if the remote
+ * may have changed (e.g., repo transferred to a new org).
  */
 export function pushBranch(branch: string, cwd?: string): boolean {
-  // Detect and fix transferred repos before pushing
-  ensureRemoteUpToDate(cwd);
-
   try {
     execSync(`git push -u origin ${branch}`, {
       cwd,
@@ -365,13 +363,11 @@ export function ensureRemoteUpToDate(cwd?: string): RemoteFixResult {
 /**
  * Create a GitHub pull request using `gh` CLI.
  *
- * Automatically detects and fixes transferred repos before creating the PR.
+ * Callers should call ensureRemoteUpToDate() before this if the remote
+ * may have changed (e.g., repo transferred to a new org).
  */
 export function createPR(options: CreatePROptions): CreatePRResult {
   const { title, body, base, draft, cwd } = options;
-
-  // Detect and fix transferred repos before creating PR
-  ensureRemoteUpToDate(cwd);
 
   const args = ['pr', 'create', '--title', title];
 
