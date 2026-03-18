@@ -21,10 +21,10 @@ import { multiLineInput } from '../../lib/multiline-input.js';
 import { isLinearConfigured, loadLinearConfig, getLinearApiKey, LinearClient } from '../../lib/linear/index.js';
 import { LinearMapper } from '../../lib/linear/mapper.js';
 import { PMO_PRIORITY_TO_LINEAR, LINEAR_PRIORITY_TO_PMO } from '../../lib/linear/types.js';
-import { getRegisteredWorkSources } from '../../lib/work-source/config.js';
+import { getRegisteredWorkSources, loadDefaultWorkSource } from '../../lib/work-source/config.js';
 
 export default class TicketCreate extends PMOCommand {
-  static description = 'Create a new ticket on the PMO board';
+  static description = 'Create a new ticket (routes to Linear when configured, or local PMO)';
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -412,8 +412,13 @@ export default class TicketCreate extends PMOCommand {
 
   /**
    * Determine whether to route through Linear or PMO based on --source flag
-   * and workspace config. When multiple providers are configured and source is
-   * 'auto', prompts the user (or outputs JSON for agents) to choose.
+   * and workspace config.
+   *
+   * Resolution order for auto mode:
+   * 1. Explicit default work source (loadDefaultWorkSource) — user preference
+   * 2. Single external provider configured — auto-select it
+   * 3. Multiple external providers — prompt user to choose
+   * 4. No external providers — fall back to PMO
    */
   private async resolveSource(
     flags: { source?: string; json?: boolean },
@@ -424,44 +429,58 @@ export default class TicketCreate extends PMOCommand {
     if (source === 'pmo') return 'pmo';
     if (source === 'linear') return 'linear';
 
-    // auto: check configured providers
-    let providerTypes: string[];
+    // auto: resolve from workspace config
+    const db = this.storage.getDatabase();
+
     try {
-      const db = this.storage.getDatabase();
+      // 1. Respect explicit default work source if configured
+      const defaultSource = loadDefaultWorkSource(db);
+      if (defaultSource?.provider === 'linear') return 'linear';
+      if (defaultSource?.provider === 'pmo') return 'pmo';
+
+      // 2. Check registered providers (PMO is always implicitly registered)
       const registeredSources = getRegisteredWorkSources(db);
-      providerTypes = [...new Set(registeredSources.map(s => s.provider))];
+      const externalProviders = [...new Set(
+        registeredSources.map(s => s.provider).filter(p => p !== 'pmo')
+      )];
+
+      // No external providers — use PMO
+      if (externalProviders.length === 0) return 'pmo';
+
+      // Single external provider — auto-select it
+      if (externalProviders.length === 1) {
+        return externalProviders[0] === 'linear' ? 'linear' : 'pmo';
+      }
+
+      // Multiple external providers — prompt user to select
+      const allProviders = ['pmo', ...externalProviders];
+      const choices = allProviders.map(p => ({
+        name: p === 'pmo' ? 'PMO (local)' : `${p.charAt(0).toUpperCase() + p.slice(1)}`,
+        value: p,
+      }));
+      const message = 'Multiple ticket providers configured. Where should this ticket be created?';
+
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'source', message, choices),
+          createMetadata('ticket create', flags as Record<string, unknown>)
+        );
+        return 'pmo'
+      }
+
+      const { selectedSource } = await inquirer.prompt([{
+        type: 'list',
+        name: 'selectedSource',
+        message,
+        choices,
+      }]);
+
+      // Only 'linear' gets the special path; everything else falls through to PMO
+      return selectedSource === 'linear' ? 'linear' : 'pmo';
     } catch {
       // workspace_settings table may not exist in older/test databases
       return 'pmo';
     }
-
-    // If only PMO is available, use it directly
-    if (providerTypes.length <= 1) return 'pmo';
-
-    // Multiple providers configured — prompt user to select
-    const choices = providerTypes.map(p => ({
-      name: p === 'pmo' ? 'PMO (local)' : `${p.charAt(0).toUpperCase() + p.slice(1)}`,
-      value: p,
-    }));
-    const message = 'Multiple ticket providers configured. Where should this ticket be created?';
-
-    if (jsonMode) {
-      outputPromptAsJson(
-        buildPromptConfig('list', 'source', message, choices),
-        createMetadata('ticket create', flags as Record<string, unknown>)
-      );
-      return 'pmo'
-    }
-
-    const { selectedSource } = await inquirer.prompt([{
-      type: 'list',
-      name: 'selectedSource',
-      message,
-      choices,
-    }]);
-
-    // Only 'linear' gets the special path; everything else falls through to PMO
-    return selectedSource === 'linear' ? 'linear' : 'pmo';
   }
 
   /**
