@@ -1,3 +1,4 @@
+// TKT-175: CLI command audit completed — see PR description for full report
 import { Args, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import { PromptCommand } from '../lib/prompt-command.js'
