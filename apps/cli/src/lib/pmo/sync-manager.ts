@@ -28,6 +28,7 @@ import { initOutboundSync } from '../external-issues/outbound-sync.js';
 import { initHookManager } from '../work-lifecycle/hooks/index.js';
 import { initWorkflowRuleEvaluator } from '../work-lifecycle/rule-evaluator.js';
 import { initActionChaining } from '../work-lifecycle/action-chaining.js';
+import { initContainerCleanupHook } from '../work-lifecycle/container-cleanup-hook.js';
 import { initTriggerHandler } from '../providers/trigger-config.js';
 
 /**
@@ -303,6 +304,9 @@ export function getStorageWithAutoSync(
 
   // Initialize action chaining (auto-spawns next action on workflow rule matches)
   initActionChaining(storage.getDatabase(), storage, pmoPath);
+
+  // Initialize container cleanup hook (auto-removes Docker containers when agents stop)
+  initContainerCleanupHook();
 
   // Initialize configurable trigger handler (agent_started, pr_created, etc. → target column)
   initTriggerHandler(storage.getDatabase(), async (ticketId, projectId, targetStatus) => {
