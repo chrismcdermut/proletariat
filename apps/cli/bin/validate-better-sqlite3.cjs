@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const SUPPORTED_NODE_MAJORS = [20, 22, 23, 24, 25]
+const SUPPORTED_NODE_MAJORS = [20, 22, 23, 24]
 
 function parseNodeMajor(version) {
   const match = /^v?(\d+)/.exec(version)
@@ -98,6 +98,19 @@ try {
     console.warn('\n[warn] Continuing installation despite validation failure (bun detected).')
     console.warn('[warn] Run prlt with Node.js, or reinstall with npm/Homebrew for full support.\n')
     process.exit(0)
+  }
+
+  // Friendlier message when the failure is likely due to an unsupported Node version
+  if (info.nodeMajor !== null && !SUPPORTED_NODE_MAJORS.includes(info.nodeMajor)) {
+    console.error(message)
+    console.error('')
+    console.error(`Node ${info.nodeMajor} is not yet supported — prebuilt better-sqlite3 binaries`)
+    console.error(`may not exist for this version. Please switch to Node 22 (LTS):`)
+    console.error('')
+    console.error('  nvm install 22   # or: nvm use 22')
+    console.error('  fnm install 22   # or: fnm use 22')
+    console.error('')
+    process.exit(1)
   }
 
   console.error(message)
