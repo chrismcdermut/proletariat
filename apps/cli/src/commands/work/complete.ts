@@ -15,6 +15,7 @@ import {
 import { trackWorkCompleted } from '../../lib/telemetry/analytics.js';
 import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
 import { detectRepoWorktrees } from '../../lib/execution/context.js';
+import { cleanupExecutionContainer } from '../../lib/docker/container-cleanup.js';
 
 export default class WorkComplete extends PMOCommand {
   static description = 'Mark work as complete (moves ticket to Done column)';
@@ -152,6 +153,14 @@ export default class WorkComplete extends PMOCommand {
         trackWorkCompleted({ durationMs, prCreated: false });
 
         this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+
+        // TKT-172: Auto-cleanup Docker container when agent work is completed
+        if (runningExecution.containerId && runningExecution.environment === 'devcontainer') {
+          const cleanup = cleanupExecutionContainer(runningExecution.containerId);
+          if (cleanup.removed.length > 0) {
+            this.log(styles.muted(`   Container ${runningExecution.containerId.substring(0, 12)} cleaned up`));
+          }
+        }
 
         // PRLT-984: Commit validation — warn if no meaningful code was committed
         if (runningExecution.branch && runningExecution.agentName) {

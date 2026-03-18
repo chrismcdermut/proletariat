@@ -29,6 +29,8 @@ import { initHookManager } from '../work-lifecycle/hooks/index.js';
 import { initWorkflowRuleEvaluator } from '../work-lifecycle/rule-evaluator.js';
 import { initActionChaining } from '../work-lifecycle/action-chaining.js';
 import { initTriggerHandler } from '../providers/trigger-config.js';
+import { initContainerCleanupListener } from '../docker/cleanup-listener.js';
+import { ExecutionStorage } from '../execution/storage.js';
 
 /**
  * Get the board path for a project
@@ -303,6 +305,11 @@ export function getStorageWithAutoSync(
 
   // Initialize action chaining (auto-spawns next action on workflow rule matches)
   initActionChaining(storage.getDatabase(), storage, pmoPath);
+
+  // Initialize container cleanup listener (TKT-172: auto-cleanup Docker containers on agent completion)
+  initContainerCleanupListener({
+    executionStorage: new ExecutionStorage(storage.getDatabase()),
+  });
 
   // Initialize configurable trigger handler (agent_started, pr_created, etc. → target column)
   initTriggerHandler(storage.getDatabase(), async (ticketId, projectId, targetStatus) => {
