@@ -244,6 +244,87 @@ describe('work source', () => {
     expect(json!.error?.code).to.equal('JIRA_NOT_CONFIGURED')
   })
 
+  // ==========================================================================
+  // work start auto-detection of external issue identifiers
+  // ==========================================================================
+
+  it('work start with non-TKT ID and default source routes to external provider', async () => {
+    // Set linear as default source
+    await execInProcess('work source set linear:PRO --json')
+
+    // PRLT-933 is not a local TKT-XXX ID, so it should route through the default source (linear).
+    // Since no real Linear credentials exist, it will fail with LINEAR_NOT_CONFIGURED or similar.
+    const output = await execInProcess('work start PRLT-933 -P test-project --json')
+    const json = extractJson<JsonOutput>(output)
+
+    expect(json).to.not.equal(null)
+    expect(json!.type).to.equal('error')
+    // The command should attempt to resolve via linear (the default source),
+    // not return TICKET_NOT_FOUND from local PMO lookup.
+    expect(json!.error?.code).to.not.equal('TICKET_NOT_FOUND')
+  })
+
+  it('work start with non-TKT ID and no default source returns NO_DEFAULT_SOURCE', async () => {
+    // No default source configured — PRLT-933 can't be resolved
+    const output = await execInProcess('work start PRLT-933 -P test-project --json')
+    const json = extractJson<JsonOutput>(output)
+
+    expect(json).to.not.equal(null)
+    expect(json!.type).to.equal('error')
+    expect(json!.error?.code).to.equal('NO_DEFAULT_SOURCE')
+    expect(json!.error?.message).to.include('not a local ticket ID')
+  })
+
+  it('work start with TKT-XXX ID still uses local PMO lookup', async () => {
+    // Set default source to linear, but TKT-020 should still resolve locally
+    await execInProcess('work source set linear:PRO --json')
+
+    // TKT-020 exists in the local PMO — should not route through linear
+    const output = await execInProcess('work start TKT-020 -P test-project --json')
+    const json = extractJson<JsonOutput>(output)
+
+    expect(json).to.not.equal(null)
+    // Should NOT return NO_DEFAULT_SOURCE or try external resolution
+    expect(json!.error?.code).to.not.equal('NO_DEFAULT_SOURCE')
+    // Should find the ticket (and prompt for next step like action selection)
+    expect(json!.type).to.not.equal('error')
+  })
+
+  it('work start --from overrides default source for external resolution', async () => {
+    // Default source is linear, but --from jira should override
+    await execInProcess('work source set linear:PRO --json')
+
+    const output = await execInProcess('work start --from jira:PROJ-456 -P test-project --json')
+    const json = extractJson<JsonOutput>(output)
+
+    expect(json).to.not.equal(null)
+    expect(json!.type).to.equal('error')
+    // Should attempt jira resolution (not linear), failing because no jira credentials
+    // The error code varies by provider but should NOT be TICKET_NOT_FOUND (local lookup)
+    expect(json!.error?.code).to.not.equal('TICKET_NOT_FOUND')
+    expect(json!.error?.code).to.not.equal('NO_DEFAULT_SOURCE')
+  })
+
+  it('work start does not auto-mutate default source during execution', async () => {
+    // Set default source to linear
+    await execInProcess('work source set linear:PRO --json')
+
+    // Run work start with a non-TKT ID — it will fail (no creds), but should not mutate the source
+    await execInProcess('work start PRLT-933 -P test-project --json')
+
+    // Verify default source is still linear:PRO
+    const row = db.prepare(`
+      SELECT value FROM workspace_settings WHERE key = 'work.default_source'
+    `).get() as { value: string } | undefined
+    expect(row?.value).to.equal('linear:PRO')
+
+    // Verify legacy key was not created
+    const oldRow = db.prepare(`
+      SELECT value FROM workspace_settings WHERE key = 'work.active_source'
+    `).get() as { value: string } | undefined
+    expect(oldRow).to.be.undefined
+  })
+
   // Legacy migration tests
   it('migrates legacy work.active_source to work.default_source on read', async () => {
     // Simulate legacy data
