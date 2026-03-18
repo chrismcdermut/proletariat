@@ -48,3 +48,9 @@ export {
   initActionChaining,
   stopActionChaining,
 } from './action-chaining.js'
+
+export {
+  ContainerCleanupHook,
+  initContainerCleanupHook,
+  stopContainerCleanupHook,
+} from './container-cleanup-hook.js'
