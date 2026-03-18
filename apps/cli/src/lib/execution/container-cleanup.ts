@@ -113,9 +113,9 @@ export function findDeadContainers(): DeadContainer[] {
   const dead: DeadContainer[] = []
 
   try {
-    // Get all running devcontainers
+    // Get all devcontainers (running + stopped)
     const output = execSync(
-      'docker ps --filter "label=devcontainer.local_folder" --format "{{.ID}}|{{.Names}}|{{.Status}}|{{.Label \\"devcontainer.local_folder\\"}}"',
+      'docker ps -a --filter "label=devcontainer.local_folder" --format "{{.ID}}|{{.Names}}|{{.Status}}|{{.Label \\"devcontainer.local_folder\\"}}"',
       { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 },
     ).trim()
 
@@ -142,8 +142,9 @@ export function findDeadContainers(): DeadContainer[] {
       // Check if the container has any tmux sessions
       let hasTmuxSessions = false
       try {
+        const safeId = sanitizeContainerId(id)
         const tmuxOutput = execSync(
-          `docker exec ${id} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
+          `docker exec ${safeId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
           { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 },
         ).trim()
 
