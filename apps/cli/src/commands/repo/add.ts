@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
 import { colors, format } from '../../lib/colors.js';
@@ -7,6 +8,7 @@ import {
   promptForRepositories,
   addRepository
 } from '../../lib/repos/index.js';
+import { parseGitHubOwnerRepo, checkGitHubRepoArchived, findRemoteUrl } from '../../lib/repos/git.js';
 import { getWorkspaceRepositories } from '../../lib/database/index.js';
 import {
   shouldOutputJson,
@@ -42,6 +44,11 @@ export default class Add extends PMOCommand {
     bulk: Flags.boolean({
       char: 'b',
       description: 'Add multiple repositories interactively',
+      default: false,
+    }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Skip archived repository warning',
       default: false,
     }),
   };
@@ -131,6 +138,35 @@ export default class Add extends PMOCommand {
       action = result.action;
     }
 
+    // Check if the GitHub repository is archived (before cloning)
+    if (!flags.force) {
+      const ownerRepo = this.resolveGitHubOwnerRepo(repoPath);
+      if (ownerRepo && checkGitHubRepoArchived(ownerRepo)) {
+        if (jsonMode) {
+          return handleError(
+            'REPO_ARCHIVED',
+            `Repository ${ownerRepo} is archived on GitHub. Pushing will fail. Use --force to add anyway.`
+          );
+        }
+
+        this.log(colors.warning(`Warning: ${ownerRepo} is archived on GitHub. You will not be able to push changes.`));
+        const { proceed } = await this.prompt<{ proceed: boolean }>([{
+          type: 'list',
+          name: 'proceed',
+          message: 'Add this archived repository anyway?',
+          choices: [
+            { name: 'No', value: false },
+            { name: 'Yes, add anyway', value: true },
+          ],
+        }], null);
+
+        if (!proceed) {
+          this.log(colors.textMuted('Operation cancelled.'));
+          return;
+        }
+      }
+    }
+
     // Add the repository
     const result = await addRepository(hqPath, repoPath, action);
 
@@ -185,5 +221,28 @@ export default class Add extends PMOCommand {
     if (failCount > 0) {
       this.log(format.error(`Failed to add ${failCount} repository(ies)`));
     }
+  }
+
+  /**
+   * Resolve a GitHub owner/repo from a URL or local path.
+   * For remote URLs, parses directly. For local paths, resolves the GitHub remote.
+   */
+  private resolveGitHubOwnerRepo(repoPath: string): string | null {
+    // Try parsing the URL directly (handles https://, git@, ssh:// GitHub URLs)
+    const fromUrl = parseGitHubOwnerRepo(repoPath);
+    if (fromUrl) return fromUrl;
+
+    // For local paths, try to resolve the GitHub remote from the source repo
+    try {
+      const resolvedPath = path.resolve(repoPath);
+      const remoteUrl = findRemoteUrl(resolvedPath);
+      if (remoteUrl) {
+        return parseGitHubOwnerRepo(remoteUrl);
+      }
+    } catch {
+      // Can't resolve — skip archived check
+    }
+
+    return null;
   }
 }

@@ -155,3 +155,39 @@ export function setOriginUrl(repoPath: string, newUrl: string): void {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
+
+/**
+ * Parse a GitHub URL into owner/repo format.
+ * Supports:
+ *   https://github.com/owner/repo.git
+ *   git@github.com:owner/repo.git
+ *   ssh://git@github.com/owner/repo.git
+ *
+ * @returns "owner/repo" or null if not a GitHub URL
+ */
+export function parseGitHubOwnerRepo(url: string): string | null {
+  const httpsMatch = url.match(/github\.com[/:]([^/]+)\/([^/.]+?)(\.git)?$/);
+  if (httpsMatch) {
+    return `${httpsMatch[1]}/${httpsMatch[2]}`;
+  }
+  return null;
+}
+
+/**
+ * Check if a GitHub repository is archived using the `gh` CLI.
+ *
+ * @param ownerRepo - "owner/repo" format
+ * @returns true if archived, false if not archived or if the check fails
+ */
+export function checkGitHubRepoArchived(ownerRepo: string): boolean {
+  try {
+    const result = execSync(`gh api repos/${ownerRepo} -q .archived`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return result === 'true';
+  } catch {
+    // If gh CLI is not installed or API call fails, don't block the user
+    return false;
+  }
+}
