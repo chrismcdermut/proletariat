@@ -28,6 +28,7 @@ import { initOutboundSync } from '../external-issues/outbound-sync.js';
 import { initHookManager } from '../work-lifecycle/hooks/index.js';
 import { initWorkflowRuleEvaluator } from '../work-lifecycle/rule-evaluator.js';
 import { initActionChaining } from '../work-lifecycle/action-chaining.js';
+import { initTriggerHandler } from '../providers/trigger-config.js';
 
 /**
  * Get the board path for a project
@@ -286,8 +287,9 @@ export function getStorageWithAutoSync(
   // Note: Storage no longer holds project context - projectId is passed explicitly to operations
   const storage = new SQLiteStorage(dbPath);
 
-  // Initialize work-lifecycle adapter (translates ticket:* → work:* events)
-  // Must be initialized before outbound sync so events flow: PMO → adapter → sync handler
+  // Initialize work-lifecycle adapter (event hub for all providers)
+  // In the new architecture, EventEmittingProvider emits both ticket:* and
+  // work:* events. The adapter coordinates cross-cutting concerns.
   initWorkLifecycleAdapter();
 
   // Initialize outbound sync hooks (subscribes to work:* events)
@@ -301,6 +303,15 @@ export function getStorageWithAutoSync(
 
   // Initialize action chaining (auto-spawns next action on workflow rule matches)
   initActionChaining(storage.getDatabase(), storage, pmoPath);
+
+  // Initialize configurable trigger handler (agent_started, pr_created, etc. → target column)
+  initTriggerHandler(storage.getDatabase(), async (ticketId, projectId, targetStatus) => {
+    try {
+      await storage.moveTicket(projectId, ticketId, targetStatus);
+    } catch {
+      // Trigger-driven moves are non-fatal
+    }
+  });
 
   return storage;
 }

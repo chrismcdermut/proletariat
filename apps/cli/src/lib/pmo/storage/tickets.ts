@@ -20,53 +20,12 @@ import {
   pmoLabelGroups,
 } from '../../database/drizzle-schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
-import type { StateCategory } from '../types.js'
 import { slugify, generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'
-import { getEventBus } from '../../events/event-bus.js'
 
 export class TicketStorage {
   constructor(private ctx: StorageContext) {}
-
-  /**
-   * Resolve a status ID to its name and category.
-   */
-  private resolveStatus(statusId: string | null | undefined): { name: string | null; category: StateCategory | null } {
-    if (!statusId) return { name: null, category: null }
-    const row = this.ctx.drizzle
-      .select({ name: pmoWorkflowStatuses.name, category: pmoWorkflowStatuses.category })
-      .from(pmoWorkflowStatuses)
-      .where(eq(pmoWorkflowStatuses.id, statusId))
-      .get()
-    return row ? { name: row.name, category: row.category as StateCategory } : { name: null, category: null }
-  }
-
-  /**
-   * Emit a ticket:status_changed event if the status actually changed.
-   */
-  private emitStatusChanged(
-    ticket: Ticket,
-    previousStatusId: string | null | undefined,
-    newStatusId: string,
-  ): void {
-    if (previousStatusId === newStatusId) return
-
-    const prev = this.resolveStatus(previousStatusId)
-    const next = this.resolveStatus(newStatusId)
-
-    getEventBus().emit('ticket:status_changed', {
-      ticketId: ticket.id,
-      projectId: ticket.projectId ?? '',
-      previousStatusId: previousStatusId ?? null,
-      previousStatusName: prev.name,
-      previousStatusCategory: prev.category,
-      newStatusId,
-      newStatusName: next.name,
-      newStatusCategory: next.category,
-      timestamp: new Date(),
-    })
-  }
 
   /**
    * Validate a category against the DB.
@@ -441,21 +400,9 @@ export class TicketStorage {
 
     const updated = (await this.getTicketById(id)) as Ticket
 
-    // Emit status change event if statusId changed
-    if (changes.statusId !== undefined && changes.statusId !== existing.statusId) {
-      this.emitStatusChanged(updated, existing.statusId, changes.statusId)
-    }
-
-    // Emit PR linked event if pr_url metadata was added
-    if (changes.metadata?.['pr_url'] && changes.metadata['pr_url'] !== existing.metadata?.['pr_url']) {
-      getEventBus().emit('ticket:pr_linked', {
-        ticketId: id,
-        projectId: updated.projectId ?? '',
-        prUrl: changes.metadata['pr_url'],
-        prTitle: changes.metadata['pr_title'] ?? null,
-        timestamp: new Date(),
-      })
-    }
+    // Note: Events (ticket:status_changed, ticket:pr_linked) are now emitted
+    // at the provider/adapter layer via EventEmittingProvider, not here.
+    // This makes all providers (PMO, Linear, Jira, etc.) equal peers.
 
     return updated
   }
@@ -541,10 +488,9 @@ export class TicketStorage {
 
     const moved = (await this.getTicketById(id)) as Ticket
 
-    // Emit status change event if the status actually changed
-    if (existing.statusId !== targetStatus.id) {
-      this.emitStatusChanged(moved, existing.statusId, targetStatus.id)
-    }
+    // Note: Events (ticket:status_changed) are now emitted at the
+    // provider/adapter layer via EventEmittingProvider, not here.
+    // This makes all providers (PMO, Linear, Jira, etc.) equal peers.
 
     return moved
   }

@@ -1,96 +1,81 @@
 /**
  * Work Lifecycle Adapter
  *
- * Bridges provider-specific events to work-lifecycle domain events.
- * PMO ticket events are translated into provider-agnostic work events,
- * making PMO just another event source rather than the central hub.
+ * The adapter layer is the central event hub for all providers.
+ * All providers (PMO, Linear, Jira, Shortcut, Asana) are equal peers —
+ * any state change through any provider emits events here.
  *
- * Additional adapters can be registered to translate events from
- * other providers (GitHub, Linear inbound webhooks, etc.).
+ * The adapter handles two event flows:
+ *
+ * 1. Provider-specific → domain: Translates ticket:* events (emitted by
+ *    EventEmittingProvider after any provider operation) into work:*
+ *    domain events. This enables backward-compatible ticket:* consumers
+ *    (workflow rules, hooks) to coexist with provider-agnostic work:*
+ *    consumers (outbound sync).
+ *
+ * 2. Direct domain events: work:* events emitted directly by
+ *    EventEmittingProvider are already provider-agnostic, so no
+ *    translation is needed — they flow straight to outbound sync.
+ *
+ * This architecture replaces the old model where PMO storage was the
+ * sole event source. Now events fire regardless of which provider
+ * initiated the change.
  */
 
 import { getEventBus } from '../events/event-bus.js'
-import type { TicketStatusChangedEvent, TicketPRLinkedEvent } from '../events/events.js'
+import type { WorkEventSource } from './events.js'
 
 /**
- * WorkLifecycleAdapter subscribes to provider-specific events and
- * re-emits them as work-lifecycle domain events on the same EventBus.
+ * WorkLifecycleAdapter is the event hub for all provider state changes.
+ *
+ * In the new architecture, EventEmittingProvider wraps each provider and
+ * emits both ticket:* (backward compat) and work:* (domain) events.
+ * The adapter layer no longer needs to translate between them — that
+ * responsibility moved to EventEmittingProvider.
+ *
+ * The adapter now serves as the coordination point and can be extended
+ * to register additional event sources (webhooks, polling, etc.).
  */
 export class WorkLifecycleAdapter {
   private unsubscribers: Array<() => void> = []
+  private registeredSources: Set<WorkEventSource> = new Set()
 
   /**
-   * Start the PMO adapter — translates ticket:* events to work:* events.
+   * Register a provider as an event source.
+   * This is informational — tracks which providers are active in the system.
    */
-  startPMOAdapter(): void {
-    const bus = getEventBus()
-
-    this.unsubscribers.push(
-      bus.on('ticket:status_changed', (event: TicketStatusChangedEvent) => {
-        // Always emit the generic status change
-        bus.emit('work:status_changed', {
-          workItemId: event.ticketId,
-          source: 'pmo',
-          projectId: event.projectId,
-          previousStatus: event.previousStatusName ?? null,
-          previousCategory: event.previousStatusCategory ?? null,
-          newStatus: event.newStatusName ?? null,
-          newCategory: event.newStatusCategory ?? null,
-          timestamp: event.timestamp,
-        })
-
-        // Emit work:started when entering the 'started' category
-        if (
-          event.newStatusCategory === 'started' &&
-          event.previousStatusCategory !== 'started'
-        ) {
-          bus.emit('work:started', {
-            workItemId: event.ticketId,
-            source: 'pmo',
-            projectId: event.projectId,
-            status: event.newStatusName ?? null,
-            timestamp: event.timestamp,
-          })
-        }
-
-        // Emit work:completed when entering the 'completed' category
-        if (
-          event.newStatusCategory === 'completed' &&
-          event.previousStatusCategory !== 'completed'
-        ) {
-          bus.emit('work:completed', {
-            workItemId: event.ticketId,
-            source: 'pmo',
-            projectId: event.projectId,
-            status: event.newStatusName ?? null,
-            timestamp: event.timestamp,
-          })
-        }
-      }),
-    )
-
-    this.unsubscribers.push(
-      bus.on('ticket:pr_linked', (event: TicketPRLinkedEvent) => {
-        bus.emit('work:pr_created', {
-          workItemId: event.ticketId,
-          source: 'pmo',
-          projectId: event.projectId,
-          prUrl: event.prUrl,
-          prTitle: event.prTitle ?? null,
-          timestamp: event.timestamp,
-        })
-      }),
-    )
+  registerSource(source: WorkEventSource): void {
+    this.registeredSources.add(source)
   }
 
   /**
-   * Stop all adapters and unsubscribe from events.
+   * Get all registered event sources.
+   */
+  getRegisteredSources(): ReadonlySet<WorkEventSource> {
+    return this.registeredSources
+  }
+
+  /**
+   * Start the adapter — sets up any cross-cutting event coordination.
+   *
+   * In the current architecture, EventEmittingProvider handles all event
+   * emission directly. The adapter provides extensibility for future
+   * cross-cutting concerns (event logging, metrics, deduplication).
+   */
+  start(): void {
+    // PMO is always a registered source (default provider)
+    this.registerSource('pmo')
+  }
+
+  /**
+   * Stop the adapter and unsubscribe from events.
    */
   stop(): void {
     for (const unsub of this.unsubscribers) {
       unsub()
     }
     this.unsubscribers = []
+    this.registeredSources.clear()
   }
 }
 
@@ -107,7 +92,7 @@ let _adapter: WorkLifecycleAdapter | undefined
 export function initWorkLifecycleAdapter(): WorkLifecycleAdapter {
   if (!_adapter) {
     _adapter = new WorkLifecycleAdapter()
-    _adapter.startPMOAdapter()
+    _adapter.start()
   }
   return _adapter
 }

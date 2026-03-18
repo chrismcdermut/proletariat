@@ -10,6 +10,7 @@ import { baseline } from './0001_baseline.js'
 import { workHooks } from './0002_work_hooks.js'
 import { actionsRedesign } from './0003_actions_redesign.js'
 import { workflowRules } from './0004_workflow_rules.js'
+import { providerStatusMapping } from './0005_provider_status_mapping.js'
 
 /**
  * Ordered list of all migrations.
@@ -20,4 +21,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   workHooks,
   actionsRedesign,
   workflowRules,
+  providerStatusMapping,
 ]

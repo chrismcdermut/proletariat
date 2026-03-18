@@ -4,6 +4,11 @@
  * Determines which provider should handle ticket operations based on the
  * ticket's external source metadata or workspace configuration.
  *
+ * All resolved providers are wrapped with EventEmittingProvider, making
+ * the adapter layer the central event hub. Every provider (PMO, Linear,
+ * Jira, Shortcut, Asana) is an equal peer that emits events through
+ * the same mechanism.
+ *
  * Two resolution modes:
  * 1. Ticket-level: resolveTicketProvider() — for operations on a specific ticket
  *    (move, delete). Uses the ticket's metadata to find the source of truth.
@@ -16,9 +21,82 @@
 import type Database from 'better-sqlite3'
 import { isLinearConfigured } from '../linear/config.js'
 import { LinearMapper } from '../linear/mapper.js'
+import type { StateCategory } from '../pmo/types.js'
 import type { TicketProvider, ProviderStorage } from './types.js'
 import { PMOTicketProvider } from './pmo-provider.js'
 import { LinearTicketProvider } from './linear-provider.js'
+import { EventEmittingProvider, type StatusResolver } from './event-emitting-provider.js'
+
+/**
+ * Create a StatusResolver backed by the database.
+ * Used by EventEmittingProvider to resolve status names/categories
+ * for event emission.
+ */
+function createDbStatusResolver(db: Database.Database, storage: ProviderStorage): StatusResolver {
+  return {
+    resolveStatusByName(projectId: string, statusName: string) {
+      try {
+        const row = db.prepare(`
+          SELECT ws.id, ws.name, ws.category
+          FROM pmo_workflow_statuses ws
+          JOIN pmo_projects p ON p.workflow_id = ws.workflow_id
+          WHERE p.id = ? AND LOWER(ws.name) = LOWER(?)
+        `).get(projectId, statusName) as { id: string; name: string; category: string } | undefined
+
+        if (row) {
+          return { id: row.id, name: row.name, category: row.category as StateCategory }
+        }
+
+        // Fallback: search by status ID
+        const byId = db.prepare(`
+          SELECT id, name, category FROM pmo_workflow_statuses WHERE id = ?
+        `).get(statusName) as { id: string; name: string; category: string } | undefined
+
+        if (byId) {
+          return { id: byId.id, name: byId.name, category: byId.category as StateCategory }
+        }
+      } catch {
+        // Non-fatal: status resolution is best-effort
+      }
+      return null
+    },
+
+    getTicketStatus(ticketId: string) {
+      try {
+        const row = db.prepare(`
+          SELECT t.status_id, ws.name, ws.category
+          FROM pmo_tickets t
+          LEFT JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
+          WHERE t.id = ?
+        `).get(ticketId) as { status_id: string | null; name: string | null; category: string | null } | undefined
+
+        if (row) {
+          return {
+            statusId: row.status_id,
+            statusName: row.name,
+            statusCategory: (row.category as StateCategory) ?? null,
+          }
+        }
+      } catch {
+        // Non-fatal: status resolution is best-effort
+      }
+      return null
+    },
+  }
+}
+
+/**
+ * Wrap a provider with EventEmittingProvider for event emission.
+ */
+function wrapWithEvents(
+  provider: TicketProvider,
+  db: Database.Database,
+  storage: ProviderStorage,
+  projectId: string,
+): TicketProvider {
+  const resolver = createDbStatusResolver(db, storage)
+  return new EventEmittingProvider(provider, resolver, projectId)
+}
 
 /**
  * Resolve the correct provider for a given ticket.
@@ -26,6 +104,9 @@ import { LinearTicketProvider } from './linear-provider.js'
  * Uses the ticket's metadata to determine the source of truth:
  * - external_source = 'linear' + configured + inbound/bidirectional → Linear
  * - Otherwise → PMO
+ *
+ * The resolved provider is wrapped with EventEmittingProvider so that
+ * events are emitted at the adapter layer, not the storage layer.
  *
  * @param ticketId - The PMO ticket ID
  * @param projectId - The PMO project ID
@@ -54,13 +135,15 @@ export function resolveTicketProvider(
       // - 'bidirectional' = both directions synced → write to Linear directly
       // - 'outbound' = ticket was created in PMO and pushed to Linear → PMO is source of truth
       if (mapping.syncDirection !== 'outbound') {
-        return new LinearTicketProvider(db, storage, projectId, null)
+        const inner = new LinearTicketProvider(db, storage, projectId, null)
+        return wrapWithEvents(inner, db, storage, projectId)
       }
     }
   }
 
   // Default: local PMO
-  return new PMOTicketProvider(storage, projectId)
+  const inner = new PMOTicketProvider(storage, projectId)
+  return wrapWithEvents(inner, db, storage, projectId)
 }
 
 /**
@@ -68,6 +151,9 @@ export function resolveTicketProvider(
  *
  * Unlike resolveTicketProvider, this doesn't require a specific ticket.
  * It checks workspace configuration to determine the active provider.
+ *
+ * The resolved provider is wrapped with EventEmittingProvider so that
+ * events are emitted at the adapter layer, not the storage layer.
  *
  * @param db - Database handle for config lookups
  * @param storage - Storage instance
@@ -82,21 +168,25 @@ export function resolveProjectProvider(
   source?: string,
 ): TicketProvider {
   if (source === 'pmo') {
-    return new PMOTicketProvider(storage, projectId)
+    const inner = new PMOTicketProvider(storage, projectId)
+    return wrapWithEvents(inner, db, storage, projectId)
   }
 
   if (source === 'linear') {
-    return new LinearTicketProvider(db, storage, projectId, null)
+    const inner = new LinearTicketProvider(db, storage, projectId, null)
+    return wrapWithEvents(inner, db, storage, projectId)
   }
 
   // auto: use Linear when it's configured in the workspace
   try {
     if (isLinearConfigured(db)) {
-      return new LinearTicketProvider(db, storage, projectId, null)
+      const inner = new LinearTicketProvider(db, storage, projectId, null)
+      return wrapWithEvents(inner, db, storage, projectId)
     }
   } catch {
     // workspace_settings table may not exist in older/test databases
   }
 
-  return new PMOTicketProvider(storage, projectId)
+  const inner = new PMOTicketProvider(storage, projectId)
+  return wrapWithEvents(inner, db, storage, projectId)
 }
