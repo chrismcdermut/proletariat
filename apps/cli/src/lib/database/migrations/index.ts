@@ -11,6 +11,11 @@ import { workHooks } from './0002_work_hooks.js'
 import { actionsRedesign } from './0003_actions_redesign.js'
 import { workflowRules } from './0004_workflow_rules.js'
 import { providerStatusMapping } from './0005_provider_status_mapping.js'
+import { dropThemeNamesUsed } from './0006_drop_theme_names_used.js'
+import { addWorktreeColumns } from './0007_add_worktree_columns.js'
+import { addAgentMountMode } from './0008_add_agent_mount_mode.js'
+import { createMediaItems } from './0009_create_media_items.js'
+import { addTicketPosition } from './0010_add_ticket_position.js'
 
 /**
  * Ordered list of all migrations.
@@ -22,4 +27,9 @@ export const ALL_MIGRATIONS: Migration[] = [
   actionsRedesign,
   workflowRules,
   providerStatusMapping,
+  dropThemeNamesUsed,
+  addWorktreeColumns,
+  addAgentMountMode,
+  createMediaItems,
+  addTicketPosition,
 ]
