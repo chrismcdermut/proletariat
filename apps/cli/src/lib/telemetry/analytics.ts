@@ -486,27 +486,47 @@ export function trackMCPToolCalled(options: {
 
 // ─── Shutdown ────────────────────────────────────────────────────────────────
 
+/** Maximum time (ms) to wait for Statsig init before giving up during shutdown. */
+const SHUTDOWN_INIT_TIMEOUT_MS = 3000
+
 /**
- * Flush queued events (if Statsig is ready) and shut down the Statsig client.
- * No timeout, no waiting for init — events are safely on disk if Statsig
- * didn't initialize in time, and will be flushed on the next command run.
+ * Wait for Statsig init to complete (so queued events get flushed), then
+ * shut down the client. Uses a timeout to avoid blocking CLI exit if
+ * Statsig is slow (e.g., first run with no cache). After the first
+ * successful init, Statsig caches its config locally so subsequent
+ * initializations resolve in < 100 ms.
+ *
+ * Events written during this command run (e.g., by trackCommandRun in
+ * postrun) will be on disk and flushed on the next run — this is by
+ * design (WAL guarantee: one-command delay for current-run events).
  */
 export async function shutdownAnalytics(): Promise<void> {
-  // Mark as shut down so the in-progress async Statsig init (if any)
-  // won't set statsigClient or flush the queue after we're done
-  analyticsShutdown = true
+  // Await the in-progress Statsig init so it can flush queued events from
+  // previous runs. Without this, the init promise sees analyticsShutdown=true
+  // and bails before calling flushQueuedEvents(), causing the queue to grow
+  // indefinitely (see PRLT-1013).
+  if (initPromise) {
+    try {
+      await Promise.race([
+        initPromise,
+        new Promise<void>(resolve => setTimeout(resolve, SHUTDOWN_INIT_TIMEOUT_MS)),
+      ])
+    } catch {
+      // Ignore init errors — events are safely on disk
+    }
+  }
 
-  // Abandon any in-progress init — events are on disk, no need to wait
+  // Now mark as shut down so any late-resolving init promise (after timeout)
+  // won't set statsigClient or flush the queue
+  analyticsShutdown = true
   initPromise = null
 
-  // Shut down the Statsig client if it initialized during this run.
-  // Do NOT flush the queue here — events written during this command
-  // (by trackCommandRun in the postrun hook) are safely on disk and will
-  // be flushed on the next command run when Statsig is warm. Flushing
-  // here would delete events from disk before we can confirm they were
-  // actually sent, violating the write-ahead log guarantee.
   if (statsigClient) {
     try {
+      // Flush events written during this run that arrived after the init
+      // promise's own flush (e.g., the command_run event from postrun).
+      // statsigClient.logEvent() buffers in memory; shutdown() sends them.
+      flushQueuedEvents()
       statsigClient.shutdown()
     } catch {
       // Never let shutdown errors affect the CLI
