@@ -236,7 +236,8 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --from asana:1234567890            # Unified: Asana shorthand',
     '<%= config.bin %> <%= command.id %> --from shortcut:sc-123             # Unified: Shortcut shorthand',
     '<%= config.bin %> <%= command.id %> --from trello:abc123              # Unified: Trello shorthand',
-    '<%= config.bin %> <%= command.id %> --from-issue                       # Uses workspace active source',
+    '<%= config.bin %> <%= command.id %> PRLT-933                           # Auto-detect: resolves via default source',
+    '<%= config.bin %> <%= command.id %> --from-issue                       # Uses workspace default source',
   ]
 
   static args = {
