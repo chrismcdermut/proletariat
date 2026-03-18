@@ -153,6 +153,19 @@ export default class WorkComplete extends PMOCommand {
 
         this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
 
+        // PRLT-1005: Clean up dead container for completed devcontainer execution
+        if (runningExecution.environment === 'devcontainer' && runningExecution.agentName) {
+          try {
+            const { cleanupAgentContainer } = await import('../../lib/execution/container-cleanup.js');
+            const containerResult = cleanupAgentContainer(runningExecution.agentName);
+            if (containerResult.removed.length > 0) {
+              this.log(styles.muted(`   Cleaned up container for ${runningExecution.agentName}`));
+            }
+          } catch {
+            // Non-fatal — don't block work complete for container cleanup failures
+          }
+        }
+
         // PRLT-984: Commit validation — warn if no meaningful code was committed
         if (runningExecution.branch && runningExecution.agentName) {
           try {

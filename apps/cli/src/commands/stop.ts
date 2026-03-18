@@ -83,6 +83,30 @@ export default class Stop extends PromptCommand {
       await runner.stop(agentSession)
       store.updateStatus(session.id, 'stopped')
 
+      // PRLT-1005: Emit agent:stopped event for cleanup listeners
+      try {
+        const { getEventBus } = await import('../lib/events/event-bus.js')
+        getEventBus().emit('agent:stopped', {
+          sessionId: session.id,
+          runner: session.runner,
+          reason: 'manual',
+          timestamp: new Date(),
+        })
+      } catch {
+        // Non-fatal
+      }
+
+      // PRLT-1005: Clean up dead container after stopping agent
+      try {
+        const { cleanupDeadContainers } = await import('../lib/execution/container-cleanup.js')
+        const containerResult = cleanupDeadContainers()
+        if (containerResult.removed.length > 0 && !jsonMode) {
+          this.log(styles.muted(`  Cleaned up ${containerResult.removed.length} dead container(s)`))
+        }
+      } catch {
+        // Non-fatal — don't block stop for container cleanup failures
+      }
+
       if (jsonMode) {
         outputSuccessAsJson({
           id: session.id,

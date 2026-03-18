@@ -310,6 +310,19 @@ export function startContainerCleanupListener(): void {
       }
     }),
   )
+
+  // Clean up when an agent encounters an error
+  _unsubscribers.push(
+    bus.on('agent:error', () => {
+      try {
+        // Agent errored out — its container may be left idle.
+        // Schedule cleanup to remove dead containers.
+        scheduleDeadContainerCleanup()
+      } catch {
+        // Non-fatal
+      }
+    }),
+  )
 }
 
 /**

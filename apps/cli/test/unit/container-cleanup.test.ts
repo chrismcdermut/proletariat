@@ -105,6 +105,7 @@ describe('Container Cleanup (PRLT-1005)', () => {
 
       // Verify event listeners are registered
       expect(bus.listenerCount('agent:stopped')).to.be.greaterThan(0)
+      expect(bus.listenerCount('agent:error')).to.be.greaterThan(0)
       expect(bus.listenerCount('work:completed')).to.be.greaterThan(0)
       expect(bus.listenerCount('work:pr_created')).to.be.greaterThan(0)
     })
@@ -117,6 +118,7 @@ describe('Container Cleanup (PRLT-1005)', () => {
 
       // Should still only have one listener per event
       expect(bus.listenerCount('agent:stopped')).to.equal(1)
+      expect(bus.listenerCount('agent:error')).to.equal(1)
       expect(bus.listenerCount('work:completed')).to.equal(1)
       expect(bus.listenerCount('work:pr_created')).to.equal(1)
     })
@@ -128,6 +130,7 @@ describe('Container Cleanup (PRLT-1005)', () => {
       stopContainerCleanupListener()
 
       expect(bus.listenerCount('agent:stopped')).to.equal(0)
+      expect(bus.listenerCount('agent:error')).to.equal(0)
       expect(bus.listenerCount('work:completed')).to.equal(0)
       expect(bus.listenerCount('work:pr_created')).to.equal(0)
     })
@@ -163,6 +166,15 @@ describe('Container Cleanup (PRLT-1005)', () => {
           projectId: 'test-project',
           prUrl: 'https://github.com/test/repo/pull/1',
           prTitle: 'Test PR',
+          timestamp: new Date(),
+        })
+      }).to.not.throw()
+
+      expect(() => {
+        bus.emit('agent:error', {
+          sessionId: 'TKT-001-implement-test-agent',
+          runner: 'claude-code',
+          error: 'Something went wrong',
           timestamp: new Date(),
         })
       }).to.not.throw()

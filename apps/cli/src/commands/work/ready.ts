@@ -214,6 +214,19 @@ export default class WorkReady extends PMOCommand {
         }
       }
 
+      // PRLT-1005: Clean up dead container for completed devcontainer execution
+      if (runningExecution?.environment === 'devcontainer' && runningExecution?.agentName) {
+        try {
+          const { cleanupAgentContainer } = await import('../../lib/execution/container-cleanup.js');
+          const containerResult = cleanupAgentContainer(runningExecution.agentName);
+          if (containerResult.removed.length > 0) {
+            this.log(styles.muted(`   Cleaned up container for ${runningExecution.agentName}`));
+          }
+        } catch {
+          // Non-fatal — don't block work ready for container cleanup failures
+        }
+      }
+
       // Handle PR creation
       let prUrl: string | undefined;
       const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work ready' } : null;
