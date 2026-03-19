@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process'
  * events from previous runs get flushed. If Statsig doesn't initialize in
  * time, events persist on disk for the next run.
  *
- * Tests use a mock @statsig/js-client to make Statsig initialization
+ * Tests use a mock statsig-node to make Statsig initialization
  * deterministic (no network dependency).
  */
 describe('Analytics queue persistence', () => {
@@ -50,29 +50,27 @@ describe('Analytics queue persistence', () => {
     const initDelay = opts?.initDelay ?? 0
     const initThrows = opts?.initThrows ?? false
 
-    // Mock @statsig/js-client module
+    // Mock statsig-node module (server SDK — static Statsig object)
     fs.writeFileSync(path.join(mockDir, 'statsig-mock.mjs'), `
 import * as fs from 'node:fs';
 const EVENTS_FILE = ${JSON.stringify(statsigEventsPath)};
-export class StatsigClient {
-  constructor(key, user) {
-    this._events = [];
-  }
-  async initializeAsync() {
+const _events = [];
+export const Statsig = {
+  async initialize(key, options) {
     ${initDelay > 0 ? `await new Promise(r => setTimeout(r, ${initDelay}));` : ''}
     ${initThrows ? `throw new Error('mock init failure');` : ''}
-  }
-  logEvent(name, value, metadata) {
-    this._events.push({ name, value, metadata });
-  }
-  checkGate() { return false; }
-  getDynamicConfig() { return { get: (k, d) => d }; }
+  },
+  logEvent(user, name, value, metadata) {
+    _events.push({ name, value, metadata });
+  },
+  checkGate() { return false; },
+  getConfig() { return { get: (k, d) => d }; },
   shutdown() {
     try {
-      fs.writeFileSync(EVENTS_FILE, JSON.stringify(this._events), 'utf-8');
+      fs.writeFileSync(EVENTS_FILE, JSON.stringify(_events), 'utf-8');
     } catch {}
-  }
-}
+  },
+};
 `, 'utf-8')
 
     // Mock posthog-node module
@@ -94,12 +92,12 @@ export class PostHog {
 }
 `, 'utf-8')
 
-    // Loader hook — resolves @statsig/js-client and posthog-node to our mocks
+    // Loader hook — resolves statsig-node and posthog-node to our mocks
     fs.writeFileSync(path.join(mockDir, 'mock-loader.mjs'), `
 const STATSIG_MOCK_URL = new URL('./statsig-mock.mjs', import.meta.url).href;
 const POSTHOG_MOCK_URL = new URL('./posthog-mock.mjs', import.meta.url).href;
 export async function resolve(specifier, context, nextResolve) {
-  if (specifier === '@statsig/js-client') {
+  if (specifier === 'statsig-node') {
     return { url: STATSIG_MOCK_URL, shortCircuit: true };
   }
   if (specifier === 'posthog-node') {
