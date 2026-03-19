@@ -44,6 +44,7 @@ export {
   JiraIssueAdapter,
   AsanaIssueAdapter,
   ShortcutIssueAdapter,
+  ClickUpIssueAdapter,
 } from './adapters.js'
 
 // Mapping store
@@ -102,6 +103,17 @@ export {
   importShortcutStoryToPmo,
   type ShortcutAdapterConfig,
 } from './shortcut.js'
+
+// ClickUp helpers
+export {
+  normalizeClickUpTask,
+  normalizeClickUpTaskToEnvelope,
+  buildClickUpTicketDescription,
+  buildClickUpMetadata,
+  getClickUpTaskById,
+  listClickUpTasks,
+  type ClickUpAdapterConfig,
+} from './clickup.js'
 
 export {
   resolveMirrorToPmo,

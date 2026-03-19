@@ -716,3 +716,120 @@ export class TrelloIssueAdapter implements ExternalIssueAdapter {
     return store.findByExecutionId(executionId).filter((mapping) => mapping.provider === this.source)
   }
 }
+
+function normalizeClickUpLabels(rawTags: unknown): string[] {
+  if (!Array.isArray(rawTags)) {
+    return []
+  }
+  return rawTags
+    .map((tag) => {
+      if (typeof tag === 'string') {
+        return asString(tag)
+      }
+      if (typeof tag === 'object' && tag !== null) {
+        return asString((tag as Record<string, unknown>).name)
+      }
+      return undefined
+    })
+    .filter((label): label is string => typeof label === 'string')
+}
+
+function normalizeClickUpPriority(rawPriority: unknown): string | null {
+  if (!rawPriority || typeof rawPriority !== 'object') {
+    return null
+  }
+  const priority = rawPriority as Record<string, unknown>
+  const id = priority.id !== undefined ? String(priority.id) : undefined
+  if (!id) return null
+
+  const map: Record<string, string> = { '1': 'P0', '2': 'P1', '3': 'P2', '4': 'P3' }
+  return map[id] ?? null
+}
+
+export class ClickUpIssueAdapter implements ExternalIssueAdapter {
+  readonly source = 'clickup' as const
+
+  private readonly fetchByKeyImpl?: FetchIssueByKey
+  private readonly fetchByQueryImpl?: FetchIssuesByQuery
+
+  constructor(fetchers: AdapterFetchers = {}) {
+    this.fetchByKeyImpl = fetchers.fetchByKey
+    this.fetchByQueryImpl = fetchers.fetchByQuery
+  }
+
+  normalize(raw: unknown): IssueEnvelope {
+    const data = asRecord(raw)
+    const taskId = data.id !== undefined ? String(data.id) : asString(data.id)
+    const customId = asString(data.custom_id)
+
+    const statusObj = asRecord(data.status)
+    const listObj = asRecord(data.list)
+
+    const envelope = {
+      source: this.source,
+      external_id: taskId,
+      external_key: customId || taskId,
+      title: asString(data.name),
+      description: typeof data.description === 'string' ? data.description : '',
+      labels: normalizeClickUpLabels(data.tags),
+      priority: normalizeClickUpPriority(data.priority),
+      status: asString(statusObj.status) ?? 'Open',
+      url: asString(data.url) ?? (taskId ? `https://app.clickup.com/t/${taskId}` : undefined),
+      project_key: asString(listObj.name) ?? asString(listObj.id) ?? 'CLICKUP',
+      assignee: (() => {
+        const assignees = data.assignees as Array<Record<string, unknown>> | undefined
+        if (Array.isArray(assignees) && assignees.length > 0) {
+          return asNullableString(assignees[0]?.username) ?? asNullableString(assignees[0]?.email)
+        }
+        return null
+      })(),
+      item_type: 'task',
+      raw: data,
+    }
+
+    return ensureNormalized(this.source, envelope)
+  }
+
+  async fetchByKey(key: string): Promise<IssueEnvelope> {
+    const fetchIssueByKey = getFetchByKeyOrThrow(this.source, this.fetchByKeyImpl)
+    const raw = await fetchIssueByKey(key)
+    return this.normalize(raw)
+  }
+
+  async fetchByQuery(query: Record<string, unknown>): Promise<IssueEnvelope[]> {
+    const fetchIssuesByQuery = getFetchByQueryOrThrow(this.source, this.fetchByQueryImpl)
+    const rawIssues = await fetchIssuesByQuery(query)
+    return rawIssues.map((raw) => this.normalize(raw))
+  }
+
+  persistMapping(
+    store: ExternalExecutionMappingStore,
+    envelope: IssueEnvelope,
+    params?: { executionId?: string; prUrl?: string; lastSyncedAt?: Date; lastSpawnedAt?: Date }
+  ): ExternalExecutionMapping {
+    return store.upsertMapping({
+      provider: this.source,
+      externalId: envelope.external_id,
+      externalKey: envelope.external_key,
+      canonicalUrl: envelope.url,
+      latestStateSnapshot: {
+        status: envelope.status,
+        priority: envelope.priority,
+        assignee: envelope.assignee,
+        projectKey: envelope.project_key,
+      },
+      executionId: params?.executionId,
+      prUrl: params?.prUrl,
+      lastSyncedAt: params?.lastSyncedAt,
+      lastSpawnedAt: params?.lastSpawnedAt,
+    })
+  }
+
+  readMappingByExternalId(store: ExternalExecutionMappingStore, externalId: string): ExternalExecutionMapping | null {
+    return store.getByExternalId(this.source, externalId)
+  }
+
+  readMappingsByExecutionId(store: ExternalExecutionMappingStore, executionId: string): ExternalExecutionMapping[] {
+    return store.findByExecutionId(executionId).filter((mapping) => mapping.provider === this.source)
+  }
+}
