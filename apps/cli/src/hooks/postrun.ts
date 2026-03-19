@@ -2,6 +2,7 @@ import { Hook } from '@oclif/core'
 import { flushSentry } from '../lib/telemetry.js'
 import { trackCommandRun, shutdownAnalytics } from '../lib/telemetry/analytics.js'
 import { flushPendingVersionCheck } from '../lib/update-check.js'
+import { autoSyncMergedPRs } from '../lib/pr/sync-merged.js'
 
 /**
  * Postrun hook - runs after every command completes (when not bypassed by process.exit)
@@ -11,6 +12,9 @@ import { flushPendingVersionCheck } from '../lib/update-check.js'
  * handler as a safety net for telemetry tracking in case signal handlers
  * call process.exit() directly. The __prlt_telemetry_tracked flag prevents
  * double-counting between the two mechanisms.
+ *
+ * Also runs automatic PR merge sync (debounced to at most once per 5 minutes)
+ * to detect PRs merged on GitHub and auto-move linked tickets to Done.
  */
 const hook: Hook<'postrun'> = async function ({ Command, argv }) {
   // Mark as tracked so the process.on('exit') fallback in init.ts skips
@@ -42,6 +46,8 @@ const hook: Hook<'postrun'> = async function ({ Command, argv }) {
     flushPendingVersionCheck(),
     shutdownAnalytics(),
     flushSentry(),
+    // Auto-sync merged PRs (debounced, non-blocking, fire-and-forget)
+    autoSyncMergedPRs().catch(() => { /* non-fatal */ }),
   ])
 }
 
