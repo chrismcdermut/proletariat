@@ -1,7 +1,7 @@
 /**
- * Product Analytics (Statsig) & Event Tracking
+ * Product Analytics (Statsig + PostHog) & Event Tracking
  *
- * Provides anonymous usage analytics for the CLI using Statsig client SDK.
+ * Provides anonymous usage analytics for the CLI using Statsig and PostHog.
  * All data is anonymous — identified by a machine UUID only, no PII is ever sent.
  *
  * Telemetry can be disabled via:
@@ -16,9 +16,9 @@
  *
  * Write-ahead log:
  * - trackEvent() writes events to ~/.proletariat/telemetry-queue.json synchronously
- * - On the next command run, queued events are flushed to Statsig and the queue is cleared
+ * - On the next command run, queued events are flushed to both backends and the queue is cleared
  * - Events are delayed by at most one command invocation — acceptable for analytics
- * - This adds zero latency and ensures no events are lost regardless of Statsig init timing
+ * - This adds zero latency and ensures no events are lost regardless of backend init timing
  * - Shutdown never flushes the queue — events persist until the next run confirms delivery
  */
 
@@ -29,6 +29,9 @@ import { getMachineConfigDir, ensureMachineConfigDir } from '../machine-config.j
 
 // Statsig client SDK key (public — safe to embed in open source repos)
 const STATSIG_CLIENT_KEY = 'client-kvxMxRhn9NFSmH8orl7e2W9nYTfWVS7Kjf7yRTdIecc'
+
+// PostHog API key (public — PostHog client keys are meant to be public)
+const POSTHOG_API_KEY = 'phc_ihCp4i3ZWlk2KQxFbcE6odylZGtISEaCNKAVklMwAk'
 
 // Cap the queue size to prevent unbounded growth if events never flush
 const MAX_QUEUE_SIZE = 1000
@@ -66,6 +69,14 @@ interface StatsigClientInstance {
 }
 
 /**
+ * Minimal interface for the PostHog client instance methods we use.
+ */
+interface PostHogClientInstance {
+  capture(message: { distinctId: string; event: string; properties?: Record<string, unknown> }): void
+  shutdown(shutdownTimeoutMs?: number): void
+}
+
+/**
  * A queued telemetry event persisted to disk.
  */
 interface QueuedEvent {
@@ -77,6 +88,7 @@ interface QueuedEvent {
 
 // Module-level state
 let statsigClient: StatsigClientInstance | null = null
+let posthogClient: PostHogClientInstance | null = null
 let telemetryConfig: TelemetryConfig | null = null
 let cliVersion: string | null = null
 let initPromise: Promise<void> | null = null
@@ -299,18 +311,39 @@ function readAndClearQueue(): QueuedEvent[] {
 }
 
 /**
- * Flush queued events to Statsig. Requires an initialized Statsig client.
+ * Flush queued events to Statsig and PostHog. Requires at least one initialized client.
  * Called during shutdown or at the start of the next command run.
  */
 export function flushQueuedEvents(): void {
-  if (!statsigClient) return
+  if (!statsigClient && !posthogClient) return
 
   const events = readAndClearQueue()
+  const machineId = getMachineId()
   for (const event of events) {
-    try {
-      statsigClient.logEvent(event.name, event.value, event.metadata)
-    } catch {
-      // Drop individual events silently
+    // Send to Statsig
+    if (statsigClient) {
+      try {
+        statsigClient.logEvent(event.name, event.value, event.metadata)
+      } catch {
+        // Drop individual events silently
+      }
+    }
+
+    // Send to PostHog
+    if (posthogClient) {
+      try {
+        posthogClient.capture({
+          distinctId: machineId,
+          event: event.name,
+          properties: {
+            ...event.metadata,
+            ...(event.value != null ? { value: event.value } : {}),
+            timestamp: event.timestamp,
+          },
+        })
+      } catch {
+        // Drop individual events silently
+      }
     }
   }
 }
@@ -332,9 +365,28 @@ export function initAnalytics(version: string): void {
 
   showTelemetryNotice()
 
-  // Start Statsig init in background — not needed for event logging,
+  // Start Statsig + PostHog init in background — not needed for event logging,
   // but enables feature flags and allows queue flush if init completes in time
   initPromise = (async () => {
+    // Initialize PostHog (fire-and-forget, independent of Statsig)
+    try {
+      const { PostHog } = await import('posthog-node')
+      const ph = new PostHog(POSTHOG_API_KEY, {
+        flushAt: 20,
+        flushInterval: 10000,
+      })
+
+      if (analyticsShutdown) {
+        try { ph.shutdown() } catch { /* ignore */ }
+      } else {
+        posthogClient = ph as unknown as PostHogClientInstance
+      }
+    } catch {
+      // If PostHog can't initialize, fail silently
+      posthogClient = null
+    }
+
+    // Initialize Statsig
     try {
       const { StatsigClient: StatsigClientClass } = await import('@statsig/js-client')
       const client = new StatsigClientClass(
@@ -356,11 +408,16 @@ export function initAnalytics(version: string): void {
       const { setStatsigClient } = await import('./feature-flags.js')
       setStatsigClient(client)
 
-      // Statsig is ready — flush any events queued from previous runs
+      // Backends are ready — flush any events queued from previous runs
       flushQueuedEvents()
     } catch {
       // If Statsig can't initialize, fail silently — analytics should never break the CLI
       statsigClient = null
+
+      // Even if Statsig failed, PostHog may be ready — try flushing
+      if (posthogClient && !analyticsShutdown) {
+        flushQueuedEvents()
+      }
     }
   })()
 }
@@ -521,23 +578,38 @@ export async function shutdownAnalytics(): Promise<void> {
   analyticsShutdown = true
   initPromise = null
 
-  if (statsigClient) {
+  if (statsigClient || posthogClient) {
     try {
       // Flush events written during this run that arrived after the init
       // promise's own flush (e.g., the command_run event from postrun).
       // statsigClient.logEvent() buffers in memory; shutdown() sends them.
       flushQueuedEvents()
-      statsigClient.shutdown()
     } catch {
-      // Never let shutdown errors affect the CLI
+      // Never let flush errors affect the CLI
     }
 
-    statsigClient = null
-    try {
-      const { setStatsigClient } = await import('./feature-flags.js')
-      setStatsigClient(null)
-    } catch {
-      // Ignore
+    if (statsigClient) {
+      try {
+        statsigClient.shutdown()
+      } catch {
+        // Never let shutdown errors affect the CLI
+      }
+      statsigClient = null
+      try {
+        const { setStatsigClient } = await import('./feature-flags.js')
+        setStatsigClient(null)
+      } catch {
+        // Ignore
+      }
+    }
+
+    if (posthogClient) {
+      try {
+        posthogClient.shutdown()
+      } catch {
+        // Never let shutdown errors affect the CLI
+      }
+      posthogClient = null
     }
   }
 }
