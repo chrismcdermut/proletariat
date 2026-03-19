@@ -2,6 +2,11 @@
  * Dependency operations for tickets, specs, and epics.
  */
 
+import { eq, and, desc } from 'drizzle-orm'
+import {
+  pmoSpecs,
+  pmoSpecDependencies,
+} from '../../database/drizzle-schema.js'
 import { PMO_TABLES } from '../schema.js'
 import {
   EpicDependency,
@@ -191,19 +196,30 @@ export class DependencyStorage {
     dependencyType: SpecDependencyType = 'depends_on'
   ): Promise<SpecDependency> {
     // Validate specs exist
-    const spec = this.ctx.db.prepare(`SELECT id FROM ${T.specs} WHERE id = ?`).get(specId)
+    const spec = this.ctx.drizzle
+      .select({ id: pmoSpecs.id })
+      .from(pmoSpecs)
+      .where(eq(pmoSpecs.id, specId))
+      .get()
     if (!spec) throw new PMOError('NOT_FOUND', `Spec not found: ${specId}`)
 
-    const dependsOn = this.ctx.db.prepare(`SELECT id FROM ${T.specs} WHERE id = ?`).get(
-      dependsOnSpecId
-    )
+    const dependsOn = this.ctx.drizzle
+      .select({ id: pmoSpecs.id })
+      .from(pmoSpecs)
+      .where(eq(pmoSpecs.id, dependsOnSpecId))
+      .get()
     if (!dependsOn) throw new PMOError('NOT_FOUND', `Spec not found: ${dependsOnSpecId}`)
 
     try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.spec_dependencies} (spec_id, depends_on_spec_id, dependency_type)
-        VALUES (?, ?, ?)
-      `).run(specId, dependsOnSpecId, dependencyType)
+      this.ctx.drizzle
+        .insert(pmoSpecDependencies)
+        .values({
+          specId,
+          dependsOnSpecId,
+          dependencyType,
+          createdAt: String(Date.now()),
+        })
+        .run()
 
       return {
         specId,
@@ -230,15 +246,20 @@ export class DependencyStorage {
     dependsOnSpecId: string,
     dependencyType?: SpecDependencyType
   ): Promise<void> {
-    let query = `DELETE FROM ${T.spec_dependencies} WHERE spec_id = ? AND depends_on_spec_id = ?`
-    const params: unknown[] = [specId, dependsOnSpecId]
+    const conditions = [
+      eq(pmoSpecDependencies.specId, specId),
+      eq(pmoSpecDependencies.dependsOnSpecId, dependsOnSpecId),
+    ]
 
     if (dependencyType) {
-      query += ' AND dependency_type = ?'
-      params.push(dependencyType)
+      conditions.push(eq(pmoSpecDependencies.dependencyType, dependencyType))
     }
 
-    const result = this.ctx.db.prepare(query).run(...params)
+    const result = this.ctx.drizzle
+      .delete(pmoSpecDependencies)
+      .where(and(...conditions))
+      .run()
+
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', 'Dependency not found')
     }
@@ -248,23 +269,23 @@ export class DependencyStorage {
    * List dependencies for a spec.
    */
   async listSpecDependencies(specId: string): Promise<SpecDependency[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT spec_id, depends_on_spec_id, dependency_type, created_at
-      FROM ${T.spec_dependencies}
-      WHERE spec_id = ?
-      ORDER BY created_at DESC
-    `).all(specId) as Array<{
-      spec_id: string
-      depends_on_spec_id: string
-      dependency_type: string
-      created_at: string
-    }>
+    const rows = this.ctx.drizzle
+      .select({
+        specId: pmoSpecDependencies.specId,
+        dependsOnSpecId: pmoSpecDependencies.dependsOnSpecId,
+        dependencyType: pmoSpecDependencies.dependencyType,
+        createdAt: pmoSpecDependencies.createdAt,
+      })
+      .from(pmoSpecDependencies)
+      .where(eq(pmoSpecDependencies.specId, specId))
+      .orderBy(desc(pmoSpecDependencies.createdAt))
+      .all()
 
     return rows.map((row) => ({
-      specId: row.spec_id,
-      dependsOnSpecId: row.depends_on_spec_id,
-      dependencyType: row.dependency_type as SpecDependencyType,
-      createdAt: new Date(row.created_at),
+      specId: row.specId,
+      dependsOnSpecId: row.dependsOnSpecId,
+      dependencyType: row.dependencyType as SpecDependencyType,
+      createdAt: new Date(row.createdAt || Date.now()),
     }))
   }
 
