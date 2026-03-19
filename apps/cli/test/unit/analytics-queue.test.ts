@@ -34,8 +34,8 @@ describe('Analytics queue persistence', () => {
   })
 
   /**
-   * Create mock @statsig/js-client files in the test directory.
-   * Uses Node.js module resolution hooks to intercept the import.
+   * Create mock @statsig/js-client and posthog-node files in the test directory.
+   * Uses Node.js module resolution hooks to intercept the imports.
    *
    * @param opts.initDelay - ms to delay initializeAsync (default: 0)
    * @param opts.initThrows - if true, initializeAsync rejects
@@ -46,6 +46,7 @@ describe('Analytics queue persistence', () => {
     fs.mkdirSync(mockDir, { recursive: true })
 
     const statsigEventsPath = path.join(testDir, 'statsig-events.json')
+    const posthogEventsPath = path.join(testDir, 'posthog-events.json')
     const initDelay = opts?.initDelay ?? 0
     const initThrows = opts?.initThrows ?? false
 
@@ -74,12 +75,35 @@ export class StatsigClient {
 }
 `, 'utf-8')
 
-    // Loader hook — resolves @statsig/js-client to our mock
+    // Mock posthog-node module
+    fs.writeFileSync(path.join(mockDir, 'posthog-mock.mjs'), `
+import * as fs from 'node:fs';
+const EVENTS_FILE = ${JSON.stringify(posthogEventsPath)};
+export class PostHog {
+  constructor(apiKey, options) {
+    this._events = [];
+  }
+  capture(message) {
+    this._events.push(message);
+  }
+  shutdown() {
+    try {
+      fs.writeFileSync(EVENTS_FILE, JSON.stringify(this._events), 'utf-8');
+    } catch {}
+  }
+}
+`, 'utf-8')
+
+    // Loader hook — resolves @statsig/js-client and posthog-node to our mocks
     fs.writeFileSync(path.join(mockDir, 'mock-loader.mjs'), `
-const MOCK_URL = new URL('./statsig-mock.mjs', import.meta.url).href;
+const STATSIG_MOCK_URL = new URL('./statsig-mock.mjs', import.meta.url).href;
+const POSTHOG_MOCK_URL = new URL('./posthog-mock.mjs', import.meta.url).href;
 export async function resolve(specifier, context, nextResolve) {
   if (specifier === '@statsig/js-client') {
-    return { url: MOCK_URL, shortCircuit: true };
+    return { url: STATSIG_MOCK_URL, shortCircuit: true };
+  }
+  if (specifier === 'posthog-node') {
+    return { url: POSTHOG_MOCK_URL, shortCircuit: true };
   }
   return nextResolve(specifier, context);
 }
@@ -104,7 +128,7 @@ register('./mock-loader.mjs', import.meta.url);
   function runAnalyticsScript(
     script: string,
     opts?: { useMock?: boolean; mockOpts?: { initDelay?: number; initThrows?: boolean } },
-  ): { queue: unknown[] | null; stdout: string; stderr: string; statsigEvents: unknown[] | null } {
+  ): { queue: unknown[] | null; stdout: string; stderr: string; statsigEvents: unknown[] | null; posthogEvents: unknown[] | null } {
     const configDir = path.join(testDir, '.proletariat')
     fs.mkdirSync(configDir, { recursive: true })
 
@@ -182,7 +206,18 @@ ${script}
       }
     }
 
-    return { queue, stdout, stderr, statsigEvents }
+    const posthogEventsPath = path.join(testDir, 'posthog-events.json')
+    let posthogEvents: unknown[] | null = null
+    if (fs.existsSync(posthogEventsPath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(posthogEventsPath, 'utf-8'))
+        posthogEvents = Array.isArray(parsed) ? parsed : null
+      } catch {
+        posthogEvents = null
+      }
+    }
+
+    return { queue, stdout, stderr, statsigEvents, posthogEvents }
   }
 
   // ── Queue write mechanics (no Statsig init) ───────────────────────────
@@ -270,22 +305,26 @@ ${script}
     expect(queue).to.be.null
   })
 
-  it('events persist on disk when Statsig fails to initialize', () => {
-    const { queue, statsigEvents, stderr } = runAnalyticsScript(`
+  it('events are flushed to PostHog when Statsig fails to initialize', () => {
+    const { queue, statsigEvents, posthogEvents, stderr } = runAnalyticsScript(`
       initAnalytics('0.0.0-test');
       trackEvent('resilient_event', null, { source: 'test' });
       trackCommandRun({ command: 'test:fail', durationMs: 10, success: true, flags: [] });
       await shutdownAnalytics();
     `, { useMock: true, mockOpts: { initThrows: true } })
 
-    // Statsig failed to init, so events should persist on disk
-    expect(queue, `queue should exist when Statsig fails, stderr: ${stderr}`).to.not.be.null
-    expect(queue!.length).to.equal(2)
-    expect((queue![0] as Record<string, unknown>).name).to.equal('resilient_event')
-    expect((queue![1] as Record<string, unknown>).name).to.equal('command_run')
+    // Statsig failed to init, but PostHog succeeded — events should be
+    // flushed to PostHog and drained from the disk queue
+    expect(queue, `queue should be drained when PostHog succeeds, stderr: ${stderr}`).to.be.null
 
     // Statsig mock didn't get any events (init failed)
     expect(statsigEvents).to.be.null
+
+    // PostHog should have received the events
+    expect(posthogEvents, `posthog should have received events, stderr: ${stderr}`).to.not.be.null
+    expect(posthogEvents!.length).to.equal(2)
+    expect((posthogEvents![0] as Record<string, unknown>).event).to.equal('resilient_event')
+    expect((posthogEvents![1] as Record<string, unknown>).event).to.equal('command_run')
   })
 
   it('previous-run events flushed while current-run event stays on disk until next flush', () => {
