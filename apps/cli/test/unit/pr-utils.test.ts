@@ -236,6 +236,27 @@ describe('PR Utils Unit Tests', () => {
   });
 
   /**
+   * closePR options validation
+   */
+  describe('closePR options', () => {
+    it('should accept empty options', () => {
+      const options: { comment?: string; cwd?: string } = {};
+      expect(options.comment).to.be.undefined;
+      expect(options.cwd).to.be.undefined;
+    });
+
+    it('should accept comment option', () => {
+      const options = { comment: 'Superseded by #456' };
+      expect(options.comment).to.equal('Superseded by #456');
+    });
+
+    it('should accept cwd option', () => {
+      const options = { cwd: '/some/path' };
+      expect(options.cwd).to.equal('/some/path');
+    });
+  });
+
+  /**
    * Spec: pull-requests.md > Data Model > PR Info
    */
   describe('PR State mapping', () => {

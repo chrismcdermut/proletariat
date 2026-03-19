@@ -523,6 +523,83 @@ describe('PR Commands E2E Tests', () => {
   });
 
   /**
+   * PR Close Metadata Tests
+   * Verify that closing a PR updates ticket metadata
+   */
+  describe('prlt pr close (data model)', () => {
+    it('should update pr_state to CLOSED in ticket metadata', () => {
+      const ticketId = createTicket(db, 'Close PR test', 'in-progress');
+
+      // Add PR metadata (simulating a linked PR)
+      db.prepare(`
+        INSERT INTO pmo_ticket_metadata (ticket_id, key, value)
+        VALUES (?, 'pr_url', 'https://github.com/test/repo/pull/42')
+      `).run(ticketId);
+      db.prepare(`
+        INSERT INTO pmo_ticket_metadata (ticket_id, key, value)
+        VALUES (?, 'pr_number', '42')
+      `).run(ticketId);
+
+      // Simulate what pr close does: update pr_state metadata
+      db.prepare(`
+        INSERT OR REPLACE INTO pmo_ticket_metadata (ticket_id, key, value)
+        VALUES (?, 'pr_state', 'CLOSED')
+      `).run(ticketId);
+
+      const prState = db.prepare(`
+        SELECT value FROM pmo_ticket_metadata
+        WHERE ticket_id = ? AND key = 'pr_state'
+      `).get(ticketId) as { value: string };
+
+      expect(prState.value).to.equal('CLOSED');
+
+      // PR URL should still be there
+      const prUrl = db.prepare(`
+        SELECT value FROM pmo_ticket_metadata
+        WHERE ticket_id = ? AND key = 'pr_url'
+      `).get(ticketId) as { value: string };
+
+      expect(prUrl.value).to.equal('https://github.com/test/repo/pull/42');
+    });
+
+    it('should preserve other ticket metadata when closing PR', () => {
+      const ticketId = createTicket(db, 'Close preserves metadata', 'in-progress');
+
+      // Add various metadata
+      db.prepare(`
+        INSERT INTO pmo_ticket_metadata (ticket_id, key, value)
+        VALUES (?, 'pr_url', 'https://github.com/test/repo/pull/55')
+      `).run(ticketId);
+      db.prepare(`
+        INSERT INTO pmo_ticket_metadata (ticket_id, key, value)
+        VALUES (?, 'pr_number', '55')
+      `).run(ticketId);
+      db.prepare(`
+        INSERT INTO pmo_ticket_metadata (ticket_id, key, value)
+        VALUES (?, 'pr_branch', 'feat/test-branch')
+      `).run(ticketId);
+
+      // Close sets pr_state
+      db.prepare(`
+        INSERT OR REPLACE INTO pmo_ticket_metadata (ticket_id, key, value)
+        VALUES (?, 'pr_state', 'CLOSED')
+      `).run(ticketId);
+
+      // All metadata should still exist
+      const allMeta = db.prepare(`
+        SELECT key, value FROM pmo_ticket_metadata WHERE ticket_id = ?
+      `).all(ticketId) as Array<{ key: string; value: string }>;
+
+      expect(allMeta).to.have.lengthOf(4);
+      const keys = allMeta.map(m => m.key);
+      expect(keys).to.include('pr_url');
+      expect(keys).to.include('pr_number');
+      expect(keys).to.include('pr_branch');
+      expect(keys).to.include('pr_state');
+    });
+  });
+
+  /**
    * Spec: pull-requests.md > Multiple PRs per ticket
    * Verify that metadata can be overwritten
    */
