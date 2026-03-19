@@ -728,6 +728,74 @@ export function mergePR(prNumber: number, options: MergePROptions = {}): MergePR
 }
 
 // =============================================================================
+// PR Close
+// =============================================================================
+
+export interface ClosePROptions {
+  /** Optional comment to leave when closing */
+  comment?: string;
+  /** Working directory */
+  cwd?: string;
+}
+
+export interface ClosePRResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Close a pull request by number.
+ */
+export function closePR(prNumber: number, options: ClosePROptions = {}): ClosePRResult {
+  const { comment, cwd } = options;
+
+  // If there's a comment, add it first
+  if (comment) {
+    try {
+      const commentResult = spawnSync('gh', ['pr', 'comment', String(prNumber), '--body', comment], {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      if (commentResult.status !== 0) {
+        return {
+          success: false,
+          error: commentResult.stderr?.trim() || 'Failed to add comment to PR',
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to add comment',
+      };
+    }
+  }
+
+  try {
+    const result = spawnSync('gh', ['pr', 'close', String(prNumber)], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    if (result.status !== 0) {
+      return {
+        success: false,
+        error: result.stderr?.trim() || 'Failed to close PR',
+      };
+    }
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// =============================================================================
 // PR Checks / CI Status
 // =============================================================================
 

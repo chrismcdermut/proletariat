@@ -115,9 +115,10 @@ describe('PR Commands JSON Mode', () => {
       expect(json.prompt.name).to.equal('action');
       expect(json.metadata.command).to.equal('pr');
 
-      // Should have create, link, status actions
+      // Should have create, close, link, status actions
       const values = json.prompt.choices.map(c => c.value);
       expect(values).to.include('create');
+      expect(values).to.include('close');
       expect(values).to.include('link');
       expect(values).to.include('status');
     });

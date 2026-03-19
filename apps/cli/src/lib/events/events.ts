@@ -13,6 +13,7 @@ import type {
   WorkStatusChangedEvent,
   WorkPRCreatedEvent,
   WorkPRMergedEvent,
+  WorkPRClosedEvent,
   WorkCompletedEvent,
 } from '../work-lifecycle/events.js'
 
@@ -138,6 +139,7 @@ export interface RuntimeEventMap {
   'work:status_changed': WorkStatusChangedEvent
   'work:pr_created': WorkPRCreatedEvent
   'work:pr_merged': WorkPRMergedEvent
+  'work:pr_closed': WorkPRClosedEvent
   'work:completed': WorkCompletedEvent
 }
 

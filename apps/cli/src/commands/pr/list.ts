@@ -8,7 +8,9 @@ import {
   isGHInstalled,
   isGHAuthenticated,
   listOpenPRs,
+  getPRChecks,
   PRInfo,
+  PRCheck,
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
@@ -20,6 +22,13 @@ interface PRWithTicket extends PRInfo {
   ticketId?: string;
   ticketTitle?: string;
   ticketStatus?: string;
+  checks?: PRCheck[];
+  checksSummary?: {
+    total: number;
+    passing: number;
+    failing: number;
+    pending: number;
+  };
 }
 
 export default class PRList extends PMOCommand {
@@ -117,14 +126,23 @@ export default class PRList extends PMOCommand {
       prs = prs.slice(0, flags.limit);
     }
 
-    // Enrich PRs with ticket info
+    // Enrich PRs with ticket info and CI checks
     const enrichedPRs: PRWithTicket[] = prs.map(pr => {
       const ticketInfo = prToTicketMap.get(pr.number);
+      const checks = getPRChecks(pr.number);
+      const checksSummary = {
+        total: checks.length,
+        passing: checks.filter(c => c.conclusion === 'SUCCESS').length,
+        failing: checks.filter(c => c.conclusion === 'FAILURE').length,
+        pending: checks.filter(c => c.status === 'IN_PROGRESS' || c.status === 'QUEUED').length,
+      };
       return {
         ...pr,
         ticketId: ticketInfo?.id,
         ticketTitle: ticketInfo?.title,
         ticketStatus: ticketInfo?.status,
+        checks,
+        checksSummary,
       };
     });
 
@@ -165,6 +183,18 @@ export default class PRList extends PMOCommand {
         this.log(styles.muted(`   Ticket: (not linked)`));
       }
 
+      // CI status
+      if (pr.checksSummary && pr.checksSummary.total > 0) {
+        const ciParts: string[] = [];
+        if (pr.checksSummary.passing > 0) ciParts.push(styles.success(`${pr.checksSummary.passing} passing`));
+        if (pr.checksSummary.failing > 0) ciParts.push(styles.error(`${pr.checksSummary.failing} failing`));
+        if (pr.checksSummary.pending > 0) ciParts.push(styles.warning(`${pr.checksSummary.pending} pending`));
+        const ciIcon = pr.checksSummary.failing > 0 ? '✗' : pr.checksSummary.pending > 0 ? '●' : '✓';
+        this.log(`   ${ciIcon} CI: ${ciParts.join(', ')}`);
+      } else {
+        this.log(styles.muted(`   CI: no checks`));
+      }
+
       const created = new Date(pr.createdAt).toLocaleDateString();
       const updated = new Date(pr.updatedAt).toLocaleDateString();
       this.log(styles.muted(`   Created: ${created} | Updated: ${updated}`));
@@ -187,11 +217,19 @@ export default class PRList extends PMOCommand {
       const stateEmoji = this.getStateEmoji(pr);
       const ticketBadge = pr.ticketId ? styles.code(`[${pr.ticketId}]`) : '';
       const draftBadge = pr.isDraft ? styles.muted('[Draft]') : '';
+      const ciBadge = this.getCIBadge(pr);
 
-      this.log(`${stateEmoji} #${pr.number}: ${pr.title} ${ticketBadge} ${draftBadge}`);
+      this.log(`${stateEmoji} #${pr.number}: ${pr.title} ${ticketBadge} ${draftBadge} ${ciBadge}`);
     }
 
     this.log('');
+  }
+
+  private getCIBadge(pr: PRWithTicket): string {
+    if (!pr.checksSummary || pr.checksSummary.total === 0) return '';
+    if (pr.checksSummary.failing > 0) return styles.error('CI:✗');
+    if (pr.checksSummary.pending > 0) return styles.warning('CI:●');
+    return styles.success('CI:✓');
   }
 
   private getStateEmoji(pr: PRInfo): string {
