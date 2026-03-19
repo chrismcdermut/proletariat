@@ -2,44 +2,67 @@
  * Workflow status operations.
  * Statuses belong to workflows (not projects directly).
  * Projects reference workflows via workflow_id.
+ *
+ * This module uses Drizzle ORM for type-safe database queries.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, desc, sql } from 'drizzle-orm'
+import {
+  pmoWorkflows,
+  pmoWorkflowStatuses,
+  pmoProjects,
+  pmoTickets,
+} from '../../database/drizzle-schema.js'
 import { PMOError, StateCategory, STATE_CATEGORY_ORDER, Workflow, WorkflowStatus, WorkflowFilter } from '../types.js'
 import { slugify } from '../utils.js'
-import { StorageContext, WorkflowStatusRow, WorkflowRow } from './types.js'
+import { StorageContext } from './types.js'
 import { wrapSqliteError } from './helpers.js'
 
-const T = PMO_TABLES
-
 /**
- * Convert database row to Workflow object.
+ * Convert a Drizzle workflow row to a Workflow domain object.
  */
-function rowToWorkflow(row: WorkflowRow): Workflow {
+function rowToWorkflow(row: {
+  id: string
+  name: string
+  description: string | null
+  isBuiltin: boolean | null
+  createdAt: string | null
+  updatedAt: string | null
+}): Workflow {
   return {
     id: row.id,
     name: row.name,
     description: row.description || undefined,
-    isBuiltin: !!row.is_builtin,
-    createdAt: new Date(row.created_at),
-    updatedAt: new Date(row.updated_at),
+    isBuiltin: row.isBuiltin ?? false,
+    createdAt: new Date(row.createdAt || Date.now()),
+    updatedAt: new Date(row.updatedAt || Date.now()),
   }
 }
 
 /**
- * Convert database row to WorkflowStatus object.
+ * Convert a Drizzle workflow status row to a WorkflowStatus domain object.
  */
-function rowToWorkflowStatus(row: WorkflowStatusRow): WorkflowStatus {
+function rowToWorkflowStatus(row: {
+  id: string
+  workflowId: string
+  name: string
+  category: string
+  position: number
+  color: string | null
+  description: string | null
+  isDefault: boolean | null
+  createdAt: string | null
+}): WorkflowStatus {
   return {
     id: row.id,
-    workflowId: row.workflow_id,
+    workflowId: row.workflowId,
     name: row.name,
     category: row.category as StateCategory,
     position: row.position,
     color: row.color || undefined,
     description: row.description || undefined,
-    isDefault: !!row.is_default,
-    createdAt: new Date(row.created_at),
+    isDefault: row.isDefault ?? false,
+    createdAt: new Date(row.createdAt || Date.now()),
   }
 }
 
@@ -54,21 +77,33 @@ export class StatusStorage {
    * List all workflows.
    */
   async listWorkflows(filter?: WorkflowFilter): Promise<Workflow[]> {
-    let sql = `SELECT * FROM ${T.workflows} WHERE 1=1`
-    const params: unknown[] = []
+    let query = this.ctx.drizzle
+      .select()
+      .from(pmoWorkflows)
+      .$dynamic()
+
+    const conditions = []
 
     if (filter?.isBuiltin !== undefined) {
-      sql += ' AND is_builtin = ?'
-      params.push(filter.isBuiltin ? 1 : 0)
+      conditions.push(eq(pmoWorkflows.isBuiltin, filter.isBuiltin))
     }
     if (filter?.search) {
-      sql += ' AND (name LIKE ? OR description LIKE ?)'
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoWorkflows.name, `%${filter.search}%`),
+          like(pmoWorkflows.description, `%${filter.search}%`)
+        )
+      )
     }
 
-    sql += ' ORDER BY is_builtin DESC, name'
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions))
+    }
 
-    const rows = this.ctx.db.prepare(sql).all(...params) as WorkflowRow[]
+    const rows = query
+      .orderBy(desc(pmoWorkflows.isBuiltin), asc(pmoWorkflows.name))
+      .all()
+
     return rows.map(rowToWorkflow)
   }
 
@@ -76,9 +111,11 @@ export class StatusStorage {
    * Get a workflow by ID.
    */
   async getWorkflow(id: string): Promise<Workflow | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.workflows} WHERE id = ?
-    `).get(id) as WorkflowRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoWorkflows)
+      .where(eq(pmoWorkflows.id, id))
+      .get()
 
     if (!row) return null
     return rowToWorkflow(row)
@@ -92,26 +129,24 @@ export class StatusStorage {
     const now = new Date().toISOString()
 
     // Check for duplicate name
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.workflows}
-      WHERE LOWER(name) = LOWER(?)
-    `).get(workflow.name) as { id: string } | undefined
+    const existing = this.ctx.drizzle
+      .select({ id: pmoWorkflows.id })
+      .from(pmoWorkflows)
+      .where(sql`LOWER(${pmoWorkflows.name}) = LOWER(${workflow.name})`)
+      .get()
     if (existing) {
       throw new PMOError('CONFLICT', `Workflow with name "${workflow.name}" already exists`)
     }
 
     try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
+      this.ctx.drizzle.insert(pmoWorkflows).values({
         id,
-        workflow.name || 'New Workflow',
-        workflow.description || null,
-        workflow.isBuiltin ? 1 : 0,
-        now,
-        now
-      )
+        name: workflow.name || 'New Workflow',
+        description: workflow.description || null,
+        isBuiltin: workflow.isBuiltin || false,
+        createdAt: now,
+        updatedAt: now,
+      }).run()
     } catch (err) {
       wrapSqliteError('Workflow', 'create', err)
     }
@@ -135,31 +170,34 @@ export class StatusStorage {
       throw new PMOError('NOT_FOUND', `Workflow not found: ${id}`)
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoWorkflows.$inferInsert> = {}
 
     if (changes.name !== undefined) {
       // Check for duplicate name
-      const duplicate = this.ctx.db.prepare(`
-        SELECT id FROM ${T.workflows}
-        WHERE LOWER(name) = LOWER(?) AND id != ?
-      `).get(changes.name, id) as { id: string } | undefined
+      const duplicate = this.ctx.drizzle
+        .select({ id: pmoWorkflows.id })
+        .from(pmoWorkflows)
+        .where(and(
+          sql`LOWER(${pmoWorkflows.name}) = LOWER(${changes.name})`,
+          sql`${pmoWorkflows.id} != ${id}`
+        ))
+        .get()
       if (duplicate) {
         throw new PMOError('CONFLICT', `Workflow with name "${changes.name}" already exists`)
       }
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
+      updates.description = changes.description || null
     }
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?')
-      params.push(new Date().toISOString())
-      params.push(id)
-      this.ctx.db.prepare(`UPDATE ${T.workflows} SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = new Date().toISOString()
+      this.ctx.drizzle
+        .update(pmoWorkflows)
+        .set(updates)
+        .where(eq(pmoWorkflows.id, id))
+        .run()
     }
 
     return (await this.getWorkflow(id)) as Workflow
@@ -179,12 +217,13 @@ export class StatusStorage {
     }
 
     // Check if any projects use this workflow
-    const projectCount = this.ctx.db.prepare(`
-      SELECT COUNT(*) as count FROM ${T.projects}
-      WHERE workflow_id = ?
-    `).get(id) as { count: number }
+    const projectCount = this.ctx.drizzle
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(pmoProjects)
+      .where(eq(pmoProjects.workflowId, id))
+      .get()
 
-    if (projectCount.count > 0) {
+    if (projectCount && projectCount.count > 0) {
       throw new PMOError(
         'CONFLICT',
         `Cannot delete workflow: ${projectCount.count} project(s) are using it`
@@ -193,8 +232,14 @@ export class StatusStorage {
 
     try {
       // Delete associated statuses first (cascaded by FK, but explicit for safety)
-      this.ctx.db.prepare(`DELETE FROM ${T.workflow_statuses} WHERE workflow_id = ?`).run(id)
-      this.ctx.db.prepare(`DELETE FROM ${T.workflows} WHERE id = ?`).run(id)
+      this.ctx.drizzle
+        .delete(pmoWorkflowStatuses)
+        .where(eq(pmoWorkflowStatuses.workflowId, id))
+        .run()
+      this.ctx.drizzle
+        .delete(pmoWorkflows)
+        .where(eq(pmoWorkflows.id, id))
+        .run()
     } catch (err) {
       wrapSqliteError('Workflow', 'delete', err)
     }
@@ -204,11 +249,19 @@ export class StatusStorage {
    * Get the workflow for a project.
    */
   async getProjectWorkflow(projectId: string): Promise<Workflow | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT w.* FROM ${T.workflows} w
-      JOIN ${T.projects} p ON p.workflow_id = w.id
-      WHERE p.id = ?
-    `).get(projectId) as WorkflowRow | undefined
+    const row = this.ctx.drizzle
+      .select({
+        id: pmoWorkflows.id,
+        name: pmoWorkflows.name,
+        description: pmoWorkflows.description,
+        isBuiltin: pmoWorkflows.isBuiltin,
+        createdAt: pmoWorkflows.createdAt,
+        updatedAt: pmoWorkflows.updatedAt,
+      })
+      .from(pmoWorkflows)
+      .innerJoin(pmoProjects, eq(pmoProjects.workflowId, pmoWorkflows.id))
+      .where(eq(pmoProjects.id, projectId))
+      .get()
 
     if (!row) return null
     return rowToWorkflow(row)
@@ -222,11 +275,12 @@ export class StatusStorage {
    * List statuses for a workflow.
    */
   async listStatuses(workflowId: string): Promise<WorkflowStatus[]> {
-    const rows = this.ctx.db.prepare(`
-      SELECT * FROM ${T.workflow_statuses}
-      WHERE workflow_id = ?
-      ORDER BY position
-    `).all(workflowId) as WorkflowStatusRow[]
+    const rows = this.ctx.drizzle
+      .select()
+      .from(pmoWorkflowStatuses)
+      .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+      .orderBy(asc(pmoWorkflowStatuses.position))
+      .all()
 
     return rows.map(rowToWorkflowStatus)
   }
@@ -235,9 +289,11 @@ export class StatusStorage {
    * Get a status by ID.
    */
   async getStatus(id: string): Promise<WorkflowStatus | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.workflow_statuses} WHERE id = ?
-    `).get(id) as WorkflowStatusRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoWorkflowStatuses)
+      .where(eq(pmoWorkflowStatuses.id, id))
+      .get()
 
     if (!row) return null
     return rowToWorkflowStatus(row)
@@ -268,19 +324,23 @@ export class StatusStorage {
     // Get next position if not specified
     let position = status.position
     if (position === undefined) {
-      const maxPos = this.ctx.db.prepare(`
-        SELECT COALESCE(MAX(position), -1) as max_pos
-        FROM ${T.workflow_statuses}
-        WHERE workflow_id = ?
-      `).get(workflowId) as { max_pos: number }
-      position = maxPos.max_pos + 1
+      const maxPos = this.ctx.drizzle
+        .select({ maxPos: sql<number>`COALESCE(MAX(${pmoWorkflowStatuses.position}), -1)` })
+        .from(pmoWorkflowStatuses)
+        .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+        .get()
+      position = (maxPos?.maxPos ?? -1) + 1
     }
 
     // Check for duplicate name in workflow
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.workflow_statuses}
-      WHERE workflow_id = ? AND LOWER(name) = LOWER(?)
-    `).get(workflowId, status.name) as { id: string } | undefined
+    const existing = this.ctx.drizzle
+      .select({ id: pmoWorkflowStatuses.id })
+      .from(pmoWorkflowStatuses)
+      .where(and(
+        eq(pmoWorkflowStatuses.workflowId, workflowId),
+        sql`LOWER(${pmoWorkflowStatuses.name}) = LOWER(${status.name})`
+      ))
+      .get()
     if (existing) {
       throw new PMOError(
         'CONFLICT',
@@ -290,34 +350,35 @@ export class StatusStorage {
 
     // If this is the default, unset other defaults in the workflow
     if (status.isDefault) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.workflow_statuses}
-        SET is_default = 0
-        WHERE workflow_id = ?
-      `).run(workflowId)
+      this.ctx.drizzle
+        .update(pmoWorkflowStatuses)
+        .set({ isDefault: false })
+        .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+        .run()
     }
 
     try {
-      this.ctx.db.prepare(`
-        INSERT INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      this.ctx.drizzle.insert(pmoWorkflowStatuses).values({
         id,
         workflowId,
-        status.name || 'New Status',
+        name: status.name || 'New Status',
         category,
         position,
-        status.color || null,
-        status.description || null,
-        status.isDefault ? 1 : 0,
-        now
-      )
+        color: status.color || null,
+        description: status.description || null,
+        isDefault: status.isDefault || false,
+        createdAt: now,
+      }).run()
     } catch (err) {
       wrapSqliteError('Status', 'create', err)
     }
 
     // Update workflow's updated_at timestamp
-    this.ctx.db.prepare(`UPDATE ${T.workflows} SET updated_at = ? WHERE id = ?`).run(now, workflowId)
+    this.ctx.drizzle
+      .update(pmoWorkflows)
+      .set({ updatedAt: now })
+      .where(eq(pmoWorkflows.id, workflowId))
+      .run()
 
     return {
       id,
@@ -341,67 +402,67 @@ export class StatusStorage {
       throw new PMOError('NOT_FOUND', `Status not found: ${id}`)
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updates: Partial<typeof pmoWorkflowStatuses.$inferInsert> = {}
 
     if (changes.name !== undefined) {
       // Check for duplicate name
-      const duplicate = this.ctx.db.prepare(`
-        SELECT id FROM ${T.workflow_statuses}
-        WHERE workflow_id = ? AND LOWER(name) = LOWER(?) AND id != ?
-      `).get(existing.workflowId, changes.name, id) as { id: string } | undefined
+      const duplicate = this.ctx.drizzle
+        .select({ id: pmoWorkflowStatuses.id })
+        .from(pmoWorkflowStatuses)
+        .where(and(
+          eq(pmoWorkflowStatuses.workflowId, existing.workflowId),
+          sql`LOWER(${pmoWorkflowStatuses.name}) = LOWER(${changes.name})`,
+          sql`${pmoWorkflowStatuses.id} != ${id}`
+        ))
+        .get()
       if (duplicate) {
         throw new PMOError(
           'CONFLICT',
           `Status with name "${changes.name}" already exists in this workflow`
         )
       }
-      updates.push('name = ?')
-      params.push(changes.name)
+      updates.name = changes.name
     }
     if (changes.category !== undefined) {
       if (!STATE_CATEGORY_ORDER.includes(changes.category)) {
         throw new PMOError('INVALID', `Invalid category: ${changes.category}`)
       }
-      updates.push('category = ?')
-      params.push(changes.category)
+      updates.category = changes.category
     }
     if (changes.position !== undefined) {
-      updates.push('position = ?')
-      params.push(changes.position)
+      updates.position = changes.position
     }
     if (changes.color !== undefined) {
-      updates.push('color = ?')
-      params.push(changes.color || null)
+      updates.color = changes.color || null
     }
     if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
+      updates.description = changes.description || null
     }
     if (changes.isDefault !== undefined) {
       if (changes.isDefault) {
         // Unset other defaults
-        this.ctx.db.prepare(`
-          UPDATE ${T.workflow_statuses}
-          SET is_default = 0
-          WHERE workflow_id = ?
-        `).run(existing.workflowId)
+        this.ctx.drizzle
+          .update(pmoWorkflowStatuses)
+          .set({ isDefault: false })
+          .where(eq(pmoWorkflowStatuses.workflowId, existing.workflowId))
+          .run()
       }
-      updates.push('is_default = ?')
-      params.push(changes.isDefault ? 1 : 0)
+      updates.isDefault = changes.isDefault
     }
 
-    if (updates.length > 0) {
-      params.push(id)
-      this.ctx.db.prepare(`UPDATE ${T.workflow_statuses} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updates).length > 0) {
+      this.ctx.drizzle
+        .update(pmoWorkflowStatuses)
+        .set(updates)
+        .where(eq(pmoWorkflowStatuses.id, id))
+        .run()
 
       // Update workflow's updated_at timestamp
-      this.ctx.db.prepare(`UPDATE ${T.workflows} SET updated_at = ? WHERE id = ?`).run(
-        new Date().toISOString(),
-        existing.workflowId
-      )
+      this.ctx.drizzle
+        .update(pmoWorkflows)
+        .set({ updatedAt: new Date().toISOString() })
+        .where(eq(pmoWorkflows.id, existing.workflowId))
+        .run()
     }
 
     return (await this.getStatus(id)) as WorkflowStatus
@@ -417,12 +478,13 @@ export class StatusStorage {
     }
 
     // Check if any tickets use this status
-    const ticketCount = this.ctx.db.prepare(`
-      SELECT COUNT(*) as count FROM ${T.tickets}
-      WHERE status_id = ?
-    `).get(id) as { count: number }
+    const ticketCount = this.ctx.drizzle
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(pmoTickets)
+      .where(eq(pmoTickets.statusId, id))
+      .get()
 
-    if (ticketCount.count > 0) {
+    if (ticketCount && ticketCount.count > 0) {
       throw new PMOError(
         'CONFLICT',
         `Cannot delete status: ${ticketCount.count} ticket(s) are using it`
@@ -430,23 +492,30 @@ export class StatusStorage {
     }
 
     try {
-      this.ctx.db.prepare(`DELETE FROM ${T.workflow_statuses} WHERE id = ?`).run(id)
+      this.ctx.drizzle
+        .delete(pmoWorkflowStatuses)
+        .where(eq(pmoWorkflowStatuses.id, id))
+        .run()
 
       // Reorder remaining statuses
-      this.ctx.db.prepare(`
-        UPDATE ${T.workflow_statuses}
-        SET position = position - 1
-        WHERE workflow_id = ? AND position > ?
-      `).run(existing.workflowId, existing.position)
+      this.ctx.drizzle
+        .update(pmoWorkflowStatuses)
+        .set({ position: sql`${pmoWorkflowStatuses.position} - 1` })
+        .where(and(
+          eq(pmoWorkflowStatuses.workflowId, existing.workflowId),
+          sql`${pmoWorkflowStatuses.position} > ${existing.position}`
+        ))
+        .run()
     } catch (err) {
       wrapSqliteError('Status', 'delete', err)
     }
 
     // Update workflow's updated_at timestamp
-    this.ctx.db.prepare(`UPDATE ${T.workflows} SET updated_at = ? WHERE id = ?`).run(
-      new Date().toISOString(),
-      existing.workflowId
-    )
+    this.ctx.drizzle
+      .update(pmoWorkflows)
+      .set({ updatedAt: new Date().toISOString() })
+      .where(eq(pmoWorkflows.id, existing.workflowId))
+      .run()
   }
 
   /**
@@ -465,31 +534,40 @@ export class StatusStorage {
 
     // Shift other statuses
     if (newPosition < oldPosition) {
-      this.ctx.db.prepare(`
-        UPDATE ${T.workflow_statuses}
-        SET position = position + 1
-        WHERE workflow_id = ? AND position >= ? AND position < ?
-      `).run(existing.workflowId, newPosition, oldPosition)
+      this.ctx.drizzle
+        .update(pmoWorkflowStatuses)
+        .set({ position: sql`${pmoWorkflowStatuses.position} + 1` })
+        .where(and(
+          eq(pmoWorkflowStatuses.workflowId, existing.workflowId),
+          sql`${pmoWorkflowStatuses.position} >= ${newPosition}`,
+          sql`${pmoWorkflowStatuses.position} < ${oldPosition}`
+        ))
+        .run()
     } else {
-      this.ctx.db.prepare(`
-        UPDATE ${T.workflow_statuses}
-        SET position = position - 1
-        WHERE workflow_id = ? AND position > ? AND position <= ?
-      `).run(existing.workflowId, oldPosition, newPosition)
+      this.ctx.drizzle
+        .update(pmoWorkflowStatuses)
+        .set({ position: sql`${pmoWorkflowStatuses.position} - 1` })
+        .where(and(
+          eq(pmoWorkflowStatuses.workflowId, existing.workflowId),
+          sql`${pmoWorkflowStatuses.position} > ${oldPosition}`,
+          sql`${pmoWorkflowStatuses.position} <= ${newPosition}`
+        ))
+        .run()
     }
 
     // Update the status's position
-    this.ctx.db.prepare(`
-      UPDATE ${T.workflow_statuses}
-      SET position = ?
-      WHERE id = ?
-    `).run(newPosition, id)
+    this.ctx.drizzle
+      .update(pmoWorkflowStatuses)
+      .set({ position: newPosition })
+      .where(eq(pmoWorkflowStatuses.id, id))
+      .run()
 
     // Update workflow's updated_at timestamp
-    this.ctx.db.prepare(`UPDATE ${T.workflows} SET updated_at = ? WHERE id = ?`).run(
-      new Date().toISOString(),
-      existing.workflowId
-    )
+    this.ctx.drizzle
+      .update(pmoWorkflows)
+      .set({ updatedAt: new Date().toISOString() })
+      .where(eq(pmoWorkflows.id, existing.workflowId))
+      .run()
 
     return (await this.getStatus(id)) as WorkflowStatus
   }
@@ -498,19 +576,24 @@ export class StatusStorage {
    * Get the default status for a workflow.
    */
   async getDefaultStatus(workflowId: string): Promise<WorkflowStatus | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.workflow_statuses}
-      WHERE workflow_id = ? AND is_default = 1
-    `).get(workflowId) as WorkflowStatusRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoWorkflowStatuses)
+      .where(and(
+        eq(pmoWorkflowStatuses.workflowId, workflowId),
+        eq(pmoWorkflowStatuses.isDefault, true)
+      ))
+      .get()
 
     if (!row) {
       // If no explicit default, return first status (by position)
-      const fallback = this.ctx.db.prepare(`
-        SELECT * FROM ${T.workflow_statuses}
-        WHERE workflow_id = ?
-        ORDER BY position
-        LIMIT 1
-      `).get(workflowId) as WorkflowStatusRow | undefined
+      const fallback = this.ctx.drizzle
+        .select()
+        .from(pmoWorkflowStatuses)
+        .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
+        .orderBy(asc(pmoWorkflowStatuses.position))
+        .limit(1)
+        .get()
 
       if (!fallback) return null
       return rowToWorkflowStatus(fallback)
