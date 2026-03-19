@@ -126,7 +126,7 @@ prlt --version
 which prlt
 
 # prlt detects it automatically
-prlt self-update --check --json | grep packageManager
+prlt update --check --json | grep packageManager
 ```
 
 You can also force the detection with an environment variable:
@@ -143,10 +143,10 @@ Each install method has its own update mechanism:
 |--------|---------------|
 | Homebrew | `brew upgrade chrismcdermut/proletariat/prlt` |
 | npm | `npm install -g @proletariat/cli` |
-| Standalone | `prlt self-update` |
-| Any | `prlt self-update` (auto-detects method) |
+| Standalone | `prlt update` |
+| Any | `prlt update` (auto-detects method) |
 
-The `prlt self-update` command works with all install methods — it detects how prlt was installed and runs the appropriate update command.
+The `prlt update` command works with all install methods — it detects how prlt was installed and runs the appropriate update command.
 
 ## Troubleshooting
 

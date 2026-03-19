@@ -200,7 +200,7 @@ ln -s "$LIB_DIR/bin/run.js" "$BIN_DIR/prlt"
 chmod +x "$LIB_DIR/bin/run.js"
 
 # ---------------------------------------------------------------------------
-# Write install metadata (for self-update detection)
+# Write install metadata (for update detection)
 # ---------------------------------------------------------------------------
 cat > "$LIB_DIR/.install-metadata.json" <<JSON
 {
@@ -267,6 +267,6 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
 fi
 
 echo ""
-echo "To update later:  prlt self-update"
+echo "To update later:  prlt update"
 echo "To uninstall:     rm -rf ${LIB_DIR} ${BIN_DIR}/prlt"
 echo ""

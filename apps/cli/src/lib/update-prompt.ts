@@ -143,7 +143,7 @@ export async function showUpdatePrompt(info: UpdateInfo): Promise<UpdateAction> 
 // ---------------------------------------------------------------------------
 
 /**
- * Get the shell command to run for a standalone self-update.
+ * Get the shell command to run for a standalone update.
  * Downloads and pipes the installer script, passing the target version.
  */
 function getStandaloneUpdateCommand(version: string | null): string {
