@@ -571,7 +571,7 @@ export const PMO_TABLE_SCHEMAS = {
   external_issue_map: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_issue_map} (
       pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
-      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
+      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'clickup', 'github')),
       external_id TEXT NOT NULL,
       external_key TEXT NOT NULL,
       external_url TEXT NOT NULL,
@@ -600,7 +600,7 @@ export const PMO_TABLE_SCHEMAS = {
   // Provider-agnostic external issue ↔ execution mapping
   external_execution_map: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_map} (
-      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'pmo')),
+      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'clickup', 'pmo')),
       external_id TEXT NOT NULL,
       external_key TEXT,
       canonical_url TEXT,
