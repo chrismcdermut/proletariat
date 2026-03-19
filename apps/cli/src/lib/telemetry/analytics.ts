@@ -1,7 +1,7 @@
 /**
  * Product Analytics (Statsig) & Event Tracking
  *
- * Provides anonymous usage analytics for the CLI using Statsig client SDK.
+ * Provides anonymous usage analytics for the CLI using Statsig server SDK.
  * All data is anonymous — identified by a machine UUID only, no PII is ever sent.
  *
  * Telemetry can be disabled via:
@@ -27,8 +27,8 @@ import * as path from 'node:path'
 import * as crypto from 'node:crypto'
 import { getMachineConfigDir, ensureMachineConfigDir } from '../machine-config.js'
 
-// Statsig client SDK key (public — safe to embed in open source repos)
-const STATSIG_CLIENT_KEY = 'client-kvxMxRhn9NFSmH8orl7e2W9nYTfWVS7Kjf7yRTdIecc'
+// Statsig server secret key (this repo is private — safe for now)
+const STATSIG_SERVER_KEY = 'secret-placeholder'
 
 // Cap the queue size to prevent unbounded growth if events never flush
 const MAX_QUEUE_SIZE = 1000
@@ -50,18 +50,25 @@ interface TelemetryConfig {
 }
 
 /**
- * Minimal interface for the Statsig client instance methods we use.
+ * Minimal interface for the Statsig server SDK methods we use.
  * Uses loose return types to avoid coupling to SDK internals.
  */
-interface StatsigClientInstance {
-  initializeAsync(): Promise<unknown>
+interface StatsigServerInstance {
+  initialize(secretKey: string, options?: Record<string, unknown>): Promise<unknown>
   logEvent(
+    user: { userID: string; custom?: Record<string, string | number | boolean> },
     eventName: string,
     value?: string | number | null,
-    metadata?: Record<string, string> | null,
+    metadata?: Record<string, unknown> | null,
   ): void
-  checkGate(gateName: string): boolean
-  getDynamicConfig(configName: string): { get(key: string, defaultValue: unknown): unknown }
+  checkGate(
+    user: { userID: string; custom?: Record<string, string | number | boolean> },
+    gateName: string,
+  ): boolean
+  getConfig(
+    user: { userID: string; custom?: Record<string, string | number | boolean> },
+    configName: string,
+  ): { get(key: string, defaultValue: unknown): unknown }
   shutdown(): void
 }
 
@@ -76,7 +83,7 @@ interface QueuedEvent {
 }
 
 // Module-level state
-let statsigClient: StatsigClientInstance | null = null
+let statsigServer: StatsigServerInstance | null = null
 let telemetryConfig: TelemetryConfig | null = null
 let cliVersion: string | null = null
 let initPromise: Promise<void> | null = null
@@ -303,12 +310,13 @@ function readAndClearQueue(): QueuedEvent[] {
  * Called during shutdown or at the start of the next command run.
  */
 export function flushQueuedEvents(): void {
-  if (!statsigClient) return
+  if (!statsigServer) return
 
+  const user = { userID: getMachineId(), custom: { cli_version: cliVersion ?? '' } }
   const events = readAndClearQueue()
   for (const event of events) {
     try {
-      statsigClient.logEvent(event.name, event.value, event.metadata)
+      statsigServer.logEvent(user, event.name, event.value, event.metadata)
     } catch {
       // Drop individual events silently
     }
@@ -336,31 +344,32 @@ export function initAnalytics(version: string): void {
   // but enables feature flags and allows queue flush if init completes in time
   initPromise = (async () => {
     try {
-      const { StatsigClient: StatsigClientClass } = await import('@statsig/js-client')
-      const client = new StatsigClientClass(
-        STATSIG_CLIENT_KEY,
-        { userID: getMachineId(), custom: { cli_version: version } },
-      )
-      await client.initializeAsync()
+      const { Statsig } = await import('statsig-node')
+      await Statsig.initialize(STATSIG_SERVER_KEY, {
+        environment: { tier: 'production' },
+      })
 
       // If shutdown already ran while we were initializing, don't set state
-      // or flush — just clean up the client and bail out
+      // or flush — just clean up and bail out
       if (analyticsShutdown) {
-        try { client.shutdown() } catch { /* ignore */ }
+        try { Statsig.shutdown() } catch { /* ignore */ }
         return
       }
 
-      statsigClient = client
+      statsigServer = Statsig as unknown as StatsigServerInstance
 
-      // Share Statsig client with feature-flags for synchronous gate checks
+      // Share Statsig server with feature-flags for gate checks
       const { setStatsigClient } = await import('./feature-flags.js')
-      setStatsigClient(client)
+      setStatsigClient({
+        checkGate: (gateName: string) => Statsig.checkGate({ userID: getMachineId() }, gateName),
+        getDynamicConfig: (configName: string) => Statsig.getConfig({ userID: getMachineId() }, configName),
+      })
 
       // Statsig is ready — flush any events queued from previous runs
       flushQueuedEvents()
     } catch {
       // If Statsig can't initialize, fail silently — analytics should never break the CLI
-      statsigClient = null
+      statsigServer = null
     }
   })()
 }
@@ -517,22 +526,22 @@ export async function shutdownAnalytics(): Promise<void> {
   }
 
   // Now mark as shut down so any late-resolving init promise (after timeout)
-  // won't set statsigClient or flush the queue
+  // won't set statsigServer or flush the queue
   analyticsShutdown = true
   initPromise = null
 
-  if (statsigClient) {
+  if (statsigServer) {
     try {
       // Flush events written during this run that arrived after the init
       // promise's own flush (e.g., the command_run event from postrun).
-      // statsigClient.logEvent() buffers in memory; shutdown() sends them.
+      // statsigServer.logEvent() buffers in memory; shutdown() sends them.
       flushQueuedEvents()
-      statsigClient.shutdown()
+      statsigServer.shutdown()
     } catch {
       // Never let shutdown errors affect the CLI
     }
 
-    statsigClient = null
+    statsigServer = null
     try {
       const { setStatsigClient } = await import('./feature-flags.js')
       setStatsigClient(null)
