@@ -213,8 +213,8 @@ export default class ActionRun extends PMOCommand {
       this.log(styles.muted(`   prlt work start ${ticket.id} --action ${action.id}`));
     }
     this.log('');
-    this.log(styles.muted('Or use spawn-all to distribute to agents:'));
-    this.log(styles.muted(`   prlt work spawn-all --action ${action.id}`));
+    this.log(styles.muted('Or use spawn --all to distribute to agents:'));
+    this.log(styles.muted(`   prlt work spawn --all --action ${action.id}`));
     this.log('');
   }
 }

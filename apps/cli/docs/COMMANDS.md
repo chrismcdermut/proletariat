@@ -5,7 +5,6 @@ Generated: 2025-11-27
 ## Table of Contents
 
 - [agent](#agent)
-- [agents](#agents)
 - [autocomplete](#autocomplete)
 - [board](#board)
 - [init](#init)
@@ -73,78 +72,6 @@ Navigate to agent directory
 ```bash
 prlt agent visit camry
 prlt agent visit
-```
-
----
-
-## agents
-
-### `prlt agents`
-
-Manage agents in bulk (overview and batch operations)
-
-**Examples:**
-```bash
-prlt agents list
-prlt agents status
-prlt agents add
-prlt agents remove
-```
-
----
-
-### `prlt agents add`
-
-Add new agents to the workspace
-
-**Arguments:**
-- `names` (optional) - Agent names to add (space-separated)
-
-**Examples:**
-```bash
-prlt agents add camry tacoma
-prlt agents add
-```
-
----
-
-### `prlt agents list`
-
-List all agents and their current status
-
-**Examples:**
-```bash
-prlt agents list
-```
-
----
-
-### `prlt agents remove`
-
-Remove agents from the workspace
-
-**Arguments:**
-- `agents` (optional) - Agent names to remove (space-separated)
-
-**Examples:**
-```bash
-prlt agents remove camry tacoma
-prlt agents remove
-```
-
----
-
-### `prlt agents status`
-
-Show detailed status for specific agent or all agents
-
-**Arguments:**
-- `name` (optional) - Agent name for detailed status (optional)
-
-**Examples:**
-```bash
-prlt agents status camry
-prlt agents status
 ```
 
 ---

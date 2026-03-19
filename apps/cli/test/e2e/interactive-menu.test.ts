@@ -99,7 +99,6 @@ const skipSuite = !hasTmux() || !hasPrlt();
 
       session.assertScreenContains('ticket');
       session.assertScreenContains('project');
-      session.assertScreenContains('epic');
       session.assertScreenContains('work');
       session.assertScreenContains('init');
     });
@@ -187,29 +186,7 @@ const skipSuite = !hasTmux() || !hasPrlt();
   });
 
   // ===========================================================================
-  // 5. Epic menu — `prlt epic` shows epic operations
-  // ===========================================================================
-  describe('Epic submenu (prlt epic)', () => {
-    it('should show epic operations menu', () => {
-      session.sendCommand('prlt epic');
-      session.waitForOutput('Epic Operations', MENU_TIMEOUT);
-
-      session.assertScreenContains('Create new epic');
-      session.assertScreenContains('List all epics');
-      session.assertScreenContains('View epic');
-    });
-
-    it('should show progress and dependency options', () => {
-      session.sendCommand('prlt epic');
-      session.waitForOutput('Epic Operations', MENU_TIMEOUT);
-
-      const screen = session.getScreen();
-      expect(screen.raw).to.match(/progress|Progress/i);
-    });
-  });
-
-  // ===========================================================================
-  // 6. Board view — `prlt board` renders board menu
+  // 5. Board view — `prlt board` renders board menu
   // ===========================================================================
   describe('Board submenu (prlt board)', () => {
     it('should show board operations menu', () => {
@@ -380,10 +357,10 @@ const skipSuite = !hasTmux() || !hasPrlt();
       session.waitForStable(500, MENU_TIMEOUT);
 
       // Run a different command
-      session.sendCommand('prlt epic');
-      session.waitForOutput('Epic Operations', MENU_TIMEOUT);
+      session.sendCommand('prlt board');
+      session.waitForOutput('Board Operations', MENU_TIMEOUT);
 
-      session.assertScreenContains('Epic Operations');
+      session.assertScreenContains('Board Operations');
     });
   });
 
@@ -427,11 +404,11 @@ const skipSuite = !hasTmux() || !hasPrlt();
       session.send('C-c');
       session.waitForStable(500, MENU_TIMEOUT);
 
-      // Third: open epic menu and verify it's clean
-      session.sendCommand('prlt epic');
-      session.waitForOutput('Epic Operations', MENU_TIMEOUT);
+      // Third: open agent menu and verify it's clean
+      session.sendCommand('prlt agent');
+      session.waitForOutput('What would you like to do', MENU_TIMEOUT);
 
-      session.assertScreenContains('Create new epic');
+      session.assertScreenContains('List all agents');
     });
   });
 
@@ -497,8 +474,8 @@ const skipSuite = !hasTmux() || !hasPrlt();
     });
 
     it('should render the "(Move up and down to reveal more choices)" hint for long menus', () => {
-      session.sendCommand('prlt epic');
-      session.waitForOutput('Epic Operations', MENU_TIMEOUT);
+      session.sendCommand('prlt work');
+      session.waitForOutput('Work Operations', MENU_TIMEOUT);
 
       const screen = session.getScreen();
       // Long menus show a scroll hint

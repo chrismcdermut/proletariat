@@ -78,8 +78,6 @@ export default class TicketLink extends PMOCommand {
       { name: 'Add blocker', value: 'block', command: `prlt ticket link block ${args.ticket}${projectFlag} --json` },
       { name: 'Add related ticket', value: 'relates', command: `prlt ticket link relates ${args.ticket}${projectFlag} --json` },
       { name: 'Mark as duplicate', value: 'duplicates', command: `prlt ticket link duplicates ${args.ticket}${projectFlag} --json` },
-      { name: 'View links', value: 'view', command: `prlt link list ${args.ticket}${projectFlag} --json` },
-      { name: 'Remove link', value: 'remove', command: `prlt link remove ${args.ticket}${projectFlag} --json` },
       { name: 'Cancel', value: 'cancel', command: '' },
     ];
     const message = `Manage links for ${args.ticket}: ${ticket.title}`;
@@ -121,16 +119,6 @@ export default class TicketLink extends PMOCommand {
         const { default: DuplicatesCommand } = await import('./duplicates.js');
         const cmd = new DuplicatesCommand([args.ticket!, ...(flags.project ? ['-P', flags.project] : [])], this.config);
         await cmd.run();
-        break;
-      }
-      case 'view': {
-        const { default: LinkListCommand } = await import('../../link/list.js');
-        const cmd = new LinkListCommand([args.ticket!, ...(flags.project ? ['-P', flags.project] : [])], this.config);
-        await cmd.run();
-        break;
-      }
-      case 'remove': {
-        this.log(styles.muted('Use: prlt link remove <from> <to>'));
         break;
       }
     }

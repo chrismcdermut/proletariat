@@ -123,33 +123,6 @@ This is the authoritative list of commands that MUST exist in the CLI.
 
 **Note**: Board operations (view, open, markdown, export, sync) are available through the `prlt board` interactive menu.
 
-#### Spec Commands
-
-Specs are **static documentation** (design docs, architecture, requirements). No lifecycle, no tickets.
-
-| Command                   | 📝 | ✅ | 🧪 | 👤 | Description              | Spec                                        |
-| ------------------------- | -- | -- | -- | -- | ------------------------ | ------------------------------------------- |
-| `prlt spec`               | ✓  | ✓  | -  | -  | Interactive spec menu    | [specs.md](../../specs/domain/specs.md)     |
-| `prlt spec create [name]` | ✓  | ✓  | -  | -  | Create new spec document | [specs.md](../../specs/domain/specs.md)     |
-| `prlt spec list`          | ✓  | ✓  | -  | -  | List all specs           | [specs.md](../../specs/domain/specs.md)     |
-| `prlt spec view [id]`     | ✓  | ✓  | -  | -  | View spec content        | [specs.md](../../specs/domain/specs.md)     |
-
-#### Epic Commands
-
-Epics are **work containers** with lifecycle status. Tickets link to epics via `epic_id`.
-
-| Command                        | 📝 | ✅ | 🧪 | 👤 | Description                    | Spec                                        |
-| ------------------------------ | -- | -- | -- | -- | ------------------------------ | ------------------------------------------- |
-| `prlt epic`                    | ✓  | ✓  | -  | -  | Interactive epic menu          | [epics.md](../../specs/domain/epics.md)     |
-| `prlt epic create [name]`      | ✓  | ✓  | -  | -  | Create new epic                | [epics.md](../../specs/domain/epics.md)     |
-| `prlt epic list`               | ✓  | ✓  | -  | -  | List all epics                 | [epics.md](../../specs/domain/epics.md)     |
-| `prlt epic view [id]`          | ✓  | ✓  | -  | -  | View epic and linked tickets   | [epics.md](../../specs/domain/epics.md)     |
-| `prlt epic archive [id]`       | ✓  | ✓  | -  | -  | Move epic to complete/ folder  | [epics.md](../../specs/domain/epics.md)     |
-| `prlt epic activate [id]`      | ✓  | ✓  | -  | -  | Move epic to active/ folder    | [epics.md](../../specs/domain/epics.md)     |
-| `prlt epic move [id] [status]` | ✓  | ✓  | -  | -  | Move epic between status folders | [epics.md](../../specs/domain/epics.md)   |
-| `prlt epic progress [id]`      | ✓  | ✓  | -  | -  | Show completion percentage     | [epics.md](../../specs/domain/epics.md)     |
-| `prlt epic link [id] [tickets...]` | ✓  | ✓  | -  | -  | Link tickets to epic, or epic to spec (--spec) | [epics.md](../../specs/domain/epics.md) |
-
 #### Ticket Commands (CRUD Operations)
 
 | Command                          | 📝 | ✅ | 🧪 | 👤 | Description             | Spec                                            |
@@ -162,7 +135,6 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket move [id] [column]` | ✓  | ✓  | -  | -  | Move ticket to column   | [tickets.md](../../specs/domain/tickets.md)     |
 | `prlt ticket delete [id]`        | ✓  | ✓  | -  | -  | Delete ticket           | [tickets.md](../../specs/domain/tickets.md)     |
 | `prlt ticket status [id]`        | ✓  | ✓  | -  | -  | Show ticket status      | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt ticket link [id] [epic-id]`| ✓  | ✓  | -  | -  | Link ticket to epic     | [tickets.md](../../specs/domain/tickets.md)     |
 
 #### Bulk Ticket Commands (`prlt ticket --bulk`)
 
@@ -173,9 +145,7 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | `prlt ticket delete --bulk`    | ✓  | ✓  | -  | -  | Delete multiple tickets               | [tickets.md](../../specs/domain/tickets.md)     |
 | `prlt ticket complete --bulk`  | ✓  | ✓  | -  | -  | Complete multiple tickets             | [tickets.md](../../specs/domain/tickets.md)     |
 | `prlt ticket reassign --bulk`  | ✓  | ✓  | -  | -  | Reassign tickets to different agent   | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt ticket epic --bulk`      | ✓  | ✓  | -  | -  | Link tickets to different epic        | [tickets.md](../../specs/domain/tickets.md)     |
 | `prlt ticket update --bulk`    | ✓  | ✓  | -  | -  | Update priority/category for multiple | [tickets.md](../../specs/domain/tickets.md)     |
-| `prlt ticket spec --bulk`      | ✓  | ✓  | -  | -  | Assign spec to multiple tickets       | [tickets.md](../../specs/domain/tickets.md)     |
 | `prlt ticket project --bulk`   | ✓  | ✓  | -  | -  | Move multiple tickets to project      | [tickets.md](../../specs/domain/tickets.md)     |
 
 #### Work Commands (Spawning & Execution)
@@ -186,7 +156,6 @@ Epics are **work containers** with lifecycle status. Tickets link to epics via `
 | --------------------------------- | -- | -- | -- | -- | ---------------------------------- | ------------------------------------------- |
 | `prlt work start [id]`            | ✓  | ✓  | -  | -  | Spawn agent to work on ticket      | [work.md](../../specs/domain/work.md)       |
 | `prlt work spawn`                 | ✓  | ✓  | -  | -  | Batch spawn multiple tickets       | [work.md](../../specs/domain/work.md)       |
-| `prlt work spawn-all`             | ✓  | ✓  | -  | -  | Spawn all planned tickets          | [work.md](../../specs/domain/work.md)       |
 | `prlt work ready [id]`            | ✓  | ✓  | -  | -  | Mark work as ready for review      | [work.md](../../specs/domain/work.md)       |
 | `prlt work complete [id]`         | ✓  | ✓  | -  | -  | Mark work as complete (Done)       | [work.md](../../specs/domain/work.md)       |
 | `prlt work revise [id]`           | ✓  | ✓  | -  | -  | Request revision                   | [work.md](../../specs/domain/work.md)       |
@@ -295,51 +264,6 @@ See [devcontainer.md](../../specs/infrastructure/devcontainer.md) for sandboxed 
 | `prlt action update [id]`       | ✓  | ✓  | -  | -  | Update action                    | -    |
 | `prlt action delete [id]`       | ✓  | ✓  | -  | -  | Delete action                    | -    |
 
-#### Workflow Commands
-
-| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
-| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
-| `prlt workflow`                 | ✓  | ✓  | -  | -  | Interactive workflow menu        | -    |
-| `prlt workflow list`            | ✓  | ✓  | -  | -  | List workflows                   | -    |
-| `prlt workflow create`          | ✓  | ✓  | -  | -  | Create workflow                  | -    |
-| `prlt workflow view [id]`       | ✓  | ✓  | -  | -  | View workflow details            | -    |
-| `prlt workflow switch [id]`     | ✓  | ✓  | -  | -  | Switch active workflow           | -    |
-| `prlt workflow delete [id]`     | ✓  | ✓  | -  | -  | Delete workflow                  | -    |
-
-#### Status Commands
-
-| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
-| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
-| `prlt status`                   | ✓  | ✓  | -  | -  | Interactive status menu          | -    |
-| `prlt status list`              | ✓  | ✓  | -  | -  | List workflow statuses           | -    |
-| `prlt status create`            | ✓  | ✓  | -  | -  | Create custom status             | -    |
-| `prlt status update [id]`       | ✓  | ✓  | -  | -  | Update status                    | -    |
-| `prlt status move [id]`         | ✓  | ✓  | -  | -  | Reorder status                   | -    |
-| `prlt status delete [id]`       | ✓  | ✓  | -  | -  | Delete status                    | -    |
-
-#### Phase Commands
-
-| Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
-| ------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
-| `prlt phase list`               | ✓  | ✓  | -  | -  | List phases                      | -    |
-| `prlt phase create`             | ✓  | ✓  | -  | -  | Create phase                     | -    |
-| `prlt phase update [id]`        | ✓  | ✓  | -  | -  | Update phase                     | -    |
-| `prlt phase move [id]`          | ✓  | ✓  | -  | -  | Reorder phase                    | -    |
-| `prlt phase delete [id]`        | ✓  | ✓  | -  | -  | Delete phase                     | -    |
-
-#### Template Commands
-
-| Command                             | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
-| ----------------------------------- | -- | -- | -- | -- | -------------------------------- | ---- |
-| `prlt template`                     | ✓  | ✓  | -  | -  | Interactive template menu        | -    |
-| `prlt template list`                | ✓  | ✓  | -  | -  | List templates                   | -    |
-| `prlt template delete [id]`         | ✓  | ✓  | -  | -  | Delete template                  | -    |
-| `prlt template ticket list`         | ✓  | ✓  | -  | -  | List ticket templates            | -    |
-| `prlt template ticket save`         | ✓  | ✓  | -  | -  | Save ticket as template          | -    |
-| `prlt template ticket apply`        | ✓  | ✓  | -  | -  | Apply ticket template            | -    |
-| `prlt template phase list`          | ✓  | ✓  | -  | -  | List phase templates             | -    |
-| `prlt template phase apply`         | ✓  | ✓  | -  | -  | Apply phase template             | -    |
-
 #### Session Commands
 
 | Command                         | 📝 | ✅ | 🧪 | 👤 | Description                      | Spec |
@@ -383,33 +307,18 @@ See [devcontainer.md](../../specs/infrastructure/devcontainer.md) for sandboxed 
 
 ## Entity Model
 
-### Spec vs Epic vs Ticket
+### Project and Ticket
 
 | Entity | Purpose | Status/Lifecycle | Links |
 |--------|---------|------------------|-------|
-| **Spec** | Static documentation (design docs, architecture) | None | Epics link via `spec_id` |
-| **Epic** | Work container | active, draft, complete, dropped, future | Links to spec, tickets link to epic |
-| **Ticket** | Work item | Column position on board | Optional `epic_id` reference |
+| **Ticket** | Work item | Column position on board | Part of project |
 
 ### Relationships
-
-```
-Spec → Epic → Ticket
-(1)    (many)  (many)
-```
-
-- **Spec → Epic**: One spec can describe multiple epics (via `epic.spec_id`)
-- **Epic → Ticket**: One epic contains many tickets (via `ticket.epic_id`)
-- **Ticket → Spec**: Not allowed directly - must go through epic for traceability
 
 ```
 Project
 ├── Board (1:1)
 │   └── Columns → Tickets
-├── Specs (1:many) - static documentation
-│   └── Epics link via spec_id (optional)
-└── Epics (1:many) - work containers with status
-    └── Tickets link via epic_id (optional)
 ```
 
 ---
@@ -433,8 +342,6 @@ See [pmo-storage.md](../../docs/architecture/pmo-storage.md) for architecture de
 | Project CRUD           | ✓      | -           | -            | -     |
 | Board view/sync        | ✓      | -           | -            | -     |
 | Ticket CRUD            | ✓      | -           | -            | -     |
-| Spec management        | ✓      | -           | -            | -     |
-| Epic management        | ✓      | -           | -            | -     |
 | Work assignment        | -      | -           | -            | -     |
 | Multi-worker (WAL)     | ✓      | N/A         | N/A          | ✓     |
 | Multi-host sync        | -      | ✓           | ✓            | ✓     |
@@ -493,13 +400,11 @@ Examples:
 | **pmo_initiatives** | id | Optional OKR-level grouping | - | - |
 | **pmo_columns** | (project_id, id) | Kanban lanes (per-project) | - | - |
 | **pmo_tickets** | id | Kanban cards (per-project) | - | - |
-| **pmo_epics** | id | Work containers with lifecycle | - | - |
 | **pmo_subtasks** | (ticket_id, id) | Task breakdown | - | - |
 | **pmo_ticket_metadata** | (ticket_id, key) | Custom ticket fields | - | - |
 | **pmo_ticket_dependencies** | (ticket_id, blocked_by_ticket_id) | Ticket blocking relationships | - | - |
 | **pmo_ticket_affected_paths** | id | File/directory scope hints | - | - |
 | **pmo_ticket_acceptance_criteria** | (ticket_id, id) | Structured acceptance criteria | - | - |
-| **pmo_specs** | id | Static specification documents | - | - |
 | **pmo_ticket_assignments** | (ticket_id, agent_name) | Agent-Ticket assignments (M:M) | - | - |
 | **pmo_cache_metadata** | key | Board.md sync tracking | - | - |
 | **pmo_settings** | key | PMO configuration settings | - | - |
@@ -517,14 +422,12 @@ Examples:
 | pmo_projects | name, template, description, initiative_id, created_at, updated_at |
 | pmo_initiatives | name, objective, key_results, created_at, updated_at |
 | pmo_columns | name, position, created_at |
-| pmo_tickets | project_id, title, column_id, position, priority, category, description, spec_id, epic_id, owner, assignee, status, created_at, updated_at |
-| pmo_epics | project_id, title, status, file_path, spec_id, created_at, updated_at |
+| pmo_tickets | project_id, title, column_id, position, priority, category, description, owner, assignee, status, created_at, updated_at |
 | pmo_subtasks | title, done, position |
 | pmo_ticket_metadata | value |
 | pmo_ticket_dependencies | created_at |
 | pmo_ticket_affected_paths | ticket_id, path_pattern, path_type, created_at |
 | pmo_ticket_acceptance_criteria | criterion, verifiable, verified, verified_at, verified_by, position |
-| pmo_specs | path, title, created_at, updated_at |
 | pmo_ticket_assignments | assigned_at |
 | pmo_cache_metadata | value |
 | pmo_settings | value |
@@ -533,10 +436,6 @@ Examples:
 **Foreign Key Constraints:**
 
 - `pmo_tickets.column_id` → `pmo_columns(project_id, id)` ON DELETE CASCADE
-- `pmo_tickets.spec_id` → `pmo_specs(id)` ON DELETE SET NULL
-- `pmo_tickets.epic_id` → `pmo_epics(id)` ON DELETE SET NULL
-- `pmo_epics.project_id` → `pmo_projects.id` ON DELETE CASCADE
-- `pmo_epics.spec_id` → `pmo_specs(id)` ON DELETE SET NULL
 - `pmo_subtasks.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_metadata.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
 - `pmo_ticket_dependencies.ticket_id` → `pmo_tickets.id` ON DELETE CASCADE
@@ -562,7 +461,6 @@ Examples:
 | `column_review` | Review | Column for `work ready` to move tickets to |
 | `column_done` | Done | Column for `work complete` to move tickets to |
 | `next_ticket_id` | 1 | Auto-increment counter for TKT-XXX IDs |
-| `next_epic_id` | 1 | Auto-increment counter for EPIC-XXX IDs |
 | `pmo_path` | pmo | Relative path to PMO directory from HQ root |
 
 **Template-specific column mappings** (set automatically by `pmo init`):
@@ -643,7 +541,6 @@ apps/cli/
 │   ├── work/           # Work execution commands
 │   │   ├── start.ts    # Spawn agent on ticket
 │   │   ├── spawn.ts    # Batch spawn
-│   │   ├── spawn-all.ts
 │   │   ├── ready.ts
 │   │   ├── complete.ts
 │   │   ├── revise.ts
@@ -652,12 +549,6 @@ apps/cli/
 │   │   ├── list.ts
 │   │   ├── logs.ts
 │   │   └── stop.ts
-│   ├── spec/
-│   │   ├── create.ts, list.ts, view.ts, plan.ts, ticket.ts
-│   │   └── link/
-│   ├── epic/
-│   │   ├── create.ts, list.ts, view.ts, move.ts, ...
-│   │   └── link/
 │   ├── project/
 │   │   ├── create.ts, list.ts, view.ts, archive.ts, ...
 │   ├── board/
@@ -666,17 +557,6 @@ apps/cli/
 │   │   ├── create.ts, list.ts, validate.ts
 │   ├── action/
 │   │   ├── create.ts, list.ts, show.ts, run.ts, ...
-│   ├── workflow/
-│   │   ├── create.ts, list.ts, view.ts, switch.ts, ...
-│   ├── status/
-│   │   ├── create.ts, list.ts, update.ts, move.ts, ...
-│   ├── phase/
-│   │   ├── create.ts, list.ts, update.ts, move.ts, ...
-│   │   └── template/
-│   ├── template/
-│   │   ├── list.ts, delete.ts
-│   │   ├── ticket/
-│   │   └── phase/
 │   ├── session/
 │   │   ├── list.ts, attach.ts
 │   ├── workspace/
@@ -712,8 +592,6 @@ Detailed specifications for each domain are in the `specs/domain/` directory at 
 - [projects.md](../../specs/domain/projects.md) - `prlt project`
 - [board.md](../../specs/domain/board.md) - `prlt board`
 - [tickets.md](../../specs/domain/tickets.md) - `prlt ticket` (CRUD and bulk operations)
-- [specs.md](../../specs/domain/specs.md) - `prlt spec` (static documentation)
-- [epics.md](../../specs/domain/epics.md) - `prlt epic` (work containers)
 - [work.md](../../specs/domain/work.md) - `prlt work` (ownership, assignment, execution), `prlt execution` (runtime management)
 - [dependencies.md](../../specs/domain/dependencies.md) - Ticket dependency tracking
 
