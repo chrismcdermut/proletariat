@@ -63,4 +63,40 @@ describe('onboarding', () => {
       expect(result.hasCodex).to.equal(hasCodex);
     });
   });
+
+  describe('PMO_PROVIDERS', () => {
+    let PMO_PROVIDERS: typeof import('../../src/lib/onboarding/wizard.js').PMO_PROVIDERS;
+
+    before(async () => {
+      const mod = await import('../../src/lib/onboarding/wizard.js');
+      PMO_PROVIDERS = mod.PMO_PROVIDERS;
+    });
+
+    it('has all five supported providers', () => {
+      expect(PMO_PROVIDERS).to.have.length(5);
+      const values = PMO_PROVIDERS.map(p => p.value);
+      expect(values).to.include('linear');
+      expect(values).to.include('jira');
+      expect(values).to.include('trello');
+      expect(values).to.include('monday');
+      expect(values).to.include('asana');
+    });
+
+    it('each provider has required fields', () => {
+      for (const provider of PMO_PROVIDERS) {
+        expect(provider).to.have.property('name').that.is.a('string');
+        expect(provider).to.have.property('value').that.is.a('string');
+        expect(provider).to.have.property('connectCommand').that.is.a('string');
+        expect(provider).to.have.property('apiKeyEnvVar').that.is.a('string');
+        expect(provider).to.have.property('apiKeyUrl').that.is.a('string');
+        expect(provider).to.have.property('apiKeyInstructions').that.is.a('string');
+      }
+    });
+
+    it('each provider connectCommand starts with prlt', () => {
+      for (const provider of PMO_PROVIDERS) {
+        expect(provider.connectCommand).to.match(/^prlt /);
+      }
+    });
+  });
 });
