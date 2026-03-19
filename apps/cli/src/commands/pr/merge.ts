@@ -4,9 +4,6 @@ import {
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
-import Database from 'better-sqlite3';
-import * as path from 'node:path';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { styles } from '../../lib/styles.js';
 import {
   isGHInstalled,
@@ -24,6 +21,9 @@ import {
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
 import { getEventBus } from '../../lib/events/event-bus.js';
+import { validateBranchName } from '../../lib/branch/index.js';
+import { PMO_TABLES } from '../../lib/pmo/schema.js';
+import type { Ticket } from '../../lib/pmo/types.js';
 
 export default class PRMerge extends PMOCommand {
   static description = 'Merge a GitHub pull request by number';
@@ -146,19 +146,17 @@ export default class PRMerge extends PMOCommand {
       return handleError('MERGE_FAILED', `Failed to merge PR #${prNumber}: ${result.error}`);
     }
 
-    // Update ticket metadata if PR was linked and emit merge event for outbound sync
+    // After successful merge, resolve the linked ticket and move it to Done
     let linkedTicketId: string | undefined;
+    let ticketMovedToDone = false;
+    let ticketTransitionProvider: string | undefined;
     if (this.hasPMO) {
       try {
-        const allTickets = await this.storage.listTickets(flags.project);
-        // Find linked ticket by pr_number or by extracting number from pr_url
-        const linkedTicket = allTickets.find(t =>
-          t.metadata?.pr_number === String(prNumber) ||
-          t.metadata?.pr_url?.endsWith(`/pull/${prNumber}`) ||
-          t.metadata?.pr_url?.endsWith(`/${prNumber}`)
-        );
+        const linkedTicket = await this.resolveLinkedTicket(prNumber, prInfo.headBranch, flags.project);
         if (linkedTicket) {
           linkedTicketId = linkedTicket.id;
+
+          // Update PR state metadata
           await this.storage.updateTicket(linkedTicket.id, {
             metadata: {
               ...linkedTicket.metadata,
@@ -166,51 +164,36 @@ export default class PRMerge extends PMOCommand {
             },
           });
 
-          // Move ticket to Done column in local PMO and external provider
+          // Move ticket to Done column
           try {
-            let workspaceInfo;
-            try {
-              workspaceInfo = getWorkspaceInfo();
-            } catch {
-              workspaceInfo = null;
-            }
-            const dbPath = workspaceInfo
-              ? path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
+            const db = this.storage.getDatabase();
+            const targetColumnName = getWorkColumnSetting(db, 'done');
+            const board = linkedTicket.projectId
+              ? await this.storage.getProjectBoard(linkedTicket.projectId)
               : null;
+            const columnNames = board ? board.columns.map(col => col.name) : [];
+            const doneColumn = findColumnByName(columnNames, targetColumnName);
 
-            if (dbPath) {
-              const db = new Database(dbPath);
-              try {
-                const targetColumnName = getWorkColumnSetting(db, 'done');
-                const board = linkedTicket.projectId
-                  ? await this.storage.getProjectBoard(linkedTicket.projectId)
-                  : null;
-                const columnNames = board ? board.columns.map(col => col.name) : [];
-                const doneColumn = findColumnByName(columnNames, targetColumnName);
+            if (doneColumn && linkedTicket.projectId) {
+              // Move in local PMO
+              await this.storage.moveTicket(linkedTicket.projectId, linkedTicket.id, doneColumn);
+              ticketMovedToDone = true;
 
-                if (doneColumn && linkedTicket.projectId) {
-                  // Move in local PMO
-                  await this.storage.moveTicket(linkedTicket.projectId, linkedTicket.id, doneColumn);
-
-                  // Sync to external provider (e.g., Linear)
-                  const provider = await this.resolveTicketProvider(linkedTicket.id, linkedTicket.projectId);
-                  if (provider.name !== 'pmo') {
-                    const moveResult = await provider.moveTicket(linkedTicket.id, doneColumn);
-                    if (moveResult.success) {
-                      this.log(styles.muted(`   Synced to ${moveResult.provider}: ${doneColumn}`));
-                    }
-                  }
+              // Sync to external provider (e.g., Linear)
+              const provider = await this.resolveTicketProvider(linkedTicket.id, linkedTicket.projectId);
+              if (provider.name !== 'pmo') {
+                const moveResult = await provider.moveTicket(linkedTicket.id, doneColumn);
+                if (moveResult.success) {
+                  ticketTransitionProvider = moveResult.provider;
                 }
-              } finally {
-                db.close();
               }
             }
-          } catch {
-            // Non-critical - don't fail the merge if ticket transition fails
+          } catch (err) {
+            this.warn(`Failed to move ticket ${linkedTicket.id} to Done: ${err instanceof Error ? err.message : err}`);
           }
         }
-      } catch {
-        // Non-critical - don't fail the merge if PMO update fails
+      } catch (err) {
+        this.warn(`Failed to resolve linked ticket: ${err instanceof Error ? err.message : err}`);
       }
     }
 
@@ -243,7 +226,8 @@ export default class PRMerge extends PMOCommand {
           method,
           branchDeleted: flags['delete-branch'],
           linkedTicket: linkedTicketId ?? null,
-          linearSyncEmitted: !!linkedTicketId,
+          ticketMovedToDone,
+          ticketTransitionProvider: ticketTransitionProvider ?? null,
         },
         createMetadata('pr merge', flags)
       );
@@ -258,7 +242,65 @@ export default class PRMerge extends PMOCommand {
       this.log(styles.muted(`   Branch ${prInfo.headBranch} deleted`));
     }
     if (linkedTicketId) {
-      this.log(styles.muted(`   Linear sync triggered for ${linkedTicketId}`));
+      this.log(styles.muted(`   Ticket ${linkedTicketId} → Done`));
+      if (ticketTransitionProvider) {
+        this.log(styles.muted(`   Synced to ${ticketTransitionProvider}`));
+      }
     }
+  }
+
+  /**
+   * Resolve the linked ticket for a merged PR.
+   *
+   * Lookup order:
+   * 1. PR metadata (pr_number / pr_url) on tickets
+   * 2. agent_work table (branch → ticket_id)
+   * 3. PR branch name parsing (extract ticket ID from conventional branch format)
+   */
+  private async resolveLinkedTicket(
+    prNumber: number,
+    headBranch: string,
+    projectId: string | undefined,
+  ): Promise<Ticket | null> {
+    // 1. Find by PR metadata on tickets
+    const allTickets = await this.storage.listTickets(projectId);
+    const byMetadata = allTickets.find(t =>
+      t.metadata?.pr_number === String(prNumber) ||
+      t.metadata?.pr_url?.endsWith(`/pull/${prNumber}`) ||
+      t.metadata?.pr_url?.endsWith(`/${prNumber}`)
+    );
+    if (byMetadata) return byMetadata;
+
+    // 2. Look up from agent_work table by branch name
+    try {
+      const db = this.storage.getDatabase();
+      const row = db.prepare(
+        `SELECT ticket_id FROM ${PMO_TABLES.agent_work} WHERE branch = ? LIMIT 1`
+      ).get(headBranch) as { ticket_id: string } | undefined;
+      if (row?.ticket_id) {
+        const ticket = await this.storage.getTicket(row.ticket_id);
+        if (ticket) return ticket;
+      }
+    } catch {
+      // agent_work lookup failed, continue to branch name parsing
+    }
+
+    // 3. Parse ticket ID from branch name (e.g., PRLT-1043/feat/owner/agent/desc)
+    const branchResult = validateBranchName(headBranch);
+    if (branchResult.valid && branchResult.parts?.ticketId) {
+      const ticketId = branchResult.parts.ticketId;
+
+      // Try direct lookup (works for TKT-xxx internal IDs)
+      const directTicket = await this.storage.getTicket(ticketId);
+      if (directTicket) return directTicket;
+
+      // Search by external_key metadata (works for PRLT-xxx, LINEAR-xxx, etc.)
+      const byExternalKey = allTickets.find(t =>
+        t.metadata?.external_key === ticketId
+      );
+      if (byExternalKey) return byExternalKey;
+    }
+
+    return null;
   }
 }
