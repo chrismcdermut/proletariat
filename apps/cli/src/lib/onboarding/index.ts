@@ -3,5 +3,9 @@ export {
   runOnboardingWizard,
   runOnboardingJsonMode,
   isFirstTimeUser,
+  promptForPMOProvider,
+  connectPMOProvider,
+  PMO_PROVIDERS,
   type OnboardingResult,
+  type PMOProviderValue,
 } from './wizard.js';

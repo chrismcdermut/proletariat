@@ -16,6 +16,7 @@ import {
   runOnboardingWizard,
   runOnboardingJsonMode,
   detectAITools,
+  PMO_PROVIDERS,
 } from '../lib/onboarding/index.js';
 
 export default class Init extends Command {
@@ -70,7 +71,7 @@ export default class Init extends Command {
       writeMachineConfig(config);
     }
 
-    // Step 4: Onboarding wizard for first-time users
+    // Step 4: For first-time users, direct them to `prlt new`
     const firstTime = isFirstTimeUser(config.headquarters.length, config.activeHeadquarters ?? null);
 
     if (firstTime) {
@@ -82,13 +83,16 @@ export default class Init extends Command {
         }
         // No --setup flag: fall through to include onboarding info in success response
       } else {
-        // Interactive mode: run the onboarding wizard
-        const result = await runOnboardingWizard();
-        if (result.method === 'ai') {
-          // AI tool was spawned — it will guide the user through prlt new
-          return;
-        }
-        // Manual: fall through to show normal init output with prlt new guidance
+        // Interactive mode: tell user to run prlt new (the unified entry point)
+        console.log(chalk.blue('Welcome to Proletariat!\n'));
+        console.log(chalk.gray('  No headquarters found. Create one to get started:\n'));
+        console.log(chalk.yellow('    prlt new\n'));
+        console.log(chalk.gray('  This will guide you through the full setup:\n'));
+        console.log(chalk.gray('    1. Create your headquarters'));
+        console.log(chalk.gray('    2. Connect a cloud PMO (Linear, Jira, Trello, Monday, Asana)'));
+        console.log(chalk.gray('    3. Add repositories'));
+        console.log(chalk.gray('    4. Create your first ticket and spawn an agent\n'));
+        return;
       }
     }
 
@@ -110,6 +114,13 @@ export default class Init extends Command {
           name: t.name,
           command: t.command,
           displayName: t.displayName,
+        }));
+        jsonResult.onboardingCommand = 'prlt new';
+        jsonResult.pmoProviders = PMO_PROVIDERS.map(p => ({
+          name: p.name,
+          value: p.value,
+          connectCommand: p.connectCommand,
+          apiKeyUrl: p.apiKeyUrl,
         }));
       }
 
