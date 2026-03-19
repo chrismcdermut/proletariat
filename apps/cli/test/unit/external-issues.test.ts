@@ -376,10 +376,11 @@ describe('External Issues', () => {
     it('contains currently supported sources', () => {
       expect(ISSUE_SOURCES).to.include('linear');
       expect(ISSUE_SOURCES).to.include('jira');
+      expect(ISSUE_SOURCES).to.include('clickup');
     });
 
-    it('has exactly 5 known sources', () => {
-      expect(ISSUE_SOURCES).to.have.length(5);
+    it('has exactly 6 known sources', () => {
+      expect(ISSUE_SOURCES).to.have.length(6);
     });
   });
 
