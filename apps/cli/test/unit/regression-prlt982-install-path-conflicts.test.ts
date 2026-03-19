@@ -155,8 +155,8 @@ describe('Regression: PRLT-982 — Install path conflict detection', () => {
       expect(getUpdateCommand('npm')).to.equal('npm install -g @proletariat/cli')
     })
 
-    it('returns self-update command for standalone', () => {
-      expect(getUpdateCommand('standalone')).to.equal('prlt self-update')
+    it('returns update command for standalone', () => {
+      expect(getUpdateCommand('standalone')).to.equal('prlt update')
     })
   })
 
