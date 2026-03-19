@@ -5,6 +5,7 @@ import { loadJiraConfig } from '../jira/config.js'
 import { loadShortcutConfig } from '../shortcut/config.js'
 import { loadTrelloConfig } from '../trello/config.js'
 import { loadMondayConfig } from '../monday/config.js'
+import { loadClickUpConfig } from '../clickup/config.js'
 import { loadProviderSources } from './provider-sources.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
@@ -12,7 +13,7 @@ const DEFAULT_SOURCE_KEY = 'work.default_source'
 /** @deprecated Old key kept for migration — use DEFAULT_SOURCE_KEY */
 const LEGACY_ACTIVE_SOURCE_KEY = 'work.active_source'
 
-export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'trello', 'monday'] as const
+export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'clickup'] as const
 export type WorkSourceProvider = typeof WORK_SOURCE_PROVIDERS[number]
 
 export interface WorkSourceRef {
@@ -188,6 +189,7 @@ export function getConnectedIntegrations(db: Database.Database): string[] {
   if (loadShortcutConfig(db)) integrations.push('shortcut')
   if (loadTrelloConfig(db)) integrations.push('trello')
   if (loadMondayConfig(db)) integrations.push('monday')
+  if (loadClickUpConfig(db)) integrations.push('clickup')
 
   return integrations
 }

@@ -14,7 +14,7 @@ import type { StateCategory, Ticket, TicketFilter, CreateTicketInput } from '../
 /**
  * Supported provider names for ticket operations.
  */
-export type TicketProviderName = 'pmo' | 'linear' | 'jira' | 'asana' | 'shortcut' | 'trello'
+export type TicketProviderName = 'pmo' | 'linear' | 'jira' | 'asana' | 'shortcut' | 'trello' | 'clickup'
 
 /**
  * Generic result of a provider operation.

@@ -21,6 +21,8 @@
 import type Database from 'better-sqlite3'
 import { isLinearConfigured } from '../linear/config.js'
 import { LinearMapper } from '../linear/mapper.js'
+import { isClickUpConfigured } from '../clickup/config.js'
+import { ClickUpMapper } from '../clickup/mapper.js'
 import type { StateCategory } from '../pmo/types.js'
 import type { TicketProvider, ProviderStorage } from './types.js'
 import { PMOTicketProvider } from './pmo-provider.js'

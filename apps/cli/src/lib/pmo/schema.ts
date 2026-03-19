@@ -60,6 +60,8 @@ export const PMO_TABLES = {
   monday_item_map: 'pmo_monday_item_map',  // Monday item ↔ PMO ticket mapping
   // Asana integration tables
   asana_task_map: 'pmo_asana_task_map',  // Asana task ↔ PMO ticket mapping
+  // ClickUp integration tables
+  clickup_task_map: 'pmo_clickup_task_map',  // ClickUp task ↔ PMO ticket mapping
   // Trello integration tables
   trello_card_map: 'pmo_trello_card_map',  // Trello card ↔ PMO ticket mapping
   // Work lifecycle hooks
