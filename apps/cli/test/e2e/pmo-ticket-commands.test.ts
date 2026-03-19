@@ -411,6 +411,77 @@ describe('@smoke PMO Ticket Commands E2E Tests', () => {
     });
   });
 
+  describe('prlt ticket cancel', () => {
+    it('should move ticket to Canceled column', async () => {
+      await execInProcess('ticket create --title "Cancel test" --column "Backlog"');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Cancel test') as { id: string };
+
+      await execInProcess(`ticket cancel ${ticket.id}`);
+
+      // Verify via workflow statuses
+      const status = db.prepare(`
+        SELECT s.name
+        FROM pmo_tickets t
+        JOIN pmo_workflow_statuses s ON s.id = t.status_id
+        WHERE t.id = ?
+      `).get(ticket.id) as { name: string };
+
+      expect(status.name).to.equal('Canceled');
+    });
+
+    it('should display success message', async () => {
+      await execInProcess('ticket create --title "Cancel msg test" --column "In Progress"');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Cancel msg test') as { id: string };
+
+      const output = await execInProcess(`ticket cancel ${ticket.id}`);
+
+      expect(output).to.contain('Canceled');
+      expect(output).to.contain(ticket.id);
+    });
+
+    it('should error for non-existent ticket', async () => {
+      const output = await execInProcess('ticket cancel NON-EXISTENT');
+
+      expect(output.toLowerCase()).to.satisfy((s: string) =>
+        s.includes('not found') || s.includes('no active tickets')
+      );
+    });
+  });
+
+  describe('prlt ticket move --status', () => {
+    it('should move ticket using --status flag', async () => {
+      await execInProcess('ticket create --title "Status flag test" --column "Backlog"');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Status flag test') as { id: string };
+
+      await execInProcess(`ticket move ${ticket.id} --status "In Progress"`);
+
+      const status = db.prepare(`
+        SELECT s.name
+        FROM pmo_tickets t
+        JOIN pmo_workflow_statuses s ON s.id = t.status_id
+        WHERE t.id = ?
+      `).get(ticket.id) as { name: string };
+
+      expect(status.name).to.equal('In Progress');
+    });
+
+    it('should move ticket using -s shorthand', async () => {
+      await execInProcess('ticket create --title "Short flag test" --column "Backlog"');
+      const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Short flag test') as { id: string };
+
+      await execInProcess(`ticket move ${ticket.id} -s "Review"`);
+
+      const status = db.prepare(`
+        SELECT s.name
+        FROM pmo_tickets t
+        JOIN pmo_workflow_statuses s ON s.id = t.status_id
+        WHERE t.id = ?
+      `).get(ticket.id) as { name: string };
+
+      expect(status.name).to.equal('Review');
+    });
+  });
+
   describe('prlt ticket link', () => {
     // Note: The old `ticket link TKT-XXX EPIC-XXX` syntax was replaced by
     // `ticket link` topic with subcommands (block, relates, duplicates).
@@ -580,6 +651,7 @@ function setupTestDatabase(db: Database.Database) {
     { id: 'ws-review', name: 'Review', category: 'started', position: 3 },
     { id: 'ws-done', name: 'Done', category: 'completed', position: 4 },
     { id: 'ws-merged', name: 'Merged', category: 'completed', position: 5 },
+    { id: 'ws-canceled', name: 'Canceled', category: 'canceled', position: 6 },
   ];
 
   for (const status of workflowStatuses) {
