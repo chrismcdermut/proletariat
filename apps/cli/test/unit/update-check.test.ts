@@ -235,6 +235,10 @@ describe('Update Check', () => {
     it('returns npm command for npm package manager', () => {
       expect(getUpdateCommand('npm')).to.equal('npm install -g @proletariat/cli')
     })
+
+    it('returns prlt update command for standalone package manager', () => {
+      expect(getUpdateCommand('standalone')).to.equal('prlt update')
+    })
   })
 
   describe('getStaleTapCommands', () => {

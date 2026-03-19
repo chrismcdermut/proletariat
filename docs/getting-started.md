@@ -50,7 +50,7 @@ prlt --version
 
 ```bash
 # Any install method (auto-detects)
-prlt self-update
+prlt update
 
 # Or manually:
 # Homebrew

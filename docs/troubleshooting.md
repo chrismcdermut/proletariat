@@ -130,7 +130,7 @@ which prlt
 which -a prlt
 
 # Check install method detection
-prlt self-update --check
+prlt update --check
 ```
 
 **Solution**: Uninstall all but one installation method, then reinstall the one you want.

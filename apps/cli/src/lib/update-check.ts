@@ -182,7 +182,7 @@ export function getUpdateCommand(pm: PackageManager): string {
     return 'brew upgrade chrismcdermut/proletariat/prlt'
   }
   if (pm === 'standalone') {
-    return 'prlt self-update'
+    return 'prlt update'
   }
   return 'npm install -g @proletariat/cli'
 }
