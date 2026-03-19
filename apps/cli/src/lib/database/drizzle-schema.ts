@@ -85,6 +85,10 @@ export const agentWorktrees = sqliteTable('agent_worktrees', {
   worktreePath: text('worktree_path').notNull(),
   branch: text('branch').notNull(),
   createdAt: text('created_at').notNull(),
+  lastCommitHash: text('last_commit_hash'),
+  commitsAhead: integer('commits_ahead').notNull().default(0),
+  isClean: integer('is_clean', { mode: 'boolean' }).notNull().default(true),
+  lastChecked: text('last_checked'),
 }, (table) => ({
   pk: primaryKey({ columns: [table.agentName, table.repoName] }),
   idxAgent: index('idx_worktrees_agent').on(table.agentName),
@@ -97,6 +101,25 @@ export const agentWorktrees = sqliteTable('agent_worktrees', {
 export const workspaceSettings = sqliteTable('workspace_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+})
+
+/**
+ * Media items (videos, audio files with preprocessed assets)
+ */
+export const mediaItems = sqliteTable('media_items', {
+  name: text('name').primaryKey(),
+  path: text('path').notNull(),
+  sourcePath: text('source_path'),
+  mediaType: text('media_type', { enum: ['video', 'audio'] }).notNull().default('video'),
+  durationSeconds: integer('duration_seconds'),
+  resolution: text('resolution'),
+  frameCount: integer('frame_count').notNull().default(0),
+  hasTranscript: integer('has_transcript', { mode: 'boolean' }).notNull().default(false),
+  frameInterval: integer('frame_interval').notNull().default(30),
+  status: text('status', { enum: ['pending', 'processing', 'ready', 'error'] }).notNull().default('pending'),
+  errorMessage: text('error_message'),
+  addedAt: text('added_at').notNull(),
+  processedAt: text('processed_at'),
 })
 
 // =============================================================================
@@ -977,3 +1000,6 @@ export type NewDbPmoExternalExecutionLink = typeof pmoExternalExecutionLinks.$in
 
 export type DbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferSelect
 export type NewDbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferInsert
+
+export type DbMediaItem = typeof mediaItems.$inferSelect
+export type NewDbMediaItem = typeof mediaItems.$inferInsert
