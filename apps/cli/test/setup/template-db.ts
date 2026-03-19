@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
+import { runDrizzleMigrations } from '../../src/lib/database/migrator.js';
+import { ALL_MIGRATIONS } from '../../src/lib/database/migrations/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,6 +31,9 @@ const SCHEMA_SOURCE_FILES = [
   '../../src/lib/pmo/utils.ts',
   '../../src/lib/pmo/types.ts',
   '../../src/lib/database/index.ts',
+  '../../src/lib/database/workspace-schema.ts',
+  '../../src/lib/database/migrator.ts',
+  '../../src/lib/database/migrations/index.ts',
 ].map(f => path.resolve(__dirname, f));
 
 /**
@@ -113,7 +118,7 @@ export function getOrCreateWorkspaceTemplate(): string {
   const tmpPath = `${templatePath}.${process.pid}.tmp`;
   const db = new Database(tmpPath);
   db.pragma('foreign_keys = ON');
-  db.exec(CREATE_TABLES_SQL);
+  runDrizzleMigrations(db, ALL_MIGRATIONS);
   db.close();
   fs.renameSync(tmpPath, templatePath);
 
