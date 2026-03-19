@@ -31,7 +31,7 @@ import { getMachineConfigDir, ensureMachineConfigDir } from '../machine-config.j
 const STATSIG_CLIENT_KEY = 'client-kvxMxRhn9NFSmH8orl7e2W9nYTfWVS7Kjf7yRTdIecc'
 
 // PostHog API key (public — PostHog client keys are meant to be public)
-const POSTHOG_API_KEY = 'phc_prlt_prod_posthog_key'
+const POSTHOG_API_KEY = 'phc_ihCp4i3ZWlk2KQxFbcE6odylZGtISEaCNKAVklMwAk'
 
 // Cap the queue size to prevent unbounded growth if events never flush
 const MAX_QUEUE_SIZE = 1000
