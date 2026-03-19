@@ -18,8 +18,6 @@ import { promptForPMOSetup, machineOutputFlags } from '../lib/pmo/index.js';
 import {
   shouldOutputJson,
   outputPromptAsJson,
-  outputSuccessAsJson,
-  outputErrorAsJson,
   buildPromptConfig,
   createMetadata,
 } from '../lib/prompt-json.js';
@@ -171,58 +169,49 @@ export default class New extends Command {
 
     // Check if HQ name is already in use
     if (hqName && isHQNameTaken(hqName)) {
-      outputErrorAsJson(
-        'HQ_NAME_TAKEN',
-        `HQ name "${hqName}" is already in use on this machine. Pick another name.`,
-        metadata,
-      );
+      this.outputJson({
+        success: false,
+        error: `HQ name "${hqName}" is already in use on this machine. Pick another name.`,
+      });
+      this.exit(1);
       return;
     }
 
     const hqPath = flags.path || path.resolve(`./${hqName}-hq`);
 
     // Validate HQ path is not inside a git repo
-    const validation = validateHQLocation(hqPath);
-    if (!validation.valid) {
-      outputErrorAsJson(
-        'INVALID_LOCATION',
-        validation.reason === 'inside-git'
-          ? 'Cannot create HQ inside a git repository'
-          : 'Cannot create HQ inside another HQ',
-        metadata,
-      );
+    if (!validateHQLocation(hqPath)) {
+      this.outputJson({
+        success: false,
+        error: 'Cannot create HQ inside a git repository',
+        path: hqPath,
+      });
+      this.exit(1);
       return;
     }
 
     // Check if directory already exists
     if (fs.existsSync(hqPath)) {
-      outputErrorAsJson('DIR_EXISTS', 'Directory already exists', metadata);
+      this.outputJson({ success: false, error: 'Directory already exists', path: hqPath });
+      this.exit(1);
       return;
     }
 
-    // If --provider not provided, output a prompt for it
-    if (!flags.provider) {
-      const providerChoices = PMO_PROVIDERS.map(p => ({
-        name: p.name,
-        value: p.value,
-        command: `prlt new --json --name ${hqName} --provider ${p.value}${flags['ai-tool'] ? ` --ai-tool ${flags['ai-tool']}` : ''}`,
-      }));
-      outputPromptAsJson(
-        buildPromptConfig('list', 'provider', 'Which project management tool do you use?', providerChoices),
-        metadata,
-      );
-      return;
-    }
+    // Provider defaults to 'none' if not explicitly given in agent mode.
+    // Agents can pass --provider to select one, or omit it and connect later.
+    const provider = (flags.provider ?? 'none') as PMOProviderValue;
 
-    // Validate provider
-    const validProviders = PMO_PROVIDERS.map(p => p.value);
-    if (!validProviders.includes(flags.provider as PMOProviderValue)) {
-      outputErrorAsJson(
-        'INVALID_PROVIDER',
-        `Invalid provider "${flags.provider}". Valid options: ${validProviders.join(', ')}`,
-        metadata,
-      );
-      return;
+    // Validate provider if explicitly given
+    if (flags.provider) {
+      const validProviders = PMO_PROVIDERS.map(p => p.value);
+      if (!validProviders.includes(provider)) {
+        this.outputJson({
+          success: false,
+          error: `Invalid provider "${flags.provider}". Valid options: ${validProviders.join(', ')}`,
+        });
+        this.exit(1);
+        return;
+      }
     }
 
     // Parse agents
@@ -265,7 +254,6 @@ export default class New extends Command {
       await initializeHQ(options);
 
       // Store per-HQ config
-      const provider = flags.provider as PMOProviderValue;
       const aiToolFlag = flags['ai-tool'];
 
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
@@ -293,8 +281,9 @@ export default class New extends Command {
       // Build provider info for JSON output
       const providerInfo = PMO_PROVIDERS.find(p => p.value === provider);
 
-      // Output success JSON
-      outputSuccessAsJson({
+      // Output success JSON (backward compatible format)
+      this.outputJson({
+        success: true,
         hq: {
           name: hqName,
           path: hqPath,
@@ -308,6 +297,11 @@ export default class New extends Command {
           },
           aiTool: aiToolFlag ?? null,
         },
+        availableProviders: PMO_PROVIDERS.map(p => ({
+          name: p.name,
+          value: p.value,
+          connectCommand: p.connectCommand,
+        })),
         nextSteps: provider !== 'none'
           ? [
               `cd ${hqPath}`,
@@ -322,16 +316,16 @@ export default class New extends Command {
               'prlt ticket create --title "My first ticket"',
               'prlt work start TKT-1',
             ],
-      }, metadata);
+      });
     } catch (error) {
       // Restore console.log on error
       console.log = originalLog;
 
-      outputErrorAsJson(
-        'HQ_CREATION_FAILED',
-        error instanceof Error ? error.message : 'Unknown error',
-        metadata,
-      );
+      this.outputJson({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      this.exit(1);
     }
   }
 
@@ -409,5 +403,12 @@ export default class New extends Command {
     } catch {
       console.log(chalk.yellow(`\n  Could not connect ${providerInfo.name}. You can try again with: ${providerInfo.connectCommand}\n`));
     }
+  }
+
+  /**
+   * Output JSON to stdout
+   */
+  private outputJson(data: Record<string, unknown>): void {
+    console.log(JSON.stringify(data, null, 2));
   }
 }
