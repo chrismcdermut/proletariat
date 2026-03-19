@@ -497,7 +497,7 @@ Agent-created PRs ready for review:
 <table>
   <tr><th>Namespace</th><th>Command</th><th>Description</th></tr>
   <!-- ticket -->
-  <tr><td rowspan="11"><b>ticket</b></td><td><code>prlt ticket create</code></td><td>Create new ticket</td></tr>
+  <tr><td rowspan="10"><b>ticket</b></td><td><code>prlt ticket create</code></td><td>Create new ticket</td></tr>
   <tr><td><code>prlt ticket list</code></td><td>List all tickets</td></tr>
   <tr><td><code>prlt ticket view <id></code></td><td>View ticket details</td></tr>
   <tr><td><code>prlt ticket edit <id></code></td><td>Edit ticket</td></tr>
@@ -507,11 +507,9 @@ Agent-created PRs ready for review:
   <tr><td><code>prlt ticket bulk</code></td><td>Bulk ticket operations</td></tr>
   <tr><td><code>prlt ticket link block <id></code></td><td>Link blocking ticket</td></tr>
   <tr><td><code>prlt ticket link relates <id></code></td><td>Link related ticket</td></tr>
-  <tr><td><code>prlt ticket template save</code></td><td>Save ticket as template</td></tr>
   <!-- work -->
-  <tr><td rowspan="7"><b>work</b></td><td><code>prlt work start <id></code></td><td>Spawn agent on ticket</td></tr>
+  <tr><td rowspan="6"><b>work</b></td><td><code>prlt work start <id></code></td><td>Spawn agent on ticket</td></tr>
   <tr><td><code>prlt work spawn</code></td><td>Batch spawn tickets</td></tr>
-  <tr><td><code>prlt work spawn-all</code></td><td>Spawn all planned tickets</td></tr>
   <tr><td><code>prlt work complete <id></code></td><td>Mark work done</td></tr>
   <tr><td><code>prlt work ready <id></code></td><td>Mark ready for review</td></tr>
   <tr><td><code>prlt work revise <id></code></td><td>Request revision</td></tr>
@@ -547,24 +545,6 @@ Agent-created PRs ready for review:
   <tr><td><code>prlt project archive <id></code></td><td>Archive project</td></tr>
   <tr><td><code>prlt project unarchive <id></code></td><td>Unarchive project</td></tr>
   <tr><td><code>prlt project delete <id></code></td><td>Delete project</td></tr>
-  <!-- epic -->
-  <tr><td rowspan="10"><b>epic</b></td><td><code>prlt epic create</code></td><td>Create epic</td></tr>
-  <tr><td><code>prlt epic list</code></td><td>List epics</td></tr>
-  <tr><td><code>prlt epic view <id></code></td><td>View epic details</td></tr>
-  <tr><td><code>prlt epic ticket <id></code></td><td>Add tickets to epic</td></tr>
-  <tr><td><code>prlt epic progress <id></code></td><td>View epic progress</td></tr>
-  <tr><td><code>prlt epic move <id> <status></code></td><td>Move epic status</td></tr>
-  <tr><td><code>prlt epic archive <id></code></td><td>Archive epic</td></tr>
-  <tr><td><code>prlt epic activate <id></code></td><td>Activate epic</td></tr>
-  <tr><td><code>prlt epic reorder</code></td><td>Reorder epics</td></tr>
-  <tr><td><code>prlt epic link block <id></code></td><td>Link blocking epic</td></tr>
-  <!-- spec -->
-  <tr><td rowspan="6"><b>spec</b></td><td><code>prlt spec create</code></td><td>Create specification</td></tr>
-  <tr><td><code>prlt spec list</code></td><td>List specifications</td></tr>
-  <tr><td><code>prlt spec view <id></code></td><td>View specification</td></tr>
-  <tr><td><code>prlt spec plan <id></code></td><td>Generate plan from spec</td></tr>
-  <tr><td><code>prlt spec ticket <id></code></td><td>Create ticket from spec</td></tr>
-  <tr><td><code>prlt spec link relates <id></code></td><td>Link related spec</td></tr>
   <!-- action -->
   <tr><td rowspan="6"><b>action</b></td><td><code>prlt action create</code></td><td>Create action template</td></tr>
   <tr><td><code>prlt action list</code></td><td>List actions</td></tr>
@@ -576,30 +556,6 @@ Agent-created PRs ready for review:
   <tr><td rowspan="3"><b>branch</b></td><td><code>prlt branch create</code></td><td>Create branch</td></tr>
   <tr><td><code>prlt branch list</code></td><td>List branches</td></tr>
   <tr><td><code>prlt branch validate</code></td><td>Validate branch name</td></tr>
-  <!-- status -->
-  <tr><td rowspan="5"><b>status</b></td><td><code>prlt status list</code></td><td>List workflow statuses</td></tr>
-  <tr><td><code>prlt status create</code></td><td>Create custom status</td></tr>
-  <tr><td><code>prlt status update <id></code></td><td>Update status</td></tr>
-  <tr><td><code>prlt status move <id></code></td><td>Reorder status</td></tr>
-  <tr><td><code>prlt status delete <id></code></td><td>Delete status</td></tr>
-  <!-- workflow -->
-  <tr><td rowspan="5"><b>workflow</b></td><td><code>prlt workflow list</code></td><td>List workflows</td></tr>
-  <tr><td><code>prlt workflow create</code></td><td>Create workflow</td></tr>
-  <tr><td><code>prlt workflow view <id></code></td><td>View workflow</td></tr>
-  <tr><td><code>prlt workflow switch <id></code></td><td>Switch active workflow</td></tr>
-  <tr><td><code>prlt workflow delete <id></code></td><td>Delete workflow</td></tr>
-  <!-- phase -->
-  <tr><td rowspan="5"><b>phase</b></td><td><code>prlt phase list</code></td><td>List phases</td></tr>
-  <tr><td><code>prlt phase create</code></td><td>Create phase</td></tr>
-  <tr><td><code>prlt phase update <id></code></td><td>Update phase</td></tr>
-  <tr><td><code>prlt phase move <id></code></td><td>Reorder phase</td></tr>
-  <tr><td><code>prlt phase delete <id></code></td><td>Delete phase</td></tr>
-  <!-- template -->
-  <tr><td rowspan="5"><b>template</b></td><td><code>prlt template list</code></td><td>List templates</td></tr>
-  <tr><td><code>prlt template delete <id></code></td><td>Delete template</td></tr>
-  <tr><td><code>prlt template ticket list</code></td><td>List ticket templates</td></tr>
-  <tr><td><code>prlt template ticket apply</code></td><td>Apply ticket template</td></tr>
-  <tr><td><code>prlt template phase list</code></td><td>List phase templates</td></tr>
   <!-- pr -->
   <tr><td rowspan="3"><b>pr</b></td><td><code>prlt pr create</code></td><td>Create pull request</td></tr>
   <tr><td><code>prlt pr status <id></code></td><td>Check PR status</td></tr>
