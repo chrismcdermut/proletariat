@@ -8,6 +8,7 @@ import {
   isGHInstalled,
   isGHAuthenticated,
   getPRByNumber,
+  getPRChecks,
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
@@ -166,5 +167,35 @@ export default class PRStatus extends PMOCommand {
     this.log(styles.muted(`   URL: ${prInfo.url}`));
     this.log(styles.muted(`   Created: ${new Date(prInfo.createdAt).toLocaleDateString()}`));
     this.log(styles.muted(`   Updated: ${new Date(prInfo.updatedAt).toLocaleDateString()}`));
+
+    // Show CI check status
+    if (prInfo.state === 'OPEN') {
+      const checks = getPRChecks(prNumber);
+      if (checks.length > 0) {
+        this.log('');
+        this.log(styles.emphasis('   CI Checks:'));
+        for (const check of checks) {
+          const icon = check.conclusion === 'SUCCESS' ? styles.success('✓')
+            : check.conclusion === 'FAILURE' ? styles.error('✗')
+            : (check.status === 'IN_PROGRESS' || check.status === 'QUEUED') ? styles.warning('●')
+            : styles.muted('○');
+          const statusText = check.conclusion || check.status;
+          this.log(`   ${icon} ${check.name} ${styles.muted(`(${statusText})`)}`);
+        }
+
+        const passing = checks.filter(c => c.conclusion === 'SUCCESS').length;
+        const failing = checks.filter(c => c.conclusion === 'FAILURE').length;
+        const pending = checks.filter(c => c.status === 'IN_PROGRESS' || c.status === 'QUEUED').length;
+        this.log('');
+        const parts: string[] = [`Total: ${checks.length}`];
+        if (passing > 0) parts.push(styles.success(`Passing: ${passing}`));
+        if (failing > 0) parts.push(styles.error(`Failing: ${failing}`));
+        if (pending > 0) parts.push(styles.warning(`Pending: ${pending}`));
+        this.log(styles.muted(`   ${parts.join(' | ')}`));
+      } else {
+        this.log('');
+        this.log(styles.muted('   CI: no checks'));
+      }
+    }
   }
 }

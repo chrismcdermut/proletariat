@@ -47,7 +47,7 @@ export default class PRMerge extends PMOCommand {
     method: Flags.string({
       description: 'Merge method',
       options: ['merge', 'squash', 'rebase'],
-      default: 'merge',
+      default: 'squash',
     }),
     'delete-branch': Flags.boolean({
       description: 'Delete branch after merging',
