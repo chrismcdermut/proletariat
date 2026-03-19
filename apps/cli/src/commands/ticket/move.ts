@@ -19,6 +19,7 @@ export default class TicketMove extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> my-ticket "In Progress"',
     '<%= config.bin %> <%= command.id %> implement-auth Done',
+    '<%= config.bin %> <%= command.id %> TKT-123 --status "In Review"',
     '<%= config.bin %> <%= command.id %> fix-bug "In Review" --position 0',
     '<%= config.bin %> <%= command.id %> TKT-123 --to-project PROJ-002',
     '<%= config.bin %> <%= command.id %> --bulk',
@@ -37,6 +38,10 @@ export default class TicketMove extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    status: Flags.string({
+      char: 's',
+      description: 'Target status/column (alternative to positional column argument)',
+    }),
     position: Flags.integer({
       description: 'Position within the column (0 = top)',
     }),
@@ -70,6 +75,9 @@ export default class TicketMove extends PMOCommand {
       this.error(message);
     };
 
+    // --status flag takes precedence over positional column arg
+    const columnArg = flags.status || args.column;
+
     // Cross-project move: if ticketId and --to-project are provided, skip project context
     // The source project is determined from the ticket itself
     if (args.ticketId && flags['to-project']) {
@@ -77,7 +85,7 @@ export default class TicketMove extends PMOCommand {
       if (!ticket) {
         return handleError('TICKET_NOT_FOUND', `Ticket "${args.ticketId}" not found.`);
       }
-      await this.executeCrossProjectMove(ticket, flags['to-project'], args.column, jsonMode, flags);
+      await this.executeCrossProjectMove(ticket, flags['to-project'], columnArg, jsonMode, flags);
       return;
     }
 
@@ -131,12 +139,12 @@ export default class TicketMove extends PMOCommand {
 
     // Cross-project move (when --to-project flag is provided)
     if (flags['to-project']) {
-      await this.executeCrossProjectMove(ticket, flags['to-project'], args.column, jsonMode, flags);
+      await this.executeCrossProjectMove(ticket, flags['to-project'], columnArg, jsonMode, flags);
       return;
     }
 
     // Get target column - prompt if not provided
-    let targetColumn = args.column;
+    let targetColumn = columnArg;
 
     if (!targetColumn) {
       // Check if there are other projects to move to
