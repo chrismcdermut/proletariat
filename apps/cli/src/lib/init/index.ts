@@ -452,7 +452,8 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
 }
 
 /**
- * Show next steps to user
+ * Show next steps to user after HQ creation.
+ * Offers to create first ticket and spawn first agent.
  */
 export async function showNextSteps(options: InitOptions): Promise<void> {
   const relativePath = path.relative(process.cwd(), options.hqPath);
@@ -462,33 +463,47 @@ export async function showNextSteps(options: InitOptions): Promise<void> {
   console.log(chalk.blue(`\n📂 Your headquarters is ready! Navigate to it:`));
   console.log(chalk.yellow(`  cd ${relativePath}`));
 
-  // Ask if they want to see the next steps
-  const { showNextSteps } = await inquirer.prompt([{
+  // Offer to create first ticket if PMO is available
+  if (hasPMO) {
+    const { createTicket } = await inquirer.prompt([{
+      type: 'list',
+      name: 'createTicket',
+      message: 'Create your first ticket to get started?',
+      choices: [
+        { name: 'Yes — create a sample ticket', value: true },
+        { name: 'No — I\'ll do it later', value: false },
+      ],
+    }]);
+
+    if (createTicket) {
+      console.log(chalk.cyan('\nOnce you navigate to the HQ, create a ticket with:'));
+      console.log(chalk.white('  prlt ticket create --title "My first ticket"'));
+
+      console.log(chalk.cyan('\nThen spawn an agent to work on it:'));
+      console.log(chalk.white('  prlt work start TKT-1'));
+    }
+  }
+
+  // Show remaining quick-start commands
+  const { showMore } = await inquirer.prompt([{
     type: 'list',
-    name: 'showNextSteps',
-    message: 'Show additional next steps?',
+    name: 'showMore',
+    message: 'Show additional commands?',
     choices: [
       { name: 'Yes', value: true },
-      { name: 'No', value: false }
+      { name: 'No', value: false },
     ],
-    default: true,
   }]);
 
-  // Show additional next steps if requested
-  if (showNextSteps) {
-    const hasCommands = (options.selectedAgents.length === 0) || hasPMO;
-
-    if (hasCommands) {
-      console.log(chalk.cyan(`\nOnce you're in the headquarters, you can run:`));
-      if (options.selectedAgents.length === 0) {
-        console.log(chalk.white(`  prlt agent add <name>`));
-      }
-
-      if (hasPMO) {
-        console.log(chalk.white(`  prlt ticket create`));
-      }
-    } else {
-      console.log(chalk.green(`\nYour headquarters is fully set up and ready to use!`));
+  if (showMore) {
+    console.log(chalk.cyan('\nUseful commands:'));
+    if (options.selectedAgents.length === 0) {
+      console.log(chalk.white('  prlt agent add <name>     — Add an agent'));
     }
+    console.log(chalk.white('  prlt repo add              — Add a repository'));
+    console.log(chalk.white('  prlt ticket create         — Create a ticket'));
+    console.log(chalk.white('  prlt work start <ticket>   — Spawn agent on ticket'));
+    console.log(chalk.white('  prlt config                — View/update settings'));
+    console.log('');
   }
 }
