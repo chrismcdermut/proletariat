@@ -27,8 +27,8 @@ import * as path from 'node:path'
 import * as crypto from 'node:crypto'
 import { getMachineConfigDir, ensureMachineConfigDir } from '../machine-config.js'
 
-// Statsig client SDK key (public — safe to embed in open source repos)
-const STATSIG_CLIENT_KEY = 'client-kvxMxRhn9NFSmH8orl7e2W9nYTfWVS7Kjf7yRTdIecc'
+// Statsig server secret key (private — this repo is private, will be replaced before merge)
+const STATSIG_SERVER_KEY = 'secret-placeholder'
 
 // PostHog API key (public — PostHog client keys are meant to be public)
 const POSTHOG_API_KEY = 'phc_ihCp4i3ZWlk2KQxFbcE6odylZGtISEaCNKAVklMwAk'
@@ -386,20 +386,37 @@ export function initAnalytics(version: string): void {
       posthogClient = null
     }
 
-    // Initialize Statsig
+    // Initialize Statsig (server SDK)
     try {
-      const { StatsigClient: StatsigClientClass } = await import('@statsig/js-client')
-      const client = new StatsigClientClass(
-        STATSIG_CLIENT_KEY,
-        { userID: getMachineId(), custom: { cli_version: version } },
-      )
-      await client.initializeAsync()
+      const { Statsig } = await import('statsig-node')
+      await Statsig.initialize(STATSIG_SERVER_KEY, {
+        environment: { tier: 'production' },
+      })
 
       // If shutdown already ran while we were initializing, don't set state
-      // or flush — just clean up the client and bail out
+      // or flush — just clean up and bail out
       if (analyticsShutdown) {
-        try { client.shutdown() } catch { /* ignore */ }
+        try { Statsig.shutdown() } catch { /* ignore */ }
         return
+      }
+
+      // Wrap the static Statsig API to match our StatsigClientInstance interface,
+      // binding the user for all calls so feature-flags.ts doesn't need to change
+      const user = { userID: getMachineId(), custom: { cli_version: version } }
+      const client: StatsigClientInstance = {
+        initializeAsync: () => Promise.resolve(),
+        logEvent(eventName, value, metadata) {
+          Statsig.logEvent(user, eventName, value, metadata)
+        },
+        checkGate(gateName) {
+          return Statsig.checkGate(user, gateName)
+        },
+        getDynamicConfig(configName) {
+          return Statsig.getConfig(user, configName)
+        },
+        shutdown() {
+          Statsig.shutdown()
+        },
       }
 
       statsigClient = client

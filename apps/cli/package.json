@@ -20,7 +20,7 @@
     "@oclif/plugin-help": "^6",
     "@oclif/plugin-plugins": "^5",
     "@sentry/node": "^10.42.0",
-    "@statsig/js-client": "^3.32.0",
+    "statsig-node": "^6.5.1",
     "better-sqlite3": "^12.6.2",
     "chalk": "^4.1.2",
     "chokidar": "^5.0.0",
