@@ -445,7 +445,7 @@ export function runMigrations(db: Database.Database): void {
       db.exec(`
         CREATE TABLE ${T.external_issue_map} (
           pmo_ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE CASCADE,
-          provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
+          provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github', 'clickup')),
           external_id TEXT NOT NULL,
           external_key TEXT NOT NULL,
           external_url TEXT NOT NULL,

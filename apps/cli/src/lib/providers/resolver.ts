@@ -21,10 +21,13 @@
 import type Database from 'better-sqlite3'
 import { isLinearConfigured } from '../linear/config.js'
 import { LinearMapper } from '../linear/mapper.js'
+import { isClickUpConfigured } from '../clickup/config.js'
+import { ClickUpMapper } from '../clickup/mapper.js'
 import type { StateCategory } from '../pmo/types.js'
 import type { TicketProvider, ProviderStorage } from './types.js'
 import { PMOTicketProvider } from './pmo-provider.js'
 import { LinearTicketProvider } from './linear-provider.js'
+import { ClickUpTicketProvider } from './clickup-provider.js'
 import { EventEmittingProvider, type StatusResolver } from './event-emitting-provider.js'
 
 /**
@@ -141,6 +144,17 @@ export function resolveTicketProvider(
     }
   }
 
+  // Check ClickUp
+  if (externalSource === 'clickup' && isClickUpConfigured(db)) {
+    const mapper = new ClickUpMapper(db)
+    const mapping = mapper.getByTicketId(ticketId)
+
+    if (mapping && mapping.syncDirection !== 'outbound') {
+      const inner = new ClickUpTicketProvider(db, storage, projectId)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  }
+
   // Default: local PMO
   const inner = new PMOTicketProvider(storage, projectId)
   return wrapWithEvents(inner, db, storage, projectId)
@@ -174,6 +188,11 @@ export function resolveProjectProvider(
 
   if (source === 'linear') {
     const inner = new LinearTicketProvider(db, storage, projectId, null)
+    return wrapWithEvents(inner, db, storage, projectId)
+  }
+
+  if (source === 'clickup') {
+    const inner = new ClickUpTicketProvider(db, storage, projectId)
     return wrapWithEvents(inner, db, storage, projectId)
   }
 

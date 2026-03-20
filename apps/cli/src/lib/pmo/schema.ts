@@ -62,6 +62,8 @@ export const PMO_TABLES = {
   asana_task_map: 'pmo_asana_task_map',  // Asana task ↔ PMO ticket mapping
   // Trello integration tables
   trello_card_map: 'pmo_trello_card_map',  // Trello card ↔ PMO ticket mapping
+  // ClickUp integration tables
+  clickup_task_map: 'pmo_clickup_task_map',  // ClickUp task ↔ PMO ticket mapping
   // Work lifecycle hooks
   work_hooks: 'pmo_work_hooks',  // Configurable event-driven actions for work events
   // Legacy tables (deprecated, kept for migration)
@@ -569,7 +571,7 @@ export const PMO_TABLE_SCHEMAS = {
   external_issue_map: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_issue_map} (
       pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
-      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
+      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github', 'clickup')),
       external_id TEXT NOT NULL,
       external_key TEXT NOT NULL,
       external_url TEXT NOT NULL,
@@ -598,7 +600,7 @@ export const PMO_TABLE_SCHEMAS = {
   // Provider-agnostic external issue ↔ execution mapping
   external_execution_map: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_map} (
-      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'pmo')),
+      provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'clickup', 'pmo')),
       external_id TEXT NOT NULL,
       external_key TEXT,
       canonical_url TEXT,
