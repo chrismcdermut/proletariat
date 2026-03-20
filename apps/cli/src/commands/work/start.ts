@@ -502,6 +502,7 @@ export default class WorkStart extends PMOCommand {
         { name: 'Asana', value: 'asana', command: 'prlt work start --from asana:TASK-GID --json' },
         { name: 'Shortcut', value: 'shortcut', command: 'prlt work start --from shortcut:STORY-ID --json' },
         { name: 'Trello', value: 'trello', command: 'prlt work start --from trello:CARD-ID --json' },
+        { name: 'ClickUp', value: 'clickup', command: 'prlt work start --from clickup:TASK-ID --json' },
       ],
     })
     const sourceResult = await sourceResolver.resolve()

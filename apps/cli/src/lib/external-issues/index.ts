@@ -1,7 +1,7 @@
 /**
  * External Issue Adapter Module
  *
- * Shared contract for normalizing external issues (Linear, Jira, Asana) into
+ * Shared contract for normalizing external issues (Linear, Jira, Asana, ClickUp) into
  * a canonical IssueEnvelope format with deterministic spawn context mapping.
  */
 
@@ -102,6 +102,18 @@ export {
   importShortcutStoryToPmo,
   type ShortcutAdapterConfig,
 } from './shortcut.js'
+
+// ClickUp helpers
+export {
+  normalizeClickUpTask,
+  toClickUpNormalizedEnvelope,
+  buildClickUpTicketDescription,
+  buildClickUpMetadata,
+  buildClickUpSpawnContextMessage,
+  fetchClickUpTask,
+  listClickUpTasks,
+  type ClickUpAdapterConfig,
+} from './clickup.js'
 
 export {
   resolveMirrorToPmo,
