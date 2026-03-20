@@ -21,6 +21,7 @@ export type {
 
 export { PMOTicketProvider } from './pmo-provider.js'
 export { LinearTicketProvider } from './linear-provider.js'
+export { ClickUpTicketProvider } from './clickup-provider.js'
 export { EventEmittingProvider, type StatusResolver } from './event-emitting-provider.js'
 export { ProviderStatusMappingStore, type StatusMapping } from './status-mapping.js'
 export {

@@ -15,7 +15,7 @@ import type { StateCategory } from '../pmo/types.js'
  * Sources that can emit work-lifecycle events.
  * PMO is just another provider, not the central hub.
  */
-export type WorkEventSource = 'pmo' | 'linear' | 'github' | 'jira' | 'asana' | 'shortcut' | 'trello' | 'monday'
+export type WorkEventSource = 'pmo' | 'linear' | 'github' | 'jira' | 'asana' | 'shortcut' | 'trello' | 'monday' | 'clickup'
 
 /** Emitted when work begins on a work item (status moved to 'started' category). */
 export interface WorkStartedEvent {
