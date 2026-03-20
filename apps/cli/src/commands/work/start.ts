@@ -77,6 +77,12 @@ import {
   buildTrelloTicketDescription,
   getTrelloCardById,
 } from '../../lib/external-issues/trello.js'
+import {
+  buildClickUpMetadata,
+  buildClickUpSpawnContextMessage,
+  buildClickUpTicketDescription,
+  fetchClickUpTask,
+} from '../../lib/external-issues/clickup.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
 import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/config.js'
 import { LinearMapper } from '../../lib/linear/mapper.js'
@@ -159,7 +165,7 @@ function parseBooleanSetting(value: string | undefined): boolean | null {
 }
 
 function isIssueSource(value: string | undefined): value is IssueSource {
-  return value === 'linear' || value === 'jira' || value === 'asana' || value === 'shortcut' || value === 'trello'
+  return value === 'linear' || value === 'jira' || value === 'asana' || value === 'shortcut' || value === 'trello' || value === 'clickup'
 }
 
 function buildExternalMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
@@ -168,6 +174,7 @@ function buildExternalMetadata(envelope: NormalizedIssueEnvelope): Record<string
     case 'asana': return buildAsanaMetadata(envelope)
     case 'shortcut': return buildShortcutMetadata(envelope)
     case 'trello': return buildTrelloMetadata(envelope)
+    case 'clickup': return buildClickUpMetadata(envelope)
     default: return buildLinearMetadata(envelope)
   }
 }
@@ -178,6 +185,7 @@ function buildExternalTicketDescription(envelope: NormalizedIssueEnvelope): stri
     case 'asana': return buildAsanaTicketDescription(envelope)
     case 'shortcut': return buildShortcutTicketDescription(envelope)
     case 'trello': return buildTrelloTicketDescription(envelope)
+    case 'clickup': return buildClickUpTicketDescription(envelope)
     default: return buildLinearTicketDescription(envelope)
   }
 }
@@ -191,6 +199,7 @@ function buildExternalSpawnContextMessage(
     case 'asana': return buildAsanaSpawnContextMessage(envelope, additionalMessage)
     case 'shortcut': return buildShortcutSpawnContextMessage(envelope, additionalMessage)
     case 'trello': return buildTrelloSpawnContextMessage(envelope, additionalMessage)
+    case 'clickup': return buildClickUpSpawnContextMessage(envelope, additionalMessage)
     default: return buildLinearSpawnContextMessage(envelope, additionalMessage)
   }
 }
@@ -279,7 +288,7 @@ export default class WorkStart extends PMOCommand {
     }),
     source: Flags.string({
       description: 'External issue source',
-      options: ['linear', 'jira', 'asana', 'shortcut', 'trello'],
+      options: ['linear', 'jira', 'asana', 'shortcut', 'trello', 'clickup'],
     }),
     key: Flags.string({
       description: 'External issue key (for example: ENG-123, PROJ-456)',
@@ -443,6 +452,7 @@ export default class WorkStart extends PMOCommand {
       case 'asana': return getAsanaTaskByGid({}, key)
       case 'shortcut': return getShortcutStoryByKey({}, key)
       case 'trello': return getTrelloCardById({}, key)
+      case 'clickup': return fetchClickUpTask(key)
       default: {
         const apiKey = getLinearApiKey(db) || undefined
         const linearConfig = loadLinearConfig(db)
@@ -514,7 +524,7 @@ export default class WorkStart extends PMOCommand {
     keyResolver.addPrompt({
       flagName: 'key',
       type: 'input',
-      message: `Enter ${source === 'linear' ? 'Linear' : source === 'jira' ? 'Jira' : source === 'asana' ? 'Asana task' : source === 'shortcut' ? 'Shortcut story' : source === 'trello' ? 'Trello card' : source} key:`,
+      message: `Enter ${source === 'linear' ? 'Linear' : source === 'jira' ? 'Jira' : source === 'asana' ? 'Asana task' : source === 'shortcut' ? 'Shortcut story' : source === 'trello' ? 'Trello card' : source === 'clickup' ? 'ClickUp task' : source} key:`,
       default: key,
       when: () => !key?.trim(),
       validate: (value) => (value as string).trim().length > 0 ? true : 'Issue key is required',

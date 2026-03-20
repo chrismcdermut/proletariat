@@ -573,7 +573,7 @@ export const pmoExternalExecutionPrs = sqliteTable('pmo_external_execution_prs',
  */
 export const pmoExternalIssueMap = sqliteTable('pmo_external_issue_map', {
   pmoTicketId: text('pmo_ticket_id').notNull(),
-  provider: text('provider', { enum: ['linear', 'jira', 'shortcut', 'trello', 'github'] }).notNull(),
+  provider: text('provider', { enum: ['linear', 'jira', 'shortcut', 'trello', 'github', 'clickup'] }).notNull(),
   externalId: text('external_id').notNull(),
   externalKey: text('external_key').notNull(),
   externalUrl: text('external_url').notNull(),

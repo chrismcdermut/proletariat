@@ -28,6 +28,12 @@ import {
   buildTrelloTicketDescription,
   getTrelloCardById,
 } from '../external-issues/trello.js'
+import {
+  buildClickUpMetadata,
+  buildClickUpSpawnContextMessage,
+  buildClickUpTicketDescription,
+  fetchClickUpTask,
+} from '../external-issues/clickup.js'
 import type { NormalizedIssueEnvelope } from '../external-issues/types.js'
 import type { WorkSourceProvider } from './config.js'
 
@@ -139,12 +145,33 @@ class TrelloWorkSourceClient implements WorkSourceClient {
   }
 }
 
+class ClickUpWorkSourceClient implements WorkSourceClient {
+  readonly provider: WorkSourceProvider = 'clickup'
+
+  async fetchByKey(key: string): Promise<NormalizedIssueEnvelope | null> {
+    return fetchClickUpTask(key)
+  }
+
+  buildTicketDescription(envelope: NormalizedIssueEnvelope): string {
+    return buildClickUpTicketDescription(envelope)
+  }
+
+  buildMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
+    return buildClickUpMetadata(envelope)
+  }
+
+  buildSpawnContextMessage(envelope: NormalizedIssueEnvelope, additionalMessage?: string): string {
+    return buildClickUpSpawnContextMessage(envelope, additionalMessage)
+  }
+}
+
 const SOURCE_CLIENTS: Partial<Record<WorkSourceProvider, WorkSourceClient>> = {
   linear: new LinearWorkSourceClient(),
   jira: new JiraWorkSourceClient(),
   asana: new AsanaWorkSourceClient(),
   shortcut: new ShortcutWorkSourceClient(),
   trello: new TrelloWorkSourceClient(),
+  clickup: new ClickUpWorkSourceClient(),
 }
 
 export function getWorkSourceClient(provider: WorkSourceProvider): WorkSourceClient | null {
