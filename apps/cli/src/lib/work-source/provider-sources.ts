@@ -32,7 +32,7 @@ export interface ProviderSourceEntry {
   /** Unique identifier for this source config (user-chosen, slug-like) */
   id: string
 
-  /** Provider type (linear, jira, asana, shortcut, trello, monday) */
+  /** Provider type (linear, jira, asana, shortcut, trello, monday, clickup) */
   provider: WorkSourceProvider
 
   /**
