@@ -8,11 +8,11 @@ import { execFileSync } from 'node:child_process'
  * Tests for the analytics write-ahead log (WAL) queue.
  *
  * Design: events are written synchronously to a disk queue via trackEvent().
- * On shutdown, the Statsig init promise is awaited (with timeout) so queued
- * events from previous runs get flushed. If Statsig doesn't initialize in
+ * On shutdown, the PostHog init promise is awaited (with timeout) so queued
+ * events from previous runs get flushed. If PostHog doesn't initialize in
  * time, events persist on disk for the next run.
  *
- * Tests use a mock statsig-node to make Statsig initialization
+ * Tests use a mock posthog-node to make PostHog initialization
  * deterministic (no network dependency).
  */
 describe('Analytics queue persistence', () => {
@@ -34,44 +34,19 @@ describe('Analytics queue persistence', () => {
   })
 
   /**
-   * Create mock @statsig/js-client and posthog-node files in the test directory.
+   * Create mock posthog-node files in the test directory.
    * Uses Node.js module resolution hooks to intercept the imports.
    *
-   * @param opts.initDelay - ms to delay initializeAsync (default: 0)
-   * @param opts.initThrows - if true, initializeAsync rejects
+   * @param opts.initDelay - ms to delay PostHog constructor (default: 0)
+   * @param opts.initThrows - if true, PostHog constructor throws
    * @returns path to the file where mock writes logged events on shutdown
    */
-  function createMockStatsig(opts?: { initDelay?: number; initThrows?: boolean }): string {
+  function createMockPostHog(opts?: { initDelay?: number; initThrows?: boolean }): string {
     const mockDir = path.join(testDir, 'mock')
     fs.mkdirSync(mockDir, { recursive: true })
 
-    const statsigEventsPath = path.join(testDir, 'statsig-events.json')
     const posthogEventsPath = path.join(testDir, 'posthog-events.json')
-    const initDelay = opts?.initDelay ?? 0
     const initThrows = opts?.initThrows ?? false
-
-    // Mock statsig-node module (server SDK — static Statsig object)
-    fs.writeFileSync(path.join(mockDir, 'statsig-mock.mjs'), `
-import * as fs from 'node:fs';
-const EVENTS_FILE = ${JSON.stringify(statsigEventsPath)};
-const _events = [];
-export const Statsig = {
-  async initialize(key, options) {
-    ${initDelay > 0 ? `await new Promise(r => setTimeout(r, ${initDelay}));` : ''}
-    ${initThrows ? `throw new Error('mock init failure');` : ''}
-  },
-  logEvent(user, name, value, metadata) {
-    _events.push({ name, value, metadata });
-  },
-  checkGate() { return false; },
-  getConfig() { return { get: (k, d) => d }; },
-  shutdown() {
-    try {
-      fs.writeFileSync(EVENTS_FILE, JSON.stringify(_events), 'utf-8');
-    } catch {}
-  },
-};
-`, 'utf-8')
 
     // Mock posthog-node module
     fs.writeFileSync(path.join(mockDir, 'posthog-mock.mjs'), `
@@ -79,6 +54,7 @@ import * as fs from 'node:fs';
 const EVENTS_FILE = ${JSON.stringify(posthogEventsPath)};
 export class PostHog {
   constructor(apiKey, options) {
+    ${initThrows ? `throw new Error('mock init failure');` : ''}
     this._events = [];
   }
   capture(message) {
@@ -92,14 +68,10 @@ export class PostHog {
 }
 `, 'utf-8')
 
-    // Loader hook — resolves statsig-node and posthog-node to our mocks
+    // Loader hook — resolves posthog-node to our mock
     fs.writeFileSync(path.join(mockDir, 'mock-loader.mjs'), `
-const STATSIG_MOCK_URL = new URL('./statsig-mock.mjs', import.meta.url).href;
 const POSTHOG_MOCK_URL = new URL('./posthog-mock.mjs', import.meta.url).href;
 export async function resolve(specifier, context, nextResolve) {
-  if (specifier === 'statsig-node') {
-    return { url: STATSIG_MOCK_URL, shortCircuit: true };
-  }
   if (specifier === 'posthog-node') {
     return { url: POSTHOG_MOCK_URL, shortCircuit: true };
   }
@@ -113,20 +85,20 @@ import { register } from 'node:module';
 register('./mock-loader.mjs', import.meta.url);
 `, 'utf-8')
 
-    return statsigEventsPath
+    return posthogEventsPath
   }
 
   /**
    * Helper to run an ESM script in a child process with isolated HOME.
    *
    * @param script - The test script body (analytics module is pre-imported)
-   * @param opts.useMock - Use mock Statsig (default: false)
-   * @param opts.mockOpts - Options for the mock Statsig
+   * @param opts.useMock - Use mock PostHog (default: false)
+   * @param opts.mockOpts - Options for the mock PostHog
    */
   function runAnalyticsScript(
     script: string,
     opts?: { useMock?: boolean; mockOpts?: { initDelay?: number; initThrows?: boolean } },
-  ): { queue: unknown[] | null; stdout: string; stderr: string; statsigEvents: unknown[] | null; posthogEvents: unknown[] | null } {
+  ): { queue: unknown[] | null; stdout: string; stderr: string; posthogEvents: unknown[] | null } {
     const configDir = path.join(testDir, '.proletariat')
     fs.mkdirSync(configDir, { recursive: true })
 
@@ -142,9 +114,9 @@ register('./mock-loader.mjs', import.meta.url);
       }),
     )
 
-    let statsigEventsPath: string | null = null
+    let posthogEventsPath: string | null = null
     if (opts?.useMock) {
-      statsigEventsPath = createMockStatsig(opts.mockOpts)
+      posthogEventsPath = createMockPostHog(opts.mockOpts)
     }
 
     // Prefix the script with the absolute import
@@ -194,19 +166,8 @@ ${script}
       }
     }
 
-    let statsigEvents: unknown[] | null = null
-    if (statsigEventsPath && fs.existsSync(statsigEventsPath)) {
-      try {
-        const parsed = JSON.parse(fs.readFileSync(statsigEventsPath, 'utf-8'))
-        statsigEvents = Array.isArray(parsed) ? parsed : null
-      } catch {
-        statsigEvents = null
-      }
-    }
-
-    const posthogEventsPath = path.join(testDir, 'posthog-events.json')
     let posthogEvents: unknown[] | null = null
-    if (fs.existsSync(posthogEventsPath)) {
+    if (posthogEventsPath && fs.existsSync(posthogEventsPath)) {
       try {
         const parsed = JSON.parse(fs.readFileSync(posthogEventsPath, 'utf-8'))
         posthogEvents = Array.isArray(parsed) ? parsed : null
@@ -215,10 +176,10 @@ ${script}
       }
     }
 
-    return { queue, stdout, stderr, statsigEvents, posthogEvents }
+    return { queue, stdout, stderr, posthogEvents }
   }
 
-  // ── Queue write mechanics (no Statsig init) ───────────────────────────
+  // ── Queue write mechanics (no PostHog init) ────────────────────────────
 
   it('trackEvent writes events to disk queue synchronously', () => {
     const { queue, stderr } = runAnalyticsScript(`
@@ -246,7 +207,7 @@ ${script}
     expect((event.metadata as Record<string, string>).command).to.equal('test:cmd')
   })
 
-  // ── Flush behavior with mock Statsig ──────────────────────────────────
+  // ── Flush behavior with mock PostHog ───────────────────────────────────
 
   it('shutdownAnalytics drains previous-run events from queue (PRLT-1013 regression)', () => {
     const configDir = path.join(testDir, '.proletariat')
@@ -263,69 +224,63 @@ ${script}
     )
 
     // Simulate a fast command: init → immediate shutdown (no explicit wait)
-    const { queue, statsigEvents, stderr } = runAnalyticsScript(`
+    const { queue, posthogEvents, stderr } = runAnalyticsScript(`
       initAnalytics('0.0.0-test');
       await shutdownAnalytics();
     `, { useMock: true })
 
     // After fix: shutdownAnalytics awaits the init promise, which calls
     // flushQueuedEvents(). Previous-run events should be drained from disk
-    // and delivered to Statsig.
+    // and delivered to PostHog.
     const hasOldEvent = queue?.some(
       (e: unknown) => ((e as Record<string, unknown>).metadata as Record<string, string>)?.command === 'old:cmd',
     ) ?? false
     expect(hasOldEvent, `previous-run events should be flushed from queue, stderr: ${stderr}`).to.be.false
 
-    // Verify events were actually sent to Statsig (via mock)
-    expect(statsigEvents, `statsig should have received events, stderr: ${stderr}`).to.not.be.null
-    expect(statsigEvents!.length).to.equal(2)
-    expect((statsigEvents![0] as Record<string, unknown>).name).to.equal('command_run')
-    expect((statsigEvents![1] as Record<string, unknown>).name).to.equal('agent_spawned')
+    // Verify events were actually sent to PostHog (via mock)
+    expect(posthogEvents, `posthog should have received events, stderr: ${stderr}`).to.not.be.null
+    expect(posthogEvents!.length).to.equal(2)
+    expect((posthogEvents![0] as Record<string, unknown>).event).to.equal('command_run')
+    expect((posthogEvents![1] as Record<string, unknown>).event).to.equal('agent_spawned')
   })
 
-  it('current-run events written after init are flushed via Statsig on shutdown', () => {
-    const { queue, statsigEvents, stderr } = runAnalyticsScript(`
+  it('current-run events written after init are flushed via PostHog on shutdown', () => {
+    const { queue, posthogEvents, stderr } = runAnalyticsScript(`
       initAnalytics('0.0.0-test');
       trackEvent('event_a', 1, { key: 'val1' });
       trackEvent('event_b', 2, { key: 'val2' });
       await shutdownAnalytics();
     `, { useMock: true })
 
-    // Events written during this run should be flushed to Statsig during
-    // shutdown (since the mock Statsig initializes instantly, the shutdown
+    // Events written during this run should be flushed to PostHog during
+    // shutdown (since the mock PostHog initializes instantly, the shutdown
     // flush picks them up)
-    expect(statsigEvents, `statsig should have received events, stderr: ${stderr}`).to.not.be.null
-    expect(statsigEvents!.length).to.equal(2)
-    expect((statsigEvents![0] as Record<string, unknown>).name).to.equal('event_a')
-    expect((statsigEvents![1] as Record<string, unknown>).name).to.equal('event_b')
+    expect(posthogEvents, `posthog should have received events, stderr: ${stderr}`).to.not.be.null
+    expect(posthogEvents!.length).to.equal(2)
+    expect((posthogEvents![0] as Record<string, unknown>).event).to.equal('event_a')
+    expect((posthogEvents![1] as Record<string, unknown>).event).to.equal('event_b')
 
     // Queue on disk should be empty (events were flushed)
     expect(queue).to.be.null
   })
 
-  it('events are flushed to PostHog when Statsig fails to initialize', () => {
-    const { queue, statsigEvents, posthogEvents, stderr } = runAnalyticsScript(`
+  it('events persist on disk when PostHog fails to initialize', () => {
+    const { queue, posthogEvents, stderr } = runAnalyticsScript(`
       initAnalytics('0.0.0-test');
       trackEvent('resilient_event', null, { source: 'test' });
       trackCommandRun({ command: 'test:fail', durationMs: 10, success: true, flags: [] });
       await shutdownAnalytics();
     `, { useMock: true, mockOpts: { initThrows: true } })
 
-    // Statsig failed to init, but PostHog succeeded — events should be
-    // flushed to PostHog and drained from the disk queue
-    expect(queue, `queue should be drained when PostHog succeeds, stderr: ${stderr}`).to.be.null
+    // PostHog failed to init — events should persist on disk for the next run
+    expect(queue, `queue should persist when PostHog fails, stderr: ${stderr}`).to.not.be.null
+    expect(queue!.length).to.equal(2)
 
-    // Statsig mock didn't get any events (init failed)
-    expect(statsigEvents).to.be.null
-
-    // PostHog should have received the events
-    expect(posthogEvents, `posthog should have received events, stderr: ${stderr}`).to.not.be.null
-    expect(posthogEvents!.length).to.equal(2)
-    expect((posthogEvents![0] as Record<string, unknown>).event).to.equal('resilient_event')
-    expect((posthogEvents![1] as Record<string, unknown>).event).to.equal('command_run')
+    // PostHog mock didn't get any events (init failed)
+    expect(posthogEvents).to.be.null
   })
 
-  it('previous-run events flushed while current-run event stays on disk until next flush', () => {
+  it('previous-run events flushed while current-run event also flushed on shutdown', () => {
     const configDir = path.join(testDir, '.proletariat')
     fs.mkdirSync(configDir, { recursive: true })
 
@@ -338,39 +293,36 @@ ${script}
       JSON.stringify(previousEvents),
     )
 
-    // Use mock with a slight delay so init completes between trackEvent and
-    // the shutdown flush — the init promise's flush clears old events, then
-    // the new event is written, then shutdown's flush sends it too
-    const { queue, statsigEvents, stderr } = runAnalyticsScript(`
+    const { queue, posthogEvents, stderr } = runAnalyticsScript(`
       initAnalytics('0.0.0-test');
-      // Wait briefly for mock Statsig to initialize
+      // Wait briefly for mock PostHog to initialize
       await new Promise(r => setTimeout(r, 50));
       // Track current command (simulates postrun hook)
       trackCommandRun({ command: 'new:cmd', durationMs: 25, success: true, flags: [] });
       await shutdownAnalytics();
     `, { useMock: true })
 
-    // Statsig should have received both old and new events
-    expect(statsigEvents, `statsig should have received events, stderr: ${stderr}`).to.not.be.null
-    const oldEventSent = statsigEvents!.some(
-      (e: unknown) => ((e as Record<string, unknown>).metadata as Record<string, string>)?.command === 'old:cmd',
+    // PostHog should have received both old and new events
+    expect(posthogEvents, `posthog should have received events, stderr: ${stderr}`).to.not.be.null
+    const oldEventSent = posthogEvents!.some(
+      (e: unknown) => ((e as Record<string, unknown>).properties as Record<string, string>)?.command === 'old:cmd',
     )
-    const newEventSent = statsigEvents!.some(
-      (e: unknown) => ((e as Record<string, unknown>).metadata as Record<string, string>)?.command === 'new:cmd',
+    const newEventSent = posthogEvents!.some(
+      (e: unknown) => ((e as Record<string, unknown>).properties as Record<string, string>)?.command === 'new:cmd',
     )
-    expect(oldEventSent, 'old events should be sent to Statsig').to.be.true
-    expect(newEventSent, 'new events should be sent to Statsig').to.be.true
+    expect(oldEventSent, 'old events should be sent to PostHog').to.be.true
+    expect(newEventSent, 'new events should be sent to PostHog').to.be.true
 
     // Queue on disk should be empty (all events flushed)
     expect(queue).to.be.null
   })
 
-  it('async Statsig init does not interfere after shutdown completes', () => {
+  it('async PostHog init does not interfere after shutdown completes', () => {
     const { queue, stderr } = runAnalyticsScript(`
       // Write event before init
       trackEvent('pre_init_event', null, { source: 'previous-run' });
 
-      // Init starts async Statsig init
+      // Init starts async PostHog init
       initAnalytics('0.0.0-test');
 
       // Shut down — awaits init promise (mock resolves instantly)

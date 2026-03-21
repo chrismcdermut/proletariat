@@ -1,93 +1,37 @@
 /**
- * Feature Flags (Statsig Feature Gates)
+ * Feature Flags (stub)
  *
- * Wraps Statsig feature gate checks with a simple API for the CLI.
- * Feature flags are evaluated locally after SDK initialization,
- * so checks are near-instant after the initial fetch.
+ * Previously backed by Statsig feature gates. Statsig has been removed
+ * (PRLT-1050) so all flags now return their default values.
+ *
+ * The API surface is preserved so callers don't need to change.
  *
  * Usage:
  *   import { isEnabled } from '../lib/telemetry/feature-flags.js'
  *   if (isEnabled('new_board_view')) { ... }
- *
- * Feature flags require Statsig to be initialized (via initAnalytics).
- * If Statsig is unavailable or telemetry is disabled, all flags return false.
  */
 
-import { isTelemetryEnabled } from './analytics.js'
-
-// Cache for flag values — populated on check, persists for the process lifetime
-const flagCache = new Map<string, boolean>()
-
-// Statsig client instance reference — set after initialization in initAnalytics
-let statsigClient: StatsigClientRef | null = null
-
-interface StatsigClientRef {
-  checkGate(gateName: string): boolean
-  getDynamicConfig(configName: string): { get(key: string, defaultValue: unknown): unknown }
+/**
+ * Check if a feature gate is enabled.
+ *
+ * Always returns false now that Statsig has been removed.
+ */
+export function isEnabled(_gateName: string): boolean {
+  return false
 }
 
 /**
- * Set the Statsig client reference (called from analytics.ts after init).
- * @internal
+ * Get a dynamic config value.
+ *
+ * Always returns the default value now that Statsig has been removed.
  */
-export function setStatsigClient(client: StatsigClientRef | null): void {
-  statsigClient = client
+export function getConfigValue<T>(_configName: string, _key: string, defaultValue: T): T {
+  return defaultValue
 }
 
 /**
- * Check if a feature gate is enabled for the current machine.
- *
- * Uses Statsig's local evaluation (near-zero latency after init).
- * Returns false if Statsig is not initialized or telemetry is disabled.
- *
- * @param gateName - The feature gate name (e.g., 'new_board_view')
- * @returns Whether the gate is enabled
- */
-export function isEnabled(gateName: string): boolean {
-  if (!isTelemetryEnabled() || !statsigClient) return false
-
-  // Return cached value if available
-  if (flagCache.has(gateName)) {
-    return flagCache.get(gateName)!
-  }
-
-  try {
-    const result = statsigClient.checkGate(gateName)
-    flagCache.set(gateName, result)
-    return result
-  } catch {
-    // Statsig not initialized or gate check failed — default to false
-    flagCache.set(gateName, false)
-    return false
-  }
-}
-
-/**
- * Get a dynamic config value from Statsig.
- *
- * Useful for remote configuration (not just boolean flags).
- * Returns the default value if Statsig is unavailable.
- *
- * @param configName - The dynamic config name
- * @param key - The key within the config
- * @param defaultValue - Default value if unavailable
- * @returns The config value, or the default
- */
-export function getConfigValue<T>(configName: string, key: string, defaultValue: T): T {
-  if (!isTelemetryEnabled() || !statsigClient) return defaultValue
-
-  try {
-    const config = statsigClient.getDynamicConfig(configName)
-    return config.get(key, defaultValue) as T
-  } catch {
-    return defaultValue
-  }
-}
-
-/**
- * Clear the local flag cache.
- * Useful for testing or when you want to force re-evaluation.
+ * Clear the local flag cache (no-op without Statsig).
  */
 export function clearFlagCache(): void {
-  flagCache.clear()
+  // No-op
 }

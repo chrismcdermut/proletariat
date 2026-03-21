@@ -20,7 +20,7 @@ export default class TelemetryEnable extends Command {
     const { flags } = await this.parse(TelemetryEnable)
     const jsonMode = shouldOutputJson(flags)
 
-    // Enable both Statsig analytics and Sentry crash reporting
+    // Enable PostHog analytics and Sentry crash reporting
     enableTelemetry()
     writeTelemetryConfig({ enabled: true })
 

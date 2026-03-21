@@ -18,7 +18,7 @@ import { initAnalytics, shutdownAnalytics, trackCommandRun } from '../lib/teleme
  * - No workspaces are registered in machine config (~/.proletariat/config.json)
  * - AND they're not currently inside a valid HQ directory
  *
- * Also initializes analytics (Statsig) for telemetry and feature flags.
+ * Also initializes analytics (PostHog) for telemetry.
  */
 const hook: Hook<'init'> = async function ({ id, argv, config }) {
   // Initialize Sentry as early as possible for crash reporting
