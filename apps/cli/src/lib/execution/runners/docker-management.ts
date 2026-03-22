@@ -261,6 +261,28 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
         { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }
       )
       console.debug(`[runners:docker] Wrote ~/.claude/settings.json to container`)
+
+      // Write Claude Code stop hook for automatic container cleanup (PRLT-1061)
+      // When the Claude Code session ends, the stop hook calls `prlt session report`
+      // which reads the execution record and cleanup policy to decide what to do.
+      const agentName = process.env.PRLT_AGENT_NAME || ''
+      const stopHookConfig = {
+        hooks: {
+          Stop: [
+            {
+              type: 'command' as const,
+              command: `prlt session report --agent "${agentName}" --status exited 2>/dev/null || true`,
+            },
+          ],
+        },
+      }
+      // Merge stop hook into existing settings.json
+      const mergedSettings = { ...JSON.parse(claudeSettings), ...stopHookConfig }
+      execSync(
+        `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude/settings.json'`,
+        { input: JSON.stringify(mergedSettings), stdio: ['pipe', 'pipe', 'pipe'] }
+      )
+      console.debug(`[runners:docker] Configured Claude Code stop hook for container cleanup`)
     } catch (error) {
       console.debug('[runners:docker] Failed to copy Claude settings to container:', error)
     }

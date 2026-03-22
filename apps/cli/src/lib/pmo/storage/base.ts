@@ -420,6 +420,19 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
+  // Migration: Add cleanup_policy column to agent_work table (PRLT-1061)
+  if (tableExists(T.agent_work)) {
+    const awCols2 = db.pragma(`table_info(${T.agent_work})`) as Array<{ name: string }>
+    const awColNames2 = new Set(awCols2.map(c => c.name))
+    if (!awColNames2.has('cleanup_policy')) {
+      try {
+        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN cleanup_policy TEXT NOT NULL DEFAULT 'on-exit'`)
+      } catch {
+        // Column may already exist
+      }
+    }
+  }
+
   // Migration: Rename execution.sandboxed setting to execution.permission_mode
   if (tableExists('workspace_settings')) {
     try {

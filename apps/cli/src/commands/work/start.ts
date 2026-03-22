@@ -38,12 +38,13 @@ import {
   TerminalApp,
   Shell,
   PermissionMode,
+  CleanupPolicy,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo, isClaudeExecutor, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod, getCreatePrDefault, getMirrorToPmoDefault } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod, getCreatePrDefault, getMirrorToPmoDefault, getCleanupPolicy } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
@@ -372,6 +373,14 @@ export default class WorkStart extends PMOCommand {
     }),
     'tool-policy': Flags.string({
       description: 'Tool policy profile name for per-agent access control (e.g., code-agent, ops-agent)',
+    }),
+    'keep-alive': Flags.boolean({
+      description: 'Keep container running after agent exits (shorthand for --cleanup persistent)',
+      default: false,
+    }),
+    cleanup: Flags.string({
+      description: 'Container cleanup policy (on-exit, persistent, on-error-keep)',
+      options: ['on-exit', 'persistent', 'on-error-keep'],
     }),
   }
 
@@ -2244,6 +2253,11 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
+      // Resolve cleanup policy from flags (PRLT-1061)
+      const cleanupPolicy: CleanupPolicy = flags['keep-alive']
+        ? 'persistent'
+        : (flags.cleanup as CleanupPolicy) || getCleanupPolicy(db, context.actionId)
+
       // Create execution record
       const ticketExternalMetadata = getTicketExternalMetadata(ticket)
       const execution = executionStorage.createExecution({
@@ -2253,6 +2267,7 @@ export default class WorkStart extends PMOCommand {
         environment,
         displayMode,
         permissionMode,
+        cleanupPolicy,
         branch,
         externalSource: ticketExternalMetadata.source,
         externalKey: ticketExternalMetadata.key,
@@ -2954,6 +2969,9 @@ export default class WorkStart extends PMOCommand {
       }
     }
 
+    // Resolve cleanup policy (PRLT-1061)
+    const cleanupPolicy: CleanupPolicy = getCleanupPolicy(db, context.actionId)
+
     // Create execution record
     const ticketExternalMetadata = getTicketExternalMetadata(ticket)
     const execution = executionStorage.createExecution({
@@ -2963,6 +2981,7 @@ export default class WorkStart extends PMOCommand {
       environment,
       displayMode,
       permissionMode,
+      cleanupPolicy,
       branch,
       externalSource: ticketExternalMetadata.source,
       externalKey: ticketExternalMetadata.key,

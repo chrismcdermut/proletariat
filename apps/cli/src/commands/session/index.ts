@@ -41,6 +41,7 @@ export default class Session extends PMOCommand {
         { name: 'Restart an agent session', value: 'restart', command: 'prlt session restart --json' },
         { name: 'Prune stale sessions', value: 'prune', command: 'prlt session prune --json' },
         { name: 'Clean up completed containers', value: 'cleanup', command: 'prlt session cleanup --json' },
+        { name: 'Report agent session event', value: 'report', command: 'prlt session report --json' },
         { name: 'Cancel', value: 'cancel' },
       ],
     }], jsonModeConfig)
@@ -83,6 +84,9 @@ export default class Session extends PMOCommand {
         break
       case 'cleanup':
         await this.config.runCommand('session:cleanup', [])
+        break
+      case 'report':
+        await this.config.runCommand('session:report', [])
         break
     }
   }

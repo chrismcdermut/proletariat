@@ -18,7 +18,7 @@ import { hasGitHubRemote } from '../repos/git.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../branch/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
-import { loadExecutionConfig, getOrPromptCoderName } from './config.js'
+import { loadExecutionConfig, getOrPromptCoderName, getCleanupPolicy } from './config.js'
 import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName, isSrtInstalled } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
@@ -32,6 +32,7 @@ import {
   ExecutionEnvironment,
   ExecutionConfig,
   PermissionMode,
+  CleanupPolicy,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
   normalizeEnvironment,
@@ -174,6 +175,8 @@ export interface SpawnOptions {
   skipRemoteCheck?: boolean
   /** Tool policy profile name for per-agent access control (TKT-083) */
   toolPolicy?: string
+  /** Container cleanup policy override (PRLT-1061) */
+  cleanupPolicy?: CleanupPolicy
 }
 
 export interface SpawnResult {
@@ -623,6 +626,9 @@ export async function spawnAgentForTicket(
     }
   }
 
+  // Resolve cleanup policy: explicit override > action-specific > workspace default (PRLT-1061)
+  const cleanupPolicy = options.cleanupPolicy || getCleanupPolicy(db, context.actionId)
+
   // Create execution record
   const execution = executionStorage.createExecution({
     ticketId: ticket.id,
@@ -631,6 +637,7 @@ export async function spawnAgentForTicket(
     environment,
     displayMode,
     permissionMode,
+    cleanupPolicy,
     branch,
   })
 
