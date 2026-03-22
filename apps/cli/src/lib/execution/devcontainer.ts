@@ -365,7 +365,6 @@ add_domain "console.anthropic.com"
 ${executor === 'codex' ? `# Codex API domains
 add_domain "api.openai.com"
 add_domain "openai.com"` : ''}
-add_domain "statsigapi.net"
 add_domain "sentry.io"
 add_domain "registry.npmjs.org"
 add_domain "npmjs.com"
