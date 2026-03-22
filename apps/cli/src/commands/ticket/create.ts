@@ -18,9 +18,8 @@ import {
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
 import { multiLineInput } from '../../lib/multiline-input.js';
-import { isLinearConfigured, loadLinearConfig, getLinearApiKey, LinearClient } from '../../lib/linear/index.js';
-import { LinearMapper } from '../../lib/linear/mapper.js';
-import { PMO_PRIORITY_TO_LINEAR, LINEAR_PRIORITY_TO_PMO } from '../../lib/linear/types.js';
+import { loadLinearConfig, getLinearApiKey, LinearClient } from '../../lib/linear/index.js';
+import { PMO_PRIORITY_TO_LINEAR } from '../../lib/linear/types.js';
 import { getRegisteredWorkSources, loadDefaultWorkSource } from '../../lib/work-source/config.js';
 
 export default class TicketCreate extends PMOCommand {
@@ -485,8 +484,9 @@ export default class TicketCreate extends PMOCommand {
 
   /**
    * Create an issue in Linear instead of the local PMO database.
-   * Also creates a local PMO mirror ticket with external metadata
-   * and a mapping record for future sync operations.
+   * When a cloud provider is connected, the cloud provider is the
+   * source of truth — no local PMO mirror ticket is created.
+   * Local mirrors are created on demand by `work start --mirror-to-pmo`.
    */
   private async createLinearIssue(
     flags: Record<string, unknown>,
@@ -604,7 +604,6 @@ export default class TicketCreate extends PMOCommand {
         ...(pmoPriority && { priority: pmoPriority, linearPriority }),
         ...(labelNames.length > 0 && { labels: labelNames }),
         ...(category && { category }),
-        localMirror: true,
       };
 
       if (jsonMode) {
@@ -628,7 +627,6 @@ export default class TicketCreate extends PMOCommand {
         const shortDesc = description.split('\n')[0].substring(0, 60);
         this.log(styles.muted(`   Description: ${shortDesc}${description.length > 60 ? '...' : ''}`));
       }
-      this.log(styles.muted(`   Local mirror: yes (PMO ticket will be created)`));
       this.log(styles.muted('\n(No issue was created)'));
       return;
     }
@@ -642,70 +640,8 @@ export default class TicketCreate extends PMOCommand {
       labelIds: resolvedLabelIds,
     });
 
-    // Create a local PMO mirror ticket with external metadata
-    let pmoTicketId: string | undefined;
-    try {
-      const projectId = await this.requireProject({
-        jsonMode: {
-          flags,
-          commandName: 'ticket create',
-          baseCommand: 'prlt ticket create',
-        },
-      });
-
-      // Build description with Linear reference
-      const mirrorDescription = [
-        description || '',
-        '',
-        '---',
-        `_Created in Linear: [${issue.identifier}](${issue.url})_`,
-      ].join('\n').trim();
-
-      // Map Linear priority back to PMO priority
-      const mirrorPriority = pmoPriority || LINEAR_PRIORITY_TO_PMO[issue.priority] || undefined;
-
-      const pmoTicket = await this.storage.createTicket(projectId, {
-        title: issue.title,
-        description: mirrorDescription,
-        priority: mirrorPriority,
-        category,
-        labels: labelNames.length > 0 ? labelNames : issue.labels.map(l => l.name),
-        metadata: {
-          'external_source': 'linear',
-          'external_id': issue.id,
-          'external_key': issue.identifier,
-          'external_url': issue.url,
-          'linear.issue_id': issue.id,
-          'linear.identifier': issue.identifier,
-          'linear.url': issue.url,
-          'linear.team': issue.team.key,
-          'linear.state': issue.state.name,
-        },
-      });
-
-      pmoTicketId = pmoTicket.id;
-
-      // Create mapping record for sync operations
-      const mapper = new LinearMapper(db);
-      mapper.createMapping({
-        pmoTicketId: pmoTicket.id,
-        linearIssueId: issue.id,
-        linearIdentifier: issue.identifier,
-        linearTeamKey: issue.team.key,
-        linearUrl: issue.url,
-        syncDirection: 'outbound',
-        createdAt: new Date(),
-      });
-
-      // Auto-export to board.md
-      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
-    } catch (error: unknown) {
-      // Linear issue was created successfully — log a warning but don't fail
-      if (!jsonMode) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        this.log(styles.warning(`   Warning: Linear issue created but local PMO mirror failed: ${errMsg}`));
-      }
-    }
+    // Cloud provider is the source of truth — no local PMO mirror created.
+    // Mirrors are created on demand by `work start --mirror-to-pmo` (enabled by default).
 
     // JSON output
     if (jsonMode) {
@@ -721,7 +657,6 @@ export default class TicketCreate extends PMOCommand {
           team: issue.team.key,
           priority: issue.priority,
         },
-        ...(pmoTicketId && { pmoTicketId }),
       }, null, 2));
       return;
     }
@@ -732,9 +667,6 @@ export default class TicketCreate extends PMOCommand {
     this.log(styles.muted(`   State: ${issue.state.name}`));
     if (issue.url) {
       this.log(styles.muted(`   URL: ${issue.url}`));
-    }
-    if (pmoTicketId) {
-      this.log(styles.muted(`   Local mirror: ${pmoTicketId}`));
     }
   }
 
