@@ -198,7 +198,7 @@ export interface ExecutionContext {
   customMessage?: string
   // Docker credential mode
   useApiKey?: boolean // If true, pass ANTHROPIC_API_KEY to container (user explicitly chose this)
-  // PR feedback context (for work revise)
+  // PR feedback context (for review actions)
   prFeedback?: string // Formatted PR feedback markdown
   isRevision?: boolean // Whether this is a revision (addressing PR feedback)
   // Orchestrator context

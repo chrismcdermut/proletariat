@@ -2,7 +2,7 @@
  * MCP Tmux Tools
  *
  * Provides tmux interaction tools for AI agents to drive interactive CLI sessions.
- * Used by the explore-cli action to perform exploratory QA testing.
+ * Used by QA commands to perform exploratory testing.
  *
  * Tools:
  * - tmux_send_keys: Send keystrokes to a tmux session
