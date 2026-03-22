@@ -172,6 +172,8 @@ async function setupTestDatabase(db: Database.Database, pmoPath: string): Promis
       environment TEXT NOT NULL DEFAULT 'host',
       display_mode TEXT NOT NULL DEFAULT 'terminal',
       sandboxed INTEGER NOT NULL DEFAULT 0,
+      permission_mode TEXT DEFAULT 'safe',
+      cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
       status TEXT NOT NULL DEFAULT 'starting',
       branch TEXT,
       pid TEXT,
@@ -182,6 +184,7 @@ async function setupTestDatabase(db: Database.Database, pmoPath: string): Promis
       started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       completed_at TIMESTAMP,
       exit_code INTEGER,
+      error_message TEXT,
       FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE CASCADE
     );
 

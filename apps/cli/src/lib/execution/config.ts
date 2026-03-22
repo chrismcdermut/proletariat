@@ -7,7 +7,7 @@
 
 import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod, PermissionMode, normalizeEnvironment } from './types.js'
+import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod, PermissionMode, CleanupPolicy, normalizeEnvironment } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
 import {
   shouldOutputJson,
@@ -300,6 +300,51 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
  */
 export function saveExecutionSetting(db: Database.Database, key: keyof typeof CONFIG_KEYS, value: string): void {
   setSetting(db, CONFIG_KEYS[key], value)
+}
+
+// =============================================================================
+// Cleanup Policy Configuration
+// =============================================================================
+
+const VALID_CLEANUP_POLICIES: ReadonlySet<string> = new Set(['on-exit', 'persistent', 'on-error-keep'])
+
+/**
+ * Get the cleanup policy for a specific action, falling back to the default.
+ * Reads from workspace_settings keys:
+ *   cleanup.actions.{actionId} → per-action override
+ *   cleanup.default → workspace default
+ * Falls back to 'on-exit' if nothing is configured.
+ */
+export function getCleanupPolicy(db: Database.Database, actionId?: string): CleanupPolicy {
+  // Check per-action override first
+  if (actionId) {
+    const actionPolicy = getSetting(db, `cleanup.actions.${actionId}`)
+    if (actionPolicy && VALID_CLEANUP_POLICIES.has(actionPolicy)) {
+      return actionPolicy as CleanupPolicy
+    }
+  }
+
+  // Fall back to workspace default
+  const defaultPolicy = getSetting(db, 'cleanup.default')
+  if (defaultPolicy && VALID_CLEANUP_POLICIES.has(defaultPolicy)) {
+    return defaultPolicy as CleanupPolicy
+  }
+
+  return 'on-exit'
+}
+
+/**
+ * Set the default cleanup policy for the workspace.
+ */
+export function setDefaultCleanupPolicy(db: Database.Database, policy: CleanupPolicy): void {
+  setSetting(db, 'cleanup.default', policy)
+}
+
+/**
+ * Set the cleanup policy for a specific action.
+ */
+export function setActionCleanupPolicy(db: Database.Database, actionId: string, policy: CleanupPolicy): void {
+  setSetting(db, `cleanup.actions.${actionId}`, policy)
 }
 
 /**

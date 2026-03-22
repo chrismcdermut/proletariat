@@ -28,6 +28,7 @@ describe('@smoke ExecutionStorage', () => {
           environment TEXT DEFAULT 'host',
           display_mode TEXT DEFAULT 'terminal',
           permission_mode TEXT DEFAULT 'safe',
+          cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
           status TEXT NOT NULL,
           branch TEXT,
           pid TEXT,
@@ -41,7 +42,8 @@ describe('@smoke ExecutionStorage', () => {
           external_url TEXT,
           started_at INTEGER NOT NULL,
           completed_at INTEGER,
-          exit_code INTEGER
+          exit_code INTEGER,
+          error_message TEXT
         )
       `)
     })
@@ -619,6 +621,69 @@ describe('@smoke ExecutionStorage', () => {
       const afterCleanup = storage.getAgentRunningExecutions('mixed-agent')
       expect(afterCleanup).to.have.length(1)
       expect(afterCleanup[0].id).to.equal(hostExec.id)
+    })
+  })
+
+  describe('cleanupPolicy (PRLT-1061)', () => {
+    it('defaults cleanup_policy to on-exit when not specified', () => {
+      const exec = storage.createExecution({
+        ticketId: 'TKT-001',
+        agentName: 'agent-1',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'terminal',
+        permissionMode: 'danger',
+      })
+
+      expect(exec.cleanupPolicy).to.equal('on-exit')
+    })
+
+    it('stores cleanup_policy when explicitly set to persistent', () => {
+      const exec = storage.createExecution({
+        ticketId: 'TKT-002',
+        agentName: 'agent-2',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'terminal',
+        permissionMode: 'danger',
+        cleanupPolicy: 'persistent',
+      })
+
+      expect(exec.cleanupPolicy).to.equal('persistent')
+
+      // Verify it persists on read
+      const fetched = storage.getExecution(exec.id)
+      expect(fetched?.cleanupPolicy).to.equal('persistent')
+    })
+
+    it('stores cleanup_policy when set to on-error-keep', () => {
+      const exec = storage.createExecution({
+        ticketId: 'TKT-003',
+        agentName: 'agent-3',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'terminal',
+        permissionMode: 'danger',
+        cleanupPolicy: 'on-error-keep',
+      })
+
+      expect(exec.cleanupPolicy).to.equal('on-error-keep')
+    })
+
+    it('includes cleanup_policy in listExecutions results', () => {
+      storage.createExecution({
+        ticketId: 'TKT-004',
+        agentName: 'agent-4',
+        executor: 'claude-code',
+        environment: 'devcontainer',
+        displayMode: 'terminal',
+        permissionMode: 'danger',
+        cleanupPolicy: 'persistent',
+      })
+
+      const executions = storage.listExecutions({ agentName: 'agent-4' })
+      expect(executions).to.have.length(1)
+      expect(executions[0].cleanupPolicy).to.equal('persistent')
     })
   })
 })

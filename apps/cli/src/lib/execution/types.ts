@@ -87,6 +87,17 @@ export type PermissionMode =
   | 'danger'        // Skip permission checks (--dangerously-skip-permissions)
   | 'safe'          // Require approval for dangerous operations
 
+/**
+ * CleanupPolicy - What happens to the container when the agent session ends.
+ * - on-exit: Remove container when agent exits (default)
+ * - persistent: Leave container running (for long-lived orchestrators)
+ * - on-error-keep: Remove on success, keep on error (for debugging)
+ */
+export type CleanupPolicy =
+  | 'on-exit'       // Remove container when agent exits
+  | 'persistent'    // Leave container running
+  | 'on-error-keep' // Keep container only on error
+
 // =============================================================================
 // Executor Types
 // =============================================================================
@@ -139,6 +150,7 @@ export interface AgentWork {
   displayMode: DisplayMode       // How shown: terminal, background
   sessionManager?: SessionManager // How session is managed inside environment (tmux/direct)
   permissionMode: PermissionMode  // Permission mode used for this execution
+  cleanupPolicy: CleanupPolicy   // Container cleanup policy for this execution
   status: ExecutionStatus
   branch?: string
   pid?: string
