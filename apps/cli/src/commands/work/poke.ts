@@ -1,12 +1,13 @@
 import { Args, Flags } from '@oclif/core'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
 
-export default class WorkPoke extends PMOCommand {
+export default class WorkPoke extends PromptCommand {
   static description = 'Send a message to steer an agent working on a ticket'
 
   static aliases = ['work:steer']
@@ -30,7 +31,7 @@ export default class WorkPoke extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     file: Flags.string({
       char: 'F',
       description: 'Read message from a file',
@@ -52,7 +53,7 @@ export default class WorkPoke extends PMOCommand {
     }),
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkPoke)
 
     const jsonMode = shouldOutputJson(flags)

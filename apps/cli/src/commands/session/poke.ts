@@ -13,7 +13,8 @@ import {
   captureTmuxPane,
   sendTmuxMessage,
 } from '../../lib/execution/session-utils.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -37,7 +38,7 @@ interface ResolvedSession {
 // Command
 // =============================================================================
 
-export default class SessionPoke extends PMOCommand {
+export default class SessionPoke extends PromptCommand {
   static description = 'Send a message to a running agent\'s Claude Code session'
 
   static examples = [
@@ -60,7 +61,7 @@ export default class SessionPoke extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     file: Flags.string({
       char: 'F',
       description: 'Read message from a file (supports multi-line)',
@@ -76,11 +77,7 @@ export default class SessionPoke extends PMOCommand {
     }),
   }
 
-  protected getPMOOptions() {
-    return { promptIfMultiple: false }
-  }
-
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(SessionPoke)
     const jsonMode = shouldOutputJson(flags)
     const { agent } = args
