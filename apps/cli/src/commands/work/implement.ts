@@ -61,10 +61,9 @@ export default class WorkImplement extends PMOCommand {
       const allTickets = await this.storage.listTickets(projectId)
       const workableTickets = allTickets.filter(
         (t) =>
-          t.statusCategory === 'todo' ||
-          t.statusCategory === 'started' ||
-          t.statusName?.toLowerCase() === 'todo' ||
-          t.statusName?.toLowerCase() === 'in progress'
+          t.statusCategory === 'backlog' ||
+          t.statusCategory === 'unstarted' ||
+          t.statusCategory === 'started'
       )
 
       if (workableTickets.length === 0) {
