@@ -508,11 +508,16 @@ Agent-created PRs ready for review:
   <tr><td><code>prlt ticket link block <id></code></td><td>Link blocking ticket</td></tr>
   <tr><td><code>prlt ticket link relates <id></code></td><td>Link related ticket</td></tr>
   <!-- work -->
-  <tr><td rowspan="6"><b>work</b></td><td><code>prlt work start <id></code></td><td>Spawn agent on ticket</td></tr>
+  <tr><td rowspan="11"><b>work</b></td><td><code>prlt work start <id></code></td><td>Spawn agent on ticket</td></tr>
+  <tr><td><code>prlt work groom <id></code></td><td>Enrich ticket with requirements and AC</td></tr>
+  <tr><td><code>prlt work resolve <id></code></td><td>Resolve ambiguity questions on a ticket</td></tr>
+  <tr><td><code>prlt work implement <id></code></td><td>Spawn agent to implement a ticket</td></tr>
+  <tr><td><code>prlt work review <id></code></td><td>Spawn agent to review a ticket's PR</td></tr>
+  <tr><td><code>prlt work peek <id></code></td><td>Check agent status and progress</td></tr>
+  <tr><td><code>prlt work poke <id></code></td><td>Send a message to steer an agent</td></tr>
+  <tr><td><code>prlt work stop <id></code></td><td>Stop a running agent</td></tr>
   <tr><td><code>prlt work spawn</code></td><td>Batch spawn tickets</td></tr>
-  <tr><td><code>prlt work complete <id></code></td><td>Mark work done</td></tr>
   <tr><td><code>prlt work ready <id></code></td><td>Mark ready for review</td></tr>
-  <tr><td><code>prlt work revise <id></code></td><td>Request revision</td></tr>
   <tr><td><code>prlt work watch</code></td><td>Watch work progress</td></tr>
   <!-- execution -->
   <tr><td rowspan="3"><b>execution</b></td><td><code>prlt execution list</code></td><td>List running agents</td></tr>

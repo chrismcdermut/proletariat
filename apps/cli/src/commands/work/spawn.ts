@@ -2082,7 +2082,7 @@ export default class WorkSpawn extends PMOCommand {
         }
 
         // Prompt for permissions mode if not explicitly set via --skip-permissions flag
-        // Non-code-modifying actions (review, review-comment, groom) default to safe mode
+        // Non-code-modifying actions (review, groom) default to safe mode
         // to prevent agents from performing destructive operations like merging PRs
         const spawnActionModifiesCode = selectedActionDetails?.modifiesCode ?? true
         if (!flags['skip-permissions']) {

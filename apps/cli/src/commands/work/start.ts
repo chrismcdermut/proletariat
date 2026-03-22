@@ -1914,7 +1914,7 @@ export default class WorkStart extends PMOCommand {
 
       // Prompt for permissions mode (all environments)
       // Use FlagResolver to handle both JSON mode and interactive prompts consistently
-      // Non-code-modifying actions (review, review-comment, groom) default to safe mode
+      // Non-code-modifying actions (review, groom) default to safe mode
       // to prevent agents from performing destructive operations like merging PRs
       const actionModifiesCode = context.modifiesCode !== false
       const defaultPermissionMode = actionModifiesCode ? 'danger' : 'safe'

@@ -8,7 +8,7 @@ import {
 } from '../../lib/prompt-json.js'
 
 export default class WorkImplement extends PMOCommand {
-  static description = 'Spawn agent to implement, continue, revise, or test a ticket (context-driven)'
+  static description = 'Spawn agent to implement a ticket (context-driven — detects continuation, revision, or testing needs)'
 
   static examples = [
     '<%= config.bin %> work implement TKT-001',

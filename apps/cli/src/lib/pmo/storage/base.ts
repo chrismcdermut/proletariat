@@ -889,7 +889,7 @@ prlt ticket edit {{TICKET_ID}} --description "..." --remove-label "needs-clarifi
     {
       id: 'implement',
       name: 'Implement',
-      description: 'Write code to implement, continue, revise, or test based on context',
+      description: 'Write code to implement based on context (detects continuation, revision, or testing needs)',
       prompt: `${PRLT_USAGE_RULE}
 
 ---

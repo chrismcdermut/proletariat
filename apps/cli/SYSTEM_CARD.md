@@ -155,10 +155,16 @@ This is the authoritative list of commands that MUST exist in the CLI.
 | Command                           | 📝 | ✅ | 🧪 | 👤 | Description                        | Spec                                        |
 | --------------------------------- | -- | -- | -- | -- | ---------------------------------- | ------------------------------------------- |
 | `prlt work start [id]`            | ✓  | ✓  | -  | -  | Spawn agent to work on ticket      | [work.md](../../specs/domain/work.md)       |
+| `prlt work groom [id]`            | ✓  | ✓  | -  | -  | Enrich ticket with requirements    | [work.md](../../specs/domain/work.md)       |
+| `prlt work resolve [id]`          | ✓  | ✓  | -  | -  | Resolve ambiguity questions        | [work.md](../../specs/domain/work.md)       |
+| `prlt work implement [id]`        | ✓  | ✓  | -  | -  | Spawn agent to implement ticket    | [work.md](../../specs/domain/work.md)       |
+| `prlt work review [id]`           | ✓  | ✓  | -  | -  | Spawn agent to review PR           | [work.md](../../specs/domain/work.md)       |
+| `prlt work peek [id]`             | ✓  | ✓  | -  | -  | Check agent status and progress    | [work.md](../../specs/domain/work.md)       |
+| `prlt work poke [id]`             | ✓  | ✓  | -  | -  | Send message to steer an agent     | [work.md](../../specs/domain/work.md)       |
+| `prlt work stop [id]`             | ✓  | ✓  | -  | -  | Stop a running agent               | [work.md](../../specs/domain/work.md)       |
 | `prlt work spawn`                 | ✓  | ✓  | -  | -  | Batch spawn multiple tickets       | [work.md](../../specs/domain/work.md)       |
 | `prlt work ready [id]`            | ✓  | ✓  | -  | -  | Mark work as ready for review      | [work.md](../../specs/domain/work.md)       |
 | `prlt work complete [id]`         | ✓  | ✓  | -  | -  | Mark work as complete (Done)       | [work.md](../../specs/domain/work.md)       |
-| `prlt work revise [id]`           | ✓  | ✓  | -  | -  | Request revision                   | [work.md](../../specs/domain/work.md)       |
 | `prlt work watch`                 | ✓  | ✓  | -  | -  | Watch work progress                | [work.md](../../specs/domain/work.md)       |
 
 #### Execution Commands (Agent Runtime Management)
