@@ -6,7 +6,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
-import { formatTicket } from '../../lib/mcp/helpers.js';
+import { formatTicketFull } from '../../lib/mcp/helpers.js';
 
 export default class TicketFetch extends PMOCommand {
   static description = 'Fetch ticket contents via the configured provider (Linear, Jira, or local PMO)';
@@ -80,7 +80,7 @@ export default class TicketFetch extends PMOCommand {
       this.log(JSON.stringify({
         success: true,
         provider: result.provider,
-        ticket: formatTicket(ticket),
+        ticket: formatTicketFull(ticket),
       }, null, 2));
       return;
     }

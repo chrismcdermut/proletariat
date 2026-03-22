@@ -22,13 +22,16 @@ function createMockStorage(overrides?: {
   moveError?: Error
   deleteError?: Error
   createError?: Error
+  updateError?: Error
   moveCalls?: Array<{ projectId: string; ticketId: string; columnName: string }>
   deleteCalls?: string[]
   createCalls?: Array<{ projectId: string; input: CreateTicketInput }>
+  updateCalls?: Array<{ id: string; changes: Partial<Ticket> }>
 }): ProviderStorage {
   const moveCalls = overrides?.moveCalls ?? []
   const deleteCalls = overrides?.deleteCalls ?? []
   const createCalls = overrides?.createCalls ?? []
+  const updateCalls = overrides?.updateCalls ?? []
 
   return {
     getTicket: async (id: string) => {
@@ -97,6 +100,23 @@ function createMockStorage(overrides?: {
         subtasks: [],
         labels: input.labels || [],
         metadata: input.metadata || {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as Ticket
+    },
+    updateTicket: async (id: string, changes: Partial<Ticket>) => {
+      if (overrides?.updateError) throw overrides.updateError
+      updateCalls.push({ id, changes })
+      const existing = overrides?.ticket ?? { id, projectId: 'test-project', statusName: 'In Progress' }
+      return {
+        ...existing,
+        ...changes,
+        id,
+        title: (changes as { title?: string }).title || 'Test ticket',
+        statusId: existing.statusName || 'backlog',
+        subtasks: [],
+        labels: (changes as { labels?: string[] }).labels || [],
+        metadata: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       } as Ticket
@@ -247,6 +267,44 @@ describe('PMOTicketProvider', () => {
 
     expect(result.success).to.be.true
     expect(result.ticket).to.be.null
+  })
+
+  it('delegates updateTicket to storage', async () => {
+    const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
+    const storage = createMockStorage({ updateCalls })
+    const provider = new PMOTicketProvider(storage, 'test-project')
+
+    const result = await provider.updateTicket('TKT-001', { title: 'Updated title', priority: 'P0' })
+
+    expect(result.success).to.be.true
+    expect(result.provider).to.equal('pmo')
+    expect(result.ticket).to.exist
+    expect(updateCalls).to.have.lengthOf(1)
+    expect(updateCalls[0].id).to.equal('TKT-001')
+    expect(updateCalls[0].changes.title).to.equal('Updated title')
+  })
+
+  it('returns failure when updateTicket throws', async () => {
+    const storage = createMockStorage({
+      updateError: new Error('Validation failed'),
+    })
+    const provider = new PMOTicketProvider(storage, 'test-project')
+
+    const result = await provider.updateTicket('TKT-001', { title: 'Bad update' })
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('pmo')
+    expect(result.error).to.equal('Validation failed')
+  })
+
+  it('commentTicket is a no-op success for PMO', async () => {
+    const storage = createMockStorage()
+    const provider = new PMOTicketProvider(storage, 'test-project')
+
+    const result = await provider.commentTicket('TKT-001', 'Hello, world!')
+
+    expect(result.success).to.be.true
+    expect(result.provider).to.equal('pmo')
   })
 
   it('has name "pmo"', () => {
@@ -744,6 +802,70 @@ describe('LinearTicketProvider', () => {
     expect(result.success).to.be.false
     expect(result.provider).to.equal('linear')
     expect(result.error).to.include('API key not configured')
+  })
+
+  it('returns failure when Linear API key is not configured (updateTicket)', async () => {
+    const { LinearTicketProvider } = await import('../../src/lib/providers/linear-provider.js')
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new LinearTicketProvider(mockDb, storage, 'test-project', null)
+    const result = await provider.updateTicket('TKT-001', { title: 'Updated' })
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('linear')
+    expect(result.error).to.include('API key not configured')
+  })
+
+  it('returns failure when Linear API key is not configured (commentTicket)', async () => {
+    const { LinearTicketProvider } = await import('../../src/lib/providers/linear-provider.js')
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new LinearTicketProvider(mockDb, storage, 'test-project', null)
+    const result = await provider.commentTicket('TKT-001', 'A comment')
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('linear')
+    expect(result.error).to.include('API key not configured')
+  })
+
+  it('returns failure when no Linear mapping for commentTicket', async () => {
+    const { LinearTicketProvider } = await import('../../src/lib/providers/linear-provider.js')
+    const storage = createMockStorage()
+    // Mock DB that has API key but no mapping
+    const mockDb = {
+      prepare: (sql: string) => {
+        if (sql.includes('workspace_settings') && sql.includes('SELECT')) {
+          return {
+            get: (key: string) => {
+              if (key === 'linear.api_key') return { value: 'test-api-key' }
+              return undefined
+            },
+            all: () => [],
+            run: () => {},
+          }
+        }
+        return { get: () => undefined, all: () => [], run: () => {} }
+      },
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new LinearTicketProvider(mockDb, storage, 'test-project', null)
+    const result = await provider.commentTicket('TKT-001', 'A comment')
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('linear')
+    expect(result.error).to.include('No Linear mapping')
   })
 
   it('delegates getTicket to local storage (uses mirror)', async () => {

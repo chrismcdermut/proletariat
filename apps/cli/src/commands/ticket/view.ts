@@ -69,11 +69,15 @@ export default class TicketView extends PMOCommand {
       ticketId = selected;
     }
 
-    // Get ticket
-    const ticket = await this.storage.getTicket(ticketId!);
-    if (!ticket) {
-      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
+    // Get ticket through the provider (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId!, projectId || '');
+    const getResult = await provider.getTicket(ticketId!);
+
+    if (!getResult.success || !getResult.ticket) {
+      return handleError('TICKET_NOT_FOUND', getResult.error || `Ticket "${ticketId}" not found.`);
     }
+
+    const ticket = getResult.ticket;
 
     // JSON output mode
     if (jsonMode) {
