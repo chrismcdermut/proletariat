@@ -232,8 +232,7 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
   prompt += `\`\`\`\n`
   prompt += `script -q /dev/null prlt work start TKT-XXXX --ephemeral --skip-permissions --create-pr --display background --action implement --run-on-host --yes\n`
   prompt += `\`\`\`\n`
-  prompt += `- Review: \`--action review-comment\`\n`
-  prompt += `- Fix: \`--action review-fix\`\n\n`
+  prompt += `- Review: \`--action review\` (model decides whether to comment, fix, or both)\n\n`
   prompt += buildOrchestratorAntiPatterns()
   prompt += buildIntegrationCommandsSection(context.connectedIntegrations)
   prompt += `## Workflow\n`
