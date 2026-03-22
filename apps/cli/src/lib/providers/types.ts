@@ -63,6 +63,19 @@ export interface ProviderGetResult extends ProviderResult {
 }
 
 /**
+ * Result of a provider updateTicket operation.
+ */
+export interface ProviderUpdateResult extends ProviderResult {
+  /** The updated ticket */
+  ticket?: Ticket | null
+}
+
+/**
+ * Result of a provider addComment operation.
+ */
+export interface ProviderCommentResult extends ProviderResult {}
+
+/**
  * Ticket provider interface — same contract for all backends.
  *
  * Implementations:
@@ -115,6 +128,24 @@ export interface TicketProvider {
    * @returns Result with the ticket (or null if not found)
    */
   getTicket(ticketId: string): Promise<ProviderGetResult>
+
+  /**
+   * Update a ticket's fields (title, description, priority, labels, assignee).
+   *
+   * @param ticketId - The PMO ticket ID
+   * @param changes - Fields to update
+   * @returns Result of the update operation
+   */
+  updateTicket(ticketId: string, changes: Record<string, unknown>): Promise<ProviderUpdateResult>
+
+  /**
+   * Add a comment to a ticket.
+   *
+   * @param ticketId - The PMO ticket ID
+   * @param body - The comment text
+   * @returns Result of the comment operation
+   */
+  addComment(ticketId: string, body: string): Promise<ProviderCommentResult>
 }
 
 /**
@@ -144,5 +175,6 @@ export interface ProviderStorage {
   deleteTicket: (id: string) => Promise<void>
   listTickets: (projectId: string | undefined, filter?: TicketFilter) => Promise<Ticket[]>
   createTicket: (projectId: string, input: CreateTicketInput) => Promise<Ticket>
+  updateTicket: (id: string, changes: Record<string, unknown>) => Promise<Ticket>
   getDatabase: () => import('better-sqlite3').Database
 }

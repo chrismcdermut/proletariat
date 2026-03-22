@@ -22,6 +22,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderCommentResult,
 } from './types.js'
 
 /**
@@ -179,5 +181,13 @@ export class EventEmittingProvider implements TicketProvider {
 
   async getTicket(ticketId: string): Promise<ProviderGetResult> {
     return this.inner.getTicket(ticketId)
+  }
+
+  async updateTicket(ticketId: string, changes: Record<string, unknown>): Promise<ProviderUpdateResult> {
+    return this.inner.updateTicket(ticketId, changes)
+  }
+
+  async addComment(ticketId: string, body: string): Promise<ProviderCommentResult> {
+    return this.inner.addComment(ticketId, body)
   }
 }

@@ -183,9 +183,10 @@ export default class TicketUpdate extends PMOCommand {
       changedFields.push(`Labels: ${labelList.length > 0 ? labelList.join(', ') : 'none'}`);
     }
 
-    // Apply field changes (everything except status)
+    // Apply field changes (everything except status) via provider
     if (Object.keys(changes).length > 0) {
-      await this.storage.updateTicket(ticketId!, changes);
+      const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId || '');
+      await provider.updateTicket(ticketId!, changes);
     }
 
     // Handle status change separately via provider

@@ -23,6 +23,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderCommentResult,
   ProviderStorage,
 } from './types.js'
 
@@ -340,6 +342,47 @@ export class LinearTicketProvider implements TicketProvider {
     try {
       const ticket = await this.storage.getTicket(ticketId)
       return { success: true, provider: 'linear', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'linear',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async updateTicket(ticketId: string, changes: Record<string, unknown>): Promise<ProviderUpdateResult> {
+    // Update local PMO mirror
+    try {
+      const ticket = await this.storage.updateTicket(ticketId, changes)
+      return { success: true, provider: 'linear', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'linear',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async addComment(ticketId: string, body: string): Promise<ProviderCommentResult> {
+    let apiKey: string
+    try {
+      apiKey = this.getApiKeyOrFail()
+    } catch {
+      return { success: false, provider: 'linear', error: 'Linear API key not configured' }
+    }
+
+    const mapper = new LinearMapper(this.db)
+    const mapping = mapper.getByTicketId(ticketId)
+    if (!mapping) {
+      return { success: false, provider: 'linear', error: `No Linear mapping for ticket ${ticketId}` }
+    }
+
+    try {
+      const client = new LinearClient(apiKey)
+      await client.addComment(mapping.linearIssueId, body)
+      return { success: true, provider: 'linear' }
     } catch (error) {
       return {
         success: false,

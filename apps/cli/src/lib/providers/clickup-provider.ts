@@ -18,6 +18,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderCommentResult,
   ProviderStorage,
 } from './types.js'
 
@@ -66,6 +68,16 @@ export class ClickUpTicketProvider implements TicketProvider {
       await this.storage.moveTicket(this.projectId, ticketId, newState)
     } catch {
       // Non-fatal: ClickUp is the source of truth
+    }
+
+    // Post a comment about the status change
+    try {
+      await client.addComment(
+        mapping.clickupTaskId,
+        `Status updated to **${newState}** (via prlt)`,
+      )
+    } catch {
+      // Non-fatal: comment is informational
     }
 
     // Update sync timestamp
@@ -276,6 +288,93 @@ export class ClickUpTicketProvider implements TicketProvider {
     try {
       const ticket = await this.storage.getTicket(ticketId)
       return { success: true, provider: 'clickup', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'clickup',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async updateTicket(ticketId: string, changes: Record<string, unknown>): Promise<ProviderUpdateResult> {
+    const apiKey = getClickUpApiKey(this.db)
+    if (!apiKey) {
+      return { success: false, provider: 'clickup', error: 'ClickUp API key not configured' }
+    }
+
+    const mapper = new ClickUpMapper(this.db)
+    const mapping = mapper.getByTicketId(ticketId)
+
+    // Propagate changes to ClickUp API if we have a mapping
+    if (mapping) {
+      const client = new ClickUpClient(apiKey)
+      const updatePayload: {
+        name?: string
+        description?: string
+        priority?: number
+        assignees?: { add?: number[]; rem?: number[] }
+      } = {}
+
+      if (typeof changes.title === 'string') {
+        updatePayload.name = changes.title
+      }
+      if (typeof changes.description === 'string') {
+        updatePayload.description = changes.description
+      }
+      if (typeof changes.priority === 'string') {
+        updatePayload.priority = PMO_PRIORITY_TO_CLICKUP[changes.priority]
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        try {
+          await client.updateTask(mapping.clickupTaskId, updatePayload)
+        } catch (error) {
+          return {
+            success: false,
+            provider: 'clickup',
+            error: `Failed to update ClickUp task: ${error instanceof Error ? error.message : String(error)}`,
+          }
+        }
+      }
+
+      // Update sync timestamp
+      try {
+        mapper.updateSyncTimestamp(ticketId)
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    // Also update local PMO mirror
+    try {
+      const ticket = await this.storage.updateTicket(ticketId, changes)
+      return { success: true, provider: 'clickup', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'clickup',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async addComment(ticketId: string, body: string): Promise<ProviderCommentResult> {
+    const apiKey = getClickUpApiKey(this.db)
+    if (!apiKey) {
+      return { success: false, provider: 'clickup', error: 'ClickUp API key not configured' }
+    }
+
+    const mapper = new ClickUpMapper(this.db)
+    const mapping = mapper.getByTicketId(ticketId)
+    if (!mapping) {
+      return { success: false, provider: 'clickup', error: `No ClickUp mapping for ticket ${ticketId}` }
+    }
+
+    try {
+      const client = new ClickUpClient(apiKey)
+      await client.addComment(mapping.clickupTaskId, body)
+      return { success: true, provider: 'clickup' }
     } catch (error) {
       return {
         success: false,

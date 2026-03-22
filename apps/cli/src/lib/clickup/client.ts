@@ -202,6 +202,16 @@ export class ClickUpClient {
   }
 
   /**
+   * Add a comment to a task.
+   */
+  async addComment(taskId: string, commentText: string): Promise<void> {
+    await this.request<{ id: string }>(`/task/${taskId}/comment`, {
+      method: 'POST',
+      body: { comment_text: commentText },
+    })
+  }
+
+  /**
    * Get statuses for a list.
    */
   async getListStatuses(listId: string): Promise<ClickUpStatus[]> {
