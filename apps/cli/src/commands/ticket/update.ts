@@ -314,8 +314,13 @@ export default class TicketUpdate extends PMOCommand {
       changes.category = updateCategory || undefined;
     }
 
-    // Update ticket
-    await this.storage.updateTicket(ticketId, changes);
+    // Update ticket through the provider
+    const provider = await this.resolveTicketProvider(ticketId, ticket!.projectId || '');
+    const updateResult = await provider.updateTicket(ticketId, changes);
+
+    if (!updateResult.success) {
+      this.error(`Failed to update ticket: ${updateResult.error}`);
+    }
 
     // Auto-export
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -476,7 +481,12 @@ export default class TicketUpdate extends PMOCommand {
         }
 
         // eslint-disable-next-line no-await-in-loop
-        await this.storage.updateTicket(ticketId, changes);
+        const provider = await this.resolveTicketProvider(ticketId, '');
+        // eslint-disable-next-line no-await-in-loop
+        const result = await provider.updateTicket(ticketId, changes);
+        if (!result.success) {
+          throw new Error(result.error || 'Unknown error');
+        }
 
         const updates: string[] = [];
         if (updatePriority !== undefined) updates.push(`P:${updatePriority || 'none'}`);
