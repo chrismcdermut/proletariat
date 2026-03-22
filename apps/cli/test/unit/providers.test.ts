@@ -22,13 +22,16 @@ function createMockStorage(overrides?: {
   moveError?: Error
   deleteError?: Error
   createError?: Error
+  updateError?: Error
   moveCalls?: Array<{ projectId: string; ticketId: string; columnName: string }>
   deleteCalls?: string[]
   createCalls?: Array<{ projectId: string; input: CreateTicketInput }>
+  updateCalls?: Array<{ ticketId: string; changes: Record<string, unknown> }>
 }): ProviderStorage {
   const moveCalls = overrides?.moveCalls ?? []
   const deleteCalls = overrides?.deleteCalls ?? []
   const createCalls = overrides?.createCalls ?? []
+  const updateCalls = overrides?.updateCalls ?? []
 
   return {
     getTicket: async (id: string) => {
@@ -97,6 +100,22 @@ function createMockStorage(overrides?: {
         subtasks: [],
         labels: input.labels || [],
         metadata: input.metadata || {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as Ticket
+    },
+    updateTicket: async (id: string, changes: Record<string, unknown>) => {
+      if (overrides?.updateError) throw overrides.updateError
+      updateCalls.push({ ticketId: id, changes })
+      return {
+        id,
+        title: (changes.title as string) || 'Test ticket',
+        projectId: 'test-project',
+        statusId: 'backlog',
+        statusName: 'Backlog',
+        subtasks: [],
+        labels: (changes.labels as string[]) || [],
+        metadata: {},
         createdAt: new Date(),
         updatedAt: new Date(),
       } as Ticket
@@ -770,5 +789,216 @@ describe('LinearTicketProvider', () => {
     expect(result.provider).to.equal('linear')
     expect(result.ticket).to.exist
     expect(result.ticket!.id).to.equal('TKT-001')
+  })
+
+  it('delegates updateTicket to local storage', async () => {
+    const { LinearTicketProvider } = await import('../../src/lib/providers/linear-provider.js')
+    const updateCalls: Array<{ ticketId: string; changes: Record<string, unknown> }> = []
+    const storage = createMockStorage({ updateCalls })
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new LinearTicketProvider(mockDb, storage, 'test-project', null)
+    const result = await provider.updateTicket('TKT-001', { title: 'Updated' })
+
+    expect(result.success).to.be.true
+    expect(result.provider).to.equal('linear')
+    expect(updateCalls).to.have.lengthOf(1)
+    expect(updateCalls[0].changes.title).to.equal('Updated')
+  })
+
+  it('returns failure when addComment has no API key', async () => {
+    const { LinearTicketProvider } = await import('../../src/lib/providers/linear-provider.js')
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new LinearTicketProvider(mockDb, storage, 'test-project', null)
+    const result = await provider.addComment('TKT-001', 'Test comment')
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('linear')
+    expect(result.error).to.include('API key not configured')
+  })
+})
+
+// =============================================================================
+// ClickUpTicketProvider Tests
+// =============================================================================
+
+describe('ClickUpTicketProvider', () => {
+  it('has name "clickup"', async () => {
+    const { ClickUpTicketProvider } = await import('../../src/lib/providers/clickup-provider.js')
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new ClickUpTicketProvider(mockDb, storage, 'test-project')
+    expect(provider.name).to.equal('clickup')
+  })
+
+  it('returns failure when ClickUp API key is not configured (moveTicket)', async () => {
+    const { ClickUpTicketProvider } = await import('../../src/lib/providers/clickup-provider.js')
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new ClickUpTicketProvider(mockDb, storage, 'test-project')
+    const result = await provider.moveTicket('TKT-001', 'in progress')
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('clickup')
+    expect(result.error).to.include('API key not configured')
+  })
+
+  it('delegates getTicket to local storage (uses mirror)', async () => {
+    const { ClickUpTicketProvider } = await import('../../src/lib/providers/clickup-provider.js')
+    const storage = createMockStorage({
+      ticket: {
+        id: 'TKT-001',
+        projectId: 'test-project',
+        statusName: 'open',
+        statusCategory: 'backlog',
+        metadata: { external_source: 'clickup' },
+      },
+    })
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new ClickUpTicketProvider(mockDb, storage, 'test-project')
+    const result = await provider.getTicket('TKT-001')
+
+    expect(result.success).to.be.true
+    expect(result.provider).to.equal('clickup')
+    expect(result.ticket).to.exist
+    expect(result.ticket!.id).to.equal('TKT-001')
+  })
+
+  it('returns failure when ClickUp API key is not configured (updateTicket)', async () => {
+    const { ClickUpTicketProvider } = await import('../../src/lib/providers/clickup-provider.js')
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new ClickUpTicketProvider(mockDb, storage, 'test-project')
+    const result = await provider.updateTicket('TKT-001', { title: 'Updated' })
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('clickup')
+    expect(result.error).to.include('API key not configured')
+  })
+
+  it('returns failure when ClickUp API key is not configured (addComment)', async () => {
+    const { ClickUpTicketProvider } = await import('../../src/lib/providers/clickup-provider.js')
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new ClickUpTicketProvider(mockDb, storage, 'test-project')
+    const result = await provider.addComment('TKT-001', 'Test comment')
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('clickup')
+    expect(result.error).to.include('API key not configured')
+  })
+
+  it('returns failure when no ClickUp mapping exists for addComment', async () => {
+    const { ClickUpTicketProvider } = await import('../../src/lib/providers/clickup-provider.js')
+    const storage = createMockStorage()
+    // Mock DB that has API key but no mapping
+    const mockDb = {
+      prepare: (sql: string) => {
+        if (sql.includes('workspace_settings') && sql.includes('SELECT')) {
+          return {
+            get: (key: string) => {
+              if (key === 'clickup.api_key') return { value: 'test-api-key' }
+              return undefined
+            },
+            all: () => [],
+            run: () => {},
+          }
+        }
+        return { get: () => undefined, all: () => [], run: () => {} }
+      },
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = new ClickUpTicketProvider(mockDb, storage, 'test-project')
+    const result = await provider.addComment('TKT-001', 'Test comment')
+
+    expect(result.success).to.be.false
+    expect(result.provider).to.equal('clickup')
+    expect(result.error).to.include('No ClickUp mapping')
+  })
+
+  it('returns success for PMO addComment (no-op)', async () => {
+    const storage = createMockStorage()
+    const provider = new PMOTicketProvider(storage, 'test-project')
+
+    const result = await provider.addComment('TKT-001', 'Test comment')
+
+    expect(result.success).to.be.true
+    expect(result.provider).to.equal('pmo')
+  })
+
+  it('delegates updateTicket to storage for PMO provider', async () => {
+    const updateCalls: Array<{ ticketId: string; changes: Record<string, unknown> }> = []
+    const storage = createMockStorage({ updateCalls })
+    const provider = new PMOTicketProvider(storage, 'test-project')
+
+    const result = await provider.updateTicket('TKT-001', { title: 'New title' })
+
+    expect(result.success).to.be.true
+    expect(result.provider).to.equal('pmo')
+    expect(updateCalls).to.have.lengthOf(1)
+    expect(updateCalls[0].ticketId).to.equal('TKT-001')
+    expect(updateCalls[0].changes.title).to.equal('New title')
+  })
+})
+
+// =============================================================================
+// resolveProjectProvider with ClickUp Tests
+// =============================================================================
+
+describe('resolveProjectProvider with ClickUp', () => {
+  let resolveProjectProvider: typeof import('../../src/lib/providers/resolver.js').resolveProjectProvider
+
+  before(async () => {
+    const mod = await import('../../src/lib/providers/resolver.js')
+    resolveProjectProvider = mod.resolveProjectProvider
+  })
+
+  it('returns ClickUpTicketProvider when source is "clickup"', () => {
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+
+    const provider = resolveProjectProvider(mockDb, storage, 'test-project', 'clickup')
+    expect(provider.name).to.equal('clickup')
   })
 })

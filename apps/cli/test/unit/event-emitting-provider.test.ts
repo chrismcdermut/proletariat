@@ -8,6 +8,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderCommentResult,
 } from '../../src/lib/providers/types.js'
 import type { TicketStatusChangedEvent, TicketPRLinkedEvent } from '../../src/lib/events/events.js'
 import type { WorkStatusChangedEvent, WorkStartedEvent, WorkCompletedEvent, WorkPRCreatedEvent } from '../../src/lib/work-lifecycle/events.js'
@@ -30,6 +32,8 @@ class MockProvider implements TicketProvider {
   async listTickets(): Promise<ProviderListResult> { return this.listResult }
   async createTicket(): Promise<ProviderCreateResult> { return this.createResult }
   async getTicket(): Promise<ProviderGetResult> { return this.getResult }
+  async updateTicket(): Promise<ProviderUpdateResult> { return { success: true, provider: 'pmo' } }
+  async addComment(): Promise<ProviderCommentResult> { return { success: true, provider: 'pmo' } }
 }
 
 class MockLinearProvider implements TicketProvider {
@@ -40,6 +44,8 @@ class MockLinearProvider implements TicketProvider {
   async listTickets(): Promise<ProviderListResult> { return { success: true, provider: 'linear', tickets: [] } }
   async createTicket(): Promise<ProviderCreateResult> { return { success: true, provider: 'linear' } }
   async getTicket(): Promise<ProviderGetResult> { return { success: true, provider: 'linear', ticket: null } }
+  async updateTicket(): Promise<ProviderUpdateResult> { return { success: true, provider: 'linear' } }
+  async addComment(): Promise<ProviderCommentResult> { return { success: true, provider: 'linear' } }
 }
 
 // =============================================================================
