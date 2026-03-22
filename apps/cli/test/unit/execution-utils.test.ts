@@ -128,6 +128,25 @@ describe('Execution Utils', () => {
       const result = buildSessionName(context)
       expect(result).to.equal('TKT-123-Code-Review-test-agent')
     })
+
+    // PRLT-1065: Session naming should use external provider key when available
+    it('should use externalTicketId for session name when provided', () => {
+      const context = makeContext({ externalTicketId: 'PRLT-1065' })
+      const result = buildSessionName(context)
+      expect(result).to.equal('PRLT-1065-work-test-agent')
+    })
+
+    it('should use externalTicketId with action name', () => {
+      const context = makeContext({ externalTicketId: 'PRLT-1065', actionName: 'implement' })
+      const result = buildSessionName(context)
+      expect(result).to.equal('PRLT-1065-implement-test-agent')
+    })
+
+    it('should fall back to ticketId when externalTicketId is not set', () => {
+      const context = makeContext({ externalTicketId: undefined })
+      const result = buildSessionName(context)
+      expect(result).to.equal('TKT-123-work-test-agent')
+    })
   })
 
   describe('shouldUseControlMode', () => {

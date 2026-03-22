@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { generateBranchName, getBranchType, CATEGORY_TO_BRANCH_TYPE } from '../../src/lib/execution/types.js';
 import { validateBranchName } from '../../src/lib/branch/index.js';
+import { getTicketExternalMetadata, resolveExternalTicketId } from '../../src/lib/pmo/utils.js';
 
 describe('@smoke Branch Naming', () => {
   describe('generateBranchName', () => {
@@ -183,6 +184,77 @@ describe('@smoke Branch Naming', () => {
       expect(result.parts?.type).to.equal('feat');
       expect(result.parts?.owner).to.equal('chris');
       expect(result.parts?.description).to.equal('add-feature');
+    });
+  });
+
+  // PRLT-1065: Branch naming should use external provider key instead of internal TKT ID
+  describe('resolveExternalTicketId', () => {
+    it('returns external key when ticket has external_key metadata', () => {
+      const ticket = {
+        id: 'TKT-226',
+        metadata: { external_key: 'PRLT-1062', external_source: 'linear' },
+      };
+      expect(resolveExternalTicketId(ticket)).to.equal('PRLT-1062');
+    });
+
+    it('falls back to ticket.id when no external_key', () => {
+      const ticket = { id: 'TKT-226', metadata: {} };
+      expect(resolveExternalTicketId(ticket)).to.equal('TKT-226');
+    });
+
+    it('falls back to ticket.id when metadata is null', () => {
+      const ticket = { id: 'TKT-226', metadata: null };
+      expect(resolveExternalTicketId(ticket)).to.equal('TKT-226');
+    });
+
+    it('falls back to ticket.id when metadata is undefined', () => {
+      const ticket = { id: 'TKT-226' };
+      expect(resolveExternalTicketId(ticket)).to.equal('TKT-226');
+    });
+
+    it('uses external key for branch naming instead of TKT ID', () => {
+      const ticket = {
+        id: 'TKT-226',
+        metadata: { external_key: 'PRLT-1062', external_source: 'linear' },
+      };
+      const branchTicketId = resolveExternalTicketId(ticket);
+      const branch = generateBranchName(branchTicketId, 'Fix login bug', 'chris', 'altman', 'bug');
+      expect(branch).to.match(/^PRLT-1062\//);
+      expect(branch).to.not.include('TKT-226');
+    });
+  });
+
+  describe('getTicketExternalMetadata', () => {
+    it('extracts all external metadata fields', () => {
+      const ticket = {
+        id: 'TKT-001',
+        metadata: {
+          external_source: 'linear',
+          external_key: 'PRLT-1065',
+          external_id: 'abc-123',
+          external_url: 'https://linear.app/test',
+        },
+      };
+      const meta = getTicketExternalMetadata(ticket);
+      expect(meta.source).to.equal('linear');
+      expect(meta.key).to.equal('PRLT-1065');
+      expect(meta.id).to.equal('abc-123');
+      expect(meta.url).to.equal('https://linear.app/test');
+    });
+
+    it('returns undefined for missing fields', () => {
+      const ticket = { id: 'TKT-001', metadata: {} };
+      const meta = getTicketExternalMetadata(ticket);
+      expect(meta.source).to.be.undefined;
+      expect(meta.key).to.be.undefined;
+      expect(meta.id).to.be.undefined;
+      expect(meta.url).to.be.undefined;
+    });
+
+    it('handles null metadata gracefully', () => {
+      const ticket = { id: 'TKT-001', metadata: null };
+      const meta = getTicketExternalMetadata(ticket);
+      expect(meta.key).to.be.undefined;
     });
   });
 });

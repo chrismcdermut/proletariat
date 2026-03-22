@@ -15,7 +15,7 @@ import {
   outputExecutionResultAsJson,
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
-import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName, getTicketExternalMetadata, resolveExternalTicketId } from '../../lib/pmo/utils.js'
 import { WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -193,28 +193,6 @@ function buildExternalSpawnContextMessage(
     case 'shortcut': return buildShortcutSpawnContextMessage(envelope, additionalMessage)
     case 'trello': return buildTrelloSpawnContextMessage(envelope, additionalMessage)
     default: return buildLinearSpawnContextMessage(envelope, additionalMessage)
-  }
-}
-
-function getTicketExternalMetadata(ticket: { id: string; metadata?: Record<string, string> | null }): {
-  source?: string
-  key?: string
-  id?: string
-  url?: string
-} {
-  const metadata = (typeof ticket === 'object'
-    && ticket !== null
-    && 'metadata' in ticket
-    && typeof ticket.metadata === 'object'
-    && ticket.metadata !== null
-    ? ticket.metadata
-    : {}) as Record<string, unknown>
-
-  return {
-    source: typeof metadata.external_source === 'string' ? metadata.external_source : undefined,
-    key: typeof metadata.external_key === 'string' ? metadata.external_key : undefined,
-    id: typeof metadata.external_id === 'string' ? metadata.external_id : undefined,
-    url: typeof metadata.external_url === 'string' ? metadata.external_url : undefined,
   }
 }
 
@@ -1393,6 +1371,7 @@ export default class WorkStart extends PMOCommand {
 
       const context: ExecutionContext = {
         ticketId: ticket.id,
+        externalTicketId: branchTicketId !== ticket.id ? branchTicketId : undefined,
         ticketTitle: ticket.title,
         ticketDescription: ticket.description,
         ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
@@ -2884,7 +2863,9 @@ export default class WorkStart extends PMOCommand {
     const coderName = await getOrPromptCoderName(db)
 
     // Use ticket's existing branch or generate a new one
-    const branch = ticket.branch || generateBranchName(ticket.id, ticket.title, coderName, agentName, ticket.category)
+    // Prefer external provider key (e.g. PRLT-1065) over internal TKT ID for branch naming
+    const branchTicketId = resolveExternalTicketId(ticket)
+    const branch = ticket.branch || generateBranchName(branchTicketId, ticket.title, coderName, agentName, ticket.category)
     const isExistingBranch = !!ticket.branch
 
     // Get epic info
@@ -2900,6 +2881,7 @@ export default class WorkStart extends PMOCommand {
     // Build context
     const context: ExecutionContext = {
       ticketId: ticket.id,
+      externalTicketId: branchTicketId !== ticket.id ? branchTicketId : undefined,
       ticketTitle: ticket.title,
       ticketDescription: ticket.description,
       ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),

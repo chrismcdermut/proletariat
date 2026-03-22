@@ -11,7 +11,7 @@ import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
-import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName, resolveExternalTicketId } from '../pmo/utils.js'
 import { WorkspaceInfo, resolveAgentDir } from '../agents/commands.js'
 import { findHQRoot } from '../repos/index.js'
 import { hasGitHubRemote } from '../repos/git.js'
@@ -331,9 +331,10 @@ export async function spawnAgentForTicket(
   // Get coder name for branch naming (prompts on first use)
   const coderName = await getOrPromptCoderName(db)
 
-  // Generate branch name
+  // Generate branch name — prefer external provider key (e.g. PRLT-1065) over internal TKT ID
+  const branchTicketId = resolveExternalTicketId(ticket)
   const branch = generateBranchName(
-    ticket.id,
+    branchTicketId,
     ticket.title,
     coderName,
     agentName,
@@ -350,8 +351,10 @@ export async function spawnAgentForTicket(
   // Build execution context
   // Find proper HQ root (don't assume PMO is at {hq}/pmo - it could be at {hq}/repos/myrepo/pmo)
   const hqPath = findHQRoot() || path.dirname(pmoPath)
+  const externalTicketId = resolveExternalTicketId(ticket)
   const context: ExecutionContext = {
     ticketId: ticket.id,
+    externalTicketId: externalTicketId !== ticket.id ? externalTicketId : undefined,
     ticketTitle: ticket.title,
     ticketDescription: ticket.description,
     ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),

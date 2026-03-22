@@ -87,7 +87,9 @@ export function buildSessionName(context: ExecutionContext): string {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
   const agent = context.agentName || 'agent'
-  return `${context.ticketId}-${action}-${agent}`
+  // Prefer external provider key (e.g. PRLT-1065) over internal PMO ID (TKT-xxx) for session names
+  const ticketId = context.externalTicketId || context.ticketId
+  return `${ticketId}-${action}-${agent}`
 }
 
 export function buildWindowTitle(context: ExecutionContext): string {
