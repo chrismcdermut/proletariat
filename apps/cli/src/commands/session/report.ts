@@ -12,6 +12,7 @@
 
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
@@ -87,6 +88,7 @@ export default class SessionReport extends PMOCommand {
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     const db = new Database(dbPath)
     const executionStorage = new ExecutionStorage(db)
+    let needsSelfTerminate = false
 
     try {
       // Find the most recent execution for this agent
@@ -160,9 +162,19 @@ export default class SessionReport extends PMOCommand {
       }
 
       // Perform container cleanup if needed
+      // First try docker rm -f (works when Docker socket is available, e.g., orchestrator containers).
+      // If that fails (regular agent containers don't have Docker socket), signal the
+      // container to stop by killing PID 1 (the sleep infinity process) after the report
+      // completes. The stopped container will be removed by the next host-side cleanup.
       let cleanupResult: { success: boolean; error?: string } = { success: true }
       if (shouldCleanup) {
         cleanupResult = cleanupAgentContainer(agentName)
+        if (!cleanupResult.success && process.env.DEVCONTAINER === 'true') {
+          // Running inside a container without Docker socket — schedule self-termination
+          needsSelfTerminate = true
+          // Treat as success since the container will stop after this command finishes
+          cleanupResult = { success: true }
+        }
       }
 
       // Track telemetry event for agent lifecycle
@@ -213,6 +225,17 @@ export default class SessionReport extends PMOCommand {
       }
     } finally {
       db.close()
+
+      // Self-terminate the container if cleanup was requested but Docker wasn't available.
+      // This kills the PID 1 process (sleep infinity) which stops the container.
+      // Done after db.close() to ensure clean shutdown.
+      if (needsSelfTerminate) {
+        try {
+          execSync('kill 1', { stdio: 'pipe' })
+        } catch {
+          // Best-effort — container may not allow killing PID 1
+        }
+      }
     }
   }
 }
