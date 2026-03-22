@@ -1,29 +1,29 @@
-import { Args, Flags } from '@oclif/core';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { styles } from '../../lib/styles.js';
+import { Args, Flags } from '@oclif/core'
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { styles } from '../../lib/styles.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
   createMetadata,
-} from '../../lib/prompt-json.js';
+} from '../../lib/prompt-json.js'
 
 export default class WorkResolve extends PMOCommand {
-  static description = 'Agent-assisted resolution of ambiguity questions on tickets (spawns interactive agent)';
+  static description = 'Answer ambiguity questions surfaced by groom'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> TKT-001',
-    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002',
-    '<%= config.bin %> <%= command.id %>  # Interactive picker for needs-clarification tickets',
-  ];
+    '<%= config.bin %> work resolve TKT-001',
+    '<%= config.bin %> work resolve TKT-001 TKT-002',
+    '<%= config.bin %> work resolve  # Interactive picker for needs-clarification tickets',
+  ]
 
-  static strict = false;
+  static strict = false
 
   static args = {
     ticketId: Args.string({
       description: 'Ticket ID(s) to resolve - prompts with picker if not provided',
       required: false,
     }),
-  };
+  }
 
   static flags = {
     ...pmoBaseFlags,
@@ -33,71 +33,71 @@ export default class WorkResolve extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
-  };
+  }
 
   async execute(): Promise<void> {
-    const { flags, argv } = await this.parse(WorkResolve);
-    const projectId = (flags as { project?: string }).project;
+    const { flags, argv } = await this.parse(WorkResolve)
+    const projectId = (flags as { project?: string }).project
 
-    const jsonMode = shouldOutputJson(flags);
+    const jsonMode = shouldOutputJson(flags)
 
     const handleError = (code: string, message: string): void => {
       if (jsonMode) {
-        outputErrorAsJson(code, message, createMetadata('work resolve', flags));
+        outputErrorAsJson(code, message, createMetadata('work resolve', flags))
         return
       }
-      this.error(message);
-    };
+      this.error(message)
+    }
 
     // Collect ticket IDs from argv (supports multiple args)
-    let ticketIds: string[] = (argv as string[]).filter(a => !a.startsWith('-'));
+    let ticketIds: string[] = (argv as string[]).filter(a => !a.startsWith('-'))
 
     if (ticketIds.length === 0) {
       // No tickets specified - show picker of needs-clarification tickets
-      const allTickets = await this.storage.listTickets(projectId);
+      const allTickets = await this.storage.listTickets(projectId)
       const clarificationTickets = allTickets.filter(
         (t) =>
           t.labels.includes('needs-clarification') ||
           t.statusName?.toLowerCase() === 'needs clarification'
-      );
+      )
 
       if (clarificationTickets.length === 0) {
         return handleError(
           'NO_TICKETS',
-          'No tickets need clarification. Run "prlt work start --action groom" to groom tickets first.'
-        );
+          'No tickets need clarification. Run "prlt work groom" to groom tickets first.'
+        )
       }
 
       const selected = await this.selectFromList({
-        message: 'Select ticket to resolve (agent-assisted):',
+        message: 'Select ticket to resolve:',
         items: clarificationTickets,
         getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
         getValue: (t) => t.id,
         getCommand: (t) =>
           `prlt work resolve ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
         jsonMode: jsonMode ? { flags, commandName: 'work resolve' } : null,
-      });
+      })
 
       if (!selected) {
-        return;
+        return
       }
-      ticketIds = [selected];
+      ticketIds = [selected]
     }
 
     // Launch work start with resolve action for each ticket
     for (const ticketId of ticketIds) {
-      this.log(styles.info(`\nLaunching agent-assisted resolve for ${styles.emphasis(ticketId)}...`));
+      this.log(styles.info(`\nLaunching resolve for ${styles.emphasis(ticketId)}...`))
 
-      const workStartArgs = [ticketId, '--action', 'resolve'];
+      const workStartArgs = [ticketId, '--action', 'resolve']
       if (projectId) {
-        workStartArgs.push('--project', projectId);
+        workStartArgs.push('--project', projectId)
       }
       if (jsonMode) {
-        workStartArgs.push('--json');
+        workStartArgs.push('--json')
       }
 
       // eslint-disable-next-line no-await-in-loop
-      await this.config.runCommand('work:start', workStartArgs);
+      await this.config.runCommand('work:start', workStartArgs)
     }
   }
 }
