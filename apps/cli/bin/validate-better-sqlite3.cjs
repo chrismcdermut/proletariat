@@ -90,6 +90,17 @@ try {
 } catch (error) {
   const info = runtimeInfo()
   const message = error instanceof Error ? error.message : String(error)
+
+  // In CI, the workflow has explicit "Verify better-sqlite3 native binding" steps
+  // that run after cache restore / rebuild-with-retry. Don't fail pnpm install here
+  // — the flaky native build is handled by the workflow's fallback rebuild step.
+  if (process.env.CI) {
+    console.warn(message)
+    console.warn('\n[warn] better-sqlite3 validation failed during postinstall (CI mode).')
+    console.warn('[warn] The workflow will restore the cached binding or rebuild with retry.\n')
+    process.exit(0)
+  }
+
   // Under bun, native module build failures are expected — warn instead of
   // hard-failing so the install can complete. The user will get a clear error
   // at runtime with actionable fix steps.
