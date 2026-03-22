@@ -174,6 +174,7 @@ export interface AgentWork {
 
 export interface ExecutionContext {
   ticketId: string
+  externalTicketId?: string // External provider key (e.g. PRLT-1065) — used for branch/session naming instead of internal TKT ID
   ticketTitle: string
   ticketDescription?: string
   ticketSubtasks?: Array<{ title: string; done: boolean }>
