@@ -19,7 +19,13 @@ Work tracks the execution of tickets by agents. It includes claiming tickets, st
 | Spawn column | Spawn agents for all tickets in a column | `createExecution()` | `prlt work spawn` | `POST /api/work/spawn` | `SpawnButton` | - |
 | Watch column | Auto-spawn agents when new tickets enter a column | `createExecution()` | `prlt work watch` | - | - | - |
 | Mark ready | Mark agent's work as ready for human review | `updateExecution()` | `prlt work ready` | `POST /api/work/ready` | `ReadyButton` | - |
-| Revise work | Spawn an agent to address PR feedback | `createExecution()` | `prlt work revise [ticketId]` | - | - | - |
+| Groom ticket | Enrich a ticket with requirements, AC, and subtasks | `createExecution()` | `prlt work groom [ticketId]` | - | - | - |
+| Resolve ticket | Resolve ambiguity questions surfaced by groom | - | `prlt work resolve [ticketId]` | - | - | - |
+| Implement ticket | Spawn agent to implement a ticket (context-driven) | `createExecution()` | `prlt work implement [ticketId]` | - | - | - |
+| Review PR | Spawn agent to review a ticket's PR (comment, fix, or both) | `createExecution()` | `prlt work review [ticketId]` | - | - | - |
+| Peek at work | Check agent status and progress | - | `prlt work peek [ticketId]` | - | - | - |
+| Poke/Steer agent | Send a message to steer a running agent | - | `prlt work poke [ticketId]` | - | - | - |
+| Stop agent | Stop a running agent on a ticket | - | `prlt work stop [ticketId]` | - | - | - |
 | Complete work | Mark the execution as complete and close the session | `updateExecution()` | `prlt work complete` | `POST /api/work/complete` | `CompleteButton` | - |
 | Stop execution | Stop a running agent execution before completion | `updateExecution()` | `prlt execution stop` | `POST /api/executions/:id/stop` | `StopButton` | - |
 | List executions | List all work executions with filtering options | `listExecutions()` | `prlt execution list` | `GET /api/executions` | `ExecutionList` | - |
@@ -51,9 +57,8 @@ Work tracks the execution of tickets by agents. It includes claiming tickets, st
 - `--draft`: Create PR as draft (only with --pr)
 - `--no-pr`: Skip PR creation prompt
 
-**Revise work** (`prlt work revise`):
-- `--force`, `-f`: Proceed even if no pending feedback
-- `--agent`, `-a`: Agent to perform the work
+**Review PR** (`prlt work review`):
+- Spawns agent with `--action review` (model decides whether to comment, fix, or both)
 
 ### Agent Selection Strategies
 

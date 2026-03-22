@@ -145,11 +145,11 @@ Resolves {TICKET-ID}: {Ticket Title}
 
 The PR system integrates with the work lifecycle:
 
-1. `work start` - Creates branch for ticket, prompts for PR creation preference
-2. (Agent works on ticket)
-3. `work ready` - Triggers PR creation (based on preference from step 1)
-4. Human reviews PR, leaves feedback
-5. `work revise` - Spawns agent to address PR feedback (if changes requested)
+1. `work groom` - Enrich ticket with requirements and AC
+2. `work resolve` - Human answers ambiguity questions surfaced by groom
+3. `work implement` - Spawn agent to implement the ticket (context-driven)
+4. `work ready` - Triggers PR creation
+5. `work review` - Spawn agent to review the PR (comment, fix, or both)
 6. `work complete` - Ticket moves to Done
 
 ### PR Creation Flow
@@ -162,15 +162,13 @@ When the agent calls `prlt work ready`:
 3. Link PR to ticket
 4. Move ticket to Review column
 
-### PR Revision Flow
+### PR Review Flow
 
-When a PR receives feedback requesting changes (`prlt work revise`):
-1. Fetch PR feedback (reviews, comments, review decision)
-2. Check for pending changes requested
-3. Move ticket back to In Progress column
-4. Spawn agent with PR feedback in prompt
-5. Agent addresses feedback, commits, and pushes
-6. PR is updated automatically
+When a PR needs review (`prlt work review`):
+1. Spawns an agent with the `review` action
+2. Model decides whether to comment, fix, or both from context
+3. Agent posts review on the PR via `gh pr review`
+4. If fixing, agent commits and pushes changes
 
 ## Related Domains
 
@@ -202,9 +200,6 @@ prlt pr status TKT-001
 # Interactive PR menu
 prlt pr
 
-# Address PR feedback (revision)
-prlt work revise TKT-001
-
-# Force revision even without pending feedback
-prlt work revise TKT-001 --force
+# Review a ticket's PR (agent decides to comment, fix, or both)
+prlt work review TKT-001
 ```
