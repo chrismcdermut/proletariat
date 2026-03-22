@@ -23,6 +23,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderCommentResult,
   ProviderStorage,
 } from './types.js'
 
@@ -345,6 +347,108 @@ export class LinearTicketProvider implements TicketProvider {
         success: false,
         provider: 'linear',
         error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async updateTicket(ticketId: string, changes: Partial<import('../pmo/types.js').Ticket>): Promise<ProviderUpdateResult> {
+    let apiKey: string
+    try {
+      apiKey = this.getApiKeyOrFail()
+    } catch {
+      return { success: false, provider: 'linear', error: 'Linear API key not configured' }
+    }
+
+    // Look up Linear mapping for this PMO ticket
+    const mapper = new LinearMapper(this.db)
+    const mapping = mapper.getByTicketId(ticketId)
+
+    if (mapping) {
+      const client = new LinearClient(apiKey)
+
+      // Build the Linear update input from changes
+      const linearInput: {
+        title?: string
+        description?: string
+        priority?: number
+        assigneeId?: string | null
+      } = {}
+
+      if (changes.title !== undefined) {
+        linearInput.title = changes.title
+      }
+      if (changes.description !== undefined) {
+        linearInput.description = changes.description ?? undefined
+      }
+      if (changes.priority !== undefined) {
+        linearInput.priority = changes.priority
+          ? PMO_PRIORITY_TO_LINEAR[changes.priority]
+          : 0  // Clear priority
+      }
+      if (changes.assignee !== undefined) {
+        // Null clears the assignee; otherwise pass as-is (Linear user ID)
+        linearInput.assigneeId = changes.assignee || null
+      }
+
+      // Only call Linear API if there are fields to update
+      if (Object.keys(linearInput).length > 0) {
+        try {
+          await client.updateIssue(mapping.linearIssueId, linearInput)
+        } catch (error) {
+          return {
+            success: false,
+            provider: 'linear',
+            error: `Failed to update Linear issue: ${error instanceof Error ? error.message : String(error)}`,
+          }
+        }
+      }
+
+      // Update sync timestamp
+      try {
+        mapper.updateSyncTimestamp(ticketId)
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    // Also update local PMO to keep it in sync
+    try {
+      const ticket = await this.storage.updateTicket(ticketId, changes)
+      return { success: true, provider: 'linear', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'linear',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async commentTicket(ticketId: string, body: string): Promise<ProviderCommentResult> {
+    let apiKey: string
+    try {
+      apiKey = this.getApiKeyOrFail()
+    } catch {
+      return { success: false, provider: 'linear', error: 'Linear API key not configured' }
+    }
+
+    // Look up Linear mapping for this PMO ticket
+    const mapper = new LinearMapper(this.db)
+    const mapping = mapper.getByTicketId(ticketId)
+
+    if (!mapping) {
+      return { success: false, provider: 'linear', error: `No Linear mapping for ticket ${ticketId}` }
+    }
+
+    try {
+      const client = new LinearClient(apiKey)
+      await client.addComment(mapping.linearIssueId, body)
+      return { success: true, provider: 'linear' }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'linear',
+        error: `Failed to add comment to Linear issue: ${error instanceof Error ? error.message : String(error)}`,
       }
     }
   }

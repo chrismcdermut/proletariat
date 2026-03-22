@@ -255,8 +255,19 @@ export default class TicketEdit extends PMOCommand {
       (updates as { labels?: string[] }).labels = currentLabels;
     }
 
-    // Update the ticket
-    const updatedTicket = await this.storage.updateTicket(ticketId!, updates);
+    // Update the ticket through the provider (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId || '');
+    const updateResult = await provider.updateTicket(ticketId!, updates);
+
+    if (!updateResult.success) {
+      if (jsonMode) {
+        outputErrorAsJson('UPDATE_FAILED', `Failed to update ticket: ${updateResult.error}`, createMetadata('ticket edit', flags));
+        return;
+      }
+      this.error(`Failed to update ticket: ${updateResult.error}`);
+    }
+
+    const updatedTicket = updateResult.ticket || await this.storage.getTicket(ticketId!) || ticket;
 
     // Auto-export to board.md
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));

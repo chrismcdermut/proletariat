@@ -7,6 +7,7 @@
  */
 
 import type { TicketFilter, CreateTicketInput } from '../pmo/types.js'
+import type { Ticket } from '../pmo/types.js'
 import type {
   TicketProvider,
   ProviderMoveResult,
@@ -14,6 +15,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderCommentResult,
   ProviderStorage,
 } from './types.js'
 
@@ -89,5 +92,23 @@ export class PMOTicketProvider implements TicketProvider {
         error: error instanceof Error ? error.message : String(error),
       }
     }
+  }
+
+  async updateTicket(ticketId: string, changes: Partial<Ticket>): Promise<ProviderUpdateResult> {
+    try {
+      const ticket = await this.storage.updateTicket(ticketId, changes)
+      return { success: true, provider: 'pmo', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'pmo',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async commentTicket(_ticketId: string, _body: string): Promise<ProviderCommentResult> {
+    // Local PMO does not support comments — no-op success
+    return { success: true, provider: 'pmo' }
   }
 }

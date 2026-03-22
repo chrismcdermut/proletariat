@@ -15,6 +15,8 @@ export type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderCommentResult,
   ProviderContext,
   ProviderStorage,
 } from './types.js'

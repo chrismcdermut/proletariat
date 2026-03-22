@@ -14,6 +14,7 @@
 
 import type { StateCategory, TicketFilter, CreateTicketInput } from '../pmo/types.js'
 import { getEventBus } from '../events/event-bus.js'
+import type { Ticket } from '../pmo/types.js'
 import type {
   TicketProvider,
   TicketProviderName,
@@ -22,6 +23,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderCommentResult,
 } from './types.js'
 
 /**
@@ -179,5 +182,13 @@ export class EventEmittingProvider implements TicketProvider {
 
   async getTicket(ticketId: string): Promise<ProviderGetResult> {
     return this.inner.getTicket(ticketId)
+  }
+
+  async updateTicket(ticketId: string, changes: Partial<Ticket>): Promise<ProviderUpdateResult> {
+    return this.inner.updateTicket(ticketId, changes)
+  }
+
+  async commentTicket(ticketId: string, body: string): Promise<ProviderCommentResult> {
+    return this.inner.commentTicket(ticketId, body)
   }
 }

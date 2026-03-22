@@ -63,6 +63,19 @@ export interface ProviderGetResult extends ProviderResult {
 }
 
 /**
+ * Result of a provider updateTicket operation.
+ */
+export interface ProviderUpdateResult extends ProviderResult {
+  /** The updated ticket */
+  ticket?: Ticket | null
+}
+
+/**
+ * Result of a provider commentTicket operation.
+ */
+export interface ProviderCommentResult extends ProviderResult {}
+
+/**
  * Ticket provider interface — same contract for all backends.
  *
  * Implementations:
@@ -115,6 +128,24 @@ export interface TicketProvider {
    * @returns Result with the ticket (or null if not found)
    */
   getTicket(ticketId: string): Promise<ProviderGetResult>
+
+  /**
+   * Update ticket fields (title, description, priority, labels, assignee, etc.).
+   *
+   * @param ticketId - The PMO ticket ID (e.g., "TKT-142")
+   * @param changes - Partial ticket fields to update
+   * @returns Result with the updated ticket
+   */
+  updateTicket(ticketId: string, changes: Partial<Ticket>): Promise<ProviderUpdateResult>
+
+  /**
+   * Add a comment to a ticket.
+   *
+   * @param ticketId - The PMO ticket ID (e.g., "TKT-142")
+   * @param body - Comment text (markdown supported)
+   * @returns Result of the comment operation
+   */
+  commentTicket(ticketId: string, body: string): Promise<ProviderCommentResult>
 }
 
 /**
@@ -144,5 +175,6 @@ export interface ProviderStorage {
   deleteTicket: (id: string) => Promise<void>
   listTickets: (projectId: string | undefined, filter?: TicketFilter) => Promise<Ticket[]>
   createTicket: (projectId: string, input: CreateTicketInput) => Promise<Ticket>
+  updateTicket: (id: string, changes: Partial<Ticket>) => Promise<Ticket>
   getDatabase: () => import('better-sqlite3').Database
 }

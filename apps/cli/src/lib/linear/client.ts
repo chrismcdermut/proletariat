@@ -412,6 +412,26 @@ export class LinearClient {
   }
 
   /**
+   * Update fields on an existing issue.
+   */
+  async updateIssue(issueId: string, input: {
+    title?: string
+    description?: string
+    priority?: number
+    stateId?: string
+    labelIds?: string[]
+    assigneeId?: string | null
+  }): Promise<void> {
+    await this.query<{ issueUpdate: { success: boolean } }>(`
+      mutation UpdateIssue($issueId: String!, $input: IssueUpdateInput!) {
+        issueUpdate(id: $issueId, input: $input) {
+          success
+        }
+      }
+    `, { issueId, input })
+  }
+
+  /**
    * Attach a URL to an issue (e.g., a PR link).
    */
   async attachUrl(issueId: string, url: string, title: string): Promise<void> {
