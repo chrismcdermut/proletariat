@@ -889,14 +889,29 @@ prlt ticket edit {{TICKET_ID}} --description "..." --remove-label "needs-clarifi
     {
       id: 'implement',
       name: 'Implement',
-      description: 'Write code to implement the ticket requirements',
+      description: 'Write code to implement, continue, revise, or test based on context',
       prompt: `${PRLT_USAGE_RULE}
 
 ---
 
 # Action: Implement
 
-Implement this ticket according to its requirements and acceptance criteria:
+You are a context-aware implementation agent. Determine what kind of work is needed based on the current state of the ticket and codebase:
+
+## Context Detection
+
+Before starting, assess the situation:
+
+1. **Check for an existing branch with commits** — if you find prior work on this ticket's branch, you are **continuing** from where the previous agent left off. Review existing commits and complete remaining work.
+
+2. **Check for PR feedback** — if there is an open PR with review comments or requested changes, you are **revising** the implementation. Read all feedback, understand the reviewer's intent, and address each point.
+
+3. **Check if the ticket specifically asks for tests** — if the ticket's requirements or acceptance criteria focus on writing tests, focus on test coverage.
+
+4. **Otherwise** — this is a **fresh implementation**. Implement the ticket from scratch according to its requirements and acceptance criteria.
+
+## Implementation Guidelines
+
 - Follow the acceptance criteria exactly
 - Write clean, well-tested code
 - Update documentation if the changes affect it
@@ -946,62 +961,11 @@ ${PRLT_COMMANDS_CODE}`,
       isDefault: true,
       position: 2,
     },
-    {
-      id: 'continue',
-      name: 'Continue',
-      description: 'Continue working from where you left off',
-      prompt: `${PRLT_USAGE_RULE}
-
----
-
-# Action: Continue
-
-Continue working on this ticket from where you left off.
-- Review existing commits and changes to understand current state
-- Check what subtasks remain incomplete
-- Complete the remaining work
-- Ensure all acceptance criteria are met
-
-**IMPORTANT: Commit and push frequently!**
-- Commit after each logical change or completed subtask
-- Push after every 1-2 commits to save your work
-- Don't wait until the end to commit - your work could be lost!
-
-\`\`\`bash
-git add -A && prlt commit "your change" && git push origin HEAD
-\`\`\`
-
-${PRLT_COMMANDS_COMMON}
-${PRLT_COMMANDS_CODE}`,
-      endPrompt: `When complete:
-1. **Commit your work** in each repository directory you modified:
-   \`\`\`bash
-   cd /workspace/<repo-name>
-   git add -A
-   prlt commit "describe your change"
-   git push origin HEAD
-   \`\`\`
-
-2. **Mark work as ready** by running:
-   \`\`\`bash
-   prlt work ready {{TICKET_ID}} --pr
-   \`\`\`
-   This moves the ticket to review and creates a pull request.
-
-**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
-      fromState: 'In Progress',
-      toState: 'In Progress',
-      executor: 'claude',
-      environment: 'host',
-      permissionMode: 'full',
-      modifiesCode: true,
-      isDefault: true,
-      position: 3,
-    },
+    // NOTE: 'continue' action removed — absorbed by 'implement' (model detects existing branch)
     {
       id: 'review',
       name: 'Code Review',
-      description: 'Review the implementation and post feedback on the PR',
+      description: 'Review the PR — comment, fix, or both based on context',
       prompt: `${PRLT_USAGE_RULE}
 
 ---
@@ -1015,28 +979,39 @@ Review this ticket's implementation thoroughly:
 - Check code quality and maintainability
 - Suggest improvements if appropriate
 
+## Context Detection
+
+Determine the appropriate review mode based on context:
+
+1. **Review only** (default) — Read the diff, analyze the code, and post a review comment on the PR. Do NOT modify any code.
+2. **Review & Fix** — If the ticket description or instructions explicitly ask you to fix issues found, you may also make code changes, commit, and push.
+
+If you are unsure, default to **review only** mode (read-only).
+
+## Review Guidelines
+
 After reviewing, determine your verdict:
 - **APPROVE**: Code is ready to merge, no significant issues
 - **REQUEST_CHANGES**: There are issues that must be fixed before merging
 - **COMMENT**: General feedback, no blocking issues but some suggestions
 
-## STRICT RULES - READ CAREFULLY
+## For Review Only Mode
 
 - **DO NOT** merge the PR (\`gh pr merge\` is FORBIDDEN)
 - **DO NOT** push any code (\`git push\` is FORBIDDEN)
-- **DO NOT** run tests or test suites
 - **DO NOT** modify, edit, or write any code files
 - **DO NOT** create commits
 - Your ONLY output should be a \`gh pr review\` comment
-- This is a **read-only** review — read the diff, analyze it, post your review, and stop
 
-If you identify issues that need fixing, describe them in your review. A separate action (Review & Fix) will handle fixes.
+## For Review & Fix Mode
+
+- Fix any issues you find directly in the code
+- Commit and push your fixes frequently
+- Post a review summary describing what was found and fixed
 
 ${PRLT_COMMANDS_COMMON}
 ${PRLT_COMMANDS_REVIEW}`,
       endPrompt: `When you have finished reviewing, post your review on the PR using \`gh pr review\`.
-
-**CRITICAL: Do NOT modify any code. Do NOT attempt to fix any issues you find. Your ONLY job is to report findings.**
 
 Choose the appropriate command based on your verdict:
 
@@ -1082,16 +1057,12 @@ gh pr review --comment --body "## Code Review
 COMMENT - Some suggestions but no blocking issues."
 \`\`\`
 
-Format the body with: what looks good, concerns (if any), suggested improvements (if any), and your verdict.
-
-**REMINDER:** Do NOT merge the PR. Do NOT run tests. Do NOT modify code. Only post the review comment above.
-
-**After posting your review**, if you found issues that need fixing, log them on the ticket so another action can address them:
+**After posting your review**, if you found issues that need fixing, log them on the ticket:
 \`\`\`bash
 prlt ticket edit <TICKET_ID> --add-subtask "Fix: <description of issue>"
 \`\`\`
 
-**STOP:** After posting your review and logging any findings, your task is complete. Do not take any further actions, do not attempt to fix any issues, do not type additional instructions, and do not continue the conversation. Simply output your summary and use \`/exit\` to end the session.`,
+**STOP:** After posting your review and logging any findings, your task is complete. Do not take any further actions.`,
       fromState: null,
       toState: null,
       executor: 'claude',
@@ -1101,381 +1072,10 @@ prlt ticket edit <TICKET_ID> --add-subtask "Fix: <description of issue>"
       isDefault: false,
       position: 4,
     },
-    {
-      id: 'review-comment',
-      name: 'Review Comment',
-      description: 'Post review comments on a PR without merging, testing, or modifying code',
-      prompt: `${PRLT_USAGE_RULE}
-
----
-
-# Action: Review Comment
-
-Read the PR diff, analyze the changes, and post a GitHub review comment. That is your ONLY job.
-
-## STRICT RULES - READ CAREFULLY
-
-You are a **read-only** reviewer. You MUST follow these rules:
-
-- **DO NOT** run \`gh pr merge\` — merging is FORBIDDEN
-- **DO NOT** run \`git push\` — pushing is FORBIDDEN
-- **DO NOT** run tests or test suites of any kind
-- **DO NOT** modify, edit, or write any code files
-- **DO NOT** create commits or branches
-- **DO NOT** run any commands that change repository state
-- Your **ONLY** permitted write operation is \`gh pr review\` to post your comment
-
-## What To Do
-
-1. Read the PR diff to understand the changes
-2. Analyze the code for bugs, issues, style, and correctness
-3. Post your review using \`gh pr review\` with the appropriate verdict
-4. **STOP** — do nothing else after posting the review
-
-${PRLT_COMMANDS_COMMON}
-${PRLT_COMMANDS_REVIEW}`,
-      endPrompt: `Post your review on the PR using \`gh pr review\`. This is the ONLY action you should take.
-
-**If approving:**
-\`\`\`bash
-gh pr review --approve --body "## Review
-
-### Summary
-- ...
-
-APPROVED - Looks good to merge."
-\`\`\`
-
-**If requesting changes:**
-\`\`\`bash
-gh pr review --request-changes --body "## Review
-
-### Issues
-- ...
-
-REQUEST CHANGES - Please address the above."
-\`\`\`
-
-**If commenting:**
-\`\`\`bash
-gh pr review --comment --body "## Review
-
-### Feedback
-- ...
-
-COMMENT - Some suggestions, no blockers."
-\`\`\`
-
-**CRITICAL REMINDER:** After posting your review, STOP. Do NOT merge the PR. Do NOT run tests. Do NOT modify code. Do NOT push anything. Your job is done after the \`gh pr review\` command.`,
-      fromState: 'Done',
-      toState: null,
-      executor: 'claude',
-      environment: 'host',
-      permissionMode: 'readonly',
-      modifiesCode: false,
-      isDefault: true,
-      position: 5,
-    },
-    {
-      id: 'review-fix',
-      name: 'Review & Fix',
-      description: 'Review the implementation, fix issues, and post feedback on the PR',
-      prompt: `${PRLT_USAGE_RULE}
-
----
-
-# Action: Review & Fix
-
-Review this ticket's implementation thoroughly and fix any issues found:
-- Check for bugs, edge cases, and potential issues
-- Look for security vulnerabilities
-- Verify it meets all acceptance criteria
-- Check code quality and maintainability
-- Fix any issues you find directly in the code
-
-**IMPORTANT: Commit and push frequently!**
-- Commit after each fix or logical group of changes
-- Push after every 1-2 commits to save your work
-
-\`\`\`bash
-git add -A && prlt commit "fix: address code review findings" && git push origin HEAD
-\`\`\`
-
-${PRLT_COMMANDS_COMMON}
-${PRLT_COMMANDS_CODE}
-${PRLT_COMMANDS_REVIEW}`,
-      endPrompt: `When you have finished reviewing and fixing:
-
-1. **If issues were found and fixed**, post a review summary and push your fixes:
-   \`\`\`bash
-   gh pr review --comment --body "## Code Review & Fix Summary
-
-   ### Issues found and fixed
-   - ...
-
-   ### What looks good
-   - ...
-
-   ### Changes made
-   - ...
-   "
-   prlt commit "fix: address code review findings"
-   git push origin HEAD
-   \`\`\`
-
-2. **If no issues were found**, approve the PR:
-   \`\`\`bash
-   gh pr review --approve --body "## Code Review
-
-   ### What looks good
-   - ...
-
-   ### Verdict
-   APPROVED - Code looks great, no issues found."
-   \`\`\``,
-      fromState: null,
-      toState: null,
-      executor: 'claude',
-      environment: 'host',
-      permissionMode: 'full',
-      modifiesCode: true,
-      isDefault: false,
-      position: 6,
-    },
-    {
-      id: 'revise',
-      name: 'Revise',
-      description: 'Pull the branch, read PR review feedback, implement fixes, and push',
-      prompt: `${PRLT_USAGE_RULE}
-
----
-
-# Action: Revise
-
-Address the feedback on this ticket's pull request:
-
-1. **Pull the latest branch** to ensure you have the most recent code:
-   \`\`\`bash
-   git pull
-   \`\`\`
-
-2. **Read all review comments and requested changes** from the PR:
-   \`\`\`bash
-   gh pr view
-   gh api repos/{owner}/{repo}/pulls/{number}/comments
-   \`\`\`
-
-3. **Understand each piece of feedback** before making changes — read carefully and understand the reviewer's intent
-
-4. **Implement the requested fixes** and address each review comment:
-   - Make the necessary code changes to address each point
-   - Respond to questions with explanations
-   - Ensure all requested changes are addressed
-
-**IMPORTANT: Commit and push frequently!**
-- Commit after each fix or logical group of changes
-- Push after every 1-2 commits to save your work
-
-\`\`\`bash
-git add -A && prlt commit "fix: address PR review feedback" && git push origin HEAD
-\`\`\`
-
-${PRLT_COMMANDS_COMMON}
-${PRLT_COMMANDS_CODE}`,
-      endPrompt: `After addressing all feedback:
-
-1. **Commit your changes**:
-   \`\`\`bash
-   git add -A
-   prlt commit "fix: address PR review feedback"
-   \`\`\`
-
-2. **Push your changes**:
-   \`\`\`bash
-   git push origin HEAD
-   \`\`\`
-
-3. **Optionally reply to resolved review threads** using the GitHub API:
-   \`\`\`bash
-   gh api repos/{owner}/{repo}/pulls/{number}/comments
-   \`\`\`
-
-The PR will be updated automatically with your pushed changes.`,
-      fromState: 'Done',
-      toState: 'In Progress',
-      executor: 'claude',
-      environment: 'host',
-      permissionMode: 'full',
-      modifiesCode: true,
-      isDefault: false,
-      position: 7,
-    },
-    {
-      id: 'explore-cli',
-      name: 'Explore CLI',
-      description: 'AI QA agent that autonomously explores the interactive CLI to discover bugs',
-      prompt: `${PRLT_USAGE_RULE}
-
----
-
-# Action: Explore CLI (Autonomous QA)
-
-You are an AI QA tester for the prlt CLI. You have access to a tmux session where the CLI is running.
-Your job is to **systematically explore every menu, try every option, and find bugs**.
-
-## Your Tools
-
-- **tmux_send_keys** — send keystrokes to the tmux session (typing, arrows, Enter, Escape, Ctrl+C, etc.)
-- **tmux_capture_pane** — read the current terminal screen to see what's displayed
-- **tmux_start_session** — start a new tmux session to run the CLI in
-- **tmux_list_sessions** — list active tmux sessions
-- **ticket_create** — file a bug ticket when you find something broken
-
-## Getting Started
-
-1. Start a tmux session for testing:
-   \`\`\`
-   tmux_start_session({ session: "qa-test", command: "prlt" })
-   \`\`\`
-2. Wait a moment, then capture the screen to see the main menu:
-   \`\`\`
-   tmux_capture_pane({ session: "qa-test" })
-   \`\`\`
-3. Begin systematic exploration.
-
-## Exploration Strategies
-
-Work through these systematically. After each action, always capture the screen to see the result.
-
-### 1. Navigate Every Top-Level Menu Item
-- Use arrow keys (Up/Down) to highlight each option
-- Press Enter to select each one
-- Capture the screen to see what happens
-- Press Escape or Ctrl+C to go back
-
-### 2. Test Every Submenu Option
-- For each menu item, explore all sub-options
-- Try selecting each choice in every list/menu
-
-### 3. Test Input Handling
-- **Valid inputs**: Normal expected values
-- **Empty inputs**: Just press Enter without typing anything
-- **Invalid inputs**: Random strings, numbers where text is expected, etc.
-- **Long strings**: Very long ticket titles, descriptions (100+ characters)
-- **Special characters**: Quotes, backslashes, Unicode (emojis, CJK characters)
-- **SQL injection-like**: \`'; DROP TABLE --\` style strings
-- **Boundary values**: 0, -1, 999999, etc. for numeric inputs
-
-### 4. Test Cancellation Flows
-- Press Ctrl+C mid-flow (should exit gracefully, no crash)
-- Press Escape in menus (should go back)
-- Press q or Q in menus (common quit shortcut)
-- Rapidly press Escape multiple times
-
-### 5. Test Navigation Edge Cases
-- Rapid arrow key presses (Up Up Up Down Down Down)
-- Arrow keys at the top/bottom of lists (should not crash)
-- Tab key in various contexts
-- Home/End keys
-
-### 6. Test Error Recovery
-- Navigate to ticket operations without any tickets
-- Try to create items with duplicate names
-- Try operations on non-existent IDs
-
-## What to Look For
-
-- **Crashes**: Unhandled exceptions, stack traces visible on screen
-- **Rendering glitches**: Items cut off, wrong alignment, overlapping text, garbled output
-- **Wrong data**: Incorrect values displayed, stale data, missing information
-- **Missing options**: Menu items that should exist but don't
-- **Broken navigation**: Arrow keys don't work, can't go back, infinite loops
-- **Unhelpful errors**: Generic "Error" with no details, or raw error objects
-- **Hangs**: Screen freezes, no response to input (wait 10 seconds before declaring a hang)
-- **Screen overflow**: Content pushed off screen, no scrolling available
-- **Partial renders**: Screen shows half-drawn UI elements
-- **State corruption**: Operations succeed but data is wrong afterward
-
-## Cross-Validation
-
-Compare what you see on screen with what the MCP tools return:
-- After creating a ticket via the interactive menu, use \`ticket_list\` to verify it was created correctly
-- After moving a ticket, verify the status changed via \`ticket_show\`
-- Check that counts displayed in menus match actual data
-
-## When You Find a Bug
-
-1. **Document exact reproduction steps** — which keys you pressed, in what order
-2. **Capture the screen** showing the bug
-3. **File a ticket** using the ticket_create MCP tool:
-   - Title: Clear description of the bug
-   - Category: "bug"
-   - Priority: P1 for crashes/data loss, P2 for rendering/UX issues, P3 for minor issues
-   - Description: Include exact reproduction steps, screen capture, and expected vs actual behavior
-
-## Session Management
-
-- If the CLI crashes, restart it: kill the session and start a new one
-- If you get stuck, use Ctrl+C to escape, or kill and restart the session
-- Periodically capture the screen even when not expecting changes (catch intermittent issues)
-
-## Test Prioritization
-
-Start with the most commonly used flows, then move to edge cases:
-1. Main menu navigation
-2. Ticket operations (create, list, view, edit, move)
-3. Project operations
-4. Board view
-5. Work/session operations
-6. Epic and spec operations
-7. Settings and configuration
-8. Edge cases and stress testing`,
-      endPrompt: `## Wrap-Up
-
-When you've completed your exploration:
-
-1. **Summarize your findings**: List all bugs found with their ticket IDs
-2. **Note areas not tested**: If you couldn't reach certain features, list them
-3. **Rate overall CLI quality**: Brief assessment of stability, UX, and completeness
-
-Output a structured summary:
-\`\`\`
-## Exploratory QA Summary
-
-### Bugs Filed
-- TKT-XXX: [brief description]
-- TKT-YYY: [brief description]
-
-### Areas Tested
-- [ ] Main menu navigation
-- [ ] Ticket CRUD
-- [ ] Project operations
-- [ ] Board view
-- [ ] Work sessions
-- [ ] Epics & specs
-- [ ] Error handling
-- [ ] Input validation
-
-### Areas Not Tested
-- [list any areas you couldn't reach]
-
-### Overall Assessment
-[Brief quality assessment]
-\`\`\`
-
-Clean up your tmux session:
-\`\`\`
-tmux_kill_session({ session: "qa-test" })
-\`\`\``,
-      fromState: null,
-      toState: null,
-      executor: 'claude',
-      environment: 'host',
-      permissionMode: 'readonly',
-      modifiesCode: false,
-      isDefault: false,
-      position: 9,
-    },
+    // NOTE: 'review-comment' action removed — absorbed by 'review' (model decides mode from context)
+    // NOTE: 'review-fix' action removed — absorbed by 'review' (model decides whether to fix from context)
+    // NOTE: 'revise' action removed — absorbed by 'implement' (model detects PR feedback)
+    // NOTE: 'explore-cli' action removed — no longer a default work primitive
     {
       id: 'merge',
       name: 'Merge',
@@ -1539,56 +1139,7 @@ ${PRLT_COMMANDS_REVIEW}`,
       isDefault: true,
       position: 10,
     },
-    {
-      id: 'test',
-      name: 'Write Tests',
-      description: 'Add comprehensive tests for the implementation',
-      prompt: `${PRLT_USAGE_RULE}
-
----
-
-# Action: Write Tests
-
-Write comprehensive tests for this ticket's implementation:
-- Add unit tests for core functionality
-- Add integration tests where appropriate
-- Cover edge cases and error handling
-- Aim for good coverage of the changed code
-- Ensure all tests pass
-
-**IMPORTANT: Commit and push frequently!**
-- Commit after each test file or logical group of tests
-- Push after every 1-2 commits to save your work
-
-\`\`\`bash
-git add -A && prlt commit "add tests for X" && git push origin HEAD
-\`\`\`
-
-${PRLT_COMMANDS_COMMON}
-${PRLT_COMMANDS_CODE}`,
-      endPrompt: `When complete:
-1. **Commit your tests**:
-   \`\`\`bash
-   git add -A
-   prlt commit "add tests for {{TICKET_ID}}"
-   git push origin HEAD
-   \`\`\`
-
-2. **Mark work as ready** by running:
-   \`\`\`bash
-   prlt work ready {{TICKET_ID}} --pr
-   \`\`\`
-
-**IMPORTANT:** Use the global \`prlt\` command.`,
-      fromState: null,
-      toState: null,
-      executor: 'claude',
-      environment: 'host',
-      permissionMode: 'full',
-      modifiesCode: true,
-      isDefault: false,
-      position: 8,
-    },
+    // NOTE: 'test' action removed — absorbed by 'implement' (ticket says write tests)
   ]
 
   // Use INSERT OR REPLACE to always update builtin actions with latest prompts
@@ -1657,10 +1208,10 @@ export function seedBuiltinWorkflowRules(db: Database.Database): void {
       trigger: 'manual',
     },
     {
-      id: 'in-progress-continue',
+      id: 'in-progress-implement',
       fromState: null,
       toState: 'In Progress',
-      actionId: 'continue',
+      actionId: 'implement',
       trigger: 'manual',
     },
     {
@@ -1670,13 +1221,7 @@ export function seedBuiltinWorkflowRules(db: Database.Database): void {
       actionId: 'review',
       trigger: 'manual',
     },
-    {
-      id: 'done-review-comment',
-      fromState: null,
-      toState: 'Done',
-      actionId: 'review-comment',
-      trigger: 'manual',
-    },
+    // NOTE: 'done-review-comment' rule removed — review-comment absorbed by review
   ]
 
   // Verify pmo_workflow_rules table exists
