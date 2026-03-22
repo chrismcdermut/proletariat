@@ -1567,6 +1567,8 @@ function setupTestDatabase(db: Database.Database) {
       environment TEXT DEFAULT 'host',
       display_mode TEXT DEFAULT 'terminal',
       sandboxed INTEGER DEFAULT 1,
+      permission_mode TEXT DEFAULT 'safe',
+      cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
       status TEXT NOT NULL DEFAULT 'running',
       branch TEXT,
       pid TEXT,
@@ -1576,7 +1578,8 @@ function setupTestDatabase(db: Database.Database) {
       log_path TEXT,
       started_at TEXT DEFAULT CURRENT_TIMESTAMP,
       completed_at TEXT,
-      exit_code INTEGER
+      exit_code INTEGER,
+      error_message TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON agent_work(agent_name);

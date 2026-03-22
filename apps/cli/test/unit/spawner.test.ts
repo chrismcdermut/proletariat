@@ -61,6 +61,7 @@ describe('Spawner', () => {
           environment TEXT DEFAULT 'host',
           display_mode TEXT DEFAULT 'terminal',
           permission_mode TEXT DEFAULT 'safe',
+          cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
           status TEXT NOT NULL,
           branch TEXT,
           pid TEXT,
@@ -74,7 +75,8 @@ describe('Spawner', () => {
           external_url TEXT,
           started_at INTEGER NOT NULL,
           completed_at INTEGER,
-          exit_code INTEGER
+          exit_code INTEGER,
+          error_message TEXT
         )
       `)
     })

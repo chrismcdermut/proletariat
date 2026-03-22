@@ -265,13 +265,15 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
       // Write Claude Code stop hook for automatic container cleanup (PRLT-1061)
       // When the Claude Code session ends, the stop hook calls `prlt session report`
       // which reads the execution record and cleanup policy to decide what to do.
-      const agentName = process.env.PRLT_AGENT_NAME || ''
+      // Uses $PRLT_AGENT_NAME shell variable which is set as a container env var
+      // during createDockerContainer() — this ensures the correct agent name is used
+      // regardless of which process is running the container setup.
       const stopHookConfig = {
         hooks: {
           Stop: [
             {
               type: 'command' as const,
-              command: `prlt session report --agent "${agentName}" --status exited 2>/dev/null || true`,
+              command: 'prlt session report --agent "$PRLT_AGENT_NAME" --status exited 2>/dev/null || true',
             },
           ],
         },

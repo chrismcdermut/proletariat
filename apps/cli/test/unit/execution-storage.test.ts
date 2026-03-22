@@ -42,7 +42,8 @@ describe('@smoke ExecutionStorage', () => {
           external_url TEXT,
           started_at INTEGER NOT NULL,
           completed_at INTEGER,
-          exit_code INTEGER
+          exit_code INTEGER,
+          error_message TEXT
         )
       `)
     })
