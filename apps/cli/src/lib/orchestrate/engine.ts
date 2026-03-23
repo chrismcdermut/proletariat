@@ -11,6 +11,7 @@
  * and built-in action execution.
  */
 
+import { execSync } from 'node:child_process'
 import type { SqliteDatabase } from '../database/sqlite.js'
 import { getEventBus } from '../events/event-bus.js'
 import { WorkHookStorage } from '../work-lifecycle/hooks/storage.js'
@@ -314,7 +315,6 @@ export class OrchestrateEngine {
     // Fallback to shell execution
     const start = Date.now()
     try {
-      const { execSync: exec } = require('node:child_process') as typeof import('node:child_process')
       const env = {
         ...process.env,
         PRLT_HOOK_EVENT: ctx.event,
@@ -323,7 +323,7 @@ export class OrchestrateEngine {
         PRLT_HOOK_BRANCH: ctx.branch ?? '',
         PRLT_HOOK_AGENT: ctx.agent ?? '',
       }
-      exec(actionName, { env, timeout: 30_000, stdio: 'pipe' })
+      execSync(actionName, { env, timeout: 30_000, stdio: 'pipe' })
       return { action: actionName, success: true, durationMs: Date.now() - start }
     } catch (err) {
       return {

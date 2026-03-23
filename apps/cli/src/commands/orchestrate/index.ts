@@ -33,8 +33,6 @@ import {
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initHookManager } from '../../lib/work-lifecycle/hooks/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
-import { setupSignalHandler } from '../../lib/signal-handler.js'
-
 export default class Orchestrate extends PMOCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
 
