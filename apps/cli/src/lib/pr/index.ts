@@ -909,3 +909,139 @@ export function formatPRFeedbackForPrompt(feedback: PRFeedback): string {
 
   return lines.join('\n');
 }
+
+// =============================================================================
+// PR Mergeable State / Conflict Detection
+// =============================================================================
+
+export type MergeableState = 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+
+/**
+ * Get the mergeable state of a PR.
+ */
+export function getMergeableState(prNumber: number, cwd?: string): MergeableState {
+  try {
+    const result = execSync(
+      `gh pr view ${prNumber} --json mergeable -q .mergeable`,
+      {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    ).trim();
+
+    if (result === 'CONFLICTING') return 'CONFLICTING';
+    if (result === 'MERGEABLE') return 'MERGEABLE';
+    return 'UNKNOWN';
+  } catch {
+    return 'UNKNOWN';
+  }
+}
+
+/**
+ * Find all open PRs that are in a CONFLICTING state.
+ */
+export function listConflictingPRs(cwd?: string): PRInfo[] {
+  const openPRs = listOpenPRs(cwd);
+  return openPRs.filter(pr => {
+    const state = getMergeableState(pr.number, cwd);
+    return state === 'CONFLICTING';
+  });
+}
+
+// =============================================================================
+// PR Branch Rebase
+// =============================================================================
+
+export interface RebasePRResult {
+  success: boolean;
+  prNumber: number;
+  headBranch: string;
+  error?: string;
+}
+
+/**
+ * Rebase a PR branch onto its base branch and force-push.
+ * This is a clean rebase — if conflicts cannot be auto-resolved, it aborts.
+ */
+export function rebasePRBranch(
+  headBranch: string,
+  baseBranch: string,
+  cwd?: string,
+): { success: boolean; error?: string } {
+  try {
+    // Fetch latest
+    execSync('git fetch origin', {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // Checkout the head branch
+    execSync(`git checkout ${headBranch}`, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // Rebase onto base
+    execSync(`git rebase origin/${baseBranch}`, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    // Force-push
+    execSync(`git push --force-with-lease origin ${headBranch}`, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    return { success: true };
+  } catch (error) {
+    // Abort rebase on failure
+    try {
+      execSync('git rebase --abort', {
+        cwd,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+    } catch {
+      // Ignore abort failures
+    }
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown rebase error',
+    };
+  }
+}
+
+/**
+ * Rebase all conflicting sibling PRs onto their base branch.
+ * Returns results for each PR attempted.
+ */
+export function rebaseConflictingSiblingPRs(
+  excludePRNumber: number | null,
+  cwd?: string,
+  onProgress?: (msg: string) => void,
+): RebasePRResult[] {
+  const openPRs = listOpenPRs(cwd);
+  const results: RebasePRResult[] = [];
+
+  for (const pr of openPRs) {
+    // Skip the PR we just merged (or the one we want to exclude)
+    if (pr.number === excludePRNumber) continue;
+
+    const state = getMergeableState(pr.number, cwd);
+    if (state !== 'CONFLICTING') continue;
+
+    onProgress?.(`Rebasing PR #${pr.number} (${pr.headBranch})...`);
+
+    const rebaseResult = rebasePRBranch(pr.headBranch, pr.baseBranch, cwd);
+    results.push({
+      success: rebaseResult.success,
+      prNumber: pr.number,
+      headBranch: pr.headBranch,
+      error: rebaseResult.error,
+    });
+  }
+
+  return results;
+}
