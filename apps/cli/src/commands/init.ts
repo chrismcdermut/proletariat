@@ -1,34 +1,40 @@
 import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
-import * as fs from 'node:fs';
-import {
-  ensureMachineConfigDir,
-  getMachineConfigDir,
-  getMachineConfigPath,
-  readMachineConfig,
-  writeMachineConfig,
-} from '../lib/machine-config.js';
-import { isValidHQ } from '../lib/workspace.js';
 import { machineOutputFlags } from '../lib/pmo/index.js';
-import { shouldOutputJson } from '../lib/prompt-json.js';
-import {
-  isFirstTimeUser,
-  runOnboardingWizard,
-  runOnboardingJsonMode,
-  detectAITools,
-} from '../lib/onboarding/index.js';
 
 export default class Init extends Command {
-  static description = 'Initialize machine-level Proletariat configuration (~/.proletariat)';
+  static description = 'Initialize a new headquarters (deprecated — use `prlt new` instead)';
 
   static examples = [
-    '<%= config.bin %> <%= command.id %>',
-    '<%= config.bin %> <%= command.id %> --json',
-    '<%= config.bin %> <%= command.id %> --json --setup claude-code',
+    '<%= config.bin %> new',
   ];
 
+  static hidden = true;
+
+  // Accept the same flags as `new` so forwarding works correctly
   static flags = {
     ...machineOutputFlags,
+    name: Flags.string({
+      description: 'HQ name',
+      char: 'n',
+    }),
+    path: Flags.string({
+      description: 'HQ path (defaults to ./{name}-hq)',
+      char: 'p',
+    }),
+    agents: Flags.string({
+      description: 'Comma-separated list of agent names',
+      char: 'a',
+    }),
+    repos: Flags.string({
+      description: 'Comma-separated list of repository paths to clone/move',
+      char: 'r',
+    }),
+    pmo: Flags.boolean({
+      description: 'Include PMO (Project Management Org)',
+      default: true,
+      allowNo: true,
+    }),
     setup: Flags.string({
       description: 'Setup method for agent-driven onboarding (claude-code, codex, or manual)',
       options: ['claude-code', 'codex', 'manual'],
@@ -36,99 +42,30 @@ export default class Init extends Command {
   };
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(Init);
-    const jsonMode = shouldOutputJson(flags);
+    const { argv, flags } = await this.parse(Init);
 
-    // Step 1: Ensure machine config directory exists
-    ensureMachineConfigDir();
+    console.log(chalk.yellow('`prlt init` is deprecated. Use `prlt new` instead.\n'));
 
-    // Step 2: Ensure machine config file exists with valid structure
-    const configPath = getMachineConfigPath();
-    const config = readMachineConfig();
-
-    const configExists = fs.existsSync(configPath);
-    if (!configExists) {
-      // Write fresh config if none exists
-      writeMachineConfig(config);
-    }
-
-    // Step 3: Prune stale headquarters entries (paths that no longer exist)
-    const originalCount = config.headquarters.length;
-    config.headquarters = config.headquarters.filter(hq => {
-      if (!fs.existsSync(hq.path)) return false;
-      if (!isValidHQ(hq.path)) return false;
-      return true;
-    });
-    const prunedCount = originalCount - config.headquarters.length;
-
-    // Clear active HQ if it was pruned
-    if (config.activeHeadquarters && !config.headquarters.some(hq => hq.path === config.activeHeadquarters)) {
-      config.activeHeadquarters = null;
-    }
-
-    if (prunedCount > 0) {
-      writeMachineConfig(config);
-    }
-
-    // Step 4: Onboarding wizard for first-time users
-    const firstTime = isFirstTimeUser(config.headquarters.length, config.activeHeadquarters ?? null);
-
-    if (firstTime) {
-      if (jsonMode) {
-        // JSON mode: handle --setup flag for agent-driven onboarding
-        if (flags.setup) {
-          runOnboardingJsonMode(flags);
-          // If runOnboardingJsonMode returns (manual mode), fall through to normal JSON output
+    // Build args for forwarding to `new`
+    const newArgs = ['new'];
+    for (const [key, value] of Object.entries(flags)) {
+      if (value === undefined) continue;
+      if (typeof value === 'boolean') {
+        if (value) {
+          newArgs.push(`--${key}`);
+        } else {
+          newArgs.push(`--no-${key}`);
         }
-        // No --setup flag: fall through to include onboarding info in success response
       } else {
-        // Interactive mode: run the onboarding wizard
-        const result = await runOnboardingWizard();
-        if (result.method === 'ai') {
-          // AI tool was spawned — it will guide the user through prlt new
-          return;
-        }
-        // Manual: fall through to show normal init output with prlt new guidance
+        newArgs.push(`--${key}`, String(value));
       }
     }
-
-    // Output results
-    if (jsonMode) {
-      const jsonResult: Record<string, unknown> = {
-        success: true,
-        configDir: getMachineConfigDir(),
-        configPath,
-        headquarters: config.headquarters.length,
-        prunedStaleEntries: prunedCount,
-        activeHeadquarters: config.activeHeadquarters,
-      };
-
-      if (firstTime) {
-        const detection = detectAITools();
-        jsonResult.firstTimeUser = true;
-        jsonResult.detectedTools = detection.tools.map(t => ({
-          name: t.name,
-          command: t.command,
-          displayName: t.displayName,
-        }));
-      }
-
-      this.outputJson(jsonResult);
-    } else {
-      console.log(chalk.green('Machine configuration initialized.'));
-      console.log(chalk.gray(`  Config: ${configPath}`));
-      console.log(chalk.gray(`  Registered HQs: ${config.headquarters.length}`));
-      if (prunedCount > 0) {
-        console.log(chalk.yellow(`  Pruned ${prunedCount} stale HQ entries`));
-      }
-      if (config.headquarters.length === 0) {
-        console.log(chalk.blue('\nNo headquarters found. Create one with:'));
-        console.log(chalk.yellow('  prlt new'));
-      }
+    // Forward positional args
+    for (const arg of (argv as string[])) {
+      newArgs.push(arg);
     }
-  }
 
-  private outputJson(data: Record<string, unknown>): void {
-    console.log(JSON.stringify(data, null, 2));
+    const { run } = await import('@oclif/core');
+    await run(newArgs, this.config);
   }
 }

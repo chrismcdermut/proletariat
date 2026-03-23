@@ -405,9 +405,9 @@ describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', (
   });
 
   // ================================================================
-  // INIT COMMAND TESTS (machine setup)
+  // INIT COMMAND TESTS (deprecated alias for new)
   // ================================================================
-  describe('prlt init (JSON mode)', () => {
+  describe('prlt init (deprecated alias)', () => {
     let testDir: string;
     let originalCwd: string;
 
@@ -424,14 +424,11 @@ describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', (
       }
     });
 
-    it('should initialize machine config in JSON mode', async () => {
+    it('should redirect to prlt new and output deprecation notice', async () => {
       const output = await execInProcess('init --json');
-      const result = extractJson<{ success: boolean; configDir: string; configPath: string }>(output);
-
-      expect(result).to.not.be.null;
-      expect(result!.success).to.equal(true);
-      expect(result!.configDir).to.be.a('string');
-      expect(result!.configPath).to.be.a('string');
+      // init is now a deprecated alias — it should mention deprecation
+      // and forward to prlt new, which outputs a name prompt in JSON mode
+      expect(output).to.contain('deprecated');
     });
   });
 
