@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { ExecutionStorage } from '../../src/lib/execution/storage.js'
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js'
 import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
@@ -16,7 +16,7 @@ import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
  */
 describe('@smoke Session Report Cleanup Logic', () => {
   let fastDb: FastTestDb
-  let db: SqliteDatabase
+  let db: Database.Database
   let storage: ExecutionStorage
 
   before(() => {

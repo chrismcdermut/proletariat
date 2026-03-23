@@ -2,7 +2,7 @@ import { Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { findHQRoot } from '../../lib/workspace.js'
@@ -547,9 +547,9 @@ export default class OrchestratorStart extends PromptCommand {
       // Load action from DB
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
       if (fs.existsSync(dbPath)) {
-        let db: SqliteDatabase | null = null
+        let db: Database.Database | null = null
         try {
-          db = new SqliteDatabase(dbPath)
+          db = new Database(dbPath)
           const row = db.prepare('SELECT prompt, name FROM actions WHERE id = ? OR name = ?').get(flags.action, flags.action) as { prompt: string; name: string } | undefined
           if (row) {
             actionPrompt = row.prompt
@@ -593,10 +593,10 @@ export default class OrchestratorStart extends PromptCommand {
 
     // Load saved preferences from workspace DB
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-    let db: SqliteDatabase | null = null
+    let db: Database.Database | null = null
     try {
       if (fs.existsSync(dbPath)) {
-        db = new SqliteDatabase(dbPath)
+        db = new Database(dbPath)
         const savedConfig = loadExecutionConfig(db)
         executionConfig.terminal = savedConfig.terminal
         executionConfig.shell = savedConfig.shell

@@ -1,6 +1,6 @@
 import { Args, Flags } from '@oclif/core'
 import * as path from 'node:path'
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
@@ -234,11 +234,11 @@ export default class SessionPeek extends PMOCommand {
    * Resolve an execution ID (WORK-XXX) to matching sessions.
    */
   private resolveFromExecution(executionId: string, sessions: VerifiedSession[]): VerifiedSession[] {
-    let db: SqliteDatabase | null = null
+    let db: Database.Database | null = null
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new SqliteDatabase(dbPath)
+      db = new Database(dbPath)
       const executionStorage = new ExecutionStorage(db)
       const execution = executionStorage.getExecution(executionId)
 
@@ -427,12 +427,12 @@ export default class SessionPeek extends PMOCommand {
     const sessions: VerifiedSession[] = []
 
     let executionStorage: ExecutionStorage | null = null
-    let db: SqliteDatabase | null = null
+    let db: Database.Database | null = null
 
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new SqliteDatabase(dbPath)
+      db = new Database(dbPath)
       executionStorage = new ExecutionStorage(db)
     } catch {
       // Not in workspace — can still discover tmux sessions

@@ -9,7 +9,6 @@
  * not a cache layer.
  */
 
-import type { SqliteDatabase } from '../database/sqlite.js'
 import type { StateCategory, Ticket, TicketFilter, CreateTicketInput } from '../pmo/types.js'
 
 /**
@@ -145,5 +144,5 @@ export interface ProviderStorage {
   deleteTicket: (id: string) => Promise<void>
   listTickets: (projectId: string | undefined, filter?: TicketFilter) => Promise<Ticket[]>
   createTicket: (projectId: string, input: CreateTicketInput) => Promise<Ticket>
-  getDatabase: () => SqliteDatabase
+  getDatabase: () => import('better-sqlite3').Database
 }

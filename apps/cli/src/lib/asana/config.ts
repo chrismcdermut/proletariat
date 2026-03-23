@@ -1,4 +1,4 @@
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import type { AsanaConfig } from './types.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
@@ -11,11 +11,11 @@ const ASANA_CONFIG_KEYS = {
   projectName: 'asana.project_name',
 } as const
 
-export function isAsanaConfigured(db: SqliteDatabase): boolean {
+export function isAsanaConfigured(db: Database.Database): boolean {
   return new SettingsStore(db).has(ASANA_CONFIG_KEYS.accessToken)
 }
 
-export function loadAsanaConfig(db: SqliteDatabase): AsanaConfig | null {
+export function loadAsanaConfig(db: Database.Database): AsanaConfig | null {
   const settings = new SettingsStore(db)
   const accessToken = settings.get(ASANA_CONFIG_KEYS.accessToken)
   if (!accessToken) return null
@@ -29,30 +29,30 @@ export function loadAsanaConfig(db: SqliteDatabase): AsanaConfig | null {
   }
 }
 
-export function saveAsanaAccessToken(db: SqliteDatabase, accessToken: string): void {
+export function saveAsanaAccessToken(db: Database.Database, accessToken: string): void {
   new SettingsStore(db).set(ASANA_CONFIG_KEYS.accessToken, accessToken)
 }
 
-export function saveAsanaWorkspace(db: SqliteDatabase, workspaceGid: string, workspaceName: string): void {
+export function saveAsanaWorkspace(db: Database.Database, workspaceGid: string, workspaceName: string): void {
   const settings = new SettingsStore(db)
   settings.set(ASANA_CONFIG_KEYS.workspaceGid, workspaceGid)
   settings.set(ASANA_CONFIG_KEYS.workspaceName, workspaceName)
 }
 
-export function saveAsanaProject(db: SqliteDatabase, projectGid: string, projectName: string): void {
+export function saveAsanaProject(db: Database.Database, projectGid: string, projectName: string): void {
   const settings = new SettingsStore(db)
   settings.set(ASANA_CONFIG_KEYS.projectGid, projectGid)
   settings.set(ASANA_CONFIG_KEYS.projectName, projectName)
 }
 
-export function clearAsanaConfig(db: SqliteDatabase): void {
+export function clearAsanaConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(ASANA_CONFIG_KEYS)) {
     settings.delete(key)
   }
 }
 
-export function getAsanaAccessToken(db: SqliteDatabase): string | null {
+export function getAsanaAccessToken(db: Database.Database): string | null {
   // 1. Try provider sources (supports custom apiKeyRef per source)
   try {
     const sources = loadProviderSources(db)

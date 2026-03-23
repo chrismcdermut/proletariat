@@ -181,7 +181,9 @@ info "Installing dependencies (this may take a moment)…"
 cd "$LIB_DIR"
 npm install --production --no-audit --no-fund 2>&1 | tail -1 || true
 
-# No native modules to build — sql.js is pure JS/WASM
+# Rebuild native modules for the current Node.js version
+info "Building native modules…"
+npm rebuild better-sqlite3 2>&1 | tail -1 || true
 
 # ---------------------------------------------------------------------------
 # Create symlink

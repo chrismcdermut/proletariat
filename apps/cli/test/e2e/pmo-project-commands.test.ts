@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import {
   execInProcess,
   createTestEnvironment,
@@ -19,7 +19,7 @@ import {
  */
 describe('PMO Project Commands E2E Tests', () => {
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
   const pmoPath = 'pmo'; // relative path for settings
 
   beforeEach(() => {
@@ -590,14 +590,14 @@ describe('PMO Project Commands E2E Tests', () => {
 
 // Helper functions for this test file
 
-function createLocalTestProject(db: SqliteDatabase, id: string, name: string, description?: string) {
+function createLocalTestProject(db: Database.Database, id: string, name: string, description?: string) {
   db.prepare(`
     INSERT INTO pmo_projects (id, name, description, is_archived, workflow_id)
     VALUES (?, ?, ?, 0, 'default')
   `).run(id, name, description || null);
 }
 
-function createLocalTestColumns(db: SqliteDatabase, projectId: string) {
+function createLocalTestColumns(db: Database.Database, projectId: string) {
   const columns = [
     { id: 'backlog', name: 'Backlog', position: 0 },
     { id: 'in_progress', name: 'In Progress', position: 1 },
@@ -612,7 +612,7 @@ function createLocalTestColumns(db: SqliteDatabase, projectId: string) {
   }
 }
 
-function createLocalTestTicket(db: SqliteDatabase, id: string, title: string, projectId: string, columnId: string = 'backlog') {
+function createLocalTestTicket(db: Database.Database, id: string, title: string, projectId: string, columnId: string = 'backlog') {
   // Map column names to production status_id format
   const statusIdMap: Record<string, string> = {
     'backlog': 'default-backlog',

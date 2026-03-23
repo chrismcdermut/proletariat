@@ -1,10 +1,10 @@
 import { expect } from 'chai'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { ProviderTriggerStore, TriggerHandler } from '../../src/lib/providers/trigger-config.js'
 import { resetEventBus, getEventBus } from '../../src/lib/events/index.js'
 
-function createTestDb(): SqliteDatabase {
-  const db = new SqliteDatabase(':memory:')
+function createTestDb(): Database.Database {
+  const db = new Database(':memory:')
   db.exec(`
     CREATE TABLE pmo_provider_triggers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,7 +21,7 @@ function createTestDb(): SqliteDatabase {
 }
 
 describe('ProviderTriggerStore', () => {
-  let db: SqliteDatabase
+  let db: Database.Database
   let store: ProviderTriggerStore
 
   beforeEach(() => {
@@ -178,7 +178,7 @@ describe('ProviderTriggerStore', () => {
 })
 
 describe('TriggerHandler', () => {
-  let db: SqliteDatabase
+  let db: Database.Database
   let handler: TriggerHandler
   let movedTickets: Array<{ ticketId: string; projectId: string; targetStatus: string }>
 

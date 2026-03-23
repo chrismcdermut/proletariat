@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { OutboundSyncHandler, stopOutboundSync, findMatchingLinearState } from '../../src/lib/external-issues/outbound-sync.js'
 import { EventBus, resetEventBus } from '../../src/lib/events/event-bus.js'
 import { ExternalExecutionMappingStore } from '../../src/lib/external-issues/mapping-store.js'
@@ -8,7 +8,7 @@ import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
 
 describe('OutboundSyncHandler', () => {
   let fastDb: FastTestDb
-  let db: SqliteDatabase
+  let db: Database.Database
   let handler: OutboundSyncHandler
   let bus: EventBus
   let mappingStore: ExternalExecutionMappingStore

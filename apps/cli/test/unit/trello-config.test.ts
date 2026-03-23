@@ -1,12 +1,12 @@
 import { expect } from 'chai'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { isTrelloConfigured, loadTrelloConfig, saveTrelloConfig, clearTrelloConfig, getTrelloApiKey, getTrelloApiToken, saveTrelloBoard } from '../../src/lib/trello/config.js'
 
 describe('Trello config', () => {
-  let db: SqliteDatabase
+  let db: Database.Database
 
   beforeEach(() => {
-    db = new SqliteDatabase(':memory:')
+    db = new Database(':memory:')
     db.exec(`
       CREATE TABLE IF NOT EXISTS workspace_settings (
         key TEXT PRIMARY KEY,

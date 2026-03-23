@@ -18,7 +18,7 @@
  *    the active provider.
  */
 
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import { isLinearConfigured } from '../linear/config.js'
 import { LinearMapper } from '../linear/mapper.js'
 import type { StateCategory } from '../pmo/types.js'
@@ -32,7 +32,7 @@ import { EventEmittingProvider, type StatusResolver } from './event-emitting-pro
  * Used by EventEmittingProvider to resolve status names/categories
  * for event emission.
  */
-function createDbStatusResolver(db: SqliteDatabase, storage: ProviderStorage): StatusResolver {
+function createDbStatusResolver(db: Database.Database, storage: ProviderStorage): StatusResolver {
   return {
     resolveStatusByName(projectId: string, statusName: string) {
       try {
@@ -90,7 +90,7 @@ function createDbStatusResolver(db: SqliteDatabase, storage: ProviderStorage): S
  */
 function wrapWithEvents(
   provider: TicketProvider,
-  db: SqliteDatabase,
+  db: Database.Database,
   storage: ProviderStorage,
   projectId: string,
 ): TicketProvider {
@@ -118,7 +118,7 @@ function wrapWithEvents(
 export function resolveTicketProvider(
   ticketId: string,
   projectId: string,
-  db: SqliteDatabase,
+  db: Database.Database,
   storage: ProviderStorage,
   metadata?: Record<string, string> | null,
 ): TicketProvider {
@@ -162,7 +162,7 @@ export function resolveTicketProvider(
  * @returns The appropriate TicketProvider
  */
 export function resolveProjectProvider(
-  db: SqliteDatabase,
+  db: Database.Database,
   storage: ProviderStorage,
   projectId: string,
   source?: string,

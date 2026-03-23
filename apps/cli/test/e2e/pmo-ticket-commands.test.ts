@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import {
   execInProcess,
   createTestEnvironment,
@@ -24,7 +24,7 @@ describe('@smoke PMO Ticket Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     originalCwd = process.cwd();
@@ -36,7 +36,7 @@ describe('@smoke PMO Ticket Commands E2E Tests', () => {
     fs.mkdirSync(proletariatDir, { recursive: true });
     dbPath = path.join(proletariatDir, 'workspace.db');
 
-    db = new SqliteDatabase(dbPath);
+    db = new Database(dbPath);
     setupTestDatabase(db);
   });
 
@@ -591,7 +591,7 @@ describe('@smoke PMO Ticket Commands E2E Tests', () => {
  */
 describe('@smoke ticket create --label alias', () => {
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     env = createTestEnvironment('ticket-label-alias-');
@@ -637,7 +637,7 @@ describe('@smoke ticket create --label alias', () => {
  */
 describe('@smoke prlt ticket update', () => {
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     env = createTestEnvironment('ticket-update-');
@@ -656,33 +656,33 @@ describe('@smoke prlt ticket update', () => {
 
   it('should update ticket title', async () => {
     await execInProcess('ticket create --title "Update title test" --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Update title test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --title "New title"`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const updatedTicket = db.prepare('SELECT title FROM pmo_tickets WHERE id = ?').get(ticket.id) as { title: string };
     expect(updatedTicket.title).to.equal('New title');
   });
 
   it('should update ticket description', async () => {
     await execInProcess('ticket create --title "Update desc test" --description "Old desc" --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Update desc test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --description "New description"`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const updatedTicket = db.prepare('SELECT description FROM pmo_tickets WHERE id = ?').get(ticket.id) as { description: string };
     expect(updatedTicket.description).to.equal('New description');
   });
 
   it('should update ticket description from file', async () => {
     await execInProcess('ticket create --title "Desc file test" --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Desc file test') as { id: string };
     db.close();
 
@@ -692,59 +692,59 @@ describe('@smoke prlt ticket update', () => {
 
     await execInProcess(`ticket update ${ticket.id} --description-file "${descFile}"`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const updatedTicket = db.prepare('SELECT description FROM pmo_tickets WHERE id = ?').get(ticket.id) as { description: string };
     expect(updatedTicket.description).to.equal('Description from file content');
   });
 
   it('should update ticket priority', async () => {
     await execInProcess('ticket create --title "Update priority test" --priority LOW --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Update priority test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --priority HIGH`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const updatedTicket = db.prepare('SELECT priority FROM pmo_tickets WHERE id = ?').get(ticket.id) as { priority: string };
     expect(updatedTicket.priority).to.equal('HIGH');
   });
 
   it('should clear priority with none', async () => {
     await execInProcess('ticket create --title "Clear priority test" --priority HIGH --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Clear priority test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --priority none`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const updatedTicket = db.prepare('SELECT priority FROM pmo_tickets WHERE id = ?').get(ticket.id) as { priority: string | null };
     expect(updatedTicket.priority).to.be.oneOf([null, undefined, '']);
   });
 
   it('should update ticket category', async () => {
     await execInProcess('ticket create --title "Update category test" --category bug --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Update category test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --category feature`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const updatedTicket = db.prepare('SELECT category FROM pmo_tickets WHERE id = ?').get(ticket.id) as { category: string };
     expect(updatedTicket.category).to.equal('feature');
   });
 
   it('should update ticket labels', async () => {
     await execInProcess('ticket create --title "Update labels test" --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Update labels test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --labels "frontend,urgent"`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const row = db.prepare('SELECT labels FROM pmo_tickets WHERE id = ?').get(ticket.id) as { labels: string };
     const labels = JSON.parse(row.labels) as string[];
     expect(labels.sort()).to.deep.equal(['frontend', 'urgent']);
@@ -752,13 +752,13 @@ describe('@smoke prlt ticket update', () => {
 
   it('should clear labels with empty string', async () => {
     await execInProcess('ticket create --title "Clear labels test" --column "Backlog" --labels "old-label"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Clear labels test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --labels ""`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const row = db.prepare('SELECT labels FROM pmo_tickets WHERE id = ?').get(ticket.id) as { labels: string };
     const labels = JSON.parse(row.labels) as string[];
     expect(labels).to.have.lengthOf(0);
@@ -766,13 +766,13 @@ describe('@smoke prlt ticket update', () => {
 
   it('should update ticket status', async () => {
     await execInProcess('ticket create --title "Update status test" --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Update status test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --status "In Progress"`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const updatedTicket = db.prepare(`
       SELECT s.name as status_name
       FROM pmo_tickets t
@@ -784,13 +784,13 @@ describe('@smoke prlt ticket update', () => {
 
   it('should update multiple fields at once', async () => {
     await execInProcess('ticket create --title "Multi update test" --priority LOW --category chore --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Multi update test') as { id: string };
     db.close();
 
     await execInProcess(`ticket update ${ticket.id} --title "Updated multi" --priority HIGH --category feature --labels "api,backend"`);
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const updatedTicket = db.prepare('SELECT title, priority, category FROM pmo_tickets WHERE id = ?').get(ticket.id) as { title: string; priority: string; category: string };
     expect(updatedTicket.title).to.equal('Updated multi');
     expect(updatedTicket.priority).to.equal('HIGH');
@@ -803,7 +803,7 @@ describe('@smoke prlt ticket update', () => {
 
   it('should output JSON in --json mode', async () => {
     await execInProcess('ticket create --title "JSON update test" --column "Backlog" --json');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('JSON update test') as { id: string };
     db.close();
 
@@ -817,7 +817,7 @@ describe('@smoke prlt ticket update', () => {
 
   it('should error when description and description-file are both provided', async () => {
     await execInProcess('ticket create --title "Conflict test" --column "Backlog"');
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     const ticket = db.prepare('SELECT id FROM pmo_tickets WHERE title = ?').get('Conflict test') as { id: string };
     db.close();
 
@@ -832,7 +832,7 @@ describe('@smoke prlt ticket update', () => {
 });
 
 // Helper functions
-function setupTestDatabase(db: SqliteDatabase) {
+function setupTestDatabase(db: Database.Database) {
   // Use production PMO schema (ensures all columns including position, labels,
   // depends_on_ticket_id, epic_id, and correct FK references)
   initializePMOTables(db);

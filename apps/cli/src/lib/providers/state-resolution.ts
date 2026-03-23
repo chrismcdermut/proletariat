@@ -20,7 +20,7 @@ import type { TicketProvider } from './types.js'
 import type { ProviderStorage } from './types.js'
 import { SettingsStore } from '../database/settings-store.js'
 import { DEFAULT_INTENTS, matchIntentByAliases, getDefaultIntent } from './state-intents.js'
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -164,7 +164,7 @@ Respond with ONLY the exact state ID that best matches this intent. If no state 
  * @param intent - Semantic intent name (e.g., 'review')
  * @returns The configured state name, or null if not set
  */
-export function getStateMapConfig(db: SqliteDatabase, intent: string): string | null {
+export function getStateMapConfig(db: Database.Database, intent: string): string | null {
   try {
     const settings = new SettingsStore(db)
     return settings.get(`${STATE_MAP_PREFIX}${intent}`)
@@ -180,7 +180,7 @@ export function getStateMapConfig(db: SqliteDatabase, intent: string): string | 
  * @param intent - Semantic intent name
  * @param stateName - The state name to map to
  */
-export function setStateMapConfig(db: SqliteDatabase, intent: string, stateName: string): void {
+export function setStateMapConfig(db: Database.Database, intent: string, stateName: string): void {
   const settings = new SettingsStore(db)
   settings.set(`${STATE_MAP_PREFIX}${intent}`, stateName)
 }
@@ -188,7 +188,7 @@ export function setStateMapConfig(db: SqliteDatabase, intent: string, stateName:
 /**
  * Remove a state-map config override for an intent.
  */
-export function deleteStateMapConfig(db: SqliteDatabase, intent: string): void {
+export function deleteStateMapConfig(db: Database.Database, intent: string): void {
   const settings = new SettingsStore(db)
   settings.delete(`${STATE_MAP_PREFIX}${intent}`)
 }
@@ -196,7 +196,7 @@ export function deleteStateMapConfig(db: SqliteDatabase, intent: string): void {
 /**
  * List all state-map config overrides.
  */
-export function listStateMapConfigs(db: SqliteDatabase): Array<{ intent: string; stateName: string }> {
+export function listStateMapConfigs(db: Database.Database): Array<{ intent: string; stateName: string }> {
   try {
     const settings = new SettingsStore(db)
     const entries = settings.getByPrefix(STATE_MAP_PREFIX)
@@ -250,7 +250,7 @@ export function createPMProviderAdapter(
  */
 export interface MoveOptions {
   /** Database for config lookups (optional — skip config check if not provided) */
-  db?: SqliteDatabase
+  db?: Database.Database
   /** Current state name — if provided, skip move when already in the resolved state */
   currentState?: string
 }
@@ -275,14 +275,14 @@ export async function move(
   pmProvider: PMProvider,
   ticketId: string,
   intent: string,
-  dbOrOptions?: SqliteDatabase | MoveOptions,
+  dbOrOptions?: Database.Database | MoveOptions,
 ): Promise<StateResolutionResult> {
   // Normalize arguments: support both `move(p, id, intent, db)` and `move(p, id, intent, { db, currentState })`
-  let db: SqliteDatabase | undefined
+  let db: Database.Database | undefined
   let currentState: string | undefined
   if (dbOrOptions && typeof dbOrOptions === 'object' && 'prepare' in dbOrOptions) {
     // It's a Database instance (has .prepare method)
-    db = dbOrOptions as SqliteDatabase
+    db = dbOrOptions as Database.Database
   } else if (dbOrOptions && typeof dbOrOptions === 'object') {
     const opts = dbOrOptions as MoveOptions
     db = opts.db
@@ -396,7 +396,7 @@ export async function moveWithProvider(
   projectId: string,
   ticketId: string,
   intent: string,
-  db?: SqliteDatabase,
+  db?: Database.Database,
   currentState?: string,
 ): Promise<StateResolutionResult> {
   const pmProvider = createPMProviderAdapter(provider, storage, projectId)

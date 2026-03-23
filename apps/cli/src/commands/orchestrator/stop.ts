@@ -2,7 +2,7 @@ import { Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { findHQRoot } from '../../lib/workspace.js'
@@ -228,9 +228,9 @@ export default class OrchestratorStop extends PromptCommand {
     if (hqPath) {
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
       if (fs.existsSync(dbPath)) {
-        let db: SqliteDatabase | null = null
+        let db: Database.Database | null = null
         try {
-          db = new SqliteDatabase(dbPath)
+          db = new Database(dbPath)
           const executionStorage = new ExecutionStorage(db)
           // Match new format: orchestrator-{name}
           const agentNameToMatch = orchestratorName ? `orchestrator-${orchestratorName}` : undefined

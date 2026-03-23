@@ -57,7 +57,7 @@ export function getWorkspaceRepositories(workspacePath: string): Repository[] {
     const rows = ddb.select().from(repositoriesTable)
       .orderBy(asc(repositoriesTable.addedAt))
       .all()
-    return rows.map((row: any) => ({
+    return rows.map(row => ({
       name: row.name,
       path: row.path,
       type: (row.type || 'main') as 'main' | 'dependency',

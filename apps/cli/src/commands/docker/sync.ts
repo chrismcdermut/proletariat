@@ -1,7 +1,7 @@
 import { Command } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ContainerStorage } from '../../lib/execution/storage.js'
@@ -39,9 +39,9 @@ export default class DockerSync extends Command {
 
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    let db: SqliteDatabase
+    let db: Database.Database
     try {
-      db = new SqliteDatabase(dbPath)
+      db = new Database(dbPath)
     } catch {
       this.error('Could not open workspace database.')
     }

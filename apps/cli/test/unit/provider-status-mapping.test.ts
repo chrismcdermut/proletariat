@@ -1,9 +1,9 @@
 import { expect } from 'chai'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { ProviderStatusMappingStore } from '../../src/lib/providers/status-mapping.js'
 
-function createTestDb(): SqliteDatabase {
-  const db = new SqliteDatabase(':memory:')
+function createTestDb(): Database.Database {
+  const db = new Database(':memory:')
   db.exec(`
     CREATE TABLE pmo_provider_status_map (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,7 +19,7 @@ function createTestDb(): SqliteDatabase {
 }
 
 describe('ProviderStatusMappingStore', () => {
-  let db: SqliteDatabase
+  let db: Database.Database
   let store: ProviderStatusMappingStore
 
   beforeEach(() => {

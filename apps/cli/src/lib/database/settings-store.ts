@@ -9,7 +9,7 @@
  */
 
 import type { DatabaseDriver } from './driver.js'
-import { SqliteDatabase } from './sqlite.js'
+import Database from 'better-sqlite3'
 import { wrapDatabase } from './driver.js'
 
 const SETTINGS_TABLE = 'workspace_settings'
@@ -33,8 +33,8 @@ export class SettingsStore {
    * Accepts either a DatabaseDriver or a raw better-sqlite3 Database
    * (for backward compatibility during migration).
    */
-  constructor(driverOrDb: DatabaseDriver | SqliteDatabase) {
-    if (driverOrDb instanceof SqliteDatabase) {
+  constructor(driverOrDb: DatabaseDriver | Database.Database) {
+    if (driverOrDb instanceof Database) {
       this.driver = wrapDatabase(driverOrDb)
     } else {
       this.driver = driverOrDb
@@ -91,6 +91,6 @@ export class SettingsStore {
  * Create a SettingsStore from a raw better-sqlite3 Database.
  * Convenience function for backward compatibility.
  */
-export function createSettingsStore(db: SqliteDatabase): SettingsStore {
+export function createSettingsStore(db: Database.Database): SettingsStore {
   return new SettingsStore(db)
 }

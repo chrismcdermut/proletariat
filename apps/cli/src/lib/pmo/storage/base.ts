@@ -3,7 +3,7 @@
  * This module handles database setup and provides shared utilities.
  */
 
-import { SqliteDatabase } from '../../database/sqlite.js'
+import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StateCategory, TICKET_CATEGORIES, STATE_CATEGORY_ORDER } from '../types.js'
 import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
@@ -15,7 +15,7 @@ const T = PMO_TABLES
  * Initialize PMO tables in the database.
  * Runs migrations, creates tables, seeds built-in data, and validates schema.
  */
-export function initializePMOTables(db: SqliteDatabase): void {
+export function initializePMOTables(db: Database.Database): void {
   runMigrations(db)
   db.exec(PMO_SCHEMA_SQL)
   seedBuiltinWorkflows(db)  // Workflows are the source of truth for status configurations
@@ -32,7 +32,7 @@ export function initializePMOTables(db: SqliteDatabase): void {
 /**
  * Run schema migrations for existing databases.
  */
-export function runMigrations(db: SqliteDatabase): void {
+export function runMigrations(db: Database.Database): void {
   const tableExists = (name: string): boolean => {
     const result = db.prepare(`
       SELECT name FROM sqlite_master WHERE type='table' AND name=?
@@ -489,7 +489,7 @@ export function runMigrations(db: SqliteDatabase): void {
  * Seed built-in workflows from BUILTIN_TEMPLATES (single source of truth).
  * Creates workflows from template definitions for reuse across projects.
  */
-export function seedBuiltinWorkflows(db: SqliteDatabase): void {
+export function seedBuiltinWorkflows(db: Database.Database): void {
   const now = new Date().toISOString()
 
   const insertWorkflow = db.prepare(`
@@ -539,7 +539,7 @@ export function seedBuiltinWorkflows(db: SqliteDatabase): void {
 /**
  * Seed default project phases.
  */
-export function seedBuiltinPhases(db: SqliteDatabase): void {
+export function seedBuiltinPhases(db: Database.Database): void {
   const defaultPhases: Array<{
     id: string
     name: string
@@ -577,7 +577,7 @@ export function seedBuiltinPhases(db: SqliteDatabase): void {
 /**
  * Seed built-in phase templates.
  */
-export function seedBuiltinPhaseTemplates(db: SqliteDatabase): void {
+export function seedBuiltinPhaseTemplates(db: Database.Database): void {
   type TemplatePhase = {
     name: string
     category: StateCategory
@@ -730,7 +730,7 @@ const PRLT_COMMANDS_RESOLVE = `
 /**
  * Seed built-in work actions.
  */
-export function seedBuiltinActions(db: SqliteDatabase): void {
+export function seedBuiltinActions(db: Database.Database): void {
   const builtinActions = [
     {
       id: 'groom',
@@ -1204,7 +1204,7 @@ ${PRLT_COMMANDS_REVIEW}`,
  * Seed built-in workflow rules.
  * Wires default actions to standard Linear/kanban states.
  */
-export function seedBuiltinWorkflowRules(db: SqliteDatabase): void {
+export function seedBuiltinWorkflowRules(db: Database.Database): void {
   const builtinRules = [
     {
       id: 'backlog-groom',
@@ -1277,7 +1277,7 @@ export function seedBuiltinWorkflowRules(db: SqliteDatabase): void {
 /**
  * Seed built-in ticket templates.
  */
-export function seedBuiltinTicketTemplates(db: SqliteDatabase): void {
+export function seedBuiltinTicketTemplates(db: Database.Database): void {
   const builtinTemplates = [
     {
       id: 'bug-report',
@@ -1440,7 +1440,7 @@ Why is this refactor needed?
 /**
  * Seed built-in categories from TICKET_CATEGORIES and STATE_CATEGORY_ORDER.
  */
-export function seedBuiltinCategories(db: SqliteDatabase): void {
+export function seedBuiltinCategories(db: Database.Database): void {
   const insertCategory = db.prepare(`
     INSERT OR IGNORE INTO ${T.categories} (id, name, type, description, position, is_builtin, created_at)
     VALUES (?, ?, ?, ?, ?, 1, ?)
@@ -1490,7 +1490,7 @@ export function seedBuiltinCategories(db: SqliteDatabase): void {
  * Seed default priorities if not already set.
  * Preserves any existing user-defined priority scale.
  */
-export function seedDefaultPriorities(db: SqliteDatabase): void {
+export function seedDefaultPriorities(db: Database.Database): void {
   // getWorkspacePriorities returns DEFAULT_PRIORITIES if not set,
   // but we need to check if it's actually stored in the DB
   const row = db.prepare(
@@ -1508,7 +1508,7 @@ export function seedDefaultPriorities(db: SqliteDatabase): void {
  * Creates Function, Type, and Area groups with their labels.
  * Migrates existing ticket category values to Function labels.
  */
-export function seedBuiltinLabels(db: SqliteDatabase): void {
+export function seedBuiltinLabels(db: Database.Database): void {
   const now = new Date().toISOString()
 
   const insertGroup = db.prepare(`
@@ -1605,7 +1605,7 @@ export function seedBuiltinLabels(db: SqliteDatabase): void {
  * Maps known category names to function labels (e.g., 'ship' -> fn-ship).
  * This is idempotent - only creates associations that don't exist yet.
  */
-function migrateCategoryToFunctionLabels(db: SqliteDatabase): void {
+function migrateCategoryToFunctionLabels(db: Database.Database): void {
   // Map of old category values to function label IDs
   // The ticket's category field contains values like 'feature', 'bug', etc.
   // The diet system uses ship/grow/support/bizops/strategy which are different
@@ -1647,7 +1647,7 @@ function migrateCategoryToFunctionLabels(db: SqliteDatabase): void {
 /**
  * Update board timestamp for a project.
  */
-export function updateBoardTimestamp(db: SqliteDatabase, projectId: string): void {
+export function updateBoardTimestamp(db: Database.Database, projectId: string): void {
   db.prepare(`
     UPDATE ${T.projects}
     SET updated_at = ?
@@ -1658,7 +1658,7 @@ export function updateBoardTimestamp(db: SqliteDatabase, projectId: string): voi
 /**
  * Get max position for columns in a project.
  */
-export function getMaxColumnPosition(db: SqliteDatabase, projectId: string): number {
+export function getMaxColumnPosition(db: Database.Database, projectId: string): number {
   const result = db.prepare(`
     SELECT MAX(position) as max FROM ${T.columns}
     WHERE project_id = ?
@@ -1669,7 +1669,7 @@ export function getMaxColumnPosition(db: SqliteDatabase, projectId: string): num
 /**
  * Get max position for tickets in a column.
  */
-export function getMaxTicketPosition(db: SqliteDatabase, projectId: string, columnId: string): number {
+export function getMaxTicketPosition(db: Database.Database, projectId: string, columnId: string): number {
   const result = db.prepare(`
     SELECT MAX(position) as max FROM ${T.board_tickets}
     WHERE project_id = ? AND column_id = ?

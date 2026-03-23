@@ -1,6 +1,5 @@
 import { Flags } from '@oclif/core'
 import inquirer from 'inquirer'
-import type { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js'
 import {
@@ -230,7 +229,7 @@ export default class ShortcutConnect extends PMOCommand {
   private async handleCheck(
     flags: Record<string, unknown>,
     jsonMode: boolean,
-    db: SqliteDatabase,
+    db: import('better-sqlite3').Database,
   ): Promise<void> {
     if (!isShortcutConfigured(db)) {
       if (jsonMode) {

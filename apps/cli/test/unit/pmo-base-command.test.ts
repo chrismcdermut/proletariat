@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import { fileURLToPath } from 'node:url';
 import { PMOCommand, pmoBaseFlags } from '../../src/lib/pmo/index.js';
 import { PMO_SCHEMA_SQL } from '../../src/lib/pmo/schema.js';
@@ -19,7 +19,7 @@ describe('PMO Base Command', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(async () => {
     originalCwd = process.cwd();
@@ -31,7 +31,7 @@ describe('PMO Base Command', () => {
     fs.mkdirSync(proletariatDir, { recursive: true });
     dbPath = path.join(proletariatDir, 'workspace.db');
 
-    db = new SqliteDatabase(dbPath);
+    db = new Database(dbPath);
     setupTestDatabase(db);
   });
 
@@ -298,7 +298,7 @@ describe('PMO Base Command', () => {
 });
 
 // Helper functions
-function setupTestDatabase(db: SqliteDatabase) {
+function setupTestDatabase(db: Database.Database) {
   // Use actual PMO schema from the single source of truth
   db.exec(PMO_SCHEMA_SQL);
 

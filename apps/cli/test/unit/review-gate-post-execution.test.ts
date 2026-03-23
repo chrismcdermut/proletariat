@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { PMO_TABLE_SCHEMAS } from '../../src/lib/pmo/schema.js'
 import { setReviewGateSetting } from '../../src/lib/pmo/utils.js'
 import {
@@ -16,7 +16,7 @@ import {
  * - PR requirement (auto mode skips PR check)
  */
 describe('Review Gate — Post-Execution Transition', () => {
-  let db: SqliteDatabase
+  let db: Database.Database
 
   // In-memory ticket store for tests
   let tickets: Record<string, {
@@ -53,7 +53,7 @@ describe('Review Gate — Post-Execution Transition', () => {
   }
 
   beforeEach(() => {
-    db = new SqliteDatabase(':memory:')
+    db = new Database(':memory:')
     db.exec(PMO_TABLE_SCHEMAS.settings)
 
     // Set up column settings

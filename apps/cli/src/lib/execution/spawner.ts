@@ -8,7 +8,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
 import { getWorkColumnSetting, findColumnByName, resolveExternalTicketId } from '../pmo/utils.js'
@@ -309,7 +309,7 @@ export async function spawnAgentForTicket(
   storage: SQLiteStorage,
   executionStorage: ExecutionStorage,
   workspaceInfo: WorkspaceInfo,
-  db: SqliteDatabase,
+  db: Database.Database,
   pmoPath: string,
   options: SpawnOptions = {}
 ): Promise<SpawnResult> {
@@ -753,7 +753,7 @@ export async function spawnForColumn(
   storage: SQLiteStorage,
   executionStorage: ExecutionStorage,
   workspaceInfo: WorkspaceInfo,
-  db: SqliteDatabase,
+  db: Database.Database,
   pmoPath: string,
   options: {
     strategy?: AgentStrategy

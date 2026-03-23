@@ -5,13 +5,13 @@
  * columns for worktree status tracking.
  */
 
-import type { SqliteDatabase } from '../sqlite.js'
+import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 
 export const addWorktreeColumns: Migration = {
   id: '0007',
   name: 'add_worktree_columns',
-  up: (db: SqliteDatabase) => {
+  up: (db: Database.Database) => {
     const tableExists = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_worktrees'"
     ).get()

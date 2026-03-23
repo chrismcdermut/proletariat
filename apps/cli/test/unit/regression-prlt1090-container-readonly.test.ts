@@ -9,7 +9,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { openWorkspaceDatabase } from '../../src/lib/database/workspace.js'
 import { runDrizzleMigrations } from '../../src/lib/database/migrator.js'
 import { ALL_MIGRATIONS } from '../../src/lib/database/migrations/index.js'
@@ -32,7 +32,7 @@ describe('PRLT-1090: container read-only database access', () => {
     fs.mkdirSync(proletariatDir, { recursive: true })
 
     const dbPath = path.join(proletariatDir, 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = new Database(dbPath)
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
     runDrizzleMigrations(db, ALL_MIGRATIONS)
@@ -112,7 +112,7 @@ describe('PRLT-1090: container read-only database access', () => {
     fs.mkdirSync(proletariatDir, { recursive: true })
 
     const dbPath = path.join(proletariatDir, 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = new Database(dbPath)
     db.pragma('journal_mode = delete')
     db.pragma('foreign_keys = ON')
     runDrizzleMigrations(db, ALL_MIGRATIONS)

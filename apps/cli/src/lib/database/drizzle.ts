@@ -2,45 +2,51 @@
  * Drizzle ORM Database Connection
  *
  * This module provides type-safe database connections using Drizzle ORM
- * with sql.js as the underlying driver.
+ * with better-sqlite3 as the underlying driver.
  */
 
-import { drizzle } from 'drizzle-orm/sql-js'
-import type { SQLJsDatabase as DrizzleSqlJsDatabase } from 'drizzle-orm/sql-js'
-import { SqliteDatabase } from './sqlite.js'
+import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import Database from 'better-sqlite3'
 import * as schema from './drizzle-schema.js'
+import { throwIfNativeBindingError } from './native-validation.js'
 
-export type DrizzleDB = DrizzleSqlJsDatabase<typeof schema>
+export type DrizzleDB = BetterSQLite3Database<typeof schema>
 
 /**
- * Create a Drizzle database connection from an existing SqliteDatabase.
+ * Create a Drizzle database connection from an existing better-sqlite3 database.
  * This allows gradual migration by wrapping existing database connections.
  */
-export function createDrizzleConnection(db: SqliteDatabase): DrizzleDB {
-  return drizzle(db.rawDatabase, { schema })
+export function createDrizzleConnection(db: Database.Database): DrizzleDB {
+  return drizzle(db, { schema })
 }
 
 /**
  * Create a new Drizzle database connection from a file path.
  * Configures pragmas for optimal performance and reliability.
  */
-export function openDrizzleDatabase(dbPath: string): { db: DrizzleDB; sqliteDb: SqliteDatabase } {
-  const sqliteDb = new SqliteDatabase(dbPath)
+export function openDrizzleDatabase(dbPath: string): { db: DrizzleDB; sqliteDb: Database.Database } {
+  let sqliteDb: Database.Database
+  try {
+    sqliteDb = new Database(dbPath)
+  } catch (error) {
+    throwIfNativeBindingError(error, 'openDrizzleDatabase')
+    throw error
+  }
 
   // Configure pragmas
   sqliteDb.pragma('foreign_keys = ON')
-  sqliteDb.pragma('busy_timeout = 5000')
+  sqliteDb.pragma('busy_timeout = 5000') // Wait up to 5 seconds if database is locked
 
-  const db = drizzle(sqliteDb.rawDatabase, { schema })
+  const db = drizzle(sqliteDb, { schema })
 
   return { db, sqliteDb }
 }
 
 /**
  * Close a Drizzle database connection.
- * Closes the underlying SqliteDatabase, which also saves changes to disk.
+ * Since Drizzle wraps better-sqlite3, we need to close the underlying connection.
  */
-export function closeDrizzleDatabase(sqliteDb: SqliteDatabase): void {
+export function closeDrizzleDatabase(sqliteDb: Database.Database): void {
   sqliteDb.close()
 }
 

@@ -3,7 +3,7 @@ import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard, type Ticket } from '../../lib/pmo/index.js'
 import { trackAgentSpawned, trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 import { enrichAgentSession } from '../../lib/telemetry/telemetry-bridge.js'
@@ -399,7 +399,7 @@ export default class WorkStart extends PMOCommand {
     })
   }
 
-  private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope, db: SqliteDatabase): Promise<Ticket> {
+  private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope, db: Database.Database): Promise<Ticket> {
     const existing = await this.findLinkedTicketByEnvelope(projectId, envelope)
     const description = buildExternalTicketDescription(envelope)
     const metadata = buildExternalMetadata(envelope)
@@ -451,7 +451,7 @@ export default class WorkStart extends PMOCommand {
   private async fetchExternalIssue(
     source: IssueSource,
     key: string,
-    db: SqliteDatabase,
+    db: Database.Database,
   ): Promise<NormalizedIssueEnvelope | null> {
     switch (source) {
       case 'jira': return getJiraIssueByKey({}, key)
@@ -471,7 +471,7 @@ export default class WorkStart extends PMOCommand {
     input: {
       source?: string
       key?: string
-      db?: SqliteDatabase
+      db?: Database.Database
     },
     jsonMode: boolean,
   ): Promise<{ source: IssueSource; key: string; sourceResolution: { method: string; provider: string } }> {
@@ -606,7 +606,7 @@ export default class WorkStart extends PMOCommand {
 
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = new Database(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     try {
@@ -2578,7 +2578,7 @@ export default class WorkStart extends PMOCommand {
    */
   private async runBatchMode(
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
-    db: SqliteDatabase,
+    db: Database.Database,
     executionStorage: ExecutionStorage,
     flags: { display?: string; executor?: string; 'vm-host'?: string; 'run-on-host': boolean; force: boolean; 'permission-mode'?: string; json?: boolean }
   ): Promise<void> {
@@ -2927,7 +2927,7 @@ export default class WorkStart extends PMOCommand {
     agent: { name: string },
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
     executionStorage: ExecutionStorage,
-    db: SqliteDatabase,
+    db: Database.Database,
     flags: {
       force?: boolean
       'run-on-host'?: boolean

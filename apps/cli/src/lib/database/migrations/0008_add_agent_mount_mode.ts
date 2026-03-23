@@ -5,13 +5,13 @@
  * Defaults to 'worktree' for backward compatibility.
  */
 
-import type { SqliteDatabase } from '../sqlite.js'
+import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 
 export const addAgentMountMode: Migration = {
   id: '0008',
   name: 'add_agent_mount_mode',
-  up: (db: SqliteDatabase) => {
+  up: (db: Database.Database) => {
     const tableInfo = db.prepare("PRAGMA table_info(agents)").all() as { name: string }[]
     if (tableInfo.some(col => col.name === 'mount_mode')) {
       return // Column already exists

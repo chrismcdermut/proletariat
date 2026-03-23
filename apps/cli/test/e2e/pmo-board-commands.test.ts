@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import { execInProcess } from './test-helpers.js';
 
 /**
@@ -25,7 +25,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
   let dbPath: string;
   let pmoPath: string;
   let boardPath: string;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     originalCwd = process.cwd();
@@ -44,7 +44,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
     boardPath = path.join(projectPath, 'board.md');
 
     // Initialize test database with schema
-    db = new SqliteDatabase(dbPath);
+    db = new Database(dbPath);
     setupTestDatabase(db, testDir);
   });
 
@@ -213,7 +213,7 @@ describe.skip('PMO Board Commands Integration Tests', () => {
 });
 
 // Helper functions
-function setupTestDatabase(db: SqliteDatabase, _testDir: string) {
+function setupTestDatabase(db: Database.Database, _testDir: string) {
   // Create PMO tables
   db.exec(`
     CREATE TABLE IF NOT EXISTS pmo_settings (
@@ -338,7 +338,7 @@ function setupTestDatabase(db: SqliteDatabase, _testDir: string) {
 }
 
 function createTestTicket(
-  db: SqliteDatabase,
+  db: Database.Database,
   id: string,
   title: string,
   columnId: string,

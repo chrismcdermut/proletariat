@@ -5,13 +5,13 @@
  * Values: 'required' | 'auto' | 'post' | NULL (use workspace default).
  */
 
-import type { SqliteDatabase } from '../sqlite.js'
+import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 
 export const addReviewGate: Migration = {
   id: '0011',
   name: 'add_review_gate',
-  up: (db: SqliteDatabase) => {
+  up: (db: Database.Database) => {
     const tableExists = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_actions'"
     ).get()

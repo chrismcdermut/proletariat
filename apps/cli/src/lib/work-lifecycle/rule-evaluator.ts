@@ -9,7 +9,7 @@
  * For manual rules, the match is logged but no action is auto-fired.
  */
 
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import { getEventBus } from '../events/event-bus.js'
 import type { TicketStatusChangedEvent } from '../events/events.js'
 import { PMO_TABLES } from '../pmo/schema.js'
@@ -26,9 +26,9 @@ interface WorkflowRuleRow {
 
 export class WorkflowRuleEvaluator {
   private unsubscribers: Array<() => void> = []
-  private db: SqliteDatabase
+  private db: Database.Database
 
-  constructor(db: SqliteDatabase) {
+  constructor(db: Database.Database) {
     this.db = db
   }
 
@@ -109,7 +109,7 @@ let _evaluator: WorkflowRuleEvaluator | undefined
  * Initialize and start the workflow rule evaluator.
  * Safe to call multiple times — subsequent calls are no-ops.
  */
-export function initWorkflowRuleEvaluator(db: SqliteDatabase): WorkflowRuleEvaluator {
+export function initWorkflowRuleEvaluator(db: Database.Database): WorkflowRuleEvaluator {
   if (!_evaluator) {
     _evaluator = new WorkflowRuleEvaluator(db)
     _evaluator.start()

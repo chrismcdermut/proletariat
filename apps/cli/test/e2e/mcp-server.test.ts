@@ -9,7 +9,7 @@ import { expect } from 'chai';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,7 +75,7 @@ describe('MCP Server E2E Tests', function (this: Mocha.Suite) {
   this.timeout(30000);
 
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
   const cliDir = path.join(__dirname, '../..');
   const binPath = path.join(cliDir, 'bin/run.js');
 

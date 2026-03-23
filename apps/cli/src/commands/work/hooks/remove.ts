@@ -1,6 +1,6 @@
 import { Args } from '@oclif/core'
 import * as path from 'node:path'
-import { SqliteDatabase } from '../../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { getWorkspaceInfo } from '../../../lib/agents/commands.js'
@@ -47,7 +47,7 @@ export default class WorkHooksRemove extends PMOCommand {
     }
 
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = new Database(dbPath)
 
     try {
       const hookStorage = new WorkHookStorage(db)

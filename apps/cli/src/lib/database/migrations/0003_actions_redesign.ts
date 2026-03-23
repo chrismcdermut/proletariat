@@ -12,7 +12,7 @@
  * SQLite doesn't support DROP COLUMN before 3.35.0, so we recreate the table.
  */
 
-import type { SqliteDatabase } from '../sqlite.js'
+import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 
 /**
@@ -34,7 +34,7 @@ function categoryToStateName(category: string): string {
 export const actionsRedesign: Migration = {
   id: '0003',
   name: 'actions_redesign',
-  up: (db: SqliteDatabase) => {
+  up: (db: Database.Database) => {
     // Check if pmo_actions table exists
     const tableExists = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_actions'"

@@ -5,13 +5,13 @@
  * without the column. Safe to run on databases where the column never existed.
  */
 
-import type { SqliteDatabase } from '../sqlite.js'
+import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 
 export const dropThemeNamesUsed: Migration = {
   id: '0006',
   name: 'drop_theme_names_used',
-  up: (db: SqliteDatabase) => {
+  up: (db: Database.Database) => {
     const tableInfo = db.prepare("PRAGMA table_info(agent_theme_names)").all() as { name: string }[]
     if (!tableInfo.some(col => col.name === 'used')) {
       return // Column doesn't exist, nothing to do

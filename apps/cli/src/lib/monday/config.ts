@@ -1,4 +1,4 @@
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import type { MondayConfig } from './types.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
@@ -10,11 +10,11 @@ const MONDAY_CONFIG_KEYS = {
   accountName: 'monday.account_name',
 } as const
 
-export function isMondayConfigured(db: SqliteDatabase): boolean {
+export function isMondayConfigured(db: Database.Database): boolean {
   return new SettingsStore(db).has(MONDAY_CONFIG_KEYS.apiToken)
 }
 
-export function loadMondayConfig(db: SqliteDatabase): MondayConfig | null {
+export function loadMondayConfig(db: Database.Database): MondayConfig | null {
   const settings = new SettingsStore(db)
   const apiToken = settings.get(MONDAY_CONFIG_KEYS.apiToken)
   if (!apiToken) return null
@@ -27,28 +27,28 @@ export function loadMondayConfig(db: SqliteDatabase): MondayConfig | null {
   }
 }
 
-export function saveMondayApiToken(db: SqliteDatabase, apiToken: string): void {
+export function saveMondayApiToken(db: Database.Database, apiToken: string): void {
   new SettingsStore(db).set(MONDAY_CONFIG_KEYS.apiToken, apiToken)
 }
 
-export function saveMondayBoard(db: SqliteDatabase, boardId: string, boardName: string): void {
+export function saveMondayBoard(db: Database.Database, boardId: string, boardName: string): void {
   const settings = new SettingsStore(db)
   settings.set(MONDAY_CONFIG_KEYS.boardId, boardId)
   settings.set(MONDAY_CONFIG_KEYS.boardName, boardName)
 }
 
-export function saveMondayAccountName(db: SqliteDatabase, accountName: string): void {
+export function saveMondayAccountName(db: Database.Database, accountName: string): void {
   new SettingsStore(db).set(MONDAY_CONFIG_KEYS.accountName, accountName)
 }
 
-export function clearMondayConfig(db: SqliteDatabase): void {
+export function clearMondayConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(MONDAY_CONFIG_KEYS)) {
     settings.delete(key)
   }
 }
 
-export function getMondayApiToken(db: SqliteDatabase): string | null {
+export function getMondayApiToken(db: Database.Database): string | null {
   try {
     const sources = loadProviderSources(db)
     for (const source of sources) {
@@ -67,7 +67,7 @@ export function getMondayApiToken(db: SqliteDatabase): string | null {
   return new SettingsStore(db).get(MONDAY_CONFIG_KEYS.apiToken)
 }
 
-export function getMondayBoardId(db: SqliteDatabase): string | null {
+export function getMondayBoardId(db: Database.Database): string | null {
   const envBoardId = process.env.PRLT_MONDAY_BOARD_ID || process.env.MONDAY_BOARD_ID
   if (envBoardId) return envBoardId
 
