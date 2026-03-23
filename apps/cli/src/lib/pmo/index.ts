@@ -536,7 +536,7 @@ export function hasPMO(hqPath: string): boolean {
   }
 
   try {
-    const db = new SqliteDatabase(dbPath);
+    const db = SqliteDatabase.open(dbPath);
     const result = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
     ).get();

@@ -294,7 +294,7 @@ export default class OrchestratorAttach extends PromptCommand {
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      const db = new SqliteDatabase(dbPath)
+      const db = SqliteDatabase.open(dbPath)
       try {
         const config = loadExecutionConfig(db)
         const termApp = detectTerminalApp()

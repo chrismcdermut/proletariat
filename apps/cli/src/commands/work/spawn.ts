@@ -941,7 +941,7 @@ export default class WorkSpawn extends PMOCommand {
 
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = SqliteDatabase.open(dbPath)
 
     try {
       // Get board to list available columns

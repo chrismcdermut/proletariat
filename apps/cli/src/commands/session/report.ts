@@ -86,7 +86,7 @@ export default class SessionReport extends PMOCommand {
 
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = SqliteDatabase.open(dbPath)
     const executionStorage = new ExecutionStorage(db)
     let needsSelfTerminate = false
 

@@ -265,7 +265,7 @@ Clean up your tmux session when done.`,
 
     // Open database
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = SqliteDatabase.open(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     try {

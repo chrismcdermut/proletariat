@@ -122,8 +122,9 @@ export class SQLiteStorage implements PMOStorage {
   constructor(dbPath: string) {
     this.dbPath = dbPath
 
-    // Open database (creates if doesn't exist)
-    this.db = new SqliteDatabase(dbPath)
+    // Open shared database connection (PRLT-1100: prevents duplicate WASM allocations
+    // when multiple subsystems access the same workspace.db)
+    this.db = SqliteDatabase.open(dbPath)
     this.db.pragma('foreign_keys = ON')
 
     // Create DatabaseDriver abstraction

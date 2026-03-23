@@ -118,7 +118,7 @@ export default class Docker extends PromptCommand {
     try {
       workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new SqliteDatabase(dbPath)
+      db = SqliteDatabase.open(dbPath)
       executionStorage = new ExecutionStorage(db)
       containerStorage = new ContainerStorage(db)
     } catch {

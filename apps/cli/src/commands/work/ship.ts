@@ -123,7 +123,7 @@ export default class WorkShip extends PMOCommand {
     }
 
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
-    const db = new SqliteDatabase(dbPath);
+    const db = SqliteDatabase.open(dbPath);
     const executionStorage = new ExecutionStorage(db);
 
     try {

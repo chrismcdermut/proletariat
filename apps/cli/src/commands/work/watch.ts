@@ -126,7 +126,7 @@ export default class WorkWatch extends PMOCommand {
 
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = SqliteDatabase.open(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     // Register graceful shutdown via centralized signal handler

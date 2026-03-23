@@ -78,7 +78,7 @@ export default class McpServerCommand extends Command {
       const workspaceInfo = getWorkspaceInfo()
       if (workspaceInfo && pmoContext) {
         const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-        const db = new SqliteDatabase(dbPath)
+        const db = SqliteDatabase.open(dbPath)
         const executionStorage = new ExecutionStorage(db)
         workspaceContext = {
           workspaceInfo,

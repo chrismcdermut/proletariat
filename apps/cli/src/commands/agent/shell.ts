@@ -308,7 +308,7 @@ export default class Shell extends PMOCommand {
     } else {
       // Open in new terminal window using the same method as work start
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-      const db = new SqliteDatabase(dbPath);
+      const db = SqliteDatabase.open(dbPath);
 
       try {
         const terminalApp = await getTerminalApp(db);
@@ -378,7 +378,7 @@ exec bash
     } else {
       // Open in new terminal window
       const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-      const db = new SqliteDatabase(dbPath);
+      const db = SqliteDatabase.open(dbPath);
 
       try {
         const terminalApp = await getTerminalApp(db);

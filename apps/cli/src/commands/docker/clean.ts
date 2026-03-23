@@ -75,7 +75,7 @@ export default class DockerClean extends Command {
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     let db: SqliteDatabase
     try {
-      db = new SqliteDatabase(dbPath)
+      db = SqliteDatabase.open(dbPath)
     } catch {
       if (shouldOutputJson(flags)) {
         outputErrorAsJson('DB_ERROR', 'Could not open workspace database.', createMetadata('docker clean', flags))

@@ -295,7 +295,7 @@ export default class SessionPoke extends PromptCommand {
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new SqliteDatabase(dbPath)
+      db = SqliteDatabase.open(dbPath)
       executionStorage = new ExecutionStorage(db)
     } catch {
       if (jsonMode) {

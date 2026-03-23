@@ -141,7 +141,7 @@ export default class Open extends PromptCommand {
     let db: SqliteDatabase | null = null;
     try {
       if (fs.existsSync(dbPath)) {
-        db = new SqliteDatabase(dbPath);
+        db = SqliteDatabase.open(dbPath);
         const savedConfig = loadExecutionConfig(db);
         executionConfig.terminal = savedConfig.terminal;
         executionConfig.shell = savedConfig.shell;

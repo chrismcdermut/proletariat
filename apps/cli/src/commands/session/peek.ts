@@ -238,7 +238,7 @@ export default class SessionPeek extends PMOCommand {
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new SqliteDatabase(dbPath)
+      db = SqliteDatabase.open(dbPath)
       const executionStorage = new ExecutionStorage(db)
       const execution = executionStorage.getExecution(executionId)
 
@@ -432,7 +432,7 @@ export default class SessionPeek extends PMOCommand {
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new SqliteDatabase(dbPath)
+      db = SqliteDatabase.open(dbPath)
       executionStorage = new ExecutionStorage(db)
     } catch {
       // Not in workspace — can still discover tmux sessions

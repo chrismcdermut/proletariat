@@ -153,7 +153,7 @@ export default class SessionAttach extends PMOCommand {
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      const db = new SqliteDatabase(dbPath)
+      const db = SqliteDatabase.open(dbPath)
       try {
         const config = loadExecutionConfig(db)
         const termApp = detectTerminalApp()
@@ -189,7 +189,7 @@ export default class SessionAttach extends PMOCommand {
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new SqliteDatabase(dbPath)
+      db = SqliteDatabase.open(dbPath)
       executionStorage = new ExecutionStorage(db)
     } catch {
       // Not in workspace, but we can still discover tmux sessions

@@ -72,7 +72,7 @@ export default class WorkStop extends PMOCommand {
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     let db: SqliteDatabase
     try {
-      db = new SqliteDatabase(dbPath)
+      db = SqliteDatabase.open(dbPath)
     } catch {
       return handleError('DB_ERROR', 'Could not open workspace database.')
     }

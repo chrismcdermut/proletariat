@@ -309,7 +309,7 @@ export default class BranchCreate extends PMOCommand {
       const dbPath = path.join(currentDir, '.proletariat', 'workspace.db')
       if (fs.existsSync(dbPath)) {
         try {
-          const db = new SqliteDatabase(dbPath)
+          const db = SqliteDatabase.open(dbPath)
           const coderName = getCoderName(db)
           db.close()
           if (coderName) {

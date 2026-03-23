@@ -549,7 +549,7 @@ export default class OrchestratorStart extends PromptCommand {
       if (fs.existsSync(dbPath)) {
         let db: SqliteDatabase | null = null
         try {
-          db = new SqliteDatabase(dbPath)
+          db = SqliteDatabase.open(dbPath)
           const row = db.prepare('SELECT prompt, name FROM actions WHERE id = ? OR name = ?').get(flags.action, flags.action) as { prompt: string; name: string } | undefined
           if (row) {
             actionPrompt = row.prompt
@@ -596,7 +596,7 @@ export default class OrchestratorStart extends PromptCommand {
     let db: SqliteDatabase | null = null
     try {
       if (fs.existsSync(dbPath)) {
-        db = new SqliteDatabase(dbPath)
+        db = SqliteDatabase.open(dbPath)
         const savedConfig = loadExecutionConfig(db)
         executionConfig.terminal = savedConfig.terminal
         executionConfig.shell = savedConfig.shell

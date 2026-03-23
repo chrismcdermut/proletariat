@@ -52,7 +52,7 @@ export default class Auth extends PromptCommand {
       const hqPath = findHQRoot();
       if (!hqPath) return null;
       const dbPath = getWorkspaceDbPath(hqPath);
-      const db = new SqliteDatabase(dbPath);
+      const db = SqliteDatabase.open(dbPath);
       db.pragma('foreign_keys = ON');
       return db;
     } catch {

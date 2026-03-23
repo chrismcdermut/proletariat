@@ -230,7 +230,7 @@ export default class OrchestratorStop extends PromptCommand {
       if (fs.existsSync(dbPath)) {
         let db: SqliteDatabase | null = null
         try {
-          db = new SqliteDatabase(dbPath)
+          db = SqliteDatabase.open(dbPath)
           const executionStorage = new ExecutionStorage(db)
           // Match new format: orchestrator-{name}
           const agentNameToMatch = orchestratorName ? `orchestrator-${orchestratorName}` : undefined

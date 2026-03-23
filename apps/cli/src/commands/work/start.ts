@@ -604,9 +604,11 @@ export default class WorkStart extends PMOCommand {
       return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.')
     }
 
-    // Open database for execution storage
+    // Open shared database for execution storage (PRLT-1100: shares the same WASM
+    // instance as PMO storage, preventing duplicate memory allocations and
+    // ping-pong reload cycles that caused OOM during work start)
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = SqliteDatabase.open(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     try {

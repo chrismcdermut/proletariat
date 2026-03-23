@@ -69,7 +69,7 @@ export default class DockerShell extends Command {
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     let db: SqliteDatabase
     try {
-      db = new SqliteDatabase(dbPath)
+      db = SqliteDatabase.open(dbPath)
     } catch {
       this.error('Could not open workspace database.')
     }

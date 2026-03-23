@@ -529,7 +529,7 @@ export default class Claude extends PromptCommand {
 
     // Open database
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = SqliteDatabase.open(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     try {

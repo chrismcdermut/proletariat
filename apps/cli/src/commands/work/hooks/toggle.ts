@@ -64,7 +64,7 @@ export default class WorkHooksToggle extends PMOCommand {
     }
 
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = SqliteDatabase.open(dbPath)
 
     try {
       const hookStorage = new WorkHookStorage(db)

@@ -79,7 +79,7 @@ export default class Config extends PromptCommand {
 
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = SqliteDatabase.open(dbPath)
 
     try {
       // Load current config
