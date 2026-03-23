@@ -165,7 +165,7 @@ export class ProjectStorage {
 
     // Build columns from statuses, with tickets sorted by priority then created_at
     const columns: Column[] = await Promise.all(
-      statusRows.map(async (status) => ({
+      statusRows.map(async (status: any) => ({
         id: status.id,
         name: status.name,
         position: status.position,
@@ -280,7 +280,7 @@ export class ProjectStorage {
       .all()
 
     const columns: Column[] = await Promise.all(
-      statusRows.map(async (status) => ({
+      statusRows.map(async (status: any) => ({
         id: status.id,
         name: status.name,
         position: status.position,
@@ -364,7 +364,7 @@ export class ProjectStorage {
       .orderBy(asc(pmoProjects.createdAt))
       .all()
 
-    return projects.map((p) => ({
+    return projects.map((p: any) => ({
       id: p.id,
       name: p.name,
       template: p.template,
@@ -391,7 +391,7 @@ export class ProjectStorage {
       const result = this.ctx.drizzle
         .delete(pmoProjects)
         .where(eq(pmoProjects.id, resolvedId))
-        .run()
+        .run() as any
 
       if (result.changes === 0) {
         throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}`)
@@ -497,7 +497,7 @@ export class ProjectStorage {
       .orderBy(desc(pmoProjects.updatedAt))
       .all()
 
-    return rows.map((row) => this.rowToProject(row))
+    return rows.map((row: any) => this.rowToProject(row))
   }
 
   /**

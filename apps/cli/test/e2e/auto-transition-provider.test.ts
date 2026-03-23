@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -103,7 +103,7 @@ function createMockStorage(overrides?: {
 
 describe('Auto-Transition Provider Resolution (PRLT-1003)', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
     env = createTestEnvironment('auto-transition-')

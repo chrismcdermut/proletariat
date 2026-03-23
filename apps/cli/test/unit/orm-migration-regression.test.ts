@@ -20,7 +20,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 
 describe('ORM Migration Regression Suite', () => {
@@ -31,7 +31,7 @@ describe('ORM Migration Regression Suite', () => {
   beforeEach(async () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orm-regression-'));
     const dbPath = path.join(testDir, 'regression.db');
-    const db = new Database(dbPath);
+    const db = new SqliteDatabase(dbPath);
     db.close();
 
     storage = new SQLiteStorage(dbPath);

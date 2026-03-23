@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   execInProcess,
   cleanupTestEnvironment,
@@ -19,7 +19,7 @@ const T = PMO_TABLES;
 describe('Ticket Resolve Commands E2E Tests', () => {
   let template: TemplateTestEnvironment;
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
   let projectId: string;
 
   before(() => {

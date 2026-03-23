@@ -16,7 +16,7 @@
  * 2. Category-based matching (e.g., 'started' category)
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import type { StateCategory } from '../pmo/types.js'
 import type { TicketProviderName } from './types.js'
 
@@ -32,7 +32,7 @@ export interface StatusMapping {
  * Provides CRUD operations for status mappings per provider.
  */
 export class ProviderStatusMappingStore {
-  constructor(private db: Database.Database) {}
+  constructor(private db: SqliteDatabase) {}
 
   /**
    * Get the canonical status for a provider-specific status.

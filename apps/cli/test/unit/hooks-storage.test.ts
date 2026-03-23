@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   WorkHookStorage,
   ensureHooksTable,
@@ -15,11 +15,11 @@ import { HOOKABLE_EVENTS } from '../../src/lib/work-lifecycle/hooks/types.js'
  */
 
 describe('WorkHookStorage (TKT-140)', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
   let storage: WorkHookStorage
 
   beforeEach(() => {
-    db = new Database(':memory:')
+    db = new SqliteDatabase(':memory:')
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
     storage = new WorkHookStorage(db)
@@ -34,7 +34,7 @@ describe('WorkHookStorage (TKT-140)', () => {
   // =========================================================================
   describe('ensureHooksTable', () => {
     it('should create the table if it does not exist', () => {
-      const freshDb = new Database(':memory:')
+      const freshDb = new SqliteDatabase(':memory:')
       ensureHooksTable(freshDb)
       const tables = freshDb.prepare(
         `SELECT name FROM sqlite_master WHERE type='table' AND name=?`

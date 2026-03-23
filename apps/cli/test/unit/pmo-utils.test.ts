@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { slugify, formatDate, formatTimestamp, parseDate, deepClone, arraysEqual, DEFAULT_WORK_COLUMNS, getWorkColumnSetting } from '../../src/lib/pmo/utils.js';
 import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js';
 
@@ -133,7 +133,7 @@ describe('@smoke PMO Utils', () => {
 
   describe('getWorkColumnSetting', () => {
     let fastDb: FastTestDb;
-    let db: Database.Database;
+    let db: SqliteDatabase;
 
     before(() => {
       fastDb = createFastTestDb((db) => {

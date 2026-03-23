@@ -4,7 +4,7 @@
  * Stores Linear credentials and preferences in the workspace_settings table.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import type { LinearConfig } from './types.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
@@ -23,7 +23,7 @@ const LINEAR_CONFIG_KEYS = {
 /**
  * Check if Linear is configured (API key is stored).
  */
-export function isLinearConfigured(db: Database.Database): boolean {
+export function isLinearConfigured(db: SqliteDatabase): boolean {
   const settings = new SettingsStore(db)
   return settings.has(LINEAR_CONFIG_KEYS.apiKey)
 }
@@ -32,7 +32,7 @@ export function isLinearConfigured(db: Database.Database): boolean {
  * Load Linear configuration from the database.
  * Returns null if not configured.
  */
-export function loadLinearConfig(db: Database.Database): LinearConfig | null {
+export function loadLinearConfig(db: SqliteDatabase): LinearConfig | null {
   const settings = new SettingsStore(db)
   const apiKey = settings.get(LINEAR_CONFIG_KEYS.apiKey)
   if (!apiKey) return null
@@ -48,14 +48,14 @@ export function loadLinearConfig(db: Database.Database): LinearConfig | null {
 /**
  * Save Linear API key to the database.
  */
-export function saveLinearApiKey(db: Database.Database, apiKey: string): void {
+export function saveLinearApiKey(db: SqliteDatabase, apiKey: string): void {
   new SettingsStore(db).set(LINEAR_CONFIG_KEYS.apiKey, apiKey)
 }
 
 /**
  * Save the default team for Linear operations.
  */
-export function saveLinearDefaultTeam(db: Database.Database, teamId: string, teamKey: string): void {
+export function saveLinearDefaultTeam(db: SqliteDatabase, teamId: string, teamKey: string): void {
   const settings = new SettingsStore(db)
   settings.set(LINEAR_CONFIG_KEYS.defaultTeamId, teamId)
   settings.set(LINEAR_CONFIG_KEYS.defaultTeamKey, teamKey)
@@ -64,14 +64,14 @@ export function saveLinearDefaultTeam(db: Database.Database, teamId: string, tea
 /**
  * Save the organization name.
  */
-export function saveLinearOrganization(db: Database.Database, name: string): void {
+export function saveLinearOrganization(db: SqliteDatabase, name: string): void {
   new SettingsStore(db).set(LINEAR_CONFIG_KEYS.organizationName, name)
 }
 
 /**
  * Clear all Linear configuration from the database.
  */
-export function clearLinearConfig(db: Database.Database): void {
+export function clearLinearConfig(db: SqliteDatabase): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(LINEAR_CONFIG_KEYS)) {
     settings.delete(key)
@@ -87,7 +87,7 @@ export function clearLinearConfig(db: Database.Database): void {
  * 2. Legacy fallback: PRLT_LINEAR_API_KEY or LINEAR_API_KEY environment variables
  * 3. Legacy fallback: workspace_settings key 'linear.api_key'
  */
-export function getLinearApiKey(db: Database.Database): string | null {
+export function getLinearApiKey(db: SqliteDatabase): string | null {
   // 1. Try provider sources (supports custom apiKeyRef per source)
   try {
     const sources = loadProviderSources(db)

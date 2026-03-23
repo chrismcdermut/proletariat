@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   execInProcess,
   createTestEnvironment,
@@ -29,7 +29,7 @@ interface BranchInfo {
  */
 describe('Branch Commands E2E Tests', () => {
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     env = createTestEnvironment('branch-e2e-');

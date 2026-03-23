@@ -190,8 +190,10 @@ export function tryAddEphemeralAgentToDatabase(
     if (!agent) return null
     return toAgent(agent)
   } catch (err: unknown) {
-    const sqliteErr = err as { code?: string }
-    if (sqliteErr.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || sqliteErr.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    // sql.js throws plain Error with constraint message (no .code property like better-sqlite3)
+    const sqliteErr = err as { code?: string; message?: string }
+    if (sqliteErr.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || sqliteErr.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+        (sqliteErr.message && sqliteErr.message.includes('UNIQUE constraint failed'))) {
       return null
     }
     throw err
@@ -209,7 +211,7 @@ export function getEphemeralAgentNames(workspacePath: string): Set<string> {
       .from(agentsTable)
       .where(eq(agentsTable.type, 'ephemeral'))
       .all()
-    return new Set(rows.map(a => a.name.toLowerCase()))
+    return new Set(rows.map((a: any) => a.name.toLowerCase()))
   })
 }
 

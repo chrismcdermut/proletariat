@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { HookManager, initHookManager, stopHookManager } from '../../src/lib/work-lifecycle/hooks/manager.js'
 import { WorkHookStorage } from '../../src/lib/work-lifecycle/hooks/storage.js'
 import { getEventBus, resetEventBus } from '../../src/lib/events/event-bus.js'
@@ -10,10 +10,10 @@ import { getEventBus, resetEventBus } from '../../src/lib/events/event-bus.js'
  */
 
 describe('HookManager (TKT-140)', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
-    db = new Database(':memory:')
+    db = new SqliteDatabase(':memory:')
     db.pragma('journal_mode = WAL')
     // Reset the global event bus to avoid leaking state between tests
     resetEventBus()

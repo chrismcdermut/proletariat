@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { PMO_TABLES } from '../pmo/schema.js'
 import {
   type ExternalExecutionMapping,
@@ -42,10 +42,10 @@ function parseSnapshot(value: string | null): Record<string, unknown> | null {
   return null
 }
 
-function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
+function toDriver(dbOrDriver: DatabaseDriver | SqliteDatabase): DatabaseDriver {
   if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
     // Looks like a raw better-sqlite3 Database
-    return wrapDatabase(dbOrDriver as Database.Database)
+    return wrapDatabase(dbOrDriver as SqliteDatabase)
   }
   return dbOrDriver as DatabaseDriver
 }
@@ -53,7 +53,7 @@ function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDrive
 export class ExternalExecutionMappingStore {
   private driver: DatabaseDriver
 
-  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+  constructor(dbOrDriver: DatabaseDriver | SqliteDatabase) {
     this.driver = toDriver(dbOrDriver)
     this.ensureTables()
   }

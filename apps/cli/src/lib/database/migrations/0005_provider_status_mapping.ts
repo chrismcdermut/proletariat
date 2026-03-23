@@ -1,10 +1,10 @@
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../sqlite.js'
 import type { Migration } from '../migrator.js'
 
 export const providerStatusMapping: Migration = {
   id: '0005',
   name: 'provider_status_mapping',
-  up: (db: Database.Database) => {
+  up: (db: SqliteDatabase) => {
     // Provider status mapping: maps provider-specific status names
     // to the canonical workflow status names used internally.
     // Each provider can have its own status vocabulary.

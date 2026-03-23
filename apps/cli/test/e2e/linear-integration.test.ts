@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -40,7 +40,7 @@ import type { WorkflowStatus } from '../../src/lib/pmo/types.js'
  */
 describe('Linear Integration', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
     env = createTestEnvironment('linear-integration-')

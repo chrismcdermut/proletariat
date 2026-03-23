@@ -4,7 +4,7 @@
  * Stores Trello credentials and preferences in the workspace_settings table.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
 
@@ -25,7 +25,7 @@ export interface TrelloConfig {
 /**
  * Check if Trello is configured.
  */
-export function isTrelloConfigured(db: Database.Database): boolean {
+export function isTrelloConfigured(db: SqliteDatabase): boolean {
   const settings = new SettingsStore(db)
   const hasDbConfig = settings.has(TRELLO_CONFIG_KEYS.apiKey)
     && settings.has(TRELLO_CONFIG_KEYS.apiToken)
@@ -39,7 +39,7 @@ export function isTrelloConfigured(db: Database.Database): boolean {
 /**
  * Load Trello configuration from the database + environment.
  */
-export function loadTrelloConfig(db: Database.Database): TrelloConfig | null {
+export function loadTrelloConfig(db: SqliteDatabase): TrelloConfig | null {
   const settings = new SettingsStore(db)
   const apiKey = settings.get(TRELLO_CONFIG_KEYS.apiKey)
     || process.env.PRLT_TRELLO_API_KEY
@@ -64,7 +64,7 @@ export function loadTrelloConfig(db: Database.Database): TrelloConfig | null {
 /**
  * Save Trello configuration to the database.
  */
-export function saveTrelloConfig(db: Database.Database, config: TrelloConfig): void {
+export function saveTrelloConfig(db: SqliteDatabase, config: TrelloConfig): void {
   const settings = new SettingsStore(db)
   settings.set(TRELLO_CONFIG_KEYS.apiKey, config.apiKey)
   settings.set(TRELLO_CONFIG_KEYS.apiToken, config.apiToken)
@@ -76,28 +76,28 @@ export function saveTrelloConfig(db: Database.Database, config: TrelloConfig): v
   }
 }
 
-export function saveTrelloApiKey(db: Database.Database, apiKey: string): void {
+export function saveTrelloApiKey(db: SqliteDatabase, apiKey: string): void {
   new SettingsStore(db).set(TRELLO_CONFIG_KEYS.apiKey, apiKey)
 }
 
-export function saveTrelloApiToken(db: Database.Database, apiToken: string): void {
+export function saveTrelloApiToken(db: SqliteDatabase, apiToken: string): void {
   new SettingsStore(db).set(TRELLO_CONFIG_KEYS.apiToken, apiToken)
 }
 
-export function saveTrelloBoard(db: Database.Database, boardId: string, boardName: string): void {
+export function saveTrelloBoard(db: SqliteDatabase, boardId: string, boardName: string): void {
   const settings = new SettingsStore(db)
   settings.set(TRELLO_CONFIG_KEYS.boardId, boardId)
   settings.set(TRELLO_CONFIG_KEYS.boardName, boardName)
 }
 
-export function clearTrelloConfig(db: Database.Database): void {
+export function clearTrelloConfig(db: SqliteDatabase): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(TRELLO_CONFIG_KEYS)) {
     settings.delete(key)
   }
 }
 
-export function getTrelloApiKey(db: Database.Database): string | null {
+export function getTrelloApiKey(db: SqliteDatabase): string | null {
   try {
     const sources = loadProviderSources(db)
     for (const source of sources) {
@@ -116,7 +116,7 @@ export function getTrelloApiKey(db: Database.Database): string | null {
   return new SettingsStore(db).get(TRELLO_CONFIG_KEYS.apiKey)
 }
 
-export function getTrelloApiToken(db: Database.Database): string | null {
+export function getTrelloApiToken(db: SqliteDatabase): string | null {
   const envToken = process.env.PRLT_TRELLO_API_TOKEN || process.env.TRELLO_API_TOKEN
   if (envToken) return envToken
 

@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { getBoardTemplates, getColumnsForTemplate, createBoardContent } from '../../src/lib/pmo/index.js';
 import { BUILTIN_TEMPLATES, getBuiltinTemplate, getColumnSettingsForTemplate } from '../../src/lib/pmo/templates-builtin.js';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
@@ -68,7 +68,7 @@ describe('PMO Board Templates', () => {
       testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-template-dry-test-'));
       const dbPath = path.join(testDir, 'pmo.db');
 
-      const db = new Database(dbPath);
+      const db = new SqliteDatabase(dbPath);
       db.close();
 
       storage = new SQLiteStorage(dbPath);

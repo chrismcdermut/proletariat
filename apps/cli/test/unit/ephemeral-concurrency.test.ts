@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   tryAddEphemeralAgentToDatabase,
   addEphemeralAgentToDatabase,
@@ -28,7 +28,7 @@ describe('Ephemeral Agent Concurrency', () => {
     const dbDir = path.join(workspacePath, '.proletariat')
     fs.mkdirSync(dbDir, { recursive: true })
     const dbPath = path.join(dbDir, 'workspace.db')
-    const db = new Database(dbPath)
+    const db = new SqliteDatabase(dbPath)
     db.pragma('foreign_keys = ON')
     db.exec(CREATE_TABLES_SQL)
     // Insert a workspace record (required by schema)

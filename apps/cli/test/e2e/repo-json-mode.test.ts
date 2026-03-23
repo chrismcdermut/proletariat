@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -71,12 +71,12 @@ function extractJson<T>(output: string): T {
  */
 describe('Repo Commands JSON Mode', () => {
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     env = createTestEnvironment('repo-json-');
 
-    db = new Database(env.dbPath);
+    db = new SqliteDatabase(env.dbPath);
     setupTestDatabase(db, env.pmoPath);
 
     createHQConfig(env.proletariatDir);
@@ -442,7 +442,7 @@ describe('Repo Commands JSON Mode', () => {
  * Helper function to set up test database with full workspace schema.
  * Matches the schema from src/lib/database/index.ts
  */
-function setupTestDatabase(db: Database.Database, pmoPath: string) {
+function setupTestDatabase(db: SqliteDatabase, pmoPath: string) {
   // Use production PMO schema (ensures all columns including position, epic_id, etc.)
   initializePMOTables(db);
 

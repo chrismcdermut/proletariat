@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   getRegisteredWorkSources,
   loadDefaultWorkSource,
@@ -19,8 +19,8 @@ import { saveLinearApiKey, saveLinearDefaultTeam, isLinearConfigured } from '../
  * 3. Fall back to PMO when nothing external is configured
  */
 
-function setupDb(): Database.Database {
-  const db = new Database(':memory:')
+function setupDb(): SqliteDatabase {
+  const db = new SqliteDatabase(':memory:')
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspace_settings (
       key TEXT PRIMARY KEY,
@@ -96,7 +96,7 @@ describe('ticket create source resolution', () => {
      * 2. If not set, check external providers from getRegisteredWorkSources()
      * 3. Single external → auto-select; Multiple → would prompt; None → PMO
      */
-    function resolveSourceForTest(db: Database.Database): 'pmo' | 'linear' {
+    function resolveSourceForTest(db: SqliteDatabase): 'pmo' | 'linear' {
       // Step 1: Check explicit default work source
       const defaultSource = loadDefaultWorkSource(db)
       if (defaultSource?.provider === 'linear') return 'linear'

@@ -1,5 +1,5 @@
 import { Hook } from '@oclif/core'
-import { validateBetterSqlite3NativeBinding } from '../lib/database/native-validation.js'
+import { initSqlite } from '../lib/database/sqlite.js'
 import { readMachineConfig } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
 import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
@@ -34,6 +34,12 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   if (process.env.OCLIF_COMPILATION || process.argv[1]?.includes('oclif')) {
     return
   }
+
+  // Initialize sql.js WASM module — must happen before any database access.
+  // This runs before all other early returns because commands may still
+  // access the database even when init redirect is skipped (e.g., tests,
+  // agent containers, --help on commands that load DB config).
+  await initSqlite()
 
   // Skip when in test environments that provide their own HQ
   if (process.env.PRLT_HQ_PATH && process.env.PRLT_TEST_ENV) {
@@ -97,10 +103,6 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     })
   }
 
-  if (shouldValidateNativeModules(id)) {
-    await validateBetterSqlite3NativeBinding({ context: `command "${id}"` })
-  }
-
   // ── Update check ────────────────────────────────────────────────────
   // Show the interactive update prompt (uses cached data only, never blocks on network).
   // Then trigger a background fetch so the cache is fresh for the next startup.
@@ -143,21 +145,6 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     await shutdownAnalytics()
     return
   }
-}
-
-function shouldValidateNativeModules(id?: string): boolean {
-  if (!id) {
-    return false
-  }
-
-  return !(
-    id === 'help' ||
-    id.startsWith('help:') ||
-    id === 'plugins' ||
-    id.startsWith('plugins:') ||
-    id === 'autocomplete' ||
-    id.startsWith('autocomplete:')
-  )
 }
 
 /**

@@ -4,12 +4,11 @@
  * Core database lifecycle: open, create, get config, path resolution.
  */
 
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from './sqlite.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { isEphemeralAgentName } from '../themes.js'
 import { isReadOnlyHQMount } from '../container.js'
-import { throwIfNativeBindingError } from './native-validation.js'
 import { runDrizzleMigrations } from './migrator.js'
 import { ALL_MIGRATIONS } from './migrations/index.js'
 import { createDrizzleConnection, type DrizzleDB } from './drizzle.js'
@@ -39,7 +38,7 @@ export interface WorkspaceConfig {
  * Open the workspace database, wrap it with Drizzle, run a function,
  * and close the connection. Handles the open/close lifecycle.
  */
-export function withDrizzle<T>(workspacePath: string, fn: (ddb: DrizzleDB, sqliteDb: Database.Database) => T): T {
+export function withDrizzle<T>(workspacePath: string, fn: (ddb: DrizzleDB, sqliteDb: SqliteDatabase) => T): T {
   const sqliteDb = openWorkspaceDatabase(workspacePath)
   const ddb = createDrizzleConnection(sqliteDb)
   try {
@@ -53,7 +52,7 @@ export function withDrizzle<T>(workspacePath: string, fn: (ddb: DrizzleDB, sqlit
  * Ensure ephemeral agents are correctly typed based on their worktree path or naming pattern.
  * Uses raw SQL because it relies on SQLite-specific GLOB operator and sqlite_master introspection.
  */
-function ensureEphemeralAgentTypes(db: Database.Database): void {
+function ensureEphemeralAgentTypes(db: SqliteDatabase): void {
   const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='agents'").get()
   if (!tableExists) {
     return
@@ -104,7 +103,7 @@ export function getConfigPath(workspacePath: string): string {
  * - Enables WAL journal mode for corruption resistance
  * - Runs a quick integrity check; auto-repairs if corruption detected
  */
-export function openWorkspaceDatabase(workspacePath: string, options?: { readonly?: boolean }): Database.Database {
+export function openWorkspaceDatabase(workspacePath: string, options?: { readonly?: boolean }): SqliteDatabase {
   const dbPath = getDatabasePath(workspacePath)
 
   if (!fs.existsSync(dbPath)) {
@@ -123,13 +122,7 @@ export function openWorkspaceDatabase(workspacePath: string, options?: { readonl
     createRotatingBackup(dbPath)
   }
 
-  let db: Database.Database
-  try {
-    db = new Database(dbPath, readOnly ? { readonly: true } : undefined)
-  } catch (error) {
-    throwIfNativeBindingError(error, 'openWorkspaceDatabase')
-    throw error
-  }
+  let db = new SqliteDatabase(dbPath, readOnly ? { readonly: true } : undefined)
 
   if (!readOnly) {
     // Enable WAL mode — allows concurrent readers with one writer,
@@ -157,12 +150,7 @@ export function openWorkspaceDatabase(workspacePath: string, options?: { readonl
       }
 
       // Re-open the repaired database
-      try {
-        db = new Database(dbPath)
-      } catch (error) {
-        throwIfNativeBindingError(error, 'openWorkspaceDatabase (post-repair)')
-        throw error
-      }
+      db = new SqliteDatabase(dbPath)
       enableWALMode(db)
       db.pragma('foreign_keys = ON')
       db.pragma('busy_timeout = 5000')
@@ -192,7 +180,7 @@ export function createWorkspaceDatabase(
   type: 'hq' | 'workspace',
   workspaceName: string,
   hasPMO: boolean = false
-): Database.Database {
+): SqliteDatabase {
   const dbPath = getDatabasePath(workspacePath)
   const configPath = getConfigPath(workspacePath)
 
@@ -207,13 +195,7 @@ export function createWorkspaceDatabase(
   }
   fs.writeFileSync(configPath, JSON.stringify(bootstrapConfig, null, 2))
 
-  let db: Database.Database
-  try {
-    db = new Database(dbPath)
-  } catch (error) {
-    throwIfNativeBindingError(error, 'createWorkspaceDatabase')
-    throw error
-  }
+  const db = new SqliteDatabase(dbPath)
 
   enableWALMode(db)
   db.pragma('foreign_keys = ON')

@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../src/lib/pmo/types.js';
 
@@ -18,7 +18,7 @@ describe('@smoke PMO Workflow Status', () => {
     const dbPath = path.join(testDir, 'pmo.db');
 
     // Create empty database file first
-    const db = new Database(dbPath);
+    const db = new SqliteDatabase(dbPath);
     db.close();
 
     storage = new SQLiteStorage(dbPath);

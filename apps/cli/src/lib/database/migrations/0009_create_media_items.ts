@@ -4,13 +4,13 @@
  * Stores video/audio files with preprocessed asset metadata.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../sqlite.js'
 import type { Migration } from '../migrator.js'
 
 export const createMediaItems: Migration = {
   id: '0009',
   name: 'create_media_items',
-  up: (db: Database.Database) => {
+  up: (db: SqliteDatabase) => {
     db.exec(`
       CREATE TABLE IF NOT EXISTS media_items (
         name TEXT PRIMARY KEY,

@@ -2,7 +2,7 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   execInProcess,
   extractJson,
@@ -36,7 +36,7 @@ describe('Execution Commands E2E Tests', () => {
   let env: TestEnvironment;
   let testDir: string;
   let dbPath: string;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     executionCounter = 0;
@@ -1156,7 +1156,7 @@ describe('Execution Commands E2E Tests', () => {
 
 let executionCounter = 0;
 function createExecution(
-  db: Database.Database,
+  db: SqliteDatabase,
   ticketId: string,
   agentName: string,
   status: string,

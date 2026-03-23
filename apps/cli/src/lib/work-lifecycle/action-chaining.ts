@@ -15,7 +15,7 @@
  * - Respects the enabled flag on rules
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { getEventBus } from '../events/event-bus.js'
 import type { WorkflowRuleMatchedEvent } from '../events/events.js'
 import { PMO_TABLES } from '../pmo/schema.js'
@@ -53,13 +53,13 @@ interface ActionRow {
 export class ActionChainingHandler {
   private unsubscribers: Array<() => void> = []
   private chainDepths = new Map<string, number>()
-  private db: Database.Database
+  private db: SqliteDatabase
   private storage: SQLiteStorage
   private pmoPath: string
   private log: (msg: string) => void
 
   constructor(
-    db: Database.Database,
+    db: SqliteDatabase,
     storage: SQLiteStorage,
     pmoPath: string,
     log?: (msg: string) => void,
@@ -276,7 +276,7 @@ let _handler: ActionChainingHandler | undefined
  * Safe to call multiple times — subsequent calls are no-ops.
  */
 export function initActionChaining(
-  db: Database.Database,
+  db: SqliteDatabase,
   storage: SQLiteStorage,
   pmoPath: string,
   log?: (msg: string) => void,

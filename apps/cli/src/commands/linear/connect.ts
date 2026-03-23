@@ -1,5 +1,6 @@
 import { Flags } from '@oclif/core'
 import inquirer from 'inquirer'
+import type { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js'
 import {
@@ -186,7 +187,7 @@ export default class LinearConnect extends PMOCommand {
   private async handleCheck(
     flags: Record<string, unknown>,
     jsonMode: boolean,
-    db: import('better-sqlite3').Database,
+    db: SqliteDatabase,
   ): Promise<void> {
     if (!isLinearConfigured(db)) {
       if (jsonMode) {
@@ -268,7 +269,7 @@ export default class LinearConnect extends PMOCommand {
     client: LinearClient,
     flags: Record<string, unknown>,
     jsonMode: boolean,
-    db: import('better-sqlite3').Database,
+    db: SqliteDatabase,
     info: { organizationName: string; userName: string; email: string },
   ): Promise<void> {
     const teams = await client.listTeams()

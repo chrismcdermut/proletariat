@@ -4,7 +4,7 @@
  * Database operations for agent_work table.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { execSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { PMO_TABLES } from '../pmo/schema.js'
@@ -104,9 +104,9 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
 // Execution Storage Class
 // =============================================================================
 
-function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
+function toDriver(dbOrDriver: DatabaseDriver | SqliteDatabase): DatabaseDriver {
   if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
-    return wrapDatabase(dbOrDriver as Database.Database)
+    return wrapDatabase(dbOrDriver as SqliteDatabase)
   }
   return dbOrDriver as DatabaseDriver
 }
@@ -114,7 +114,7 @@ function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDrive
 export class ExecutionStorage {
   private db: DatabaseDriver
 
-  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+  constructor(dbOrDriver: DatabaseDriver | SqliteDatabase) {
     this.db = toDriver(dbOrDriver)
   }
 
@@ -619,7 +619,7 @@ function rowToContainer(row: ContainerRow): Container {
 export class ContainerStorage {
   private db: DatabaseDriver
 
-  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+  constructor(dbOrDriver: DatabaseDriver | SqliteDatabase) {
     this.db = toDriver(dbOrDriver)
     this.ensureTable()
   }

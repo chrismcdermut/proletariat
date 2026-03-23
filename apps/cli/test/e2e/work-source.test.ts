@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -30,7 +30,7 @@ interface JsonOutput {
 
 describe('work source', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
     env = createTestEnvironment('work-source-')

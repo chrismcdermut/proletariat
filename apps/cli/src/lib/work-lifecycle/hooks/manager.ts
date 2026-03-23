@@ -8,7 +8,7 @@
  * block the caller or break the event emission chain.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../../database/sqlite.js'
 import { getEventBus } from '../../events/event-bus.js'
 import { WorkHookStorage } from './storage.js'
 import { executeHook } from './executor.js'
@@ -23,7 +23,7 @@ export class HookManager {
   private unsubscribers: Array<() => void> = []
   private hookStorage: WorkHookStorage
 
-  constructor(db: Database.Database) {
+  constructor(db: SqliteDatabase) {
     this.hookStorage = new WorkHookStorage(db)
   }
 
@@ -85,7 +85,7 @@ let _manager: HookManager | undefined
  * Initialize and start the hook manager.
  * Safe to call multiple times — subsequent calls are no-ops.
  */
-export function initHookManager(db: Database.Database): HookManager {
+export function initHookManager(db: SqliteDatabase): HookManager {
   if (!_manager) {
     _manager = new HookManager(db)
     _manager.start()

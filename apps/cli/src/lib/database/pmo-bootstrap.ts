@@ -5,8 +5,7 @@
  * These run before the storage layer is available.
  */
 
-import Database from 'better-sqlite3'
-import { throwIfNativeBindingError } from './native-validation.js'
+import { SqliteDatabase } from './sqlite.js'
 import { createDrizzleConnection } from './drizzle.js'
 import {
   workspaceSettings as workspaceSettingsTable,
@@ -17,13 +16,7 @@ import {
  * Raw SQL: uses sqlite_master introspection (pre-migration bootstrap).
  */
 export function checkPMOExists(dbPath: string): { exists: boolean; projectCount: number; ticketCount: number } {
-  let db: Database.Database
-  try {
-    db = new Database(dbPath)
-  } catch (error) {
-    throwIfNativeBindingError(error, 'checkPMOExists')
-    throw error
-  }
+  const db = new SqliteDatabase(dbPath)
   try {
     const result = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
@@ -51,13 +44,7 @@ export function checkPMOExists(dbPath: string): { exists: boolean; projectCount:
  * Raw SQL: pre-migration bootstrap query.
  */
 export function getPMOSetting(dbPath: string, key: string): string | null {
-  let db: Database.Database
-  try {
-    db = new Database(dbPath)
-  } catch (error) {
-    throwIfNativeBindingError(error, 'getPMOSetting')
-    throw error
-  }
+  const db = new SqliteDatabase(dbPath)
   try {
     const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get(key) as { value: string } | undefined
     return result?.value ?? null
@@ -73,13 +60,7 @@ export function getPMOSetting(dbPath: string, key: string): string | null {
  * Raw SQL: DDL operations (DROP TABLE) are not supported by Drizzle.
  */
 export function dropPMOTables(dbPath: string, tables: string[]): void {
-  let db: Database.Database
-  try {
-    db = new Database(dbPath)
-  } catch (error) {
-    throwIfNativeBindingError(error, 'dropPMOTables')
-    throw error
-  }
+  const db = new SqliteDatabase(dbPath)
   try {
     for (const table of tables) {
       try {
@@ -96,7 +77,7 @@ export function dropPMOTables(dbPath: string, tables: string[]): void {
 /**
  * Upsert a workspace setting (key-value pair).
  */
-export function upsertWorkspaceSetting(db: Database.Database, key: string, value: string): void {
+export function upsertWorkspaceSetting(db: SqliteDatabase, key: string, value: string): void {
   const ddb = createDrizzleConnection(db)
   ddb.insert(workspaceSettingsTable)
     .values({ key, value })

@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import inquirer from 'inquirer'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
@@ -79,7 +79,7 @@ export default class Config extends PromptCommand {
 
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = new SqliteDatabase(dbPath)
 
     try {
       // Load current config
@@ -236,7 +236,7 @@ export default class Config extends PromptCommand {
    * Handle a specific setting's sub-prompt
    */
   private async handleSettingPrompt(
-    db: Database.Database,
+    db: SqliteDatabase,
     config: ReturnType<typeof loadExecutionConfig>,
     setting: string,
     jsonModeConfig: { flags: JsonFlags & Record<string, unknown>; commandName: string } | null,
@@ -408,7 +408,7 @@ export default class Config extends PromptCommand {
     }
   }
 
-  private setConfigValue(db: Database.Database, key: string, value: string, jsonMode: boolean): void {
+  private setConfigValue(db: SqliteDatabase, key: string, value: string, jsonMode: boolean): void {
     const normalizedKey = key.toLowerCase()
 
     switch (normalizedKey) {

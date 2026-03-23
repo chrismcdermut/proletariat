@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   enableWALMode,
   createRotatingBackup,
@@ -23,8 +23,8 @@ describe('db-safety', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  function createTestDb(dbPath: string): Database.Database {
-    const db = new Database(dbPath)
+  function createTestDb(dbPath: string): SqliteDatabase {
+    const db = new SqliteDatabase(dbPath)
     db.exec('CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)')
     db.exec("INSERT INTO test VALUES (1, 'hello')")
     db.exec("INSERT INTO test VALUES (2, 'world')")
@@ -120,7 +120,7 @@ describe('db-safety', () => {
       expect(result.method).to.equal('dump-reimport')
 
       // Verify data survived
-      const repaired = new Database(dbPath)
+      const repaired = new SqliteDatabase(dbPath)
       const rows = repaired.prepare('SELECT * FROM test ORDER BY id').all() as { id: number; value: string }[]
       expect(rows).to.have.length(2)
       expect(rows[0].value).to.equal('hello')
@@ -147,7 +147,7 @@ describe('db-safety', () => {
       expect(result.method).to.equal('backup-restore')
 
       // Verify restored data
-      const restored = new Database(dbPath)
+      const restored = new SqliteDatabase(dbPath)
       const rows = restored.prepare('SELECT * FROM test ORDER BY id').all() as { id: number; value: string }[]
       expect(rows).to.have.length(2)
       expect(rows[0].value).to.equal('hello')
@@ -173,14 +173,14 @@ describe('db-safety', () => {
       fs.mkdirSync(prltDir, { recursive: true })
 
       const dbPath = path.join(prltDir, 'workspace.db')
-      const db = new Database(dbPath)
+      const db = new SqliteDatabase(dbPath)
       db.exec('CREATE TABLE IF NOT EXISTS prlt_migrations (id TEXT PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)')
       db.exec('CREATE TABLE IF NOT EXISTS workspace (id INTEGER PRIMARY KEY, type TEXT NOT NULL DEFAULT "hq", workspace_name TEXT NOT NULL DEFAULT "test", has_pmo INTEGER NOT NULL DEFAULT 0, active_theme_id TEXT, created_at TEXT NOT NULL DEFAULT "")')
       db.exec("INSERT OR IGNORE INTO workspace VALUES (1, 'hq', 'test', 0, NULL, '2024-01-01')")
       db.close()
 
       // Now open with enableWALMode directly and verify
-      const db2 = new Database(dbPath)
+      const db2 = new SqliteDatabase(dbPath)
       enableWALMode(db2)
       const mode = db2.pragma('journal_mode', { simple: true })
       expect(mode).to.equal('wal')

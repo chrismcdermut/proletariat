@@ -1,5 +1,5 @@
 import { Flags } from '@oclif/core'
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../../lib/database/sqlite.js'
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
@@ -211,7 +211,7 @@ export default class ExecutionConfig extends PMOCommand {
    * Handle a specific setting's sub-prompt
    */
   private async handleSettingPrompt(
-    db: Database.Database,
+    db: SqliteDatabase,
     config: ReturnType<typeof loadExecutionConfig>,
     setting: string,
     jsonModeConfig: { flags: JsonFlags & Record<string, unknown>; commandName: string } | null,
@@ -371,7 +371,7 @@ export default class ExecutionConfig extends PMOCommand {
     }
   }
 
-  private setConfigValue(db: Database.Database, key: string, value: string, jsonMode: boolean): void {
+  private setConfigValue(db: SqliteDatabase, key: string, value: string, jsonMode: boolean): void {
     const normalizedKey = key.toLowerCase()
 
     // Define valid values for each config key
@@ -443,14 +443,14 @@ export default class ExecutionConfig extends PMOCommand {
   /**
    * Save output mode to workspace settings
    */
-  private setOutputMode(db: Database.Database, mode: OutputMode): void {
+  private setOutputMode(db: SqliteDatabase, mode: OutputMode): void {
     saveExecutionSetting(db, 'outputMode', mode)
   }
 
   /**
    * Save permission mode preference to workspace settings
    */
-  private setPermissionMode(db: Database.Database, mode: PermissionMode): void {
+  private setPermissionMode(db: SqliteDatabase, mode: PermissionMode): void {
     saveExecutionSetting(db, 'permissionMode', mode)
   }
 }

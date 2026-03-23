@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -23,7 +23,7 @@ const T = PMO_TABLES;
  */
 describe('Orphaned Project Handling (TKT-940)', () => {
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     env = createTestEnvironment('orphaned-project-');

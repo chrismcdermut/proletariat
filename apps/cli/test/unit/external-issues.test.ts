@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   validateIssueEnvelope,
   validateOrThrow,
@@ -472,7 +472,7 @@ describe('External Issues', () => {
       it('persists and reads mapping records without PMO ticket dependency', () => {
         const adapter = new LinearIssueAdapter();
         const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'linear-adapter-map-'));
-        const db = new Database(path.join(testDir, 'test.db'));
+        const db = new SqliteDatabase(path.join(testDir, 'test.db'));
         const store = new ExternalExecutionMappingStore(db);
 
         try {
@@ -584,7 +584,7 @@ describe('External Issues', () => {
       it('persists and reads mapping records without PMO ticket dependency', () => {
         const adapter = new JiraIssueAdapter();
         const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jira-adapter-map-'));
-        const db = new Database(path.join(testDir, 'test.db'));
+        const db = new SqliteDatabase(path.join(testDir, 'test.db'));
         const store = new ExternalExecutionMappingStore(db);
 
         try {
@@ -754,7 +754,7 @@ describe('External Issues', () => {
       it('persists and reads mapping records without PMO ticket dependency', () => {
         const adapter = new ShortcutIssueAdapter();
         const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shortcut-adapter-map-'));
-        const db = new Database(path.join(testDir, 'test.db'));
+        const db = new SqliteDatabase(path.join(testDir, 'test.db'));
         const store = new ExternalExecutionMappingStore(db);
 
         try {

@@ -3,7 +3,7 @@
  * Run with: npx tsx test/manual/test-dependency-schema.ts
  */
 
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -15,7 +15,7 @@ const T = PMO_TABLES
 async function testSchema() {
   console.log('=== Testing Schema (raw SQL) ===\n')
 
-  const db = new Database(':memory:')
+  const db = new SqliteDatabase(':memory:')
   db.pragma('foreign_keys = ON')
   db.exec(PMO_SCHEMA_SQL)
 
@@ -56,7 +56,7 @@ async function testStorageMethods() {
   const dbPath = path.join(tempDir, 'test.db')
 
   // Create empty database file
-  const db = new Database(dbPath)
+  const db = new SqliteDatabase(dbPath)
   db.close()
 
   const storage = new SQLiteStorage(dbPath)

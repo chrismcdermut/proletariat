@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "pnpm": {
-    "onlyBuiltDependencies": ["better-sqlite3"]
+    "onlyBuiltDependencies": []
   },
   "engines": {
     "node": ">=20 <25"

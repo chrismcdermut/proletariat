@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createFastTestEnvironment,
   setupProductionSchemaOnDb,
@@ -36,7 +36,7 @@ import { ExternalIssueAdapterError } from '../../src/lib/external-issues/types.j
 
 describe('Asana Integration', () => {
   let env: FastTestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
 
   before(() => {
     env = createFastTestEnvironment('asana-integration-', (db, pmoPath) => {

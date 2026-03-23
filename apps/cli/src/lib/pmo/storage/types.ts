@@ -3,7 +3,7 @@
  * These types are shared between storage modules but not exported publicly.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../../database/sqlite.js'
 import { DrizzleDB } from '../../database/drizzle.js'
 import type { DatabaseDriver } from '../../database/driver.js'
 
@@ -14,7 +14,7 @@ import type { DatabaseDriver } from '../../database/driver.js'
  */
 export interface StorageContext {
   /** Raw better-sqlite3 database connection (for legacy queries) */
-  db: Database.Database
+  db: SqliteDatabase
   /** DatabaseDriver abstraction (preferred over raw db for new code) */
   driver: DatabaseDriver
   /** Drizzle ORM database connection (for type-safe queries) */

@@ -22,15 +22,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Native module CI expectations:
-# - better-sqlite3 requires a native .node binding compiled for the exact Node.js ABI in use.
-# - pnpm-workspace.yaml lists better-sqlite3 under ignoredBuiltDependencies, so pnpm install
-#   alone will NOT compile the binding. An explicit `npm rebuild better-sqlite3` is required.
-# - The pnpm store cache key MUST include the Node.js version to prevent restoring bindings
-#   compiled for a different ABI (cross-ABI cache poisoning).
-# - A verification step runs `require('better-sqlite3')` before tests to fail fast with
-#   clear diagnostics if the native binding is missing or incompatible.
-
 # Test tier system:
 # - smoke: critical-path @smoke-tagged tests only (~50-100 tests, <3 min)
 # - standard: scoped tests based on change detection (current PR behavior)
@@ -272,8 +263,6 @@ jobs:
         shell: bash
         run: echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-      # Cache key includes Node.js version to avoid restoring native bindings compiled
-      # for a different ABI when lts/* resolves to a new Node.js release.
       - uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-cache.outputs.store-path }}
@@ -284,45 +273,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Rebuild better-sqlite3 native binding for the current Node.js ABI.
-      # pnpm skips this during install because better-sqlite3 is in ignoredBuiltDependencies.
-      # Retry once on failure to handle EEXIST race condition in node-gyp symlink creation.
-      # The binding is cached as an artifact so test jobs can skip this step.
-      - name: Rebuild better-sqlite3 native binding
-        run: |
-          cd apps/cli
-          if node -e "require('better-sqlite3')" 2>/dev/null; then
-            echo "better-sqlite3 binding already present, skipping rebuild"
-          else
-            echo "Rebuilding better-sqlite3 native binding..."
-            npm rebuild better-sqlite3 || npm rebuild better-sqlite3
-          fi
-
-      # Fail fast if the native binding is missing or was compiled for a different ABI.
-      - name: Verify better-sqlite3 native binding
-        run: |
-          node -e "
-            try {
-              require('better-sqlite3');
-              console.log('better-sqlite3 loaded successfully');
-              console.log('Node version:', process.version);
-              console.log('ABI version:', process.versions.modules);
-              console.log('Platform:', process.platform, process.arch);
-            } catch (err) {
-              console.error('Failed to load better-sqlite3:');
-              console.error(err.message);
-              console.error('Node version:', process.version);
-              console.error('ABI version:', process.versions.modules);
-              console.error('Platform:', process.platform, process.arch);
-              process.exit(1);
-            }
-          "
-        working-directory: apps/cli
-
       - name: Build
         run: pnpm -r build
 
-      # Upload build output (dist + native binding) so test jobs skip rebuilding.
+      # Upload build output so test jobs skip rebuilding.
       # This saves ~60-90s per test job (6 jobs total = ~6-9 min saved).
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -332,17 +286,9 @@ jobs:
             apps/cli/dist/
           retention-days: 1
 
-      # Cache the better-sqlite3 native binding separately.
-      # Test jobs restore this cache after pnpm install to skip the native rebuild.
-      - name: Cache better-sqlite3 native binding
-        uses: actions/cache/save@v4
-        with:
-          path: apps/cli/node_modules/.pnpm/**/better-sqlite3/build
-          key: ${{ runner.os }}-node-${{ matrix.node-version }}-better-sqlite3-${{ hashFiles('**/pnpm-lock.yaml') }}
 
   # Unit tests run via ts-node directly (no compiled dist/ needed), so they
   # can start in parallel with the build job instead of waiting for it.
-  # The postinstall script handles better-sqlite3 native binding rebuild.
   unit-tests:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.run_tests == 'true'
@@ -374,23 +320,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-
 
-      # pnpm install handles better-sqlite3 rebuild via postinstall script.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      # Fail fast if the native binding is missing or was compiled for a different ABI.
-      - name: Verify better-sqlite3 native binding
-        run: |
-          node -e "
-            try {
-              require('better-sqlite3');
-              console.log('better-sqlite3 loaded successfully');
-            } catch (err) {
-              console.error('Failed to load better-sqlite3:', err.message);
-              process.exit(1);
-            }
-          "
-        working-directory: apps/cli
 
       - name: Run unit tests
         working-directory: apps/cli
@@ -473,41 +404,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      # Restore better-sqlite3 native binding from cache (built by the build job).
-      # Falls back to a full rebuild if the cache is unavailable.
-      - name: Restore better-sqlite3 native binding cache
-        id: sqlite-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: apps/cli/node_modules/.pnpm/**/better-sqlite3/build
-          key: ${{ runner.os }}-node-${{ matrix.node-version }}-better-sqlite3-${{ hashFiles('**/pnpm-lock.yaml') }}
-
-      - name: Rebuild better-sqlite3 native binding (cache miss)
-        if: steps.sqlite-cache.outputs.cache-hit != 'true'
-        run: npm rebuild better-sqlite3 || npm rebuild better-sqlite3
-        working-directory: apps/cli
-
-      # Fail fast if the native binding is missing or was compiled for a different ABI.
-      - name: Verify better-sqlite3 native binding
-        run: |
-          node -e "
-            try {
-              require('better-sqlite3');
-              console.log('better-sqlite3 loaded successfully');
-              console.log('Node version:', process.version);
-              console.log('ABI version:', process.versions.modules);
-              console.log('Platform:', process.platform, process.arch);
-            } catch (err) {
-              console.error('Failed to load better-sqlite3:');
-              console.error(err.message);
-              console.error('Node version:', process.version);
-              console.error('ABI version:', process.versions.modules);
-              console.error('Platform:', process.platform, process.arch);
-              process.exit(1);
-            }
-          "
-        working-directory: apps/cli
 
       # Download pre-built dist/ from the build job instead of rebuilding TypeScript.
       - name: Download build artifacts

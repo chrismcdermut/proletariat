@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 
 describe('@smoke PMO SQLite Storage', () => {
@@ -15,7 +15,7 @@ describe('@smoke PMO SQLite Storage', () => {
     const dbPath = path.join(testDir, 'pmo.db');
 
     // Create empty database file first (SQLiteStorage now requires it to exist)
-    const db = new Database(dbPath);
+    const db = new SqliteDatabase(dbPath);
     db.close();
 
     storage = new SQLiteStorage(dbPath);
@@ -477,7 +477,7 @@ describe('@smoke PMO SQLite Storage', () => {
       // Create a new storage instance
       const newDbPath = path.join(testDir, 'rebuild.db');
       // Create empty database file first
-      const tempDb = new Database(newDbPath);
+      const tempDb = new SqliteDatabase(newDbPath);
       tempDb.close();
       const newStorage = new SQLiteStorage(newDbPath);
 
@@ -747,7 +747,7 @@ describe('@smoke PMO SQLite Storage', () => {
     it('migrates old blocked_by_ticket_id schema to new format', async () => {
       // Create a fresh database with the OLD schema
       const oldDbPath = path.join(testDir, 'old-schema.db');
-      const oldDb = new Database(oldDbPath);
+      const oldDb = new SqliteDatabase(oldDbPath);
       oldDb.pragma('journal_mode = WAL');
       oldDb.pragma('foreign_keys = ON');
 
@@ -882,7 +882,7 @@ describe('@smoke PMO SQLite Storage', () => {
 
     it('handles migration with multiple existing blocking relationships', async () => {
       const oldDbPath = path.join(testDir, 'old-multi.db');
-      const oldDb = new Database(oldDbPath);
+      const oldDb = new SqliteDatabase(oldDbPath);
       oldDb.pragma('journal_mode = WAL');
       oldDb.pragma('foreign_keys = ON');
 

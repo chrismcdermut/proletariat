@@ -162,7 +162,7 @@ export class SpecStorage {
       .orderBy(asc(pmoSpecs.title))
       .all()
 
-    return rows.map((row) => rowToSpec(row as any))
+    return rows.map((row: any) => rowToSpec(row as any))
   }
 
   /**
@@ -488,7 +488,7 @@ export class SpecStorage {
       .orderBy(asc(pmoSpecs.title))
       .all()
 
-    return rows.map((row) => rowToSpec(row as any))
+    return rows.map((row: any) => rowToSpec(row as any))
   }
 
   /**
@@ -516,7 +516,7 @@ export class SpecStorage {
       .orderBy(asc(pmoProjects.name))
       .all()
 
-    return rows.map((row) => ({
+    return rows.map((row: any) => ({
       id: row.id,
       name: row.name,
       template: row.template || undefined,

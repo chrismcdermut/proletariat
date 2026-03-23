@@ -13,7 +13,7 @@ import {
 import { findHQRoot } from '../../lib/workspace.js';
 import { getWorkspaceDbPath } from '../../lib/workspace.js';
 import { saveAuthMethod } from '../../lib/execution/config.js';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../lib/database/sqlite.js';
 
 const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials';
 
@@ -47,12 +47,12 @@ export default class Auth extends PromptCommand {
    * Try to open the workspace database for saving auth preferences.
    * Returns null if not in an HQ directory (auth still works, just won't save preference).
    */
-  private tryOpenDb(): Database.Database | null {
+  private tryOpenDb(): SqliteDatabase | null {
     try {
       const hqPath = findHQRoot();
       if (!hqPath) return null;
       const dbPath = getWorkspaceDbPath(hqPath);
-      const db = new Database(dbPath);
+      const db = new SqliteDatabase(dbPath);
       db.pragma('foreign_keys = ON');
       return db;
     } catch {

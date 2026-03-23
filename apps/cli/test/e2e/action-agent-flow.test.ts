@@ -1,6 +1,6 @@
 /* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   execInProcess,
   createTestEnvironment,
@@ -51,7 +51,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
   this.timeout(30000);
 
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     env = createTestEnvironment('action-agent-flow-');

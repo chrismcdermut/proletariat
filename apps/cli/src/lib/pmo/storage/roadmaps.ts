@@ -98,7 +98,7 @@ export class RoadmapStorage {
       .orderBy(desc(pmoRoadmaps.isDefault), asc(pmoRoadmaps.name))
       .all()
 
-    return rows.map(row => this.rowToRoadmap(row))
+    return rows.map((row: any) => this.rowToRoadmap(row))
   }
 
   /**
@@ -206,7 +206,7 @@ export class RoadmapStorage {
       .orderBy(asc(pmoRoadmapProjects.position))
       .all()
 
-    return rows.map(row => this.rowToProject(row))
+    return rows.map((row: any) => this.rowToProject(row))
   }
 
   /**
@@ -272,7 +272,7 @@ export class RoadmapStorage {
     return {
       roadmapId,
       projectId,
-      position,
+      position: position!,
       createdAt: new Date(now),
     }
   }
@@ -422,7 +422,7 @@ export class RoadmapStorage {
       .orderBy(asc(pmoRoadmaps.name))
       .all()
 
-    return rows.map(row => this.rowToRoadmap(row))
+    return rows.map((row: any) => this.rowToRoadmap(row))
   }
 
   // ===== Helpers =====

@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { ExecutionStorage } from '../../src/lib/execution/storage.js'
 import { getAvailableAgents, selectAgent } from '../../src/lib/execution/spawner.js'
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js'
@@ -15,7 +15,7 @@ import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
  */
 describe('Spawner', () => {
   let fastDb: FastTestDb
-  let db: Database.Database
+  let db: SqliteDatabase
   let executionStorage: ExecutionStorage
 
   // Helper to create a mock Agent

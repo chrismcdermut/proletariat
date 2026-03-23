@@ -6,13 +6,13 @@
  * ordered by priority then created_at.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../sqlite.js'
 import type { Migration } from '../migrator.js'
 
 export const addTicketPosition: Migration = {
   id: '0010',
   name: 'add_ticket_position',
-  up: (db: Database.Database) => {
+  up: (db: SqliteDatabase) => {
     const tableExists = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_tickets'"
     ).get()

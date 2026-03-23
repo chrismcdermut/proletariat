@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { execInProcess } from './test-helpers.js';
 
 /**
@@ -20,7 +20,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     originalCwd = process.cwd();
@@ -31,7 +31,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
     fs.mkdirSync(proletariatDir, { recursive: true });
     dbPath = path.join(proletariatDir, 'workspace.db');
 
-    db = new Database(dbPath);
+    db = new SqliteDatabase(dbPath);
     setupTestDatabase(db);
     createTestTickets(db);
   });
@@ -258,7 +258,7 @@ describe.skip('PMO Board Views E2E Tests', () => {
   });
 });
 
-function setupTestDatabase(db: Database.Database) {
+function setupTestDatabase(db: SqliteDatabase) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS pmo_settings (
       key TEXT PRIMARY KEY,
@@ -365,7 +365,7 @@ function setupTestDatabase(db: Database.Database) {
   }
 }
 
-function createTestTickets(db: Database.Database) {
+function createTestTickets(db: SqliteDatabase) {
   const statusMap: Record<string, string> = {
     'backlog': 'status-backlog',
     'in_progress': 'status-in-progress',

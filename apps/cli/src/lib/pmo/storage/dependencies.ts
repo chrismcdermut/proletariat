@@ -258,7 +258,7 @@ export class DependencyStorage {
     const result = this.ctx.drizzle
       .delete(pmoSpecDependencies)
       .where(and(...conditions))
-      .run()
+      .run() as any
 
     if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', 'Dependency not found')
@@ -281,7 +281,7 @@ export class DependencyStorage {
       .orderBy(desc(pmoSpecDependencies.createdAt))
       .all()
 
-    return rows.map((row) => ({
+    return rows.map((row: any) => ({
       specId: row.specId,
       dependsOnSpecId: row.dependsOnSpecId,
       dependencyType: row.dependencyType as SpecDependencyType,

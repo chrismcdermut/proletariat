@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { runCommand } from '@oclif/test';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
@@ -179,10 +179,10 @@ const T = PMO_TABLES;
  * @param pmoPath - Path to the PMO directory (stored in settings)
  * @returns Database instance with production schema initialized
  */
-export function setupProductionSchema(dbPath: string, pmoPath: string): Database.Database {
+export function setupProductionSchema(dbPath: string, pmoPath: string): SqliteDatabase {
   if (fs.existsSync(dbPath)) {
     // DB already exists (e.g., re-initialization to trigger migrations) — run full init
-    const db = new Database(dbPath);
+    const db = new SqliteDatabase(dbPath);
     db.pragma('foreign_keys = ON');
     initializePMOTables(db);
     db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
@@ -193,7 +193,7 @@ export function setupProductionSchema(dbPath: string, pmoPath: string): Database
   const templatePath = getOrCreatePMOTemplate();
   fs.copyFileSync(templatePath, dbPath);
 
-  const db = new Database(dbPath);
+  const db = new SqliteDatabase(dbPath);
   db.pragma('foreign_keys = ON');
 
   // Store test-specific PMO path in settings
@@ -224,12 +224,12 @@ export function setupWorkspaceSchema(
     workspaceName?: string;
     hasPmo?: boolean;
   } = {}
-): Database.Database {
+): SqliteDatabase {
   // Copy cached template (~1ms) instead of running schema creation
   const templatePath = getOrCreateWorkspaceTemplate();
   fs.copyFileSync(templatePath, dbPath);
 
-  const db = new Database(dbPath);
+  const db = new SqliteDatabase(dbPath);
   db.pragma('foreign_keys = ON');
 
   // Insert test-specific workspace row
@@ -251,7 +251,7 @@ export function setupWorkspaceSchema(
  * @param options - Workspace configuration options
  */
 export function addWorkspaceTables(
-  db: Database.Database,
+  db: SqliteDatabase,
   options: {
     type?: 'hq' | 'workspace';
     workspaceName?: string;
@@ -277,7 +277,7 @@ export function addWorkspaceTables(
  * @returns The project ID
  */
 export function createTestProject(
-  db: Database.Database,
+  db: SqliteDatabase,
   options: {
     id?: string;
     name?: string;
@@ -310,7 +310,7 @@ export function createTestProject(
  * @returns The ticket ID
  */
 export function createTestTicket(
-  db: Database.Database,
+  db: SqliteDatabase,
   projectId: string,
   options: {
     id?: string;
@@ -346,7 +346,7 @@ export function createTestTicket(
  * @returns The workflow ID
  */
 export function createTestWorkflow(
-  db: Database.Database,
+  db: SqliteDatabase,
   options: {
     id?: string;
     name?: string;
@@ -374,7 +374,7 @@ export function createTestWorkflow(
  * @returns The status ID
  */
 export function addTestWorkflowStatus(
-  db: Database.Database,
+  db: SqliteDatabase,
   workflowId: string,
   options: {
     id?: string;
@@ -404,7 +404,7 @@ export function addTestWorkflowStatus(
  * @returns The phase ID
  */
 export function createTestPhase(
-  db: Database.Database,
+  db: SqliteDatabase,
   options: {
     id?: string;
     name: string;
@@ -433,7 +433,7 @@ export function createTestPhase(
  * @returns The spec ID
  */
 export function createTestSpec(
-  db: Database.Database,
+  db: SqliteDatabase,
   options: {
     id?: string;
     title?: string;
@@ -461,7 +461,7 @@ export function createTestSpec(
  * @returns The epic ID
  */
 export function createTestEpic(
-  db: Database.Database,
+  db: SqliteDatabase,
   projectId: string,
   options: {
     id?: string;
@@ -493,7 +493,7 @@ export function createTestEpic(
 //
 // Performance savings per test:
 //   - fs.mkdtempSync:           ~5ms   (eliminated)
-//   - new Database():           ~10ms  (eliminated)
+//   - new SqliteDatabase():           ~10ms  (eliminated)
 //   - setupProductionSchema():  ~100-200ms (eliminated)
 //   - fs.rmSync:                ~5ms   (eliminated)
 //   Total: ~120-220ms saved per test
@@ -530,7 +530,7 @@ export function createTestEpic(
  */
 export interface FastTestDb {
   /** The shared database instance */
-  db: Database.Database;
+  db: SqliteDatabase;
   /** Call in beforeEach to create a savepoint before the test */
   savepoint(): void;
   /** Call in afterEach to rollback changes made during the test */
@@ -548,8 +548,8 @@ export interface FastTestDb {
  * @param setup - Function to initialize the database schema and seed data
  * @returns FastTestDb with savepoint/rollback/close methods
  */
-export function createFastTestDb(setup: (db: Database.Database) => void): FastTestDb {
-  const db = new Database(':memory:');
+export function createFastTestDb(setup: (db: SqliteDatabase) => void): FastTestDb {
+  const db = new SqliteDatabase(':memory:');
   db.pragma('foreign_keys = ON');
   setup(db);
 
@@ -569,7 +569,7 @@ export function createFastTestDb(setup: (db: Database.Database) => void): FastTe
  */
 export interface FastTestEnvironment extends TestEnvironment {
   /** The shared database instance */
-  db: Database.Database;
+  db: SqliteDatabase;
   /** Call in beforeEach to create a savepoint before the test */
   savepoint(): void;
   /** Call in afterEach to rollback changes made during the test */
@@ -592,7 +592,7 @@ export interface FastTestEnvironment extends TestEnvironment {
  */
 export function createFastTestEnvironment(
   prefix: string,
-  setup: (db: Database.Database, pmoPath: string) => void
+  setup: (db: SqliteDatabase, pmoPath: string) => void
 ): FastTestEnvironment {
   const originalCwd = process.cwd();
   const testDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
@@ -605,7 +605,7 @@ export function createFastTestEnvironment(
   const pmoPath = path.join(testDir, 'pmo');
 
   // Create in-memory database (dbPath is kept for compatibility but DB is in-memory)
-  const db = new Database(':memory:');
+  const db = new SqliteDatabase(':memory:');
   db.pragma('foreign_keys = ON');
   setup(db, pmoPath);
 
@@ -641,7 +641,7 @@ export function createFastTestEnvironment(
  * @param db - Existing database instance
  * @param pmoPath - Path to the PMO directory (stored in settings)
  */
-export function setupProductionSchemaOnDb(db: Database.Database, pmoPath: string): void {
+export function setupProductionSchemaOnDb(db: SqliteDatabase, pmoPath: string): void {
   db.pragma('foreign_keys = ON');
   initializePMOTables(db);
   db.prepare(`INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES ('pmo_path', ?)`).run(pmoPath);
@@ -657,7 +657,7 @@ export function setupProductionSchemaOnDb(db: Database.Database, pmoPath: string
  * @param options - Workspace configuration options
  */
 export function setupWorkspaceSchemaOnDb(
-  db: Database.Database,
+  db: SqliteDatabase,
   options: {
     type?: 'hq' | 'workspace';
     workspaceName?: string;
@@ -697,7 +697,7 @@ export function setupWorkspaceSchemaOnDb(
 //   });
 //
 //   let env: TestEnvironment;
-//   let db: Database.Database;
+//   let db: SqliteDatabase;
 //
 //   beforeEach(() => {
 //     ({ env, db } = template.createInstance());
@@ -718,7 +718,7 @@ export function setupWorkspaceSchemaOnDb(
  */
 export interface TemplateTestEnvironment {
   /** Creates a new test instance by copying the template DB. Returns env and open db. */
-  createInstance(): { env: TestEnvironment; db: Database.Database };
+  createInstance(): { env: TestEnvironment; db: SqliteDatabase };
   /** Call in after/afterAll to clean up the template. */
   cleanup(): void;
 }
@@ -736,7 +736,7 @@ export interface TemplateTestEnvironment {
  */
 export function createTemplateTestEnvironment(
   prefix: string,
-  setup: (db: Database.Database, pmoPath: string) => void
+  setup: (db: SqliteDatabase, pmoPath: string) => void
 ): TemplateTestEnvironment {
   // Create the template database
   const templateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}template-`)));
@@ -745,17 +745,17 @@ export function createTemplateTestEnvironment(
   const templateDbPath = path.join(templateProletariatDir, 'workspace.db');
   const templatePmoPath = path.join(templateDir, 'pmo');
 
-  const templateDb = new Database(templateDbPath);
+  const templateDb = new SqliteDatabase(templateDbPath);
   templateDb.pragma('foreign_keys = ON');
   setup(templateDb, templatePmoPath);
   templateDb.close();
 
   return {
-    createInstance(): { env: TestEnvironment; db: Database.Database } {
+    createInstance(): { env: TestEnvironment; db: SqliteDatabase } {
       const env = createTestEnvironment(prefix);
       // Copy the template DB file instead of running schema init
       fs.copyFileSync(templateDbPath, env.dbPath);
-      const db = new Database(env.dbPath);
+      const db = new SqliteDatabase(env.dbPath);
       db.pragma('foreign_keys = ON');
       db.pragma('busy_timeout = 5000');
       // Update pmo_path to point to this instance's directory (template DB has the template dir's path)
@@ -778,7 +778,7 @@ export function createTemplateTestEnvironment(
  * @param workflowId - Workflow ID (defaults to 'default')
  * @returns The default status ID or first status if no default
  */
-export function getDefaultStatusId(db: Database.Database, workflowId: string = 'default'): string {
+export function getDefaultStatusId(db: SqliteDatabase, workflowId: string = 'default'): string {
   const result = db.prepare(`
     SELECT id FROM ${T.workflow_statuses}
     WHERE workflow_id = ?
@@ -798,7 +798,7 @@ export function getDefaultStatusId(db: Database.Database, workflowId: string = '
  * @returns The status ID or undefined if not found
  */
 export function getStatusIdByName(
-  db: Database.Database,
+  db: SqliteDatabase,
   workflowId: string,
   statusName: string
 ): string | undefined {

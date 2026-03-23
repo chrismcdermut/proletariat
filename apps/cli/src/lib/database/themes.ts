@@ -195,7 +195,7 @@ export function getThemeNames(workspacePath: string, themeId: string): AgentThem
       .where(eq(agentThemeNamesTable.themeId, themeId))
       .orderBy(asc(agentThemeNamesTable.name))
       .all()
-    return rows.map(row => ({
+    return rows.map((row: any) => ({
       theme_id: row.themeId,
       name: row.name,
     }))
@@ -240,8 +240,8 @@ export function getAvailableThemeNames(workspacePath: string, themeId: string): 
     }
 
     return names
-      .map(n => n.name)
-      .filter(name => !inUseNames.has(name.toLowerCase()))
+      .map((n: any) => n.name)
+      .filter((name: string) => !inUseNames.has(name.toLowerCase()))
   })
 }
 

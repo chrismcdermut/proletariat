@@ -8,9 +8,11 @@
  * 3. Optionally dropping the old pmo_statuses table
  */
 
-import Database from 'better-sqlite3';
+import { initSqlite, SqliteDatabase } from '../apps/cli/src/lib/database/sqlite.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+
+await initSqlite();
 
 const WORKSPACE_DB = path.join(process.cwd(), '.proletariat', 'workspace.db');
 
@@ -39,7 +41,7 @@ function migrateTicketStatuses(dryRun: boolean = true) {
     process.exit(1);
   }
 
-  const db = new Database(WORKSPACE_DB);
+  const db = new SqliteDatabase(WORKSPACE_DB);
 
   try {
     console.log('Starting ticket status migration...\n');
