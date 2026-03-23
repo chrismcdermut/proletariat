@@ -354,6 +354,7 @@ export {
   createDockerContainer,
   runContainerSetup,
   ensureDockerContainer,
+  checkDockerMemoryCapacity,
 } from './docker-management.js'
 
 export {

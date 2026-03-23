@@ -19,7 +19,7 @@ import { pruneWorktrees, checkoutBranchSafe } from '../branch/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
 import { loadExecutionConfig, getOrPromptCoderName, getCleanupPolicy } from './config.js'
-import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName, isSrtInstalled } from './runners.js'
+import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName, isSrtInstalled, checkDockerMemoryCapacity } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
@@ -651,6 +651,14 @@ export async function spawnAgentForTicket(
   // Load execution config (use passed config or load from db)
   const executionConfig = options.executionConfig || loadExecutionConfig(db)
   executionConfig.permissionMode = permissionMode
+
+  // PRLT-1099: Check Docker memory capacity before spawning devcontainer
+  if (environment === 'devcontainer') {
+    const memCheck = checkDockerMemoryCapacity(executionConfig.devcontainer.memory)
+    if (!memCheck.ok && memCheck.warning) {
+      log(`⚠️  ${memCheck.warning}`)
+    }
+  }
 
   // Run execution
   // Default to tmux for session persistence (enables peek/poke/attach)

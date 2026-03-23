@@ -19,6 +19,121 @@ import { readDevcontainerJson } from '../devcontainer.js'
 import { isClaudeExecutor } from './executor.js'
 
 /**
+ * Parse a Docker memory string (e.g., '4g', '512m', '2048m') into bytes.
+ */
+export function parseMemoryToBytes(memory: string): number {
+  const match = memory.match(/^(\d+)([gm])$/i)
+  if (!match) return 0
+  const value = parseInt(match[1], 10)
+  const unit = match[2].toLowerCase()
+  if (unit === 'g') return value * 1024 * 1024 * 1024
+  if (unit === 'm') return value * 1024 * 1024
+  return 0
+}
+
+/**
+ * Get total memory allocated to Docker (in bytes).
+ * Returns null if Docker is not available or the info cannot be retrieved.
+ */
+export function getDockerTotalMemory(): number | null {
+  try {
+    const output = execSync('docker info --format "{{.MemTotal}}"', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    }).trim()
+    const bytes = parseInt(output, 10)
+    return isNaN(bytes) ? null : bytes
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get memory used by running prlt agent containers (in bytes).
+ * Returns the sum of memory limits for all running prlt-agent-* containers.
+ */
+export function getRunningContainersMemoryUsage(): number {
+  try {
+    const output = execSync(
+      'docker ps --filter "name=prlt-agent-" --format "{{.ID}}"',
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
+    ).trim()
+    if (!output) return 0
+
+    const containerIds = output.split('\n').filter(Boolean)
+    let totalBytes = 0
+
+    for (const id of containerIds) {
+      try {
+        const memLimit = execSync(
+          `docker inspect --format "{{.HostConfig.Memory}}" ${id}`,
+          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
+        ).trim()
+        const bytes = parseInt(memLimit, 10)
+        if (!isNaN(bytes) && bytes > 0) {
+          totalBytes += bytes
+        }
+      } catch {
+        // Skip containers we can't inspect
+      }
+    }
+    return totalBytes
+  } catch {
+    return 0
+  }
+}
+
+export interface DockerMemoryCheck {
+  /** Whether the spawn should proceed */
+  ok: boolean
+  /** Warning message (if any) */
+  warning?: string
+  /** Docker total memory in bytes */
+  dockerTotalMemory: number | null
+  /** Memory already used by running prlt containers in bytes */
+  usedMemory: number
+  /** Memory this container would need in bytes */
+  requestedMemory: number
+}
+
+/**
+ * Check if there is enough Docker memory to spawn a new container.
+ * Returns a warning if the new container would exceed available Docker memory.
+ */
+export function checkDockerMemoryCapacity(containerMemory: string): DockerMemoryCheck {
+  const requestedMemory = parseMemoryToBytes(containerMemory)
+  const dockerTotalMemory = getDockerTotalMemory()
+  const usedMemory = getRunningContainersMemoryUsage()
+
+  if (dockerTotalMemory === null) {
+    return { ok: true, dockerTotalMemory, usedMemory, requestedMemory }
+  }
+
+  const wouldUse = usedMemory + requestedMemory
+  const totalGB = (dockerTotalMemory / (1024 * 1024 * 1024)).toFixed(1)
+  const usedGB = (usedMemory / (1024 * 1024 * 1024)).toFixed(1)
+  const requestedGB = (requestedMemory / (1024 * 1024 * 1024)).toFixed(1)
+
+  if (wouldUse > dockerTotalMemory) {
+    const overcommitGB = ((wouldUse - dockerTotalMemory) / (1024 * 1024 * 1024)).toFixed(1)
+    return {
+      ok: false,
+      warning: `Docker memory overcommit: running containers use ${usedGB}GB, ` +
+        `new container needs ${requestedGB}GB, but Docker only has ${totalGB}GB allocated. ` +
+        `Overcommit by ${overcommitGB}GB may cause OOM kills.\n` +
+        `  Reduce with: prlt config --set "containers.memory 2g"\n` +
+        `  Or increase Docker memory in Docker Desktop > Settings > Resources`,
+      dockerTotalMemory,
+      usedMemory,
+      requestedMemory,
+    }
+  }
+
+  return { ok: true, dockerTotalMemory, usedMemory, requestedMemory }
+}
+
+/**
  * Get the host's installed prlt CLI version.
  * Returns the semver version string (e.g., "0.3.35") or null if not available.
  */
