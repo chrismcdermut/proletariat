@@ -31,6 +31,8 @@ export interface DevcontainerOptions {
   executor?: ExecutorType
   /** Extra domains to allow in the container firewall (merged with config.firewall.allowlistDomains) */
   networkAllowlist?: string[]
+  /** Pinned @anthropic-ai/claude-code version (e.g., "2.1.80"). Omit for latest. */
+  claudeCodeVersion?: string
 }
 
 export interface DevcontainerJson {
@@ -80,6 +82,11 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
   buildArgs.PRLT_REGISTRY = channel.registry
   if (!useMount) {
     buildArgs.PRLT_VERSION = channel.version || 'latest'
+  }
+
+  // Pass Claude Code version as build arg if pinned
+  if (options.claudeCodeVersion) {
+    buildArgs.CC_VERSION = options.claudeCodeVersion
   }
 
   // For GitHub Packages, pass GITHUB_TOKEN as build arg
@@ -233,8 +240,10 @@ ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:\$PATH
 
 # Install pnpm and executor CLI as node user so files are owned correctly
+# CC_VERSION: pinned @anthropic-ai/claude-code version (e.g., "2.1.80") or empty for latest
+ARG CC_VERSION=
 USER node
-RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
+RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code\${CC_VERSION:+@\${CC_VERSION}}${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
 USER root
 
 # Install prlt CLI from public npm
@@ -840,8 +849,10 @@ ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=/home/node/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 
 # Install pnpm and executor CLI as node user
+# CC_VERSION: pinned @anthropic-ai/claude-code version (e.g., "2.1.80") or empty for latest
+ARG CC_VERSION=
 USER node
-RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
+RUN npm install -g pnpm && npm install -g @anthropic-ai/claude-code\${CC_VERSION:+@\${CC_VERSION}}${options.executor === 'codex' ? ' && npm install -g @openai/codex' : ''}
 USER root
 
 # Install prlt CLI

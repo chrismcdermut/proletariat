@@ -19,6 +19,7 @@ import {
 } from '../../lib/execution/config.js'
 import { getReviewGateSetting, setReviewGateSetting, isValidReviewGateMode } from '../../lib/pmo/utils.js'
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
+import { readWorkspaceConfig, writeWorkspaceConfig, getClaudeCodeConfig, updateClaudeCodeConfig } from '../../lib/workspace-config.js'
 import {
   shouldOutputJson,
   isNonTTY,
@@ -107,6 +108,9 @@ export default class Config extends PromptCommand {
         return
       }
 
+      // Load Claude Code config from workspace config.json
+      const claudeCodeConfig = getClaudeCodeConfig(workspaceInfo.path)
+
       // Handle --list or --json flag without --setting (just show config)
       // Also handle non-TTY mode without explicit flags - output config as readable list
       const shouldShowConfigList = flags.list || (jsonMode && !flags.setting) || (isNonTTY() && !flags.setting && !flags.set?.length)
@@ -131,6 +135,9 @@ export default class Config extends PromptCommand {
             reviewGate,
             firewall: {
               allowlistDomains: config.firewall.allowlistDomains,
+            },
+            claudeCode: {
+              version: claudeCodeConfig.version ?? null,
             },
           }, createMetadata('config', flags))
           return
@@ -159,6 +166,9 @@ export default class Config extends PromptCommand {
           this.log(`  reviewGate:       ${reviewGate}`)
           this.log(`  firewall.allowlistDomains: ${config.firewall.allowlistDomains.join(', ') || '(none)'}`)
           this.log('')
+          this.log(styles.emphasis('Claude Code'))
+          this.log(`  version:          ${claudeCodeConfig.version ?? 'latest (not pinned)'}`)
+          this.log('')
         }
         db.close()
         return
@@ -179,6 +189,7 @@ export default class Config extends PromptCommand {
         { name: `Tmux Control Mode (iTerm -CC): ${config.tmux.controlMode}`, value: 'tmux.controlMode', command: 'prlt config --setting tmux.controlMode --json' },
         { name: `Firewall allowlist domains: ${config.firewall.allowlistDomains.length || 0}`, value: 'firewall.allowlistDomains', command: 'prlt config --setting firewall.allowlistDomains --json' },
         { name: `Review Gate: ${reviewGate}`, value: 'review_gate', command: 'prlt config --setting review_gate --json' },
+        { name: `Claude Code Version: ${claudeCodeConfig.version ?? 'latest (not pinned)'}`, value: 'claude-code.version', command: 'prlt config --setting claude-code.version --json' },
       ]
 
       const { setting } = await this.prompt<{ setting: string }>([
@@ -197,6 +208,8 @@ export default class Config extends PromptCommand {
             settingChoices[4],
             new inquirer.Separator('── Review ──'),
             settingChoices[5],
+            new inquirer.Separator('── Agent Containers ──'),
+            settingChoices[6],
             new inquirer.Separator(),
             { name: 'Exit', value: '__exit__' },
           ],
@@ -351,6 +364,38 @@ export default class Config extends PromptCommand {
         break
       }
 
+      case 'claude-code.version': {
+        let workspaceInfo2
+        try {
+          workspaceInfo2 = getWorkspaceInfo()
+        } catch {
+          if (jsonModeConfig) {
+            outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace.', createMetadata('config', jsonModeConfig.flags))
+            return
+          }
+          this.error('Not in a workspace.')
+          return
+        }
+        const currentCcConfig = getClaudeCodeConfig(workspaceInfo2.path)
+        const { ccVersion } = await this.prompt<{ ccVersion: string }>([
+          {
+            type: 'input',
+            name: 'ccVersion',
+            message: 'Claude Code version (e.g., "2.1.80", leave empty for latest):',
+            default: currentCcConfig.version || '',
+          },
+        ], jsonModeConfig)
+
+        const trimmedVersion = ccVersion.trim()
+        updateClaudeCodeConfig(workspaceInfo2.path, {
+          version: trimmedVersion || undefined,
+        })
+        this.log(styles.success(trimmedVersion
+          ? `Claude Code version pinned to: ${trimmedVersion}`
+          : `Claude Code version unpinned (will use latest)`))
+        break
+      }
+
       default: {
         const jsonMode = shouldOutputJson(jsonModeConfig?.flags ?? {})
         if (jsonMode) {
@@ -403,6 +448,24 @@ export default class Config extends PromptCommand {
           .map(domain => domain.trim())
           .filter(Boolean)
         saveFirewallAllowlistDomains(db, domains)
+        break
+      }
+      case 'claude-code.version': {
+        let workspaceInfo3
+        try {
+          workspaceInfo3 = getWorkspaceInfo()
+        } catch {
+          if (jsonMode) {
+            outputErrorAsJson('NOT_IN_WORKSPACE', 'Not in a workspace.', createMetadata('config', {}))
+            return
+          }
+          this.warn('Not in a workspace.')
+          return
+        }
+        const trimmed = value.trim()
+        updateClaudeCodeConfig(workspaceInfo3.path, {
+          version: trimmed || undefined,
+        })
         break
       }
       default:

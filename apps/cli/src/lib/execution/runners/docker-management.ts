@@ -346,6 +346,12 @@ export function ensureDockerContainer(
     PRLT_REGISTRY: devcontainerJson?.build?.args?.PRLT_REGISTRY || 'npm',
   }
 
+  // Pass Claude Code version if pinned in devcontainer config
+  const ccVersion = devcontainerJson?.build?.args?.CC_VERSION
+  if (ccVersion) {
+    buildArgs.CC_VERSION = ccVersion
+  }
+
   const configuredVersion = devcontainerJson?.build?.args?.PRLT_VERSION || 'latest'
   const isTagVersion = ['latest', 'dev', 'next'].includes(configuredVersion)
   const hostPrltVersion = isTagVersion ? getHostPrltVersion() : null

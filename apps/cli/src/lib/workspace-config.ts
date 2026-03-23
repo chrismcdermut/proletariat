@@ -41,6 +41,11 @@ export interface PrltConfig {
   channel?: PrltChannel
 }
 
+export interface ClaudeCodeConfig {
+  /** Pinned @anthropic-ai/claude-code version for agent containers (e.g., "2.1.80") */
+  version?: string
+}
+
 export interface WorkspaceConfig {
   type: 'hq' | 'workspace'
   name: string
@@ -48,6 +53,8 @@ export interface WorkspaceConfig {
   schemaVersion?: number
   /** prlt CLI configuration for containers */
   prlt?: PrltConfig
+  /** Claude Code configuration for agent containers */
+  claude_code?: ClaudeCodeConfig
 }
 
 /**
@@ -82,6 +89,44 @@ export function writeWorkspaceConfig(hqPath: string, config: WorkspaceConfig): v
 export function getPrltConfig(hqPath: string): PrltConfig {
   const config = readWorkspaceConfig(hqPath)
   return config?.prlt ?? {}
+}
+
+/**
+ * Get Claude Code config from workspace, with defaults
+ */
+export function getClaudeCodeConfig(hqPath: string): ClaudeCodeConfig {
+  const config = readWorkspaceConfig(hqPath)
+  return config?.claude_code ?? {}
+}
+
+/**
+ * Update Claude Code config section
+ */
+export function updateClaudeCodeConfig(hqPath: string, claudeCodeConfig: Partial<ClaudeCodeConfig>): void {
+  const config = readWorkspaceConfig(hqPath)
+  if (!config) {
+    throw new Error('No workspace config found')
+  }
+
+  config.claude_code = {
+    ...config.claude_code,
+    ...claudeCodeConfig,
+  }
+
+  writeWorkspaceConfig(hqPath, config)
+}
+
+/**
+ * Get the Claude Code version to use for container builds.
+ * Priority: override > workspace config > default (latest)
+ */
+export function getClaudeCodeVersion(hqPath: string, override?: string): string | undefined {
+  if (override) {
+    return override
+  }
+
+  const claudeCodeConfig = getClaudeCodeConfig(hqPath)
+  return claudeCodeConfig.version
 }
 
 /**
