@@ -4,10 +4,11 @@
  * Database operations for agent_work table.
  */
 
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { execSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { PMO_TABLES } from '../pmo/schema.js'
+import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
 import {
   AgentWork,
   ExecutionStatus,
@@ -103,11 +104,18 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
 // Execution Storage Class
 // =============================================================================
 
-export class ExecutionStorage {
-  private db: Database.Database
+function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
+  if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
+    return wrapDatabase(dbOrDriver as Database.Database)
+  }
+  return dbOrDriver as DatabaseDriver
+}
 
-  constructor(db: Database.Database) {
-    this.db = db
+export class ExecutionStorage {
+  private db: DatabaseDriver
+
+  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+    this.db = toDriver(dbOrDriver)
   }
 
   /**
@@ -290,7 +298,7 @@ export class ExecutionStorage {
       params.push(filter.limit)
     }
 
-    const rows = this.db.prepare(query).all(...params) as AgentWorkRow[]
+    const rows = this.db.prepare(query).all(...params) as unknown as AgentWorkRow[]
     return rows.map(rowToAgentWork)
   }
 
@@ -321,7 +329,7 @@ export class ExecutionStorage {
         WHERE agent_name = ? AND status IN ('starting', 'running')
         ORDER BY started_at DESC
       `)
-      .all(agentName) as AgentWorkRow[]
+      .all(agentName) as unknown as AgentWorkRow[]
 
     return rows.map(rowToAgentWork)
   }
@@ -571,10 +579,10 @@ function rowToContainer(row: ContainerRow): Container {
 // =============================================================================
 
 export class ContainerStorage {
-  private db: Database.Database
+  private db: DatabaseDriver
 
-  constructor(db: Database.Database) {
-    this.db = db
+  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+    this.db = toDriver(dbOrDriver)
     this.ensureTable()
   }
 
@@ -721,7 +729,7 @@ export class ContainerStorage {
       params.push(filter.limit)
     }
 
-    const rows = this.db.prepare(query).all(...params) as ContainerRow[]
+    const rows = this.db.prepare(query).all(...params) as unknown as ContainerRow[]
     return rows.map(rowToContainer)
   }
 

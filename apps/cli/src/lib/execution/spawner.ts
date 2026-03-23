@@ -8,7 +8,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { autoExportToBoard } from '../pmo/index.js'
 import { getWorkColumnSetting, findColumnByName, resolveExternalTicketId } from '../pmo/utils.js'
