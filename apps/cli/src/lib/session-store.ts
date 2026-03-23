@@ -11,7 +11,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import Database from 'better-sqlite3'
+import { type DatabaseDriver, openDriver } from './database/driver.js'
 import { execSync } from 'node:child_process'
 
 // =============================================================================
@@ -77,10 +77,10 @@ function getDbPath(): string {
 // =============================================================================
 
 export class SessionStore {
-  private db: Database.Database
+  private db: DatabaseDriver
 
   constructor(dbPath?: string) {
-    this.db = new Database(dbPath ?? getDbPath())
+    this.db = openDriver(dbPath ?? getDbPath(), { foreignKeys: false })
     this.ensureSchema()
   }
 
@@ -140,9 +140,9 @@ export class SessionStore {
    * Get a session by ID or agent name.
    */
   get(idOrName: string): SessionRecord | null {
-    const row = this.db.prepare(
+    const row = this.db.prepare<SessionRow>(
       `SELECT * FROM sessions WHERE id = ? OR agent_name = ? ORDER BY started_at DESC LIMIT 1`
-    ).get(idOrName, idOrName) as SessionRow | undefined
+    ).get(idOrName, idOrName)
 
     return row ? rowToSession(row) : null
   }
@@ -151,9 +151,9 @@ export class SessionStore {
    * Get a session by tmux session name.
    */
   getBySessionName(sessionName: string): SessionRecord | null {
-    const row = this.db.prepare(
+    const row = this.db.prepare<SessionRow>(
       `SELECT * FROM sessions WHERE session_name = ? ORDER BY started_at DESC LIMIT 1`
-    ).get(sessionName) as SessionRow | undefined
+    ).get(sessionName)
 
     return row ? rowToSession(row) : null
   }
@@ -164,13 +164,13 @@ export class SessionStore {
   list(status?: SessionRecord['status']): SessionRecord[] {
     let rows: SessionRow[]
     if (status) {
-      rows = this.db.prepare(
+      rows = this.db.prepare<SessionRow>(
         `SELECT * FROM sessions WHERE status = ? ORDER BY started_at DESC`
-      ).all(status) as SessionRow[]
+      ).all(status)
     } else {
-      rows = this.db.prepare(
+      rows = this.db.prepare<SessionRow>(
         `SELECT * FROM sessions ORDER BY started_at DESC`
-      ).all() as SessionRow[]
+      ).all()
     }
 
     return rows.map(rowToSession)

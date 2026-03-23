@@ -7,7 +7,7 @@
 
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import Database from 'better-sqlite3'
+import { type DatabaseDriver, openDriver } from '../database/driver.js'
 import type { Board, Ticket, Column } from '../pmo/types.js'
 import { getWorkspaceInfo, getAllAgentsStatus, getAgentTmuxSessions } from '../agents/commands.js'
 import type { WorkspaceInfo, AgentStatus } from '../agents/commands.js'
@@ -148,13 +148,13 @@ export function gatherAgentData(): DashboardAgent[] {
 
 export function gatherSessionData(): DashboardSession[] {
   let executionStorage: ExecutionStorage | null = null
-  let db: Database.Database | null = null
+  let db: DatabaseDriver | null = null
   const sessions: DashboardSession[] = []
 
   try {
     const workspaceInfo = getWorkspaceInfo()
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    db = new Database(dbPath)
+    db = openDriver(dbPath, { foreignKeys: false })
     executionStorage = new ExecutionStorage(db)
   } catch {
     // Not in workspace — still discover tmux sessions below
