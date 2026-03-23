@@ -154,6 +154,51 @@ export default class SessionList extends PMOCommand {
         }
       }
 
+      // PRLT-1077: Self-healing recovery for background-mode spawns.
+      // Check stopped executions whose tmux sessions are still alive — they were
+      // incorrectly marked as stopped when the CLI exited but the agent continued.
+      if (executionStorage) {
+        const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
+        for (const exec of stoppedExecutions) {
+          const isContainer = exec.environment === 'devcontainer'
+          if (!exec.sessionId) continue
+
+          let sessionAlive = false
+          let containerId: string | undefined
+
+          if (isContainer && exec.containerId) {
+            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+            sessionAlive = containerSessions.includes(exec.sessionId)
+            containerId = exec.containerId
+          } else {
+            sessionAlive = hostTmuxSessions.includes(exec.sessionId)
+          }
+
+          if (sessionAlive) {
+            // Recover: update status back to 'running'
+            executionStorage.updateStatus(exec.id, 'running')
+
+            // Track as matched so it's not reported as orphan
+            if (isContainer && containerId) {
+              matchedContainerSessions.add(`${containerId}:${exec.sessionId}`)
+            } else {
+              matchedHostSessions.add(exec.sessionId)
+            }
+
+            sessions.push({
+              sessionId: exec.sessionId,
+              ticketId: exec.ticketId,
+              agentName: exec.agentName,
+              status: 'running',
+              environment: isContainer ? 'container' : 'host',
+              containerId,
+              exists: true,
+              source: 'db',
+            })
+          }
+        }
+      }
+
       // Discover orphan sessions: tmux sessions matching prlt pattern but not in DB
       // Host sessions
       for (const sessionName of hostTmuxSessions) {
