@@ -10,7 +10,7 @@
  * into these domain events, keeping PMO as just another provider.
  */
 
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { getEventBus } from '../events/event-bus.js'
 import type { WorkStatusChangedEvent, WorkPRCreatedEvent, WorkPRMergedEvent } from '../work-lifecycle/events.js'
 import { LinearClient } from '../linear/client.js'

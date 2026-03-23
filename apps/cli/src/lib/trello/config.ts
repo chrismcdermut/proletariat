@@ -2,13 +2,11 @@
  * Trello Configuration Storage
  *
  * Stores Trello credentials and preferences in the workspace_settings table.
- * Mirrors the Shortcut/Asana config module pattern.
  */
 
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
-
-const SETTINGS_TABLE = 'workspace_settings'
+import { SettingsStore } from '../database/settings-store.js'
 
 const TRELLO_CONFIG_KEYS = {
   apiKey: 'trello.api_key',
@@ -24,34 +22,13 @@ export interface TrelloConfig {
   boardName?: string
 }
 
-function getSetting(db: Database.Database, key: string): string | null {
-  const row = db
-    .prepare(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`)
-    .get(key) as { value: string } | undefined
-  return row?.value ?? null
-}
-
-function setSetting(db: Database.Database, key: string, value: string): void {
-  db.prepare(`
-    INSERT INTO ${SETTINGS_TABLE} (key, value)
-    VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(key, value)
-}
-
-function deleteSetting(db: Database.Database, key: string): void {
-  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(key)
-}
-
 /**
  * Check if Trello is configured.
- * Returns true if either:
- * - Database has trello.api_key and trello.api_token stored, OR
- * - Environment variables PRLT_TRELLO_API_KEY/TRELLO_API_KEY and PRLT_TRELLO_API_TOKEN/TRELLO_API_TOKEN are set
  */
 export function isTrelloConfigured(db: Database.Database): boolean {
-  const hasDbConfig = getSetting(db, TRELLO_CONFIG_KEYS.apiKey) !== null
-    && getSetting(db, TRELLO_CONFIG_KEYS.apiToken) !== null
+  const settings = new SettingsStore(db)
+  const hasDbConfig = settings.has(TRELLO_CONFIG_KEYS.apiKey)
+    && settings.has(TRELLO_CONFIG_KEYS.apiToken)
   if (hasDbConfig) return true
 
   const hasEnvKey = !!(process.env.PRLT_TRELLO_API_KEY || process.env.TRELLO_API_KEY)
@@ -61,14 +38,14 @@ export function isTrelloConfigured(db: Database.Database): boolean {
 
 /**
  * Load Trello configuration from the database + environment.
- * Returns null if not configured.
  */
 export function loadTrelloConfig(db: Database.Database): TrelloConfig | null {
-  const apiKey = getSetting(db, TRELLO_CONFIG_KEYS.apiKey)
+  const settings = new SettingsStore(db)
+  const apiKey = settings.get(TRELLO_CONFIG_KEYS.apiKey)
     || process.env.PRLT_TRELLO_API_KEY
     || process.env.TRELLO_API_KEY
 
-  const apiToken = getSetting(db, TRELLO_CONFIG_KEYS.apiToken)
+  const apiToken = settings.get(TRELLO_CONFIG_KEYS.apiToken)
     || process.env.PRLT_TRELLO_API_TOKEN
     || process.env.TRELLO_API_TOKEN
 
@@ -77,10 +54,10 @@ export function loadTrelloConfig(db: Database.Database): TrelloConfig | null {
   return {
     apiKey,
     apiToken,
-    boardId: getSetting(db, TRELLO_CONFIG_KEYS.boardId)
+    boardId: settings.get(TRELLO_CONFIG_KEYS.boardId)
       || process.env.PRLT_TRELLO_BOARD_ID
       || undefined,
-    boardName: getSetting(db, TRELLO_CONFIG_KEYS.boardName) || undefined,
+    boardName: settings.get(TRELLO_CONFIG_KEYS.boardName) || undefined,
   }
 }
 
@@ -88,53 +65,39 @@ export function loadTrelloConfig(db: Database.Database): TrelloConfig | null {
  * Save Trello configuration to the database.
  */
 export function saveTrelloConfig(db: Database.Database, config: TrelloConfig): void {
-  setSetting(db, TRELLO_CONFIG_KEYS.apiKey, config.apiKey)
-  setSetting(db, TRELLO_CONFIG_KEYS.apiToken, config.apiToken)
+  const settings = new SettingsStore(db)
+  settings.set(TRELLO_CONFIG_KEYS.apiKey, config.apiKey)
+  settings.set(TRELLO_CONFIG_KEYS.apiToken, config.apiToken)
   if (config.boardId) {
-    setSetting(db, TRELLO_CONFIG_KEYS.boardId, config.boardId)
+    settings.set(TRELLO_CONFIG_KEYS.boardId, config.boardId)
   }
   if (config.boardName) {
-    setSetting(db, TRELLO_CONFIG_KEYS.boardName, config.boardName)
+    settings.set(TRELLO_CONFIG_KEYS.boardName, config.boardName)
   }
 }
 
-/**
- * Save the Trello API key.
- */
 export function saveTrelloApiKey(db: Database.Database, apiKey: string): void {
-  setSetting(db, TRELLO_CONFIG_KEYS.apiKey, apiKey)
+  new SettingsStore(db).set(TRELLO_CONFIG_KEYS.apiKey, apiKey)
 }
 
-/**
- * Save the Trello API token.
- */
 export function saveTrelloApiToken(db: Database.Database, apiToken: string): void {
-  setSetting(db, TRELLO_CONFIG_KEYS.apiToken, apiToken)
+  new SettingsStore(db).set(TRELLO_CONFIG_KEYS.apiToken, apiToken)
 }
 
-/**
- * Save the Trello board.
- */
 export function saveTrelloBoard(db: Database.Database, boardId: string, boardName: string): void {
-  setSetting(db, TRELLO_CONFIG_KEYS.boardId, boardId)
-  setSetting(db, TRELLO_CONFIG_KEYS.boardName, boardName)
+  const settings = new SettingsStore(db)
+  settings.set(TRELLO_CONFIG_KEYS.boardId, boardId)
+  settings.set(TRELLO_CONFIG_KEYS.boardName, boardName)
 }
 
-/**
- * Clear all Trello configuration from the database.
- */
 export function clearTrelloConfig(db: Database.Database): void {
+  const settings = new SettingsStore(db)
   for (const key of Object.values(TRELLO_CONFIG_KEYS)) {
-    deleteSetting(db, key)
+    settings.delete(key)
   }
 }
 
-/**
- * Get the stored Trello API key.
- * Also checks PRLT_TRELLO_API_KEY and TRELLO_API_KEY environment variables.
- */
 export function getTrelloApiKey(db: Database.Database): string | null {
-  // 1. Try provider sources (resolves apiKeyRef → trello.api_key)
   try {
     const sources = loadProviderSources(db)
     for (const source of sources) {
@@ -147,23 +110,15 @@ export function getTrelloApiKey(db: Database.Database): string | null {
     // Provider sources may not exist in older databases
   }
 
-  // 2. Legacy: environment variables
   const envKey = process.env.PRLT_TRELLO_API_KEY || process.env.TRELLO_API_KEY
   if (envKey) return envKey
 
-  // 3. Legacy: stored workspace setting
-  return getSetting(db, TRELLO_CONFIG_KEYS.apiKey)
+  return new SettingsStore(db).get(TRELLO_CONFIG_KEYS.apiKey)
 }
 
-/**
- * Get the stored Trello API token.
- * Also checks PRLT_TRELLO_API_TOKEN and TRELLO_API_TOKEN environment variables.
- */
 export function getTrelloApiToken(db: Database.Database): string | null {
-  // 1. Legacy: environment variables
   const envToken = process.env.PRLT_TRELLO_API_TOKEN || process.env.TRELLO_API_TOKEN
   if (envToken) return envToken
 
-  // 2. Legacy: stored workspace setting
-  return getSetting(db, TRELLO_CONFIG_KEYS.apiToken)
+  return new SettingsStore(db).get(TRELLO_CONFIG_KEYS.apiToken)
 }

@@ -6,7 +6,7 @@
  * normalized to percentages internally. No need to sum to 100.
  */
 
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PMO_TABLES } from './schema.js'
 
 const T = PMO_TABLES

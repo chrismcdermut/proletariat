@@ -14,7 +14,7 @@
  * The local PMO is just the default provider for users without integrations.
  */
 
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { getWorkColumnSetting, findColumnByName, getReviewGateSetting } from '../pmo/utils.js'
 import type { StateCategory, ReviewGateMode } from '../pmo/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'

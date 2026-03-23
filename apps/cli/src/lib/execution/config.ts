@@ -5,7 +5,7 @@
  * Uses the workspace_settings table (not pmo_settings - execution is workspace-level).
  */
 
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod, PermissionMode, CleanupPolicy, normalizeEnvironment } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
@@ -16,10 +16,9 @@ import {
   buildPromptConfig,
   type JsonFlags,
 } from '../prompt-json.js'
+import { SettingsStore } from '../database/settings-store.js'
 
 import { execSync } from 'node:child_process'
-
-const SETTINGS_TABLE = 'workspace_settings'
 
 // Config keys stored in workspace_settings table
 const CONFIG_KEYS = {
@@ -57,25 +56,16 @@ const CONFIG_KEYS = {
   mirrorToPmoDefault: 'execution.mirror_to_pmo_default',
 }
 
-/**
- * Get a setting value from the database
- */
-function getSetting(db: Database.Database, key: string): string | null {
-  const row = db
-    .prepare(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`)
-    .get(key) as { value: string } | undefined
-  return row?.value ?? null
+function settingsFor(db: Database.Database): SettingsStore {
+  return new SettingsStore(db)
 }
 
-/**
- * Set a setting value in the database
- */
+function getSetting(db: Database.Database, key: string): string | null {
+  return settingsFor(db).get(key)
+}
+
 function setSetting(db: Database.Database, key: string, value: string): void {
-  db.prepare(`
-    INSERT INTO ${SETTINGS_TABLE} (key, value)
-    VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(key, value)
+  settingsFor(db).set(key, value)
 }
 
 /**
@@ -406,7 +396,7 @@ export function getAuthMethod(db: Database.Database): AuthMethod | null {
  * Clear saved auth method preference (will prompt again next time)
  */
 export function clearAuthMethod(db: Database.Database): void {
-  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(CONFIG_KEYS.authMethod)
+  settingsFor(db).delete(CONFIG_KEYS.authMethod)
 }
 
 /**

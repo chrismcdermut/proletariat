@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { loadAsanaConfig } from '../asana/config.js'
 import { loadLinearConfig } from '../linear/config.js'
 import { loadJiraConfig } from '../jira/config.js'
@@ -6,8 +6,8 @@ import { loadShortcutConfig } from '../shortcut/config.js'
 import { loadTrelloConfig } from '../trello/config.js'
 import { loadMondayConfig } from '../monday/config.js'
 import { loadProviderSources } from './provider-sources.js'
+import { SettingsStore } from '../database/settings-store.js'
 
-const SETTINGS_TABLE = 'workspace_settings'
 const DEFAULT_SOURCE_KEY = 'work.default_source'
 /** @deprecated Old key kept for migration — use DEFAULT_SOURCE_KEY */
 const LEGACY_ACTIVE_SOURCE_KEY = 'work.active_source'
@@ -20,23 +20,8 @@ export interface WorkSourceRef {
   context?: string
 }
 
-function getSetting(db: Database.Database, key: string): string | null {
-  const row = db
-    .prepare(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`)
-    .get(key) as { value: string } | undefined
-  return row?.value ?? null
-}
-
-function setSetting(db: Database.Database, key: string, value: string): void {
-  db.prepare(`
-    INSERT INTO ${SETTINGS_TABLE} (key, value)
-    VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(key, value)
-}
-
-function deleteSetting(db: Database.Database, key: string): void {
-  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(key)
+function settingsFor(db: Database.Database): SettingsStore {
+  return new SettingsStore(db)
 }
 
 export function isWorkSourceProvider(value: string): value is WorkSourceProvider {
@@ -76,27 +61,30 @@ export function formatWorkSourceRef(source: WorkSourceRef): string {
 }
 
 export function saveDefaultWorkSource(db: Database.Database, source: WorkSourceRef): void {
-  setSetting(db, DEFAULT_SOURCE_KEY, formatWorkSourceRef(source))
+  const settings = settingsFor(db)
+  settings.set(DEFAULT_SOURCE_KEY, formatWorkSourceRef(source))
   // Clean up legacy key if it exists
-  deleteSetting(db, LEGACY_ACTIVE_SOURCE_KEY)
+  settings.delete(LEGACY_ACTIVE_SOURCE_KEY)
 }
 
 export function clearDefaultWorkSource(db: Database.Database): void {
-  deleteSetting(db, DEFAULT_SOURCE_KEY)
-  deleteSetting(db, LEGACY_ACTIVE_SOURCE_KEY)
+  const settings = settingsFor(db)
+  settings.delete(DEFAULT_SOURCE_KEY)
+  settings.delete(LEGACY_ACTIVE_SOURCE_KEY)
 }
 
 export function loadDefaultWorkSource(db: Database.Database): WorkSourceRef | null {
+  const settings = settingsFor(db)
   // Check new key first
-  let raw = getSetting(db, DEFAULT_SOURCE_KEY)
+  let raw = settings.get(DEFAULT_SOURCE_KEY)
 
   // Fall back to legacy key and migrate
   if (!raw) {
-    raw = getSetting(db, LEGACY_ACTIVE_SOURCE_KEY)
+    raw = settings.get(LEGACY_ACTIVE_SOURCE_KEY)
     if (raw) {
       // Migrate to new key
-      setSetting(db, DEFAULT_SOURCE_KEY, raw)
-      deleteSetting(db, LEGACY_ACTIVE_SOURCE_KEY)
+      settings.set(DEFAULT_SOURCE_KEY, raw)
+      settings.delete(LEGACY_ACTIVE_SOURCE_KEY)
     }
   }
 

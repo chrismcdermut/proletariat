@@ -1,10 +1,11 @@
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PMO_TABLES } from '../pmo/schema.js'
 import {
   type ExternalExecutionMapping,
   type ExternalMappingProvider,
   type UpsertExternalExecutionMappingInput,
 } from './types.js'
+import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
 
 interface ExternalExecutionMapRow {
   provider: ExternalMappingProvider
@@ -41,13 +42,24 @@ function parseSnapshot(value: string | null): Record<string, unknown> | null {
   return null
 }
 
+function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
+  if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
+    // Looks like a raw better-sqlite3 Database
+    return wrapDatabase(dbOrDriver as Database.Database)
+  }
+  return dbOrDriver as DatabaseDriver
+}
+
 export class ExternalExecutionMappingStore {
-  constructor(private db: Database.Database) {
+  private driver: DatabaseDriver
+
+  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+    this.driver = toDriver(dbOrDriver)
     this.ensureTables()
   }
 
   private ensureTables(): void {
-    this.db.exec(`
+    this.driver.exec(`
       CREATE TABLE IF NOT EXISTS ${T.external_execution_map} (
         provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'pmo')),
         external_id TEXT NOT NULL,
@@ -99,8 +111,8 @@ export class ExternalExecutionMappingStore {
     const lastSyncedAt = input.lastSyncedAt?.toISOString() ?? null
     const lastSpawnedAt = input.lastSpawnedAt?.toISOString() ?? null
 
-    this.db.transaction(() => {
-      this.db.prepare(`
+    this.driver.transaction(() => {
+      this.driver.prepare(`
         INSERT INTO ${T.external_execution_map}
           (provider, external_id, external_key, canonical_url, latest_state_snapshot, last_synced_at, last_spawned_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -122,7 +134,7 @@ export class ExternalExecutionMappingStore {
       )
 
       if (input.executionId) {
-        this.db.prepare(`
+        this.driver.prepare(`
           INSERT OR IGNORE INTO ${T.external_execution_links}
             (provider, external_id, execution_id, linked_at)
           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -130,7 +142,7 @@ export class ExternalExecutionMappingStore {
       }
 
       if (input.prUrl) {
-        this.db.prepare(`
+        this.driver.prepare(`
           INSERT OR IGNORE INTO ${T.external_execution_prs}
             (provider, external_id, pr_url, linked_at)
           VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -142,27 +154,27 @@ export class ExternalExecutionMappingStore {
   }
 
   getByExternalId(provider: ExternalMappingProvider, externalId: string): ExternalExecutionMapping | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare<ExternalExecutionMapRow>(`
       SELECT * FROM ${T.external_execution_map}
       WHERE provider = ? AND external_id = ?
-    `).get(provider, externalId) as ExternalExecutionMapRow | undefined
+    `).get(provider, externalId)
 
     if (!row) return null
     return this.rowToMapping(row)
   }
 
   getByExternalKey(provider: ExternalMappingProvider, externalKey: string): ExternalExecutionMapping | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare<ExternalExecutionMapRow>(`
       SELECT * FROM ${T.external_execution_map}
       WHERE provider = ? AND external_key = ?
-    `).get(provider, externalKey) as ExternalExecutionMapRow | undefined
+    `).get(provider, externalKey)
 
     if (!row) return null
     return this.rowToMapping(row)
   }
 
   findByExecutionId(executionId: string): ExternalExecutionMapping[] {
-    const rows = this.db.prepare(`
+    const rows = this.driver.prepare<ExternalExecutionMapRow>(`
       SELECT m.*
       FROM ${T.external_execution_map} m
       INNER JOIN ${T.external_execution_links} l
@@ -170,25 +182,25 @@ export class ExternalExecutionMappingStore {
        AND m.external_id = l.external_id
       WHERE l.execution_id = ?
       ORDER BY m.updated_at DESC
-    `).all(executionId) as ExternalExecutionMapRow[]
+    `).all(executionId)
 
     return rows.map((row) => this.rowToMapping(row))
   }
 
   private rowToMapping(row: ExternalExecutionMapRow): ExternalExecutionMapping {
-    const executionIds = this.db.prepare(`
+    const executionIds = this.driver.prepare<StringRow>(`
       SELECT execution_id AS value
       FROM ${T.external_execution_links}
       WHERE provider = ? AND external_id = ?
       ORDER BY linked_at DESC
-    `).all(row.provider, row.external_id) as StringRow[]
+    `).all(row.provider, row.external_id)
 
-    const prUrls = this.db.prepare(`
+    const prUrls = this.driver.prepare<StringRow>(`
       SELECT pr_url AS value
       FROM ${T.external_execution_prs}
       WHERE provider = ? AND external_id = ?
       ORDER BY linked_at DESC
-    `).all(row.provider, row.external_id) as StringRow[]
+    `).all(row.provider, row.external_id)
 
     return {
       provider: row.provider,
