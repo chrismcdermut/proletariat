@@ -196,6 +196,29 @@ export function createDockerContainer(
 }
 
 /**
+ * Build the Claude Code stop hook config in the new matcher+hooks array format.
+ * PRLT-1082: The old flat format caused Claude Code to skip the entire settings.json
+ * due to validation error, breaking skipDangerousModePermissionPrompt.
+ */
+export function buildClaudeStopHookConfig(): Record<string, unknown> {
+  return {
+    hooks: {
+      Stop: [
+        {
+          matcher: '',
+          hooks: [
+            {
+              type: 'command' as const,
+              command: 'prlt session report --agent "$PRLT_AGENT_NAME" --status exited 2>/dev/null || true',
+            },
+          ],
+        },
+      ],
+    },
+  }
+}
+
+/**
  * Run the post-start setup commands in a container.
  */
 export function runContainerSetup(containerId: string, permissionMode: PermissionMode = 'safe', executor: ExecutorType = 'claude-code'): boolean {
@@ -268,16 +291,7 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
       // Uses $PRLT_AGENT_NAME shell variable which is set as a container env var
       // during createDockerContainer() — this ensures the correct agent name is used
       // regardless of which process is running the container setup.
-      const stopHookConfig = {
-        hooks: {
-          Stop: [
-            {
-              type: 'command' as const,
-              command: 'prlt session report --agent "$PRLT_AGENT_NAME" --status exited 2>/dev/null || true',
-            },
-          ],
-        },
-      }
+      const stopHookConfig = buildClaudeStopHookConfig()
       // Merge stop hook into existing settings.json
       const mergedSettings = { ...JSON.parse(claudeSettings), ...stopHookConfig }
       execSync(
