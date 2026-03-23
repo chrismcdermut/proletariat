@@ -2467,6 +2467,19 @@ export default class WorkStart extends PMOCommand {
             // Non-fatal - work can proceed even if column move fails
             this.warn(`Could not move ticket to "${targetColumnName}": ${moveError instanceof Error ? moveError.message : moveError}`)
           }
+
+          // Sync to external provider (e.g., Linear) if ticket was imported from one
+          try {
+            const provider = await this.resolveTicketProvider(ticket.id, ticket.projectId!)
+            if (provider.name !== 'pmo') {
+              const result = await provider.moveTicket(ticket.id, targetColumnName)
+              if (result.success) {
+                this.log(styles.muted(`   Synced to ${result.provider}: ${targetColumnName}`))
+              }
+            }
+          } catch {
+            // Non-fatal — don't block work start for provider sync failures
+          }
         }
 
         await autoExportToBoard(this.pmoPath, this.storage, (msg) => {
@@ -3102,6 +3115,16 @@ export default class WorkStart extends PMOCommand {
 
       if (inProgressColumn && ticket.status !== inProgressColumn) {
         await this.storage.moveTicket(ticket.projectId!, ticket.id, inProgressColumn)
+
+        // Sync to external provider (e.g., Linear) if ticket was imported from one
+        try {
+          const provider = await this.resolveTicketProvider(ticket.id, ticket.projectId!)
+          if (provider.name !== 'pmo') {
+            await provider.moveTicket(ticket.id, inProgressColumn)
+          }
+        } catch {
+          // Non-fatal — don't block work start for provider sync failures
+        }
       }
 
       await autoExportToBoard(this.pmoPath, this.storage, () => {})

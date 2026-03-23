@@ -22,6 +22,7 @@ import { loadExecutionConfig, getOrPromptCoderName, getCleanupPolicy } from './c
 import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName, isSrtInstalled } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
+import { resolveTicketProvider } from '../providers/resolver.js'
 import { type ExternalMappingProvider } from '../external-issues/types.js'
 import { copyMediaToAgentWorkspace } from '../media/index.js'
 import {
@@ -691,6 +692,16 @@ export async function spawnAgentForTicket(
 
     if (inProgressColumn && ticket.statusName !== inProgressColumn) {
       await storage.moveTicket(ticket.projectId!, ticket.id, inProgressColumn)
+
+      // Sync to external provider (e.g., Linear) if ticket was imported from one
+      try {
+        const provider = resolveTicketProvider(ticket.id, ticket.projectId!, db, storage, ticket.metadata)
+        if (provider.name !== 'pmo') {
+          await provider.moveTicket(ticket.id, inProgressColumn)
+        }
+      } catch {
+        // Non-fatal — don't block spawn for provider sync failures
+      }
     }
 
     await autoExportToBoard(pmoPath, storage, log)
