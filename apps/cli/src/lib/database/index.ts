@@ -115,3 +115,15 @@ export {
   SettingsStore,
   createSettingsStore,
 } from './settings-store.js'
+
+// Database safety (WAL, backup, integrity, repair)
+export {
+  enableWALMode,
+  createRotatingBackup,
+  checkIntegrity,
+  quickCheckIntegrity,
+  repairDatabase,
+  getBackupPath,
+  type IntegrityCheckResult,
+  type RepairResult,
+} from './db-safety.js'
