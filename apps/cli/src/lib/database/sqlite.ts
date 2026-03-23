@@ -71,12 +71,20 @@ export interface RunResult {
  * For a CLI doing dozens of queries per command, the overhead is negligible.
  */
 class SqlitePreparedStatement<T = any> {
-  constructor(private db: RawSqlJsDatabase, private sql: string) {}
+  constructor(private db: RawSqlJsDatabase, private sql: string, private readonly _readonly: boolean = false) {}
 
   /**
    * Execute the statement and return change info (INSERT/UPDATE/DELETE).
    */
   run(...params: unknown[]): RunResult {
+    if (this._readonly) {
+      const trimmed = this.sql.trimStart().toUpperCase()
+      if (trimmed.startsWith('INSERT') || trimmed.startsWith('UPDATE') ||
+          trimmed.startsWith('DELETE') || trimmed.startsWith('DROP') ||
+          trimmed.startsWith('ALTER') || trimmed.startsWith('CREATE')) {
+        throw new Error('attempt to write a readonly database')
+      }
+    }
     const stmt = this.db.prepare(this.sql)
     try {
       if (params.length > 0) {
@@ -188,13 +196,21 @@ export class SqliteDatabase {
    * compatible with better-sqlite3's prepared statements.
    */
   prepare<T = any>(sql: string): SqlitePreparedStatement<T> {
-    return new SqlitePreparedStatement<T>(this._db, sql)
+    return new SqlitePreparedStatement<T>(this._db, sql, this._readonly)
   }
 
   /**
    * Execute raw SQL (DDL, multi-statement). No return value.
    */
   exec(sql: string): void {
+    if (this._readonly) {
+      const trimmed = sql.trimStart().toUpperCase()
+      if (trimmed.startsWith('INSERT') || trimmed.startsWith('UPDATE') ||
+          trimmed.startsWith('DELETE') || trimmed.startsWith('DROP') ||
+          trimmed.startsWith('ALTER') || trimmed.startsWith('CREATE')) {
+        throw new Error('attempt to write a readonly database')
+      }
+    }
     this._db.run(sql)
   }
 
