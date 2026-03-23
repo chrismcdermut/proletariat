@@ -1,0 +1,154 @@
+import { expect } from 'chai'
+import { executeBuiltinAction, ACTION_HANDLERS } from '../../src/lib/orchestrate/actions.js'
+import type { OrchestrateEventContext } from '../../src/lib/orchestrate/types.js'
+
+/**
+ * Unit tests for orchestrate built-in actions.
+ *
+ * Tests cover:
+ * - Action registry completeness
+ * - Notify action (pure, no side effects)
+ * - Error handling for missing context
+ * - Unknown action handling
+ */
+
+describe('Orchestrate Built-in Actions', () => {
+  // ===========================================================================
+  // Action Registry
+  // ===========================================================================
+
+  describe('action registry', () => {
+    const expectedActions = [
+      'merge-pr',
+      'move-ticket',
+      'rebase-conflicting-prs',
+      'spawn-agent',
+      'respawn',
+      'notify',
+      'cleanup-container',
+      'spawn-fix-agent',
+      'health-check',
+    ]
+
+    it('should have all expected actions registered', () => {
+      for (const action of expectedActions) {
+        expect(ACTION_HANDLERS).to.have.property(action)
+        expect(ACTION_HANDLERS[action]).to.be.a('function')
+      }
+    })
+
+    it('should have exactly the expected number of actions', () => {
+      expect(Object.keys(ACTION_HANDLERS)).to.have.length(expectedActions.length)
+    })
+  })
+
+  // ===========================================================================
+  // Notify Action (pure — no external dependencies)
+  // ===========================================================================
+
+  describe('notify action', () => {
+    it('should succeed with all context fields', () => {
+      const ctx: OrchestrateEventContext = {
+        event: 'on_ci_green',
+        ticket: 'TKT-100',
+        pr: 123,
+        agent: 'bold-turing',
+      }
+      const result = executeBuiltinAction('notify', ctx)
+      expect(result.action).to.equal('notify')
+      expect(result.success).to.be.true
+      expect(result.durationMs).to.be.a('number').and.at.least(0)
+    })
+
+    it('should succeed with minimal context', () => {
+      const result = executeBuiltinAction('notify', { event: 'on_ci_green' })
+      expect(result.success).to.be.true
+    })
+  })
+
+  // ===========================================================================
+  // Missing Context Handling
+  // ===========================================================================
+
+  describe('missing context handling', () => {
+    it('merge-pr should fail without ticket or PR', () => {
+      const result = executeBuiltinAction('merge-pr', { event: 'on_ci_green' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No ticket or PR')
+    })
+
+    it('move-ticket should fail without ticket', () => {
+      const result = executeBuiltinAction('move-ticket', { event: 'on_pr_merged' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No ticket')
+    })
+
+    it('spawn-agent should fail without ticket', () => {
+      const result = executeBuiltinAction('spawn-agent', { event: 'on_ticket_ready' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No ticket')
+    })
+
+    it('respawn should fail without ticket', () => {
+      const result = executeBuiltinAction('respawn', { event: 'on_agent_died' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No ticket')
+    })
+
+    it('spawn-fix-agent should fail without ticket', () => {
+      const result = executeBuiltinAction('spawn-fix-agent', { event: 'on_ci_failed' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No ticket')
+    })
+
+    it('health-check should fail without agent', () => {
+      const result = executeBuiltinAction('health-check', { event: 'on_agent_idle' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No agent')
+    })
+
+    it('cleanup-container should fail without agent or container', () => {
+      const result = executeBuiltinAction('cleanup-container', { event: 'on_agent_completed' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No agent or container')
+    })
+  })
+
+  // ===========================================================================
+  // Unknown Action
+  // ===========================================================================
+
+  describe('unknown action', () => {
+    it('should return failure for unregistered action name', () => {
+      const result = executeBuiltinAction('nonexistent-action', { event: 'on_ci_green' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('Unknown action')
+    })
+
+    it('should include the action name in the error', () => {
+      const result = executeBuiltinAction('does-not-exist', { event: 'on_ci_green' })
+      expect(result.error).to.include('does-not-exist')
+    })
+  })
+
+  // ===========================================================================
+  // Action Result Shape
+  // ===========================================================================
+
+  describe('result shape', () => {
+    it('should always include action, success, and durationMs', () => {
+      const result = executeBuiltinAction('notify', { event: 'test' })
+      expect(result).to.have.property('action')
+      expect(result).to.have.property('success')
+      expect(result).to.have.property('durationMs')
+    })
+
+    it('should include error only on failure', () => {
+      const success = executeBuiltinAction('notify', { event: 'test' })
+      expect(success.error).to.be.undefined
+
+      const failure = executeBuiltinAction('merge-pr', { event: 'test' })
+      expect(failure.error).to.be.a('string')
+    })
+  })
+})
