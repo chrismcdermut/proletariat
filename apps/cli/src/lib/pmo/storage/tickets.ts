@@ -18,6 +18,7 @@ import {
   pmoTicketLabels,
   pmoLabels,
   pmoLabelGroups,
+  pmoExternalIssueMap,
 } from '../../database/drizzle-schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
 import { slugify, generateEntityId } from '../utils.js'
@@ -277,9 +278,48 @@ export class TicketStorage {
 
   /**
    * Get a ticket by ID.
+   * Tries direct ID lookup first, then falls back to external key lookup
+   * so that external IDs like PRLT-xxx resolve correctly.
    */
   async getTicket(id: string): Promise<Ticket | null> {
-    return this.getTicketById(id)
+    const ticket = await this.getTicketById(id)
+    if (ticket) return ticket
+
+    // Fallback: look up by external key (e.g. PRLT-xxx → TKT-xxx)
+    return this.getTicketByExternalKey(id)
+  }
+
+  /**
+   * Get a ticket by its external provider key (e.g. PRLT-1065).
+   * Checks both the ticket metadata table and the external issue map table.
+   */
+  async getTicketByExternalKey(externalKey: string): Promise<Ticket | null> {
+    // Strategy 1: Look up via pmo_ticket_metadata (external_key metadata field)
+    const metadataRow = this.ctx.drizzle
+      .select({ ticketId: pmoTicketMetadata.ticketId })
+      .from(pmoTicketMetadata)
+      .where(and(
+        eq(pmoTicketMetadata.key, 'external_key'),
+        sql`LOWER(${pmoTicketMetadata.value}) = LOWER(${externalKey})`
+      ))
+      .get()
+
+    if (metadataRow) {
+      return this.getTicketById(metadataRow.ticketId)
+    }
+
+    // Strategy 2: Look up via pmo_external_issue_map table
+    const mappingRow = this.ctx.drizzle
+      .select({ pmoTicketId: pmoExternalIssueMap.pmoTicketId })
+      .from(pmoExternalIssueMap)
+      .where(sql`LOWER(${pmoExternalIssueMap.externalKey}) = LOWER(${externalKey})`)
+      .get()
+
+    if (mappingRow) {
+      return this.getTicketById(mappingRow.pmoTicketId)
+    }
+
+    return null
   }
 
   /**

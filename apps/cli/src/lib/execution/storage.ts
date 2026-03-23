@@ -279,8 +279,8 @@ export class ExecutionStorage {
       params.push(filter.agentName)
     }
     if (filter?.ticketId) {
-      query += ` AND ticket_id = ?`
-      params.push(filter.ticketId)
+      query += ` AND (ticket_id = ? OR external_key = ?)`
+      params.push(filter.ticketId, filter.ticketId)
     }
 
     query += ` ORDER BY started_at DESC`
@@ -295,17 +295,18 @@ export class ExecutionStorage {
   }
 
   /**
-   * Get running execution for a ticket (if any)
+   * Get running execution for a ticket (if any).
+   * Matches by both internal ticket_id (TKT-xxx) and external_key (PRLT-xxx).
    */
   getRunningExecution(ticketId: string): AgentWork | null {
     const row = this.db
       .prepare(`
         SELECT * FROM ${T.agent_work}
-        WHERE ticket_id = ? AND status IN ('starting', 'running')
+        WHERE (ticket_id = ? OR external_key = ?) AND status IN ('starting', 'running')
         ORDER BY started_at DESC
         LIMIT 1
       `)
-      .get(ticketId) as AgentWorkRow | undefined
+      .get(ticketId, ticketId) as AgentWorkRow | undefined
 
     return row ? rowToAgentWork(row) : null
   }

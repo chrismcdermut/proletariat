@@ -294,6 +294,10 @@ export class SQLiteStorage implements PMOStorage {
     return this.ticketStorage.getTicketById(id)
   }
 
+  async getTicketByExternalKey(externalKey: string): Promise<Ticket | null> {
+    return this.ticketStorage.getTicketByExternalKey(externalKey)
+  }
+
   async updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket> {
     return this.ticketStorage.updateTicket(id, changes)
   }

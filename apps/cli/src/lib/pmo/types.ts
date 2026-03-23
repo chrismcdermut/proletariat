@@ -995,6 +995,7 @@ export interface PMOStorage {
   // Ticket Operations
   createTicket(projectId: string, ticket: CreateTicketInput): Promise<Ticket>
   getTicket(id: string): Promise<Ticket | null>
+  getTicketByExternalKey(externalKey: string): Promise<Ticket | null>
   updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket>
   moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket>
   reorderTicket(id: string, opts: { position?: number; afterTicketId?: string }): Promise<Ticket>
