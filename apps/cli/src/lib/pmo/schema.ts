@@ -470,6 +470,7 @@ export const PMO_TABLE_SCHEMAS = {
       permission_mode TEXT CHECK (permission_mode IN ('full', 'readonly', 'bypassPermissions')),
       timeout INTEGER,
       model TEXT,
+      review_gate TEXT CHECK (review_gate IN ('required', 'auto', 'post')),
       modifies_code INTEGER NOT NULL DEFAULT 1,
       is_default INTEGER NOT NULL DEFAULT 0,
       is_builtin INTEGER NOT NULL DEFAULT 0,

@@ -15,7 +15,8 @@ import {
   outputExecutionResultAsJson,
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
-import { getWorkColumnSetting, findColumnByName, getTicketExternalMetadata, resolveExternalTicketId } from '../../lib/pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName, getTicketExternalMetadata, resolveExternalTicketId, resolveReviewGate, isValidReviewGateMode } from '../../lib/pmo/utils.js'
+import type { ReviewGateMode } from '../../lib/pmo/types.js'
 import { WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -217,6 +218,8 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --from trello:abc123              # Unified: Trello shorthand',
     '<%= config.bin %> <%= command.id %> PRLT-933                           # Auto-detect: resolves via default source',
     '<%= config.bin %> <%= command.id %> --from-issue                       # Uses workspace default source',
+    '<%= config.bin %> <%= command.id %> TKT-001 --review-gate auto        # Ship directly, no approval needed',
+    '<%= config.bin %> <%= command.id %> TKT-001 --review-gate post        # Ship then human reviews after',
   ]
 
   static args = {
@@ -334,6 +337,10 @@ export default class WorkStart extends PMOCommand {
     clone: Flags.boolean({
       description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
       default: false,
+    }),
+    'review-gate': Flags.string({
+      description: 'Review gate mode: required (human approves before landing), auto (ship directly), post (ship then review)',
+      options: ['required', 'auto', 'post'],
     }),
     'session-action': Flags.string({
       description: 'Action when existing session found (attach, spawn, kill, cancel). Skips interactive menu.',
@@ -2033,6 +2040,9 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.warning(`   To create a PR later: prlt pr create ${ticketId}`))
         }
 
+        // Review gate mode display (shows after PR mode, before worktree)
+        // Deferred to after context is built since reviewGate is resolved below
+
         this.log(styles.muted(`   Worktree: ${worktreePath}`))
         this.log(styles.muted(`   Branch: ${branch}`))
         this.log('')
@@ -2047,6 +2057,32 @@ export default class WorkStart extends PMOCommand {
 
       // Add createPR to context
       context.createPR = createPR
+
+      // Resolve review gate mode (most specific wins: spawn flag > action config > workspace default)
+      const reviewGate = resolveReviewGate(
+        flags['review-gate'] as ReviewGateMode | undefined,
+        selectedAction?.reviewGate,
+        db,
+      )
+      context.reviewGate = reviewGate
+
+      // Auto mode implies no PR (ships directly to main)
+      if (reviewGate === 'auto') {
+        context.createPR = false
+      }
+      // Post mode implies PR creation (will be auto-merged)
+      if (reviewGate === 'post') {
+        context.createPR = true
+      }
+
+      // Display review gate mode in preflight summary
+      if (!jsonMode && reviewGate !== 'required') {
+        const gateDescriptions: Record<string, string> = {
+          auto: 'ships directly — no human approval needed',
+          post: 'ships immediately — human reviews after merge',
+        }
+        this.log(styles.warning(`   Review gate: ${reviewGate} (${gateDescriptions[reviewGate]})`))
+      }
 
       // Handle git operations
       let finalBranch = branch
@@ -2840,6 +2876,7 @@ export default class WorkStart extends PMOCommand {
       'permission-mode'?: string
       'create-pr'?: boolean
       'no-pr'?: boolean
+      'review-gate'?: string
       executor?: string
       session?: string
       'tool-policy'?: string
@@ -2897,6 +2934,11 @@ export default class WorkStart extends PMOCommand {
       repoWorktrees,
       isEphemeral: workspaceInfo.agents.find(a => a.name === agentName)?.type === 'ephemeral',
       createPR: flags['create-pr'] || false,
+      reviewGate: resolveReviewGate(
+        flags['review-gate'] as ReviewGateMode | undefined,
+        defaultAction?.reviewGate,
+        db,
+      ),
       toolPolicy: flags['tool-policy'],
       // Use 'implement' action for batch mode
       actionId: defaultAction?.id,

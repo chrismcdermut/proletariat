@@ -193,6 +193,7 @@ export interface WorkActionRow {
   permission_mode: string | null
   timeout: number | null
   model: string | null
+  review_gate: string | null
   modifies_code: number
   is_default: number
   is_builtin: number

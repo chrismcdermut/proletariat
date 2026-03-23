@@ -374,23 +374,56 @@ export function buildPrompt(context: ExecutionContext): string {
     prompt += endPrompt
   } else {
     if (context.modifiesCode) {
-      prompt += `1. **Commit your work** in each repository directory you modified:\n`
-      prompt += `   \`\`\`bash\n`
-      prompt += `   cd /workspace/<repo-name>\n`
-      prompt += `   git add -A\n`
-      prompt += `   prlt commit "describe your change"\n`
-      prompt += `   git push origin HEAD\n`
-      prompt += `   \`\`\`\n`
-      prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
-      prompt += `\n2. **Mark work as ready** by running:\n`
-      const prFlag = context.createPR ? ' --pr' : ' --no-pr'
-      prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
-      if (context.createPR) {
-        prompt += `   This moves the ticket to review and creates a pull request.\n`
+      const reviewGate = context.reviewGate || 'required'
+
+      if (reviewGate === 'auto') {
+        // Auto mode: agent ships directly to main, no PR needed
+        prompt += `1. **Commit your work** in each repository directory you modified:\n`
+        prompt += `   \`\`\`bash\n`
+        prompt += `   cd /workspace/<repo-name>\n`
+        prompt += `   git add -A\n`
+        prompt += `   prlt commit "describe your change"\n`
+        prompt += `   git push origin HEAD\n`
+        prompt += `   \`\`\`\n`
+        prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
+        prompt += `\n2. **Mark work as ready** by running:\n`
+        prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId} --no-pr\n   \`\`\`\n`
+        prompt += `   This moves the ticket to done. No PR is needed — your work ships directly.\n`
+        prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
+      } else if (reviewGate === 'post') {
+        // Post mode: agent creates and merges its own PR, human reviews after
+        prompt += `1. **Commit your work** in each repository directory you modified:\n`
+        prompt += `   \`\`\`bash\n`
+        prompt += `   cd /workspace/<repo-name>\n`
+        prompt += `   git add -A\n`
+        prompt += `   prlt commit "describe your change"\n`
+        prompt += `   git push origin HEAD\n`
+        prompt += `   \`\`\`\n`
+        prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
+        prompt += `\n2. **Mark work as ready** by running:\n`
+        prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId} --pr\n   \`\`\`\n`
+        prompt += `   This creates a pull request and moves the ticket to review. The PR will be auto-merged — a human will review post-merge.\n`
+        prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
       } else {
-        prompt += `   This moves the ticket to review.\n`
+        // Required mode (default): agent creates PR, human approves before it lands
+        prompt += `1. **Commit your work** in each repository directory you modified:\n`
+        prompt += `   \`\`\`bash\n`
+        prompt += `   cd /workspace/<repo-name>\n`
+        prompt += `   git add -A\n`
+        prompt += `   prlt commit "describe your change"\n`
+        prompt += `   git push origin HEAD\n`
+        prompt += `   \`\`\`\n`
+        prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
+        prompt += `\n2. **Mark work as ready** by running:\n`
+        const prFlag = context.createPR ? ' --pr' : ' --no-pr'
+        prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
+        if (context.createPR) {
+          prompt += `   This moves the ticket to review and creates a pull request.\n`
+        } else {
+          prompt += `   This moves the ticket to review.\n`
+        }
+        prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
       }
-      prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
     } else {
       prompt += `When you have completed the task, provide a summary of what you did.`
     }

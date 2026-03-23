@@ -15,8 +15,8 @@
  */
 
 import Database from 'better-sqlite3'
-import { getWorkColumnSetting, findColumnByName } from '../pmo/utils.js'
-import type { StateCategory } from '../pmo/types.js'
+import { getWorkColumnSetting, findColumnByName, getReviewGateSetting } from '../pmo/utils.js'
+import type { StateCategory, ReviewGateMode } from '../pmo/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
 import type { TicketProvider, ProviderMoveResult, ProviderStorage } from '../providers/types.js'
 import { tryValidateCommits, type CommitValidationResult } from '../execution/commit-validation.js'
@@ -32,6 +32,8 @@ export interface PostExecutionContext {
   agentDir?: string
   /** Repo worktree names within agentDir */
   repoWorktrees?: string[]
+  /** Review gate mode — determines post-execution behavior */
+  reviewGate?: ReviewGateMode
 }
 
 export interface PostExecutionResult {
@@ -46,6 +48,8 @@ export interface PostExecutionResult {
   validation?: CommitValidationResult
   /** True if the transition was blocked by commit validation */
   blockedByValidation?: boolean
+  /** The review gate mode that was applied */
+  reviewGate?: ReviewGateMode
 }
 
 /**
@@ -103,10 +107,16 @@ export async function handlePostExecutionTransition(
     return { transitioned: false }
   }
 
-  // Check if a PR was created (PR URL exists in ticket metadata)
-  const prUrl = ticket.metadata?.pr_url
-  if (!prUrl) {
-    return { transitioned: false }
+  // Resolve the effective review gate mode
+  const reviewGate = context.reviewGate || getReviewGateSetting(db)
+
+  // For auto mode, skip PR check — agent ships directly to main
+  // For required/post modes, check if a PR was created
+  if (reviewGate !== 'auto') {
+    const prUrl = ticket.metadata?.pr_url
+    if (!prUrl) {
+      return { transitioned: false, reviewGate }
+    }
   }
 
   // PRLT-984: Validate that meaningful code was committed before transitioning.
@@ -128,6 +138,7 @@ export async function handlePostExecutionTransition(
             fromState: ticket.statusName,
             validation,
             blockedByValidation: true,
+            reviewGate,
           }
         }
       }
@@ -137,24 +148,28 @@ export async function handlePostExecutionTransition(
     }
   }
 
-  // Get the Review column name
-  const targetColumnName = getWorkColumnSetting(db, 'review')
+  // Determine target column based on review gate mode:
+  // - auto: move to Done (no human review needed)
+  // - post: move to Review (human reviews post-merge)
+  // - required: move to Review (human must approve)
+  const targetColumnType = reviewGate === 'auto' ? 'done' : 'review'
+  const targetColumnName = getWorkColumnSetting(db, targetColumnType)
 
-  // Get board columns to find the review column
+  // Get board columns to find the target column
   const board = await storage.getProjectBoard(ticket.projectId)
   if (!board) {
-    return { transitioned: false }
+    return { transitioned: false, reviewGate }
   }
 
   const columnNames = board.columns.map(col => col.name)
-  const reviewColumn = findColumnByName(columnNames, targetColumnName)
-  if (!reviewColumn) {
-    return { transitioned: false }
+  const targetColumn = findColumnByName(columnNames, targetColumnName)
+  if (!targetColumn) {
+    return { transitioned: false, reviewGate }
   }
 
-  // Already in Review — skip
-  if (ticket.statusName === reviewColumn) {
-    return { transitioned: false }
+  // Already in target state — skip
+  if (ticket.statusName === targetColumn) {
+    return { transitioned: false, reviewGate }
   }
 
   // Resolve the appropriate provider for this ticket
@@ -170,24 +185,26 @@ export async function handlePostExecutionTransition(
 
   // Move ticket via the provider
   const previousState = ticket.statusName
-  const moveResult = await provider.moveTicket(context.ticketId, reviewColumn)
+  const moveResult = await provider.moveTicket(context.ticketId, targetColumn)
 
   if (!moveResult.success) {
     return {
       transitioned: false,
       fromState: previousState,
-      toState: reviewColumn,
+      toState: targetColumn,
       provider: moveResult.provider,
       providerError: moveResult.error,
       validation,
+      reviewGate,
     }
   }
 
   return {
     transitioned: true,
     fromState: previousState,
-    toState: reviewColumn,
+    toState: targetColumn,
     provider: moveResult.provider,
     validation,
+    reviewGate,
   }
 }
