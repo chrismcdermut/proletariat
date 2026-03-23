@@ -51,3 +51,6 @@ export {
 } from './engine.js'
 
 export type { OrchestrateEngineOptions } from './engine.js'
+
+export { OrchestratePoller } from './poller.js'
+export type { PollerOptions } from './poller.js'

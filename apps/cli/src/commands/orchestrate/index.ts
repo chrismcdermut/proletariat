@@ -24,6 +24,7 @@ import {
 } from '../../lib/prompt-json.js'
 import {
   OrchestrateEngine,
+  OrchestratePoller,
   loadHooksYaml,
   loadWorkflowYaml,
   syncHooksFromYaml,
@@ -209,10 +210,17 @@ export default class Orchestrate extends PMOCommand {
       // Set up polling if configured
       const pollInterval = parsedFlags['poll-interval'] as number
       let pollTimer: ReturnType<typeof setInterval> | null = null
+      let poller: OrchestratePoller | null = null
 
       if (pollInterval > 0) {
+        poller = new OrchestratePoller({
+          engine,
+          db,
+          log: (msg) => { if (verbose) this.log(styles.muted(msg)) },
+          cwd: workspaceInfo.path,
+        })
         pollTimer = setInterval(() => {
-          void this.pollExternalEvents(engine, db, verbose)
+          void poller!.poll()
         }, pollInterval * 1000)
       }
 
@@ -230,44 +238,6 @@ export default class Orchestrate extends PMOCommand {
       })
     } finally {
       db.close()
-    }
-  }
-
-  /**
-   * Poll external event sources for new events.
-   * Currently a stub — real implementations would check Linear, GitHub, etc.
-   */
-  private async pollExternalEvents(
-    engine: OrchestrateEngine,
-    db: SqliteDatabase,
-    verbose: boolean,
-  ): Promise<void> {
-    if (verbose) {
-      this.log(styles.muted('[orchestrate] Polling external event sources...'))
-    }
-
-    // Check for tickets in "Ready" status → fire on_ticket_ready
-    try {
-      const readyTickets = db.prepare(`
-        SELECT t.id, t.title, ws.category
-        FROM pmo_tickets t
-        JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-        WHERE ws.category = 'todo'
-          AND t.assignee IS NULL
-          AND t.id NOT IN (
-            SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-          )
-        LIMIT 5
-      `).all() as Array<{ id: string; title: string }>
-
-      for (const ticket of readyTickets) {
-        await engine.fireEvent('on_ticket_ready', {
-          event: 'on_ticket_ready',
-          ticket: ticket.id,
-        })
-      }
-    } catch {
-      // Polling errors are non-fatal
     }
   }
 
