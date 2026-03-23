@@ -174,6 +174,7 @@ export async function handlePostExecutionTransition(
     context.ticketId,
     intent,
     db,
+    ticket.statusName,  // skip if already in resolved state
   )
 
   if (!resolution.success) {

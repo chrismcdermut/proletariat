@@ -246,6 +246,16 @@ export function createPMProviderAdapter(
 // ---------------------------------------------------------------------------
 
 /**
+ * Options for the move() function.
+ */
+export interface MoveOptions {
+  /** Database for config lookups (optional — skip config check if not provided) */
+  db?: Database.Database
+  /** Current state name — if provided, skip move when already in the resolved state */
+  currentState?: string
+}
+
+/**
  * Move a ticket to a state matching a semantic intent.
  *
  * Resolution order:
@@ -258,15 +268,26 @@ export function createPMProviderAdapter(
  * @param pmProvider - The PM provider to fetch states from and move tickets in
  * @param ticketId - The ticket to move
  * @param intent - The semantic intent (e.g., 'review', 'active', 'done', 'blocked')
- * @param db - Database for config lookups (optional — skip config check if not provided)
+ * @param dbOrOptions - Database instance or options object
  * @returns Resolution result with success/failure and metadata
  */
 export async function move(
   pmProvider: PMProvider,
   ticketId: string,
   intent: string,
-  db?: Database.Database,
+  dbOrOptions?: Database.Database | MoveOptions,
 ): Promise<StateResolutionResult> {
+  // Normalize arguments: support both `move(p, id, intent, db)` and `move(p, id, intent, { db, currentState })`
+  let db: Database.Database | undefined
+  let currentState: string | undefined
+  if (dbOrOptions && typeof dbOrOptions === 'object' && 'prepare' in dbOrOptions) {
+    // It's a Database instance (has .prepare method)
+    db = dbOrOptions as Database.Database
+  } else if (dbOrOptions && typeof dbOrOptions === 'object') {
+    const opts = dbOrOptions as MoveOptions
+    db = opts.db
+    currentState = opts.currentState
+  }
   // 1. Always fetch fresh states
   let states: PMState[]
   try {
@@ -285,12 +306,21 @@ export async function move(
     }
   }
 
+  // Helper: check if ticket is already in the resolved state (case-insensitive)
+  const isAlreadyInState = (stateName: string): boolean => {
+    if (!currentState) return false
+    return currentState.toLowerCase() === stateName.toLowerCase()
+  }
+
   // 2. Check user config override
   if (db) {
     const configOverride = getStateMapConfig(db, intent)
     if (configOverride) {
       const match = states.find(s => s.name.toLowerCase() === configOverride.toLowerCase())
       if (match) {
+        if (isAlreadyInState(match.name)) {
+          return { success: false, resolvedVia: 'config', stateName: match.name, stateId: match.id }
+        }
         const result = await pmProvider.moveTicket(ticketId, match.id)
         return {
           success: result.success,
@@ -309,6 +339,9 @@ export async function move(
   if (intentDef) {
     const aliasMatch = matchIntentByAliases(states, intentDef)
     if (aliasMatch) {
+      if (isAlreadyInState(aliasMatch.name)) {
+        return { success: false, resolvedVia: 'alias', stateName: aliasMatch.name, stateId: aliasMatch.id }
+      }
       const result = await pmProvider.moveTicket(ticketId, aliasMatch.id)
       return {
         success: result.success,
@@ -323,6 +356,9 @@ export async function move(
   // 4. LLM fallback
   const llmMatch = await llmResolveState(states, intent)
   if (llmMatch) {
+    if (isAlreadyInState(llmMatch.name)) {
+      return { success: false, resolvedVia: 'llm', stateName: llmMatch.name, stateId: llmMatch.id }
+    }
     const result = await pmProvider.moveTicket(ticketId, llmMatch.id)
     return {
       success: result.success,
@@ -361,7 +397,8 @@ export async function moveWithProvider(
   ticketId: string,
   intent: string,
   db?: Database.Database,
+  currentState?: string,
 ): Promise<StateResolutionResult> {
   const pmProvider = createPMProviderAdapter(provider, storage, projectId)
-  return move(pmProvider, ticketId, intent, db)
+  return move(pmProvider, ticketId, intent, { db, currentState })
 }

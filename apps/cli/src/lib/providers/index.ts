@@ -45,6 +45,7 @@ export {
   type PMProvider,
   type PMState,
   type StateResolutionResult,
+  type MoveOptions,
 } from './state-resolution.js'
 export {
   DEFAULT_INTENTS,
