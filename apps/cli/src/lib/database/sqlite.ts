@@ -71,7 +71,12 @@ export interface RunResult {
  * For a CLI doing dozens of queries per command, the overhead is negligible.
  */
 class SqlitePreparedStatement<T = any> {
-  constructor(private db: RawSqlJsDatabase, private sql: string, private readonly _readonly: boolean = false) {}
+  constructor(
+    private db: RawSqlJsDatabase,
+    private sql: string,
+    private readonly _readonly: boolean = false,
+    private readonly _onWrite?: () => void,
+  ) {}
 
   /**
    * Execute the statement and return change info (INSERT/UPDATE/DELETE).
@@ -105,6 +110,8 @@ class SqlitePreparedStatement<T = any> {
     } finally {
       ridStmt.free()
     }
+    // Auto-save to disk after write (matches better-sqlite3 behavior)
+    this._onWrite?.()
     return { changes, lastInsertRowid }
   }
 
@@ -156,9 +163,9 @@ class SqlitePreparedStatement<T = any> {
  * Provides the same API surface as better-sqlite3's Database class:
  * .prepare(), .exec(), .pragma(), .transaction(), .close()
  *
- * File persistence: The database is loaded into memory on open and
- * written back to file on close() or save(). For the CLI's short-lived
- * command pattern, this is equivalent to better-sqlite3's behavior.
+ * File persistence: Write operations automatically flush changes to disk,
+ * matching better-sqlite3's write-through behavior. This ensures that
+ * separate connections reading the same file see committed changes.
  */
 export class SqliteDatabase {
   private _db: RawSqlJsDatabase
@@ -166,6 +173,7 @@ export class SqliteDatabase {
   private _open: boolean = true
   private _readonly: boolean = false
   private _savepointCounter: number = 0
+  private _transactionDepth: number = 0
 
   constructor(pathOrMemory: string, options?: { readonly?: boolean }) {
     const SQL = getSqlJs()
@@ -196,7 +204,7 @@ export class SqliteDatabase {
    * compatible with better-sqlite3's prepared statements.
    */
   prepare<T = any>(sql: string): SqlitePreparedStatement<T> {
-    return new SqlitePreparedStatement<T>(this._db, sql, this._readonly)
+    return new SqlitePreparedStatement<T>(this._db, sql, this._readonly, () => this._autoSave())
   }
 
   /**
@@ -212,6 +220,7 @@ export class SqliteDatabase {
       }
     }
     this._db.run(sql)
+    this._autoSave()
   }
 
   /**
@@ -256,21 +265,41 @@ export class SqliteDatabase {
    * - Top-level calls (SAVEPOINT implicitly starts a transaction)
    * - Nested calls within other transactions
    * - Calls within externally-created savepoints (e.g., test helpers)
+   *
+   * Auto-save is deferred until the outermost transaction completes,
+   * so nested writes don't flush to disk until the whole transaction commits.
    */
   transaction<F extends (...args: unknown[]) => unknown>(fn: F): F {
     return ((...args: unknown[]) => {
       const savepointName = `sp_${++this._savepointCounter}`
+      this._transactionDepth++
       this._db.run(`SAVEPOINT ${savepointName}`)
       try {
         const result = fn(...args)
         this._db.run(`RELEASE ${savepointName}`)
+        this._transactionDepth--
+        if (this._transactionDepth === 0) {
+          this._autoSave()
+        }
         return result
       } catch (e) {
         this._db.run(`ROLLBACK TO ${savepointName}`)
         this._db.run(`RELEASE ${savepointName}`)
+        this._transactionDepth--
         throw e
       }
     }) as unknown as F
+  }
+
+  /**
+   * Auto-save to disk after write operations when not inside a transaction.
+   * This matches better-sqlite3's write-through behavior where changes
+   * are visible to other connections immediately.
+   */
+  private _autoSave(): void {
+    if (this._transactionDepth === 0) {
+      this.save()
+    }
   }
 
   /**
@@ -292,6 +321,21 @@ export class SqliteDatabase {
     if (this._dbPath && !this._readonly && this._open) {
       const data = this._db.export()
       fs.writeFileSync(this._dbPath, Buffer.from(data))
+    }
+  }
+
+  /**
+   * Reload the database from disk, refreshing the in-memory state.
+   * Useful when another connection has modified the same file.
+   * No-op for in-memory databases.
+   */
+  reload(): void {
+    if (!this._dbPath || !this._open) return
+    if (fs.existsSync(this._dbPath)) {
+      const buf = fs.readFileSync(this._dbPath)
+      this._db.close()
+      const SQL = getSqlJs()
+      this._db = new SQL.Database(buf)
     }
   }
 

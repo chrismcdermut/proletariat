@@ -35,6 +35,12 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
+  // Initialize sql.js WASM module — must happen before any database access.
+  // This runs before all other early returns because commands may still
+  // access the database even when init redirect is skipped (e.g., tests,
+  // agent containers, --help on commands that load DB config).
+  await initSqlite()
+
   // Skip when in test environments that provide their own HQ
   if (process.env.PRLT_HQ_PATH && process.env.PRLT_TEST_ENV) {
     return
@@ -96,9 +102,6 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
       })
     })
   }
-
-  // Initialize sql.js WASM module — must happen before any database access
-  await initSqlite()
 
   // ── Update check ────────────────────────────────────────────────────
   // Show the interactive update prompt (uses cached data only, never blocks on network).
