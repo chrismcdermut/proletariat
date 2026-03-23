@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   execInProcess,
   extractJson,
@@ -28,7 +28,7 @@ import {
  */
 describe('Session Peek Commands E2E Tests', () => {
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     env = createTestEnvironment('session-peek-e2e-');

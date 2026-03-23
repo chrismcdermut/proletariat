@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   execInProcess,
   agentExec,
@@ -430,7 +430,7 @@ function createTestTicket(
   statusId: string,
   priority: string,
 ) {
-  const db = new Database(dbPath);
+  const db = new SqliteDatabase(dbPath);
   const now = new Date().toISOString();
 
   db.prepare(`

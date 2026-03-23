@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -100,7 +100,7 @@ function createMockTicket(overrides: Partial<Ticket> & { id: string; statusCateg
 
 describe('Linear Sync Loop – End-to-End', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
   let mapper: LinearMapper
   let projectId: string
   let clientCalls: Array<{ method: string; args: unknown[] }>

@@ -8,7 +8,7 @@
  * - Key flags work correctly
  */
 import { expect } from 'chai';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -60,7 +60,7 @@ function initGitRepo(dir: string): void {
  * Set up test database with production PMO + workspace schema.
  * Repo and branch commands extend PMOCommand, so PMO must be initialized.
  */
-function setupTestDb(env: TestEnvironment): Database.Database {
+function setupTestDb(env: TestEnvironment): SqliteDatabase {
   const db = setupProductionSchema(env.dbPath, env.pmoPath);
   addWorkspaceTables(db, { type: 'hq', hasPmo: true });
   createHQConfig(env.proletariatDir);
@@ -72,7 +72,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   this.timeout(30000);
 
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     env = createTestEnvironment('repo-agent-');
@@ -100,7 +100,7 @@ describe('Repository Commands - Agent Flow Tests', function(this: Mocha.Suite) {
 
   function reopenDb(): void {
     db.close();
-    db = new Database(env.dbPath);
+    db = new SqliteDatabase(env.dbPath);
   }
 
   // ==========================================================================
@@ -341,7 +341,7 @@ describe('Branch Commands - Agent Flow Tests', function(this: Mocha.Suite) {
   this.timeout(30000);
 
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     env = createTestEnvironment('branch-agent-');

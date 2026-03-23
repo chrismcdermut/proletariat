@@ -15,7 +15,7 @@
  */
 
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   isLinearConfigured,
   loadLinearConfig,
@@ -29,8 +29,8 @@ import {
   loadProviderSources,
 } from '../../src/lib/work-source/provider-sources.js'
 
-function setupDb(): Database.Database {
-  const db = new Database(':memory:')
+function setupDb(): SqliteDatabase {
+  const db = new SqliteDatabase(':memory:')
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspace_settings (
       key TEXT PRIMARY KEY,
@@ -41,7 +41,7 @@ function setupDb(): Database.Database {
 }
 
 describe('Regression: PRLT-987 — Linear team key persistence', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
     db = setupDb()

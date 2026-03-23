@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -45,7 +45,7 @@ const mockLinearStates: LinearWorkflowState[] = [
 
 describe('LinearSync – syncPRMerge', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
   let mapper: LinearMapper
   let clientCalls: Array<{ method: string; args: unknown[] }>
 
@@ -310,7 +310,7 @@ describe('WorkPRMergedEvent – Event Bus Integration', () => {
 
 describe('OutboundSyncHandler – work:pr_merged', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
     env = createTestEnvironment('outbound-merge-')

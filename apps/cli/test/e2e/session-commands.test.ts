@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   execProduction,
   extractJson,
@@ -41,7 +41,7 @@ describe('@smoke Session Commands E2E Tests', () => {
     environment?: string;
     containerId?: string;
   }>): void {
-    const db = new Database(dbPath);
+    const db = new SqliteDatabase(dbPath);
     try {
       db.pragma('foreign_keys = OFF');
 
@@ -91,7 +91,7 @@ describe('@smoke Session Commands E2E Tests', () => {
 
     // Create blank DB - let the CLI's ensurePMOTables() create all tables
     // with the correct schema on first access
-    const db = new Database(dbPath);
+    const db = new SqliteDatabase(dbPath);
     db.close();
 
     // Create HQ config file (required for findPMO)
@@ -111,7 +111,7 @@ describe('@smoke Session Commands E2E Tests', () => {
 
     // Create workspace tables needed by getWorkspaceInfo() (used by session list/attach)
     // These are separate from PMO tables and created by the workspace init flow
-    const initDb = new Database(dbPath);
+    const initDb = new SqliteDatabase(dbPath);
     initDb.exec(`
       CREATE TABLE IF NOT EXISTS agent_themes (
         id TEXT PRIMARY KEY,
@@ -722,7 +722,7 @@ describe('@smoke Session Commands E2E Tests', () => {
       );
 
       // Create ONLY workspace + agent_work tables (no PMO tables)
-      const noPmoDb = new Database(noPmoDbPath);
+      const noPmoDb = new SqliteDatabase(noPmoDbPath);
       noPmoDb.exec(`
         CREATE TABLE IF NOT EXISTS workspace (
           id INTEGER PRIMARY KEY CHECK (id = 1),

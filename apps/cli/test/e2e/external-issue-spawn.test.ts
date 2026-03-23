@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   normalizeLinearIssue,
   normalizeLinearIssueToEnvelope,
@@ -82,12 +82,12 @@ function makeJiraIssue(overrides: Record<string, unknown> = {}) {
 
 describe('External Issue Spawn E2E – Linear happy path', () => {
   let testDir: string
-  let db: Database.Database
+  let db: SqliteDatabase
   let store: ExternalExecutionMappingStore
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-spawn-linear-'))
-    db = new Database(path.join(testDir, 'test.db'))
+    db = new SqliteDatabase(path.join(testDir, 'test.db'))
     db.pragma('foreign_keys = ON')
     store = new ExternalExecutionMappingStore(db)
   })
@@ -203,12 +203,12 @@ describe('External Issue Spawn E2E – Linear happy path', () => {
 
 describe('External Issue Spawn E2E – Jira happy path', () => {
   let testDir: string
-  let db: Database.Database
+  let db: SqliteDatabase
   let store: ExternalExecutionMappingStore
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-spawn-jira-'))
-    db = new Database(path.join(testDir, 'test.db'))
+    db = new SqliteDatabase(path.join(testDir, 'test.db'))
     db.pragma('foreign_keys = ON')
     store = new ExternalExecutionMappingStore(db)
   })
@@ -572,12 +572,12 @@ describe('External Issue Spawn E2E – failure modes', () => {
 
 describe('External Issue Spawn E2E – adapter contract & machine mode', () => {
   let testDir: string
-  let db: Database.Database
+  let db: SqliteDatabase
   let store: ExternalExecutionMappingStore
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-spawn-adapter-'))
-    db = new Database(path.join(testDir, 'test.db'))
+    db = new SqliteDatabase(path.join(testDir, 'test.db'))
     db.pragma('foreign_keys = ON')
     store = new ExternalExecutionMappingStore(db)
   })

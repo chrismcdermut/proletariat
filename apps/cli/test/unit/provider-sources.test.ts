@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   validateProviderSourceEntry,
   loadProviderSources,
@@ -17,8 +17,8 @@ import {
   type ProviderSourceEntry,
 } from '../../src/lib/work-source/provider-sources.js'
 
-function setupDb(): Database.Database {
-  const db = new Database(':memory:')
+function setupDb(): SqliteDatabase {
+  const db = new SqliteDatabase(':memory:')
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspace_settings (
       key TEXT PRIMARY KEY,

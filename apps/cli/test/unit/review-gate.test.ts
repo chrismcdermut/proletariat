@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { PMO_TABLE_SCHEMAS, PMO_TABLES } from '../../src/lib/pmo/schema.js'
 import {
   getReviewGateSetting,
@@ -22,10 +22,10 @@ import { addReviewGate } from '../../src/lib/database/migrations/0011_add_review
  * - Migration adding review_gate column to pmo_actions
  */
 describe('Review Gate', () => {
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
-    db = new Database(':memory:')
+    db = new SqliteDatabase(':memory:')
     // Create pmo_settings table
     db.exec(PMO_TABLE_SCHEMAS.settings)
     // Create pmo_actions table
@@ -190,7 +190,7 @@ describe('Review Gate', () => {
     })
 
     it('should skip if pmo_actions table does not exist', () => {
-      const emptyDb = new Database(':memory:')
+      const emptyDb = new SqliteDatabase(':memory:')
       // Should not throw
       addReviewGate.up(emptyDb)
       emptyDb.close()

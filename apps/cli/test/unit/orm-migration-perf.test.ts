@@ -23,7 +23,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 
 // ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ describe('@perf ORM Migration Performance Comparison', function (this: Mocha.Sui
   before(async function (this: Mocha.Context) {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orm-perf-'));
     const dbPath = path.join(testDir, 'perf.db');
-    const db = new Database(dbPath);
+    const db = new SqliteDatabase(dbPath);
     db.close();
 
     storage = new SQLiteStorage(dbPath);

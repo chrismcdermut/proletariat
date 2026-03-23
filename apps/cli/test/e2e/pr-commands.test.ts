@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { execInProcess } from './test-helpers.js';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
@@ -23,7 +23,7 @@ describe('PR Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     originalCwd = process.cwd();
@@ -35,7 +35,7 @@ describe('PR Commands E2E Tests', () => {
     fs.mkdirSync(proletariatDir, { recursive: true });
     dbPath = path.join(proletariatDir, 'workspace.db');
 
-    db = new Database(dbPath);
+    db = new SqliteDatabase(dbPath);
     setupTestDatabase(db);
 
     // Initialize git repo for PR commands
@@ -673,7 +673,7 @@ describe('PR Commands E2E Tests', () => {
 // Helper Functions
 // =============================================================================
 
-function setupTestDatabase(db: Database.Database) {
+function setupTestDatabase(db: SqliteDatabase) {
   // Use production schema to ensure all columns and tables are present
   initializePMOTables(db);
   db.exec(CREATE_TABLES_SQL);
@@ -732,7 +732,7 @@ function initGitRepo(dir: string) {
 }
 
 let ticketCounter = 0;
-function createTicket(db: Database.Database, title: string, columnId: string): string {
+function createTicket(db: SqliteDatabase, title: string, columnId: string): string {
   ticketCounter++;
   const ticketId = `TKT-${String(ticketCounter).padStart(3, '0')}`;
 

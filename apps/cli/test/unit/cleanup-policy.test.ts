@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   getCleanupPolicy,
   setDefaultCleanupPolicy,
@@ -17,7 +17,7 @@ import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
  */
 describe('@smoke Cleanup Policy Config', () => {
   let fastDb: FastTestDb
-  let db: Database.Database
+  let db: SqliteDatabase
 
   before(() => {
     fastDb = createFastTestDb((db) => {

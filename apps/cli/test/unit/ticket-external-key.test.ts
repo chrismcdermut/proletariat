@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js'
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js'
 import { SQLiteStorage } from '../../src/lib/pmo/storage/index.js'

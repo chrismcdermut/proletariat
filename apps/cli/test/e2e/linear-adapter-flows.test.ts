@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -130,7 +130,7 @@ const mockLinearStates: LinearWorkflowState[] = [
 
 describe('Linear Adapter – Connect Flow', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
 
   beforeEach(() => {
     env = createTestEnvironment('linear-connect-')
@@ -223,7 +223,7 @@ describe('Linear Adapter – Connect Flow', () => {
 
 describe('Linear Adapter – Import Flow', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
   let mapper: LinearMapper
   let projectId: string
 
@@ -534,7 +534,7 @@ describe('Linear Adapter – Spawn Flow', () => {
 
 describe('Linear Adapter – Sync Flow', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
   let mapper: LinearMapper
 
   // Track calls to the mock Linear client
@@ -923,7 +923,7 @@ describe('Linear Adapter – Sync Flow', () => {
 
 describe('Linear Adapter – PMO Mirroring Strategy', () => {
   let env: TestEnvironment
-  let db: Database.Database
+  let db: SqliteDatabase
   let mapper: LinearMapper
 
   beforeEach(() => {

@@ -9,7 +9,7 @@ import { expect } from 'chai';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,7 +66,7 @@ describe('board_view filtering and compact format (TKT-1115)', function (this: M
   this.timeout(30000);
 
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
   let projectId: string;
   const cliDir = path.join(__dirname, '../..');
   const binPath = path.join(cliDir, 'bin/run.js');

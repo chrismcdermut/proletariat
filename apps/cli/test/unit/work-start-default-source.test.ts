@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   isLocalTicketId,
   loadDefaultWorkSource,
@@ -7,8 +7,8 @@ import {
   clearDefaultWorkSource,
 } from '../../src/lib/work-source/config.js'
 
-function setupDb(): Database.Database {
-  const db = new Database(':memory:')
+function setupDb(): SqliteDatabase {
+  const db = new SqliteDatabase(':memory:')
   db.exec(`
     CREATE TABLE IF NOT EXISTS workspace_settings (
       key TEXT PRIMARY KEY,
@@ -26,7 +26,7 @@ function setupDb(): Database.Database {
 function simulateAutoDetect(
   ticketId: string | undefined,
   fromIssueActive: boolean,
-  db: Database.Database,
+  db: SqliteDatabase,
 ): { route: 'local' | 'external' | 'error-no-source' | 'prompt'; source?: string; key?: string } {
   if (!ticketId) {
     return { route: 'prompt' }

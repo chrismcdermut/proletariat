@@ -20,7 +20,7 @@
  */
 
 import { expect } from 'chai';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -69,7 +69,7 @@ function extractJson<T>(output: string): T {
  */
 describe('Project Commands JSON Mode', () => {
   let env: TestEnvironment;
-  let db: Database.Database;
+  let db: SqliteDatabase;
 
   beforeEach(() => {
     env = createTestEnvironment('project-json-');
