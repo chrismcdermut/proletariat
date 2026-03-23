@@ -14,6 +14,7 @@
 
 import type { StateCategory, TicketFilter, CreateTicketInput } from '../pmo/types.js'
 import { getEventBus } from '../events/event-bus.js'
+import { trackTicketOperation } from '../telemetry/analytics.js'
 import type {
   TicketProvider,
   TicketProviderName,
@@ -75,7 +76,9 @@ export class EventEmittingProvider implements TicketProvider {
     // Capture previous status before the move
     const previous = this.statusResolver?.getTicketStatus(ticketId) ?? null
 
+    const startTime = Date.now()
     const result = await this.inner.moveTicket(ticketId, newState)
+    trackTicketOperation({ operation: 'move', provider: this.name, durationMs: Date.now() - startTime, success: result.success })
 
     if (result.success) {
       // Resolve the new status
@@ -146,11 +149,16 @@ export class EventEmittingProvider implements TicketProvider {
   }
 
   async listTickets(projectId?: string, filter?: TicketFilter): Promise<ProviderListResult> {
-    return this.inner.listTickets(projectId, filter)
+    const startTime = Date.now()
+    const result = await this.inner.listTickets(projectId, filter)
+    trackTicketOperation({ operation: 'list', provider: this.name, durationMs: Date.now() - startTime, success: result.success })
+    return result
   }
 
   async createTicket(projectId: string, input: CreateTicketInput): Promise<ProviderCreateResult> {
+    const startTime = Date.now()
     const result = await this.inner.createTicket(projectId, input)
+    trackTicketOperation({ operation: 'create', provider: this.name, durationMs: Date.now() - startTime, success: result.success })
 
     // If a PR URL was included in the creation metadata, emit pr_created
     if (result.success && result.ticket && input.metadata?.['pr_url']) {
@@ -178,6 +186,9 @@ export class EventEmittingProvider implements TicketProvider {
   }
 
   async getTicket(ticketId: string): Promise<ProviderGetResult> {
-    return this.inner.getTicket(ticketId)
+    const startTime = Date.now()
+    const result = await this.inner.getTicket(ticketId)
+    trackTicketOperation({ operation: 'fetch', provider: this.name, durationMs: Date.now() - startTime, success: result.success })
+    return result
   }
 }

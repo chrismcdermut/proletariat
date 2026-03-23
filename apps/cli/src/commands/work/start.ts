@@ -5,7 +5,8 @@ import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard, type Ticket } from '../../lib/pmo/index.js'
-import { trackAgentSpawned } from '../../lib/telemetry/analytics.js'
+import { trackAgentSpawned, trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
+import { enrichAgentSession } from '../../lib/telemetry/telemetry-bridge.js'
 import { registerAgent } from '../../lib/registry/index.js'
 import {
   shouldOutputJson,
@@ -2363,7 +2364,14 @@ export default class WorkStart extends PMOCommand {
           environment,
           action: context.actionId || 'implement',
           ephemeral: isEphemeralAgent,
+          provider: ticketExternalMetadata.source || undefined,
         })
+
+        // Enrich telemetry bridge session so agent_completed/agent_errored
+        // events report the correct action name
+        if (result.sessionId) {
+          enrichAgentSession(result.sessionId, context.actionId || 'implement')
+        }
 
         // Register in machine-wide agent registry
         try {
@@ -2489,6 +2497,15 @@ export default class WorkStart extends PMOCommand {
         }
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
+
+        // Track primitive spawn failure
+        trackPrimitiveExecuted({
+          primitive: context.actionId || 'implement',
+          durationMs: Date.now() - (((globalThis as Record<string, unknown>).__prlt_command_start as number) || Date.now()),
+          success: false,
+          errorType: 'spawn_failure',
+        })
+
         if (jsonMode) {
           // Output JSON failure result with resolved PR mode
           const failMetadata = createMetadata('work start', flags)

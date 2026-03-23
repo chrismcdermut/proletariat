@@ -9,6 +9,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { formatTicket } from '../../lib/mcp/helpers.js';
+import { trackTicketOperation } from '../../lib/telemetry/analytics.js';
 
 export default class TicketUpdate extends PMOCommand {
   static description = 'Update ticket fields (title, description, priority, category, labels, status)';
@@ -187,7 +188,9 @@ export default class TicketUpdate extends PMOCommand {
 
     // Apply field changes (everything except status)
     if (Object.keys(changes).length > 0) {
+      const updateStart = Date.now();
       await this.storage.updateTicket(ticketId!, changes);
+      trackTicketOperation({ operation: 'update', provider: 'pmo', durationMs: Date.now() - updateStart, success: true });
     }
 
     // Handle status change separately via provider
