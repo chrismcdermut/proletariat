@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { styles } from '../../lib/styles.js'
 import {
   getWorkspaceInfo,
@@ -93,7 +93,7 @@ export default class SessionPrune extends PMOCommand {
 
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = new SqliteDatabase(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     try {

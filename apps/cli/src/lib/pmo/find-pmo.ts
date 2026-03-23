@@ -4,7 +4,6 @@ import * as os from 'node:os';
 import { openDriver } from '../database/driver.js';
 import { isValidHQ } from '../workspace.js';
 import { isReadOnlyHQMount } from '../container.js';
-import { throwIfNativeBindingError } from '../database/native-validation.js';
 
 /**
  * Resolve PMO path from stored value.
@@ -55,10 +54,7 @@ function hasPMOTables(dbPath: string): boolean {
     driver.close();
 
     return result !== undefined;
-  } catch (error) {
-    // If the native binding is broken, surface it immediately instead of
-    // silently returning false (which makes the CLI say "PMO not found").
-    throwIfNativeBindingError(error, 'hasPMOTables');
+  } catch {
     return false;
   }
 }

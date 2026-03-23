@@ -229,7 +229,7 @@ export default class ShortcutConnect extends PMOCommand {
   private async handleCheck(
     flags: Record<string, unknown>,
     jsonMode: boolean,
-    db: import('better-sqlite3').Database,
+    db: import('../../lib/database/sqlite.js').SqliteDatabase,
   ): Promise<void> {
     if (!isShortcutConfigured(db)) {
       if (jsonMode) {

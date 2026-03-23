@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
+import { SqliteDatabase } from '../database/sqlite.js';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { createSpecFolders } from './create-spec-folders.js';
 import { slugify } from './utils.js';
@@ -400,7 +401,8 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
 
   // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {
-    const db = new (await import('better-sqlite3')).default(dbPath);
+    const { SqliteDatabase } = await import('../database/sqlite.js');
+    const db = new SqliteDatabase(dbPath);
     // Store relative path from HQ root (e.g., "pmo" or "repos/myrepo/pmo")
     const relativePmoPath = path.relative(hqPath, pmoPath);
     db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', relativePmoPath);
@@ -536,9 +538,7 @@ export function hasPMO(hqPath: string): boolean {
   }
 
   try {
-    // eslint-disable-next-line unicorn/prefer-module
-    const Database = require('better-sqlite3');
-    const db = new Database(dbPath);
+    const db = new SqliteDatabase(dbPath);
     const result = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
     ).get();

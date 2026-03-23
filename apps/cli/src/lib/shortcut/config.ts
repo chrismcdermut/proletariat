@@ -4,7 +4,7 @@
  * Stores Shortcut credentials and preferences in the workspace_settings table.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
 
@@ -21,7 +21,7 @@ export interface ShortcutConfig {
 /**
  * Check if Shortcut is configured.
  */
-export function isShortcutConfigured(db: Database.Database): boolean {
+export function isShortcutConfigured(db: SqliteDatabase): boolean {
   const hasDbConfig = new SettingsStore(db).has(SHORTCUT_CONFIG_KEYS.apiToken)
   if (hasDbConfig) return true
 
@@ -32,7 +32,7 @@ export function isShortcutConfigured(db: Database.Database): boolean {
 /**
  * Load Shortcut configuration from the database + environment.
  */
-export function loadShortcutConfig(db: Database.Database): ShortcutConfig | null {
+export function loadShortcutConfig(db: SqliteDatabase): ShortcutConfig | null {
   const settings = new SettingsStore(db)
   const apiToken = settings.get(SHORTCUT_CONFIG_KEYS.apiToken)
     || process.env.PRLT_SHORTCUT_API_TOKEN
@@ -52,7 +52,7 @@ export function loadShortcutConfig(db: Database.Database): ShortcutConfig | null
 /**
  * Save Shortcut configuration to the database.
  */
-export function saveShortcutConfig(db: Database.Database, config: ShortcutConfig): void {
+export function saveShortcutConfig(db: SqliteDatabase, config: ShortcutConfig): void {
   const settings = new SettingsStore(db)
   settings.set(SHORTCUT_CONFIG_KEYS.apiToken, config.apiToken)
   if (config.workspaceSlug) {
@@ -63,21 +63,21 @@ export function saveShortcutConfig(db: Database.Database, config: ShortcutConfig
 /**
  * Save the Shortcut API token.
  */
-export function saveShortcutApiToken(db: Database.Database, apiToken: string): void {
+export function saveShortcutApiToken(db: SqliteDatabase, apiToken: string): void {
   new SettingsStore(db).set(SHORTCUT_CONFIG_KEYS.apiToken, apiToken)
 }
 
 /**
  * Save the Shortcut workspace slug.
  */
-export function saveShortcutWorkspaceSlug(db: Database.Database, slug: string): void {
+export function saveShortcutWorkspaceSlug(db: SqliteDatabase, slug: string): void {
   new SettingsStore(db).set(SHORTCUT_CONFIG_KEYS.workspaceSlug, slug)
 }
 
 /**
  * Clear all Shortcut configuration from the database.
  */
-export function clearShortcutConfig(db: Database.Database): void {
+export function clearShortcutConfig(db: SqliteDatabase): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(SHORTCUT_CONFIG_KEYS)) {
     settings.delete(key)
@@ -87,7 +87,7 @@ export function clearShortcutConfig(db: Database.Database): void {
 /**
  * Get the stored Shortcut API token.
  */
-export function getShortcutApiToken(db: Database.Database): string | null {
+export function getShortcutApiToken(db: SqliteDatabase): string | null {
   // 1. Try provider sources (supports custom apiKeyRef per source)
   try {
     const sources = loadProviderSources(db)

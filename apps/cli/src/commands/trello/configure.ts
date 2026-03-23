@@ -273,7 +273,7 @@ export default class TrelloConfigure extends PMOCommand {
   private async handleCheck(
     flags: Record<string, unknown>,
     jsonMode: boolean,
-    db: import('better-sqlite3').Database,
+    db: import('../../lib/database/sqlite.js').SqliteDatabase,
   ): Promise<void> {
     if (!isTrelloConfigured(db)) {
       if (jsonMode) {

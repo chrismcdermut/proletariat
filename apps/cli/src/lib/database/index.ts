@@ -104,11 +104,18 @@ export {
   type DatabaseDriver,
   type PreparedStatement,
   type RunResult,
+  SqlJsDriver,
   BetterSqlite3Driver,
   wrapDatabase,
   openDriver,
   getRawDatabase,
 } from './driver.js'
+
+// SqliteDatabase - the core database class backed by sql.js
+export {
+  SqliteDatabase,
+  initSqlite,
+} from './sqlite.js'
 
 // Settings store
 export {

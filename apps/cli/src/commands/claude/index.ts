@@ -5,7 +5,7 @@ import * as os from 'node:os'
 import { execSync } from 'node:child_process'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { findHQRoot } from '../../lib/workspace.js'
 import {
   getWorkspaceInfo,
@@ -417,7 +417,7 @@ export default class Claude extends PromptCommand {
       const homePrltDir = path.join(process.env.HOME || '', '.proletariat')
       fs.mkdirSync(homePrltDir, { recursive: true })
       const tempDbPath = path.join(homePrltDir, 'adhoc.db')
-      const tempDb = new Database(tempDbPath)
+      const tempDb = new SqliteDatabase(tempDbPath)
 
       // Ensure settings table exists
       tempDb.exec(`
@@ -529,7 +529,7 @@ export default class Claude extends PromptCommand {
 
     // Open database
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = new SqliteDatabase(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     try {

@@ -1,6 +1,6 @@
 import { Args, Flags } from '@oclif/core'
 import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -70,9 +70,9 @@ export default class WorkStop extends PMOCommand {
 
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    let db: Database.Database
+    let db: SqliteDatabase
     try {
-      db = new Database(dbPath)
+      db = new SqliteDatabase(dbPath)
     } catch {
       return handleError('DB_ERROR', 'Could not open workspace database.')
     }

@@ -8,9 +8,9 @@
  * backward compatibility with raw SQL queries during the migration period.
  */
 
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../database/sqlite.js'
 import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
-import { type DatabaseDriver, BetterSqlite3Driver } from '../../database/driver.js'
+import { type DatabaseDriver, SqlJsDriver } from '../../database/driver.js'
 import {
   AcceptanceCriterion,
   Board,
@@ -96,7 +96,7 @@ const T = PMO_TABLES
 
 export class SQLiteStorage implements PMOStorage {
   readonly type = 'sqlite' as const
-  private db: Database.Database
+  private db: SqliteDatabase
   private driver: DatabaseDriver
   private drizzle: DrizzleDB
   private dbPath: string
@@ -123,11 +123,11 @@ export class SQLiteStorage implements PMOStorage {
     this.dbPath = dbPath
 
     // Open database (creates if doesn't exist)
-    this.db = new Database(dbPath)
+    this.db = new SqliteDatabase(dbPath)
     this.db.pragma('foreign_keys = ON')
 
     // Create DatabaseDriver abstraction
-    this.driver = new BetterSqlite3Driver(this.db)
+    this.driver = new SqlJsDriver(this.db)
 
     // Create Drizzle ORM connection wrapping the same database
     this.drizzle = createDrizzleConnection(this.db)
@@ -166,7 +166,7 @@ export class SQLiteStorage implements PMOStorage {
    * Get the underlying database connection.
    * @deprecated Prefer getDriver() for new code.
    */
-  getDatabase(): Database.Database {
+  getDatabase(): SqliteDatabase {
     return this.db
   }
 

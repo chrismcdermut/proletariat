@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { loadAsanaConfig } from '../asana/config.js'
 import { loadLinearConfig } from '../linear/config.js'
 import { loadJiraConfig } from '../jira/config.js'
@@ -20,7 +20,7 @@ export interface WorkSourceRef {
   context?: string
 }
 
-function settingsFor(db: Database.Database): SettingsStore {
+function settingsFor(db: SqliteDatabase): SettingsStore {
   return new SettingsStore(db)
 }
 
@@ -60,20 +60,20 @@ export function formatWorkSourceRef(source: WorkSourceRef): string {
   return source.context ? `${source.provider}:${source.context}` : source.provider
 }
 
-export function saveDefaultWorkSource(db: Database.Database, source: WorkSourceRef): void {
+export function saveDefaultWorkSource(db: SqliteDatabase, source: WorkSourceRef): void {
   const settings = settingsFor(db)
   settings.set(DEFAULT_SOURCE_KEY, formatWorkSourceRef(source))
   // Clean up legacy key if it exists
   settings.delete(LEGACY_ACTIVE_SOURCE_KEY)
 }
 
-export function clearDefaultWorkSource(db: Database.Database): void {
+export function clearDefaultWorkSource(db: SqliteDatabase): void {
   const settings = settingsFor(db)
   settings.delete(DEFAULT_SOURCE_KEY)
   settings.delete(LEGACY_ACTIVE_SOURCE_KEY)
 }
 
-export function loadDefaultWorkSource(db: Database.Database): WorkSourceRef | null {
+export function loadDefaultWorkSource(db: SqliteDatabase): WorkSourceRef | null {
   const settings = settingsFor(db)
   // Check new key first
   let raw = settings.get(DEFAULT_SOURCE_KEY)
@@ -104,7 +104,7 @@ export const clearActiveWorkSource = clearDefaultWorkSource
 /** @deprecated Use loadDefaultWorkSource instead */
 export const loadActiveWorkSource = loadDefaultWorkSource
 
-export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[] {
+export function getRegisteredWorkSources(db: SqliteDatabase): WorkSourceRef[] {
   const providers = new Map<WorkSourceProvider, WorkSourceRef>()
   providers.set('pmo', { provider: 'pmo' })
 
@@ -167,7 +167,7 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
  * Get a list of connected integration provider names (excluding 'pmo').
  * Used to dynamically inject integration commands into agent prompts.
  */
-export function getConnectedIntegrations(db: Database.Database): string[] {
+export function getConnectedIntegrations(db: SqliteDatabase): string[] {
   const integrations: string[] = []
 
   if (loadAsanaConfig(db)) integrations.push('asana')

@@ -6,13 +6,13 @@
  * NULL means use workspace/global defaults only.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../sqlite.js'
 import type { Migration } from '../migrator.js'
 
 export const addActionNetworkAllowlist: Migration = {
   id: '0012',
   name: 'add_action_network_allowlist',
-  up: (db: Database.Database) => {
+  up: (db: SqliteDatabase) => {
     const tableExists = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_actions'"
     ).get()

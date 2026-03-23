@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import inquirer from 'inquirer'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -309,7 +309,7 @@ export default class BranchCreate extends PMOCommand {
       const dbPath = path.join(currentDir, '.proletariat', 'workspace.db')
       if (fs.existsSync(dbPath)) {
         try {
-          const db = new Database(dbPath)
+          const db = new SqliteDatabase(dbPath)
           const coderName = getCoderName(db)
           db.close()
           if (coderName) {

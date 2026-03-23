@@ -14,7 +14,7 @@
  * The local PMO is just the default provider for users without integrations.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { getWorkColumnSetting, findColumnByName, getReviewGateSetting } from '../pmo/utils.js'
 import type { StateCategory, ReviewGateMode } from '../pmo/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
@@ -94,7 +94,7 @@ export interface PostExecutionStorage {
 export async function handlePostExecutionTransition(
   context: PostExecutionContext,
   storage: PostExecutionStorage | ProviderStorage,
-  db: Database.Database,
+  db: SqliteDatabase,
 ): Promise<PostExecutionResult> {
   // Get the ticket to check current state and PR status
   const ticket = await storage.getTicket(context.ticketId)

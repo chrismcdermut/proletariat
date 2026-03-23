@@ -1,6 +1,6 @@
 import { Command, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { styles } from '../../lib/styles.js'
 import {
   getDatabasePath,
@@ -81,9 +81,9 @@ export default class DbRepair extends Command {
 
     // Run integrity check
     this.log(styles.subheader('\nIntegrity check:'))
-    let db: Database.Database | null = null
+    let db: SqliteDatabase | null = null
     try {
-      db = new Database(dbPath, { readonly: true })
+      db = new SqliteDatabase(dbPath, { readonly: true })
       const check = checkIntegrity(db)
       db.close()
       db = null
@@ -92,7 +92,7 @@ export default class DbRepair extends Command {
         this.log(styles.success('  Database is healthy.'))
 
         // Show journal mode
-        const readDb = new Database(dbPath, { readonly: true })
+        const readDb = new SqliteDatabase(dbPath, { readonly: true })
         const mode = readDb.pragma('journal_mode', { simple: true })
         readDb.close()
         this.log(styles.muted(`  Journal mode: ${mode}`))
@@ -158,9 +158,9 @@ export default class DbRepair extends Command {
   }
 
   private runCheck(dbPath: string, checkOnly: boolean): Record<string, unknown> {
-    let db: Database.Database | null = null
+    let db: SqliteDatabase | null = null
     try {
-      db = new Database(dbPath, { readonly: true })
+      db = new SqliteDatabase(dbPath, { readonly: true })
       const check = checkIntegrity(db)
       db.close()
       db = null

@@ -5,7 +5,7 @@
  * Handles import (Linear → PMO) and reverse lookup for sync operations.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { PMO_TABLES } from '../pmo/schema.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
 import type { ExternalExecutionMapping } from '../external-issues/types.js'
@@ -21,9 +21,9 @@ import {
 } from './types.js'
 import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
 
-function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
+function toDriver(dbOrDriver: DatabaseDriver | SqliteDatabase): DatabaseDriver {
   if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
-    return wrapDatabase(dbOrDriver as Database.Database)
+    return wrapDatabase(dbOrDriver as SqliteDatabase)
   }
   return dbOrDriver as DatabaseDriver
 }
@@ -32,7 +32,7 @@ export class LinearMapper {
   private driver: DatabaseDriver
   private externalMappingStore: ExternalExecutionMappingStore
 
-  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+  constructor(dbOrDriver: DatabaseDriver | SqliteDatabase) {
     this.driver = toDriver(dbOrDriver)
     this.externalMappingStore = new ExternalExecutionMappingStore(this.driver)
     this.ensureTable()

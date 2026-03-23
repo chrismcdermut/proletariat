@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo, resolveAgentDir } from '../../lib/agents/commands.js'
@@ -126,7 +126,7 @@ export default class WorkWatch extends PMOCommand {
 
     // Open database for execution storage
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = new SqliteDatabase(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     // Register graceful shutdown via centralized signal handler
@@ -392,7 +392,7 @@ export default class WorkWatch extends PMOCommand {
     },
     executionStorage: ExecutionStorage,
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
-    db: Database.Database
+    db: SqliteDatabase
   ): Promise<void> {
     // Get current tickets in column
     const currentTickets = await this.storage.listTickets(this.projectId, { column: this.columnName })

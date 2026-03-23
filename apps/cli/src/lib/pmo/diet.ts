@@ -6,7 +6,7 @@
  * normalized to percentages internally. No need to sum to 100.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { PMO_TABLES } from './schema.js'
 
 const T = PMO_TABLES
@@ -129,7 +129,7 @@ const DIET_CONFIG_KEY = 'diet_config'
  * Handles backward compatibility: if stored config has ratios without weights,
  * reconstructs weights from target percentages.
  */
-export function loadDietConfig(db: Database.Database): DietConfig {
+export function loadDietConfig(db: SqliteDatabase): DietConfig {
   try {
     const row = db.prepare(
       `SELECT value FROM ${T.settings} WHERE key = ?`
@@ -159,7 +159,7 @@ export function loadDietConfig(db: Database.Database): DietConfig {
 /**
  * Save diet configuration to the database.
  */
-export function saveDietConfig(db: Database.Database, config: DietConfig): void {
+export function saveDietConfig(db: SqliteDatabase, config: DietConfig): void {
   db.prepare(
     `INSERT OR REPLACE INTO ${T.settings} (key, value) VALUES (?, ?)`
   ).run(DIET_CONFIG_KEY, JSON.stringify(config))

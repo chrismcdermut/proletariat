@@ -10,8 +10,6 @@ import { type DatabaseDriver, openDriver } from '../database/driver.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { throwIfNativeBindingError } from '../database/native-validation.js'
-
 // =============================================================================
 // Types
 // =============================================================================
@@ -100,7 +98,6 @@ export function openMachineRegistry(): DatabaseDriver {
     driver.exec(REGISTRY_SCHEMA)
     return driver
   } catch (error) {
-    throwIfNativeBindingError(error, 'machine agent registry')
     throw error
   }
 }

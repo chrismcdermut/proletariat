@@ -10,7 +10,7 @@
  * into these domain events, keeping PMO as just another provider.
  */
 
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../database/sqlite.js'
 import { getEventBus } from '../events/event-bus.js'
 import type { WorkStatusChangedEvent, WorkPRCreatedEvent, WorkPRMergedEvent } from '../work-lifecycle/events.js'
 import { LinearClient } from '../linear/client.js'
@@ -36,10 +36,10 @@ export interface OutboundSyncResult {
  */
 export class OutboundSyncHandler {
   private unsubscribers: Array<() => void> = []
-  private db: Database.Database
+  private db: SqliteDatabase
   private mappingStore: ExternalExecutionMappingStore
 
-  constructor(db: Database.Database) {
+  constructor(db: SqliteDatabase) {
     this.db = db
     this.mappingStore = new ExternalExecutionMappingStore(db)
   }
@@ -477,7 +477,7 @@ let _handler: OutboundSyncHandler | undefined
  * Initialize and start the outbound sync handler.
  * Safe to call multiple times — subsequent calls are no-ops.
  */
-export function initOutboundSync(db: Database.Database): OutboundSyncHandler {
+export function initOutboundSync(db: SqliteDatabase): OutboundSyncHandler {
   if (!_handler) {
     _handler = new OutboundSyncHandler(db)
     _handler.start()

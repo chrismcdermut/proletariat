@@ -1,7 +1,7 @@
 import { Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import Database from 'better-sqlite3';
+import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { PromptCommand } from '../../lib/prompt-command.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { findHQRoot } from '../../lib/workspace.js';
@@ -138,10 +138,10 @@ export default class Open extends PromptCommand {
       ? path.join(hqPath, '.proletariat', 'workspace.db')
       : path.join(process.env.HOME || '', '.proletariat', 'adhoc.db');
 
-    let db: Database.Database | null = null;
+    let db: SqliteDatabase | null = null;
     try {
       if (fs.existsSync(dbPath)) {
-        db = new Database(dbPath);
+        db = new SqliteDatabase(dbPath);
         const savedConfig = loadExecutionConfig(db);
         executionConfig.terminal = savedConfig.terminal;
         executionConfig.shell = savedConfig.shell;

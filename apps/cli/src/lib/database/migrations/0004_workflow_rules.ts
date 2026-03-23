@@ -1,10 +1,10 @@
-import type Database from 'better-sqlite3'
+import type { SqliteDatabase } from '../sqlite.js'
 import type { Migration } from '../migrator.js'
 
 export const workflowRules: Migration = {
   id: '0004',
   name: 'workflow_rules',
-  up: (db: Database.Database) => {
+  up: (db: SqliteDatabase) => {
     // Check if table already exists
     const tableExists = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_workflow_rules'"

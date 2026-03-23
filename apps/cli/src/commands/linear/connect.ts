@@ -186,7 +186,7 @@ export default class LinearConnect extends PMOCommand {
   private async handleCheck(
     flags: Record<string, unknown>,
     jsonMode: boolean,
-    db: import('better-sqlite3').Database,
+    db: import('../../lib/database/sqlite.js').SqliteDatabase,
   ): Promise<void> {
     if (!isLinearConfigured(db)) {
       if (jsonMode) {
@@ -268,7 +268,7 @@ export default class LinearConnect extends PMOCommand {
     client: LinearClient,
     flags: Record<string, unknown>,
     jsonMode: boolean,
-    db: import('better-sqlite3').Database,
+    db: import('../../lib/database/sqlite.js').SqliteDatabase,
     info: { organizationName: string; userName: string; email: string },
   ): Promise<void> {
     const teams = await client.listTeams()

@@ -144,5 +144,5 @@ export interface ProviderStorage {
   deleteTicket: (id: string) => Promise<void>
   listTickets: (projectId: string | undefined, filter?: TicketFilter) => Promise<Ticket[]>
   createTicket: (projectId: string, input: CreateTicketInput) => Promise<Ticket>
-  getDatabase: () => import('better-sqlite3').Database
+  getDatabase: () => import('../database/sqlite.js').SqliteDatabase
 }
