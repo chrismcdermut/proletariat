@@ -42,6 +42,7 @@ export default class Work extends PMOCommand {
       { id: 'spawn', name: 'Spawn — batch by column', command: `prlt work spawn -P ${projectId} --json` },
       { id: 'ready', name: 'Ready — mark work ready for review', command: `prlt work ready -P ${projectId} --json` },
       { id: 'ship', name: 'Ship — rebase, merge PR, move to Done', command: `prlt work ship -P ${projectId} --json` },
+      { id: 'rebase', name: 'Rebase — rebase PR branch(es) to resolve conflicts', command: `prlt work rebase -P ${projectId} --json` },
       { id: 'complete', name: 'Complete — mark work done', command: `prlt work complete -P ${projectId} --json` },
       { id: 'hooks', name: 'Hooks — manage lifecycle hooks', command: 'prlt work hooks --json' },
       { id: 'cancel', name: 'Cancel', command: '' },
@@ -99,6 +100,9 @@ export default class Work extends PMOCommand {
         break;
       case 'ship':
         await this.config.runCommand('work:ship', projectArgs);
+        break;
+      case 'rebase':
+        await this.config.runCommand('work:rebase', projectArgs);
         break;
       case 'complete':
         await this.config.runCommand('work:complete', projectArgs);
