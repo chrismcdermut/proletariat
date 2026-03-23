@@ -70,6 +70,14 @@ describe('Execution Config', () => {
     it('has terminal.app defaulting to Terminal', () => {
       expect(DEFAULT_EXECUTION_CONFIG.terminal.app).to.equal('Terminal');
     });
+
+    it('has devcontainer.memory defaulting to 4g (PRLT-1099)', () => {
+      expect(DEFAULT_EXECUTION_CONFIG.devcontainer.memory).to.equal('4g');
+    });
+
+    it('has devcontainer.cpus defaulting to 2 (PRLT-1099)', () => {
+      expect(DEFAULT_EXECUTION_CONFIG.devcontainer.cpus).to.equal(2);
+    });
   });
 
   describe('loadExecutionConfig', () => {
@@ -284,6 +292,29 @@ describe('Execution Config', () => {
       expect(config.docker.network).to.equal('host');
       expect(config.docker.memory).to.equal('4g');
       expect(config.docker.cpus).to.equal(2);
+    });
+
+    it('round-trips devcontainer memory/cpus through load (PRLT-1099)', () => {
+      saveExecutionSetting(db, 'devcontainerMemory', '6g');
+      saveExecutionSetting(db, 'devcontainerCpus', '4');
+
+      const config = loadExecutionConfig(db);
+      expect(config.devcontainer.memory).to.equal('6g');
+      expect(config.devcontainer.cpus).to.equal(4);
+    });
+
+    it('uses default devcontainer memory/cpus when not configured (PRLT-1099)', () => {
+      const config = loadExecutionConfig(db);
+      expect(config.devcontainer.memory).to.equal('4g');
+      expect(config.devcontainer.cpus).to.equal(2);
+    });
+
+    it('ignores invalid devcontainer cpus value (PRLT-1099)', () => {
+      saveExecutionSetting(db, 'devcontainerCpus', 'invalid');
+
+      const config = loadExecutionConfig(db);
+      // Should fall back to default since 'invalid' cannot be parsed
+      expect(config.devcontainer.cpus).to.equal(2);
     });
 
     it('round-trips VM settings through load', () => {
