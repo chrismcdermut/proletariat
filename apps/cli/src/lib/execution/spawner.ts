@@ -177,6 +177,8 @@ export interface SpawnOptions {
   toolPolicy?: string
   /** Container cleanup policy override (PRLT-1061) */
   cleanupPolicy?: CleanupPolicy
+  /** Extra domains to allow in container firewall (PRLT-1079) */
+  networkAllowlist?: string[]
 }
 
 export interface SpawnResult {
@@ -370,6 +372,7 @@ export async function spawnAgentForTicket(
     repoWorktrees,
     createPR: options.createPR ?? false,
     toolPolicy: options.toolPolicy,
+    networkAllowlist: options.networkAllowlist,
   }
 
   // Determine execution environment and display mode

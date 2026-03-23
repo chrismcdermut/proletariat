@@ -471,6 +471,7 @@ export const PMO_TABLE_SCHEMAS = {
       timeout INTEGER,
       model TEXT,
       review_gate TEXT CHECK (review_gate IN ('required', 'auto', 'post')),
+      network_allowlist TEXT,
       modifies_code INTEGER NOT NULL DEFAULT 1,
       is_default INTEGER NOT NULL DEFAULT 0,
       is_builtin INTEGER NOT NULL DEFAULT 0,

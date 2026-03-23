@@ -161,6 +161,19 @@ function parseBooleanSetting(value: string | undefined): boolean | null {
   return null
 }
 
+/**
+ * Merge action-level and flag-level network allowlists.
+ * Returns undefined if no domains are specified.
+ */
+function mergeAllowlists(actionDomains?: string[], flagValue?: string): string[] | undefined {
+  const domains: string[] = []
+  if (actionDomains) domains.push(...actionDomains)
+  if (flagValue) {
+    domains.push(...flagValue.split(',').map(d => d.trim()).filter(Boolean))
+  }
+  return domains.length > 0 ? domains : undefined
+}
+
 function isIssueSource(value: string | undefined): value is IssueSource {
   return value === 'linear' || value === 'jira' || value === 'asana' || value === 'shortcut' || value === 'trello'
 }
@@ -367,6 +380,9 @@ export default class WorkStart extends PMOCommand {
     cleanup: Flags.string({
       description: 'Container cleanup policy (on-exit, persistent, on-error-keep)',
       options: ['on-exit', 'persistent', 'on-error-keep'],
+    }),
+    'allow-network': Flags.string({
+      description: 'Extra domains to allow in container firewall (comma-separated, e.g., api.linear.app,api.slack.com)',
     }),
   }
 
@@ -1404,6 +1420,7 @@ export default class WorkStart extends PMOCommand {
         actionPrompt: customPrompt || selectedAction?.prompt,
         actionEndPrompt: customPrompt ? undefined : selectedAction?.endPrompt,
         modifiesCode: customPrompt ? true : selectedAction?.modifiesCode ?? true,
+        networkAllowlist: mergeAllowlists(selectedAction?.networkAllowlist, flags['allow-network']),
         // Additional instructions from --message flag
         customMessage: externalIssueContextMessage ?? flags.message,
         // Connected integrations for prompt injection
@@ -2965,6 +2982,7 @@ export default class WorkStart extends PMOCommand {
       actionPrompt: defaultAction?.prompt,
       actionEndPrompt: defaultAction?.endPrompt,
       modifiesCode: defaultAction?.modifiesCode ?? true,
+      networkAllowlist: defaultAction?.networkAllowlist,
       // Connected integrations for prompt injection
       connectedIntegrations: getConnectedIntegrations(db),
     }

@@ -86,8 +86,8 @@ export class ActionStorage {
 
     this.ctx.db.prepare(`
       INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_state, to_state,
-        executor, environment, permission_mode, timeout, model, review_gate, modifies_code, is_default, is_builtin, position, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        executor, environment, permission_mode, timeout, model, review_gate, network_allowlist, modifies_code, is_default, is_builtin, position, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       action.name,
@@ -102,6 +102,7 @@ export class ActionStorage {
       action.timeout || null,
       action.model || null,
       action.reviewGate || null,
+      action.networkAllowlist?.length ? JSON.stringify(action.networkAllowlist) : null,
       modifiesCode ? 1 : 0,
       action.isDefault ? 1 : 0,
       action.isBuiltin ? 1 : 0,
@@ -124,6 +125,7 @@ export class ActionStorage {
       timeout: action.timeout,
       model: action.model,
       reviewGate: action.reviewGate,
+      networkAllowlist: action.networkAllowlist,
       modifiesCode,
       isDefault: action.isDefault,
       isBuiltin: action.isBuiltin || false,
@@ -206,6 +208,10 @@ export class ActionStorage {
     if (changes.reviewGate !== undefined) {
       updates.push('review_gate = ?')
       params.push(changes.reviewGate || null)
+    }
+    if (changes.networkAllowlist !== undefined) {
+      updates.push('network_allowlist = ?')
+      params.push(changes.networkAllowlist?.length ? JSON.stringify(changes.networkAllowlist) : null)
     }
     if (changes.modifiesCode !== undefined) {
       updates.push('modifies_code = ?')
@@ -295,6 +301,7 @@ export class ActionStorage {
       timeout: row.timeout || undefined,
       model: row.model || undefined,
       reviewGate: (row.review_gate as ReviewGateMode) || undefined,
+      networkAllowlist: row.network_allowlist ? JSON.parse(row.network_allowlist) : undefined,
       modifiesCode: row.modifies_code === 1,
       isDefault: row.is_default === 1,
       isBuiltin: row.is_builtin === 1,
