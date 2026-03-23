@@ -411,6 +411,14 @@ export class ExecutionStorage {
       if (exec.environment === 'devcontainer' && exec.containerId) {
         // Check if session exists in container (use prefix matching for ID format differences)
         const containerSessions = this.findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+
+        // PRLT-1077: If the container was unreachable (null), don't assume the session
+        // is gone. The agent likely outlives the CLI process in background mode.
+        // Only mark as stopped when we can positively confirm the session is absent.
+        if (containerSessions === null) {
+          continue
+        }
+
         sessionExists = containerSessions.includes(exec.sessionId)
       } else {
         // Check if session exists on host
@@ -437,13 +445,15 @@ export class ExecutionStorage {
   /**
    * Find container sessions using prefix matching.
    * Handles cases where the stored containerId format differs from docker ps output.
+   * Returns null if the container was unreachable (couldn't verify sessions).
+   * Returns empty array if container was reachable but has no sessions.
    */
   private findContainerSessionsByPrefix(
-    containerTmuxSessions: Map<string, string[]>,
+    containerTmuxSessions: Map<string, string[] | null>,
     containerId: string
-  ): string[] {
+  ): string[] | null {
     const exact = containerTmuxSessions.get(containerId)
-    if (exact) return exact
+    if (exact !== undefined) return exact
 
     for (const [key, sessions] of containerTmuxSessions) {
       if (key.startsWith(containerId) || containerId.startsWith(key)) {
@@ -451,6 +461,7 @@ export class ExecutionStorage {
       }
     }
 
+    // Container not found in docker ps at all — it's not running
     return []
   }
 
@@ -473,10 +484,11 @@ export class ExecutionStorage {
   }
 
   /**
-   * Get map of containerId -> tmux session names
+   * Result of probing containers for tmux sessions.
+   * Distinguishes "no sessions" (empty array) from "unreachable" (null).
    */
-  private getContainerTmuxSessionMap(): Map<string, string[]> {
-    const sessionMap = new Map<string, string[]>()
+  private getContainerTmuxSessionMap(): Map<string, string[] | null> {
+    const sessionMap = new Map<string, string[] | null>()
 
     try {
       const containersOutput = execSync(
@@ -490,14 +502,16 @@ export class ExecutionStorage {
         try {
           const tmuxOutput = execSync(
             `docker exec ${containerId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
-            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+            { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
           ).trim()
 
-          if (tmuxOutput) {
-            sessionMap.set(containerId, tmuxOutput.split('\n'))
-          }
+          // Empty string = tmux is installed but no sessions running
+          sessionMap.set(containerId, tmuxOutput ? tmuxOutput.split('\n') : [])
         } catch {
-          // Container has no tmux sessions
+          // PRLT-1077: Distinguish "no tmux sessions" from "container unreachable".
+          // docker exec can fail due to timeout, container busy, or tmux not installed.
+          // null = unreachable (don't assume sessions are gone).
+          sessionMap.set(containerId, null)
         }
       }
     } catch {
@@ -534,14 +548,27 @@ export class ExecutionStorage {
 // Container Types
 // =============================================================================
 
+/**
+ * @deprecated PRLT-1077: Container status should not be used for agent lifecycle decisions.
+ * Agent lifecycle state lives solely on agent_work (ExecutionStatus).
+ * This type is kept for schema backwards compatibility but should not be relied upon.
+ */
 export type ContainerStatus = 'running' | 'exited' | 'paused' | 'unknown' | 'removed'
 
+/**
+ * Container record — tracks Docker infrastructure only.
+ *
+ * PRLT-1077: The containers table is infrastructure metadata (docker ID, image, resource
+ * limits). Agent lifecycle status belongs solely on agent_work. Do NOT use container
+ * records to determine whether an agent is running — check agent_work.status instead.
+ */
 export interface Container {
   id: string
   agentName: string
   dockerId: string
   dockerName: string | null
   image: string | null
+  /** @deprecated PRLT-1077: Do not use for agent lifecycle. Check agent_work.status instead. */
   status: ContainerStatus
   currentExecutionId: string | null
   createdAt: Date
@@ -578,6 +605,17 @@ function rowToContainer(row: ContainerRow): Container {
 // Container Storage Class
 // =============================================================================
 
+/**
+ * ContainerStorage — Infrastructure-only tracking for Docker containers.
+ *
+ * PRLT-1077: This table tracks Docker infrastructure metadata (docker ID, image,
+ * agent association). It is NOT a source of truth for agent lifecycle state.
+ * Agent lifecycle status lives solely on agent_work (ExecutionStatus).
+ *
+ * The `status` column is retained for schema backwards compatibility but is
+ * always set to 'unknown'. To check if a container is running, query Docker
+ * directly. To check if an agent is running, check agent_work.status.
+ */
 export class ContainerStorage {
   private db: DatabaseDriver
 
@@ -606,18 +644,20 @@ export class ContainerStorage {
       );
       CREATE INDEX IF NOT EXISTS idx_containers_agent ON ${T.containers}(agent_name);
       CREATE INDEX IF NOT EXISTS idx_containers_docker_id ON ${T.containers}(docker_id);
-      CREATE INDEX IF NOT EXISTS idx_containers_status ON ${T.containers}(status);
     `)
   }
 
   /**
-   * Upsert a container record (create or update by docker_id)
+   * Upsert a container record (create or update by docker_id).
+   * PRLT-1077: status param is ignored — container status is not tracked in DB.
+   * Agent lifecycle state comes from agent_work, Docker state from docker CLI.
    */
   upsertContainer(params: {
     agentName: string
     dockerId: string
     dockerName?: string
     image?: string
+    /** @deprecated PRLT-1077: Ignored. Container status is not tracked in DB. */
     status?: ContainerStatus
     currentExecutionId?: string
   }): Container {
@@ -627,37 +667,35 @@ export class ContainerStorage {
     const existing = this.getContainerByDockerId(params.dockerId)
 
     if (existing) {
-      // Update existing container
+      // Update existing container — do not write status
       this.db.prepare(`
         UPDATE ${T.containers}
-        SET agent_name = ?, docker_name = ?, image = ?, status = ?,
+        SET agent_name = ?, docker_name = ?, image = ?,
             current_execution_id = ?, last_seen_at = ?
         WHERE docker_id = ?
       `).run(
         params.agentName,
         params.dockerName || existing.dockerName,
         params.image || existing.image,
-        params.status || existing.status,
         params.currentExecutionId ?? existing.currentExecutionId,
         now,
         params.dockerId
       )
       return this.getContainerByDockerId(params.dockerId)!
     } else {
-      // Create new container
+      // Create new container — status defaults to 'unknown' (not used for lifecycle)
       const id = `CNT-${params.dockerId.substring(0, 12)}`
       this.db.prepare(`
         INSERT INTO ${T.containers} (
           id, agent_name, docker_id, docker_name, image, status,
           current_execution_id, created_at, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, 'unknown', ?, ?, ?)
       `).run(
         id,
         params.agentName,
         params.dockerId,
         params.dockerName || null,
         params.image || null,
-        params.status || 'unknown',
         params.currentExecutionId || null,
         now,
         now
@@ -707,6 +745,7 @@ export class ContainerStorage {
    */
   listContainers(filter?: {
     agentName?: string
+    /** @deprecated PRLT-1077: Container status is not tracked. Filter has no effect. */
     status?: ContainerStatus
     limit?: number
   }): Container[] {
@@ -716,10 +755,6 @@ export class ContainerStorage {
     if (filter?.agentName) {
       query += ` AND agent_name = ?`
       params.push(filter.agentName)
-    }
-    if (filter?.status) {
-      query += ` AND status = ?`
-      params.push(filter.status)
     }
 
     query += ` ORDER BY last_seen_at DESC`
@@ -734,15 +769,12 @@ export class ContainerStorage {
   }
 
   /**
-   * Update container status
+   * @deprecated PRLT-1077: Container status is not tracked in DB.
+   * Agent lifecycle state comes from agent_work. Docker state from docker CLI.
+   * This method is a no-op kept for backwards compatibility.
    */
-  updateStatus(dockerId: string, status: ContainerStatus): void {
-    const now = Date.now()
-    this.db.prepare(`
-      UPDATE ${T.containers}
-      SET status = ?, last_seen_at = ?
-      WHERE docker_id LIKE ? || '%'
-    `).run(status, now, dockerId)
+  updateStatus(_dockerId: string, _status: ContainerStatus): void {
+    // No-op: PRLT-1077 — container status is not the source of truth for agent lifecycle.
   }
 
   /**
@@ -758,10 +790,11 @@ export class ContainerStorage {
   }
 
   /**
-   * Mark container as removed
+   * @deprecated PRLT-1077: Container status is not tracked in DB.
+   * This method is a no-op kept for backwards compatibility.
    */
-  markRemoved(dockerId: string): void {
-    this.updateStatus(dockerId, 'removed')
+  markRemoved(_dockerId: string): void {
+    // No-op: PRLT-1077 — container status is not the source of truth.
   }
 
   /**
@@ -772,9 +805,9 @@ export class ContainerStorage {
   }
 
   /**
-   * Sync container status from Docker
-   * Updates status for all known containers based on Docker state
-   * Wrapped in a transaction for consistency
+   * Sync container infrastructure metadata from Docker.
+   * PRLT-1077: Only syncs infrastructure info (docker ID, name, image, agent association).
+   * Does NOT track container status — agent lifecycle state comes from agent_work.
    */
   syncFromDocker(dockerContainers: Array<{
     id: string
@@ -786,23 +819,21 @@ export class ContainerStorage {
     const now = Date.now()
     let added = 0; let updated = 0; let removed = 0
 
-    // Create a set of docker IDs currently running
+    // Create a set of docker IDs currently active
     const activeDockerIds = new Set(dockerContainers.map(c => c.id.substring(0, 12)))
 
     // Wrap all operations in a transaction for atomicity
     const syncTransaction = this.db.transaction(() => {
       // Update or add containers from Docker
       for (const dc of dockerContainers) {
-        const status: ContainerStatus = dc.status.startsWith('Up') ? 'running' :
-                                        dc.status.includes('Paused') ? 'paused' : 'exited'
-
         const existing = this.getContainerByDockerId(dc.id)
         if (existing) {
+          // PRLT-1077: Only update infrastructure metadata, not status
           this.db.prepare(`
             UPDATE ${T.containers}
-            SET docker_name = ?, image = ?, status = ?, last_seen_at = ?
+            SET docker_name = ?, image = ?, last_seen_at = ?
             WHERE docker_id LIKE ? || '%'
-          `).run(dc.name, dc.image, status, now, dc.id)
+          `).run(dc.name, dc.image, now, dc.id)
           updated++
         } else {
           this.upsertContainer({
@@ -810,18 +841,16 @@ export class ContainerStorage {
             dockerId: dc.id,
             dockerName: dc.name,
             image: dc.image,
-            status,
           })
           added++
         }
       }
 
-      // Mark containers not in Docker as removed
+      // Remove container records no longer in Docker
       const knownContainers = this.listContainers()
       for (const container of knownContainers) {
-        if (!activeDockerIds.has(container.dockerId.substring(0, 12)) &&
-            container.status !== 'removed') {
-          this.markRemoved(container.dockerId)
+        if (!activeDockerIds.has(container.dockerId.substring(0, 12))) {
+          this.db.prepare(`DELETE FROM ${T.containers} WHERE id = ?`).run(container.id)
           removed++
         }
       }

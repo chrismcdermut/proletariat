@@ -1,6 +1,7 @@
 import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
@@ -346,6 +347,27 @@ export default class SessionPoke extends PromptCommand {
         }
       }
 
+      // PRLT-1077: Self-healing recovery for background-mode spawns.
+      // If no running/starting execution found, check recently-stopped executions
+      // whose tmux session is still alive (status was incorrectly set to 'stopped'
+      // because the CLI exited while the agent continued in the container).
+      if (!match) {
+        const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
+        const stoppedCandidate = stoppedExecutions.find(exec =>
+          exec.agentName === identifier || exec.ticketId === identifier,
+        )
+
+        if (stoppedCandidate?.sessionId) {
+          // Verify the tmux session is actually still alive
+          const sessionAlive = this.isSessionAlive(stoppedCandidate)
+          if (sessionAlive) {
+            // Recover: update status back to 'running' and use this execution
+            executionStorage.updateStatus(stoppedCandidate.id, 'running')
+            match = { ...stoppedCandidate, status: 'running' as const }
+          }
+        }
+      }
+
       if (!match) {
         if (jsonMode) {
           outputErrorAsJson(
@@ -419,6 +441,33 @@ export default class SessionPoke extends PromptCommand {
       agentName: exec.agentName,
       environment: isContainer ? 'container' : 'host',
       containerId,
+    }
+  }
+
+  /**
+   * PRLT-1077: Check if a tmux session is still alive for an execution.
+   * Used to recover executions incorrectly marked as stopped when the
+   * agent outlives the CLI process (background-mode spawns).
+   */
+  private isSessionAlive(exec: { sessionId?: string; containerId?: string; environment: string }): boolean {
+    if (!exec.sessionId) return false
+
+    try {
+      if (exec.environment === 'devcontainer' && exec.containerId) {
+        execSync(
+          `docker exec ${exec.containerId} tmux has-session -t "${exec.sessionId}"`,
+          { stdio: 'pipe', timeout: 5000 },
+        )
+        return true
+      } else {
+        execSync(
+          `tmux has-session -t "${exec.sessionId}"`,
+          { stdio: 'pipe', timeout: 5000 },
+        )
+        return true
+      }
+    } catch {
+      return false
     }
   }
 }

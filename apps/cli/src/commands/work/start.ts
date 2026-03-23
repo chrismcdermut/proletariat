@@ -2395,12 +2395,13 @@ export default class WorkStart extends PMOCommand {
         })
 
         // Track container in containers table (for devcontainer environment)
+        // PRLT-1077: Only store infrastructure metadata, not lifecycle status.
+        // Agent lifecycle state comes from agent_work, not the containers table.
         if (environment === 'devcontainer' && result.containerId) {
           const containerStorage = new ContainerStorage(db)
           containerStorage.upsertContainer({
             agentName: context.agentName,
             dockerId: result.containerId,
-            status: 'running',
             currentExecutionId: execution.id,
           })
         }
