@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { SqliteDatabase } from '../../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import type { WorkHookConfig, WorkHookRow, HookableEvent, HookActionType } from './types.js'
 
 /** Table name for work hooks. */
@@ -35,7 +35,7 @@ export const HOOKS_TABLE_INDEX = `
  * Ensure the hooks table exists in the database.
  * Safe to call multiple times.
  */
-export function ensureHooksTable(db: SqliteDatabase): void {
+export function ensureHooksTable(db: Database.Database): void {
   db.exec(HOOKS_TABLE_SCHEMA)
   db.exec(HOOKS_TABLE_INDEX)
 }
@@ -60,7 +60,7 @@ function rowToConfig(row: WorkHookRow): WorkHookConfig {
  * WorkHookStorage provides CRUD operations for hook configurations.
  */
 export class WorkHookStorage {
-  constructor(private db: SqliteDatabase) {
+  constructor(private db: Database.Database) {
     ensureHooksTable(db)
   }
 

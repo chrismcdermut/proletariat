@@ -8,7 +8,7 @@
  * 4. Skip when no match
  */
 import { expect } from 'chai'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import {
   move,
   moveWithProvider,
@@ -33,8 +33,8 @@ import type { Ticket, CreateTicketInput } from '../../src/lib/pmo/types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function createTestDb(): SqliteDatabase {
-  const db = new SqliteDatabase(':memory:')
+function createTestDb(): Database.Database {
+  const db = new Database(':memory:')
   db.exec(`
     CREATE TABLE workspace_settings (
       key TEXT PRIMARY KEY,
@@ -103,7 +103,7 @@ function createMockStorage(columns: string[]): ProviderStorage {
       createdAt: new Date(),
       updatedAt: new Date(),
     }) as Ticket,
-    getDatabase: () => new SqliteDatabase(':memory:') as any,
+    getDatabase: () => new Database(':memory:') as any,
   }
 }
 
@@ -174,7 +174,7 @@ describe('PRLT-1087: State Resolution Engine', () => {
   // ---------------------------------------------------------------------------
 
   describe('Config State Map', () => {
-    let db: SqliteDatabase
+    let db: Database.Database
 
     beforeEach(() => {
       db = createTestDb()
@@ -223,7 +223,7 @@ describe('PRLT-1087: State Resolution Engine', () => {
   // ---------------------------------------------------------------------------
 
   describe('move() resolution flow', () => {
-    let db: SqliteDatabase
+    let db: Database.Database
 
     beforeEach(() => {
       db = createTestDb()
@@ -464,7 +464,7 @@ describe('PRLT-1087: State Resolution Engine', () => {
   // ---------------------------------------------------------------------------
 
   describe('moveWithProvider', () => {
-    let db: SqliteDatabase
+    let db: Database.Database
 
     beforeEach(() => {
       db = createTestDb()
@@ -561,7 +561,7 @@ describe('PRLT-1087: State Resolution Engine', () => {
   // ---------------------------------------------------------------------------
 
   describe('Cross-provider state resolution', () => {
-    let db: SqliteDatabase
+    let db: Database.Database
 
     beforeEach(() => {
       db = createTestDb()

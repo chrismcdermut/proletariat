@@ -2,7 +2,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { SqliteDatabase } from '../database/sqlite.js';
 import { SQLiteStorage } from './storage-sqlite.js';
 import { createSpecFolders } from './create-spec-folders.js';
 import { slugify } from './utils.js';
@@ -400,19 +399,20 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
   }
 
   // Save PMO path and column settings (relative to HQ root for container compatibility)
-  // Use the storage's database connection to avoid conflicting writes from multiple connections.
   try {
-    const rawDb = storage.getRawDb();
+    const db = new (await import('better-sqlite3')).default(dbPath);
     // Store relative path from HQ root (e.g., "pmo" or "repos/myrepo/pmo")
     const relativePmoPath = path.relative(hqPath, pmoPath);
-    rawDb.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', relativePmoPath);
+    db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', relativePmoPath);
 
     // Set column settings based on template
     // These determine which columns work commands use for transitions
     const columnSettings = getColumnSettingsForTemplate(boardTemplate, columns);
     for (const [key, value] of Object.entries(columnSettings)) {
-      rawDb.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run(key, value);
+      db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run(key, value);
     }
+
+    db.close();
   } catch {
     // Ignore if settings table doesn't exist
   }
@@ -536,7 +536,9 @@ export function hasPMO(hqPath: string): boolean {
   }
 
   try {
-    const db = new SqliteDatabase(dbPath);
+    // eslint-disable-next-line unicorn/prefer-module
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
     const result = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
     ).get();

@@ -5,7 +5,7 @@ import * as os from 'node:os'
 import { execSync } from 'node:child_process'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { findHQRoot } from '../../lib/workspace.js'
 import {
   getWorkspaceInfo,
@@ -265,7 +265,7 @@ Clean up your tmux session when done.`,
 
     // Open database
     const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = new Database(dbPath)
     const executionStorage = new ExecutionStorage(db)
 
     try {
@@ -577,7 +577,7 @@ Clean up your tmux session when done.`,
       const homePrltDir = path.join(process.env.HOME || '', '.proletariat')
       fs.mkdirSync(homePrltDir, { recursive: true })
       const tempDbPath = path.join(homePrltDir, 'adhoc.db')
-      const tempDb = new SqliteDatabase(tempDbPath)
+      const tempDb = new Database(tempDbPath)
 
       tempDb.exec(`
         CREATE TABLE IF NOT EXISTS settings (

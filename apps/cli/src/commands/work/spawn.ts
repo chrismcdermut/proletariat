@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -941,7 +941,7 @@ export default class WorkSpawn extends PMOCommand {
 
     // Open database
     const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = new Database(dbPath)
 
     try {
       // Get board to list available columns

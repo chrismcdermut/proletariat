@@ -6,7 +6,7 @@
  * so this migration is safe on both new and existing databases.
  */
 
-import type { SqliteDatabase } from '../sqlite.js'
+import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 import { CREATE_TABLES_SQL } from '../workspace-schema.js'
 import { PMO_SCHEMA_SQL } from '../../pmo/schema.js'
@@ -14,7 +14,7 @@ import { PMO_SCHEMA_SQL } from '../../pmo/schema.js'
 export const baseline: Migration = {
   id: '0001',
   name: 'baseline',
-  up: (db: SqliteDatabase) => {
+  up: (db: Database.Database) => {
     db.exec(CREATE_TABLES_SQL)
     db.exec(PMO_SCHEMA_SQL)
   },

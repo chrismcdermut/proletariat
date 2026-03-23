@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import {
   CREATE_TABLES_SQL,
   createWorkspaceDatabase,
@@ -73,7 +73,7 @@ describe('Database Drizzle-First Layer (TKT-1090)', () => {
     const dbDir = path.join(testDir, '.proletariat')
     fs.mkdirSync(dbDir, { recursive: true })
     const dbPath = path.join(dbDir, 'workspace.db')
-    const db = new SqliteDatabase(dbPath)
+    const db = new Database(dbPath)
     db.pragma('foreign_keys = ON')
     db.exec(CREATE_TABLES_SQL)
     db.prepare(`

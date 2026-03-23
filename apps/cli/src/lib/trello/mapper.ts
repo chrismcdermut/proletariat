@@ -1,11 +1,11 @@
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import { PMO_TABLES } from '../pmo/schema.js'
 import type { TrelloCardMap } from './types.js'
 import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
 
-function toDriver(dbOrDriver: DatabaseDriver | SqliteDatabase): DatabaseDriver {
+function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
   if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
-    return wrapDatabase(dbOrDriver as SqliteDatabase)
+    return wrapDatabase(dbOrDriver as Database.Database)
   }
   return dbOrDriver as DatabaseDriver
 }
@@ -13,7 +13,7 @@ function toDriver(dbOrDriver: DatabaseDriver | SqliteDatabase): DatabaseDriver {
 export class TrelloMapper {
   private driver: DatabaseDriver
 
-  constructor(dbOrDriver: DatabaseDriver | SqliteDatabase) {
+  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
     this.driver = toDriver(dbOrDriver)
     this.ensureTable()
   }

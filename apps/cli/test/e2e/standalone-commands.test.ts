@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execSync } from 'node:child_process';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import {
   createHQConfig,
   createPMODirectories,
@@ -126,7 +126,7 @@ describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', (
     });
 
     describe('inside HQ', () => {
-      let db: SqliteDatabase;
+      let db: Database.Database;
 
       beforeEach(() => {
         originalCwd = process.cwd();
@@ -139,7 +139,7 @@ describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', (
         createHQConfig(proletariatDir);
 
         const dbPath = path.join(proletariatDir, 'workspace.db');
-        db = new SqliteDatabase(dbPath);
+        db = new Database(dbPath);
         setupMinimalPMO(db);
 
         const pmoPath = path.join(testDir, 'pmo');
@@ -668,7 +668,7 @@ describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', (
 // ================================================================
 // Helper: Minimal PMO database setup for claude HQ tests
 // ================================================================
-function setupMinimalPMO(db: SqliteDatabase) {
+function setupMinimalPMO(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS pmo_settings (
       key TEXT PRIMARY KEY,

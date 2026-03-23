@@ -1,6 +1,6 @@
 /* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -72,12 +72,12 @@ function initGitRepo(dir: string): void {
  */
 describe('Branch Commands JSON Mode', () => {
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     env = createTestEnvironment('branch-json-');
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     setupTestDatabase(db, env.pmoPath);
 
     createHQConfig(env.proletariatDir);
@@ -443,12 +443,12 @@ describe('Branch Commands JSON Mode', () => {
 
 describe('Branch Commands - JSON Mode Compatibility', () => {
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     env = createTestEnvironment('branch-compat-');
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     setupTestDatabase(db, env.pmoPath);
 
     createHQConfig(env.proletariatDir);
@@ -498,7 +498,7 @@ describe('Branch Commands - JSON Mode Compatibility', () => {
  * Helper function to set up test database with full workspace schema.
  * Matches the schema from src/lib/database/index.ts
  */
-function setupTestDatabase(db: SqliteDatabase, pmoPath: string) {
+function setupTestDatabase(db: Database.Database, pmoPath: string) {
   // Use production PMO schema (ensures all columns including position, epic_id, etc.)
   initializePMOTables(db);
 

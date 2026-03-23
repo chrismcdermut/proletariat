@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 
 /**
  * Work Commands E2E Tests — database-level validation of work lifecycle flows.
@@ -35,7 +35,7 @@ describe('Work Commands — Database Operations (TKT-140)', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     originalCwd = process.cwd();
@@ -47,7 +47,7 @@ describe('Work Commands — Database Operations (TKT-140)', () => {
     fs.mkdirSync(proletariatDir, { recursive: true });
     dbPath = path.join(proletariatDir, 'workspace.db');
 
-    db = new SqliteDatabase(dbPath);
+    db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     setupTestDatabase(db);
@@ -470,7 +470,7 @@ describe('Work Commands — Database Operations (TKT-140)', () => {
 // =========================================================================
 // Helper functions
 // =========================================================================
-function setupTestDatabase(db: SqliteDatabase) {
+function setupTestDatabase(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS pmo_settings (
       key TEXT PRIMARY KEY,
@@ -627,7 +627,7 @@ function setupTestDatabase(db: SqliteDatabase) {
 }
 
 let ticketCounter = 0;
-function createTicket(db: SqliteDatabase, title: string, columnOrStatus: string): string {
+function createTicket(db: Database.Database, title: string, columnOrStatus: string): string {
   ticketCounter++;
   const ticketId = `TKT-${String(ticketCounter).padStart(3, '0')}`;
 
@@ -664,7 +664,7 @@ function createTicket(db: SqliteDatabase, title: string, columnOrStatus: string)
   return ticketId;
 }
 
-function createAgent(db: SqliteDatabase, name: string): void {
+function createAgent(db: Database.Database, name: string): void {
   db.prepare(`
     INSERT OR IGNORE INTO agents (name, path)
     VALUES (?, ?)
@@ -673,7 +673,7 @@ function createAgent(db: SqliteDatabase, name: string): void {
 
 let executionCounter = 0;
 function createExecution(
-  db: SqliteDatabase,
+  db: Database.Database,
   ticketId: string,
   agentName: string,
   status: string,

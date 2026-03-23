@@ -4,7 +4,7 @@
  * Stores Jira credentials and preferences in the workspace_settings table.
  */
 
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
 
@@ -25,7 +25,7 @@ export interface JiraConfig {
 /**
  * Check if Jira is configured.
  */
-export function isJiraConfigured(db: SqliteDatabase): boolean {
+export function isJiraConfigured(db: Database.Database): boolean {
   // Check provider sources first
   try {
     const sources = loadProviderSources(db)
@@ -59,7 +59,7 @@ export function isJiraConfigured(db: SqliteDatabase): boolean {
 /**
  * Load Jira configuration from the database + environment.
  */
-export function loadJiraConfig(db: SqliteDatabase): JiraConfig | null {
+export function loadJiraConfig(db: Database.Database): JiraConfig | null {
   const settings = new SettingsStore(db)
   const baseUrl = settings.get(JIRA_CONFIG_KEYS.baseUrl)
     || process.env.PRLT_JIRA_BASE_URL
@@ -90,7 +90,7 @@ export function loadJiraConfig(db: SqliteDatabase): JiraConfig | null {
 /**
  * Save Jira configuration to the database.
  */
-export function saveJiraConfig(db: SqliteDatabase, config: JiraConfig): void {
+export function saveJiraConfig(db: Database.Database, config: JiraConfig): void {
   const settings = new SettingsStore(db)
   settings.set(JIRA_CONFIG_KEYS.baseUrl, config.baseUrl)
   settings.set(JIRA_CONFIG_KEYS.apiToken, config.apiToken)
@@ -105,7 +105,7 @@ export function saveJiraConfig(db: SqliteDatabase, config: JiraConfig): void {
 /**
  * Clear all Jira configuration from the database.
  */
-export function clearJiraConfig(db: SqliteDatabase): void {
+export function clearJiraConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(JIRA_CONFIG_KEYS)) {
     settings.delete(key)

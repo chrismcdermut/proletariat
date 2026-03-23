@@ -3,7 +3,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { execInProcess } from './test-helpers.js'
 
 /** Database row type for agent_work queries */
@@ -49,7 +49,7 @@ function hasDockerOrWorkspaceError(output: string): boolean {
 describe('Docker Commands E2E Tests', () => {
   let testDir: string
   let dbPath: string
-  let db: SqliteDatabase
+  let db: Database.Database
 
   beforeEach(() => {
     // Create temp dir for database tests only (not for CLI execution)
@@ -60,7 +60,7 @@ describe('Docker Commands E2E Tests', () => {
     fs.mkdirSync(proletariatDir, { recursive: true })
     dbPath = path.join(proletariatDir, 'workspace.db')
 
-    db = new SqliteDatabase(dbPath)
+    db = new Database(dbPath)
     setupTestDatabase(db)
   })
 
@@ -1470,7 +1470,7 @@ describe('Docker Agent Flow E2E Tests (--machine flag)', () => {
 // Helper Functions
 // =============================================================================
 
-function setupTestDatabase(db: SqliteDatabase) {
+function setupTestDatabase(db: Database.Database) {
   db.exec(`
     -- Workspace configuration table
     CREATE TABLE IF NOT EXISTS workspace (
@@ -1645,7 +1645,7 @@ function setupTestDatabase(db: SqliteDatabase) {
 
 let ticketCounter = 0
 function createTicket(
-  db: SqliteDatabase,
+  db: Database.Database,
   title: string,
   columnId: string
 ): string {
@@ -1671,7 +1671,7 @@ function createTicket(
 
 let executionCounter = 0
 function createExecution(
-  db: SqliteDatabase,
+  db: Database.Database,
   ticketId: string,
   agentName: string,
   status: string,

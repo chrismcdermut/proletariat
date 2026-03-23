@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 
 describe('Roadmap Storage', () => {
@@ -15,7 +15,7 @@ describe('Roadmap Storage', () => {
     const dbPath = path.join(testDir, 'pmo.db');
 
     // Create empty database file first (SQLiteStorage now requires it to exist)
-    const db = new SqliteDatabase(dbPath);
+    const db = new Database(dbPath);
     db.close();
 
     storage = new SQLiteStorage(dbPath);

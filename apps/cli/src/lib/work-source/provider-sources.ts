@@ -11,7 +11,7 @@
  * `work.provider_sources`.
  */
 
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import type { WorkSourceProvider } from './config.js'
 import { WORK_SOURCE_PROVIDERS, isWorkSourceProvider } from './config.js'
 import { SettingsStore } from '../database/settings-store.js'
@@ -110,7 +110,7 @@ export function validateProviderSourceEntry(
 // Persistence
 // =============================================================================
 
-function settingsFor(db: SqliteDatabase): SettingsStore {
+function settingsFor(db: Database.Database): SettingsStore {
   return new SettingsStore(db)
 }
 
@@ -118,7 +118,7 @@ function settingsFor(db: SqliteDatabase): SettingsStore {
  * Load all provider source entries from the database.
  * Returns an empty array if none are configured.
  */
-export function loadProviderSources(db: SqliteDatabase): ProviderSourceEntry[] {
+export function loadProviderSources(db: Database.Database): ProviderSourceEntry[] {
   const raw = settingsFor(db).get(PROVIDER_SOURCES_KEY)
   if (!raw) return []
 
@@ -140,7 +140,7 @@ export function loadProviderSources(db: SqliteDatabase): ProviderSourceEntry[] {
 /**
  * Save the full list of provider source entries to the database.
  */
-export function saveProviderSources(db: SqliteDatabase, sources: ProviderSourceEntry[]): void {
+export function saveProviderSources(db: Database.Database, sources: ProviderSourceEntry[]): void {
   const settings = settingsFor(db)
   if (sources.length === 0) {
     settings.delete(PROVIDER_SOURCES_KEY)
@@ -154,7 +154,7 @@ export function saveProviderSources(db: SqliteDatabase, sources: ProviderSourceE
  * or throws if an entry with the same id already exists.
  */
 export function addProviderSource(
-  db: SqliteDatabase,
+  db: Database.Database,
   entry: ProviderSourceEntry,
 ): ProviderSourceValidationError[] {
   const errors = validateProviderSourceEntry(entry)
@@ -180,7 +180,7 @@ export function addProviderSource(
  * Returns validation errors if the update is invalid, or if the entry is not found.
  */
 export function updateProviderSource(
-  db: SqliteDatabase,
+  db: Database.Database,
   id: string,
   updates: Partial<Omit<ProviderSourceEntry, 'id'>>,
 ): ProviderSourceValidationError[] {
@@ -212,7 +212,7 @@ export function updateProviderSource(
  * Remove a provider source entry by id.
  * Returns true if removed, false if not found.
  */
-export function removeProviderSource(db: SqliteDatabase, id: string): boolean {
+export function removeProviderSource(db: Database.Database, id: string): boolean {
   const sources = loadProviderSources(db)
   const filtered = sources.filter((e) => e.id !== id)
 
@@ -226,7 +226,7 @@ export function removeProviderSource(db: SqliteDatabase, id: string): boolean {
  * Get a single provider source entry by id.
  */
 export function getProviderSourceById(
-  db: SqliteDatabase,
+  db: Database.Database,
   id: string,
 ): ProviderSourceEntry | null {
   const sources = loadProviderSources(db)
@@ -248,7 +248,7 @@ export function getProviderSourceById(
  *   resolveProviderByPrefix(db, 'UNKNOWN-789') → null
  */
 export function resolveProviderByPrefix(
-  db: SqliteDatabase,
+  db: Database.Database,
   ticketKey: string,
 ): ProviderSourceEntry | null {
   const sources = loadProviderSources(db)
@@ -283,7 +283,7 @@ export function resolveProviderByPrefixFromList(
  * Useful for displaying the routing table to the user.
  */
 export function getRoutingTable(
-  db: SqliteDatabase,
+  db: Database.Database,
 ): Array<{ prefix: string; provider: WorkSourceProvider; label: string; id: string }> {
   const sources = loadProviderSources(db)
   return sources.map((s) => ({
@@ -304,7 +304,7 @@ export function getRoutingTable(
  * If an entry with the same id exists, it is replaced. Otherwise a new entry is added.
  */
 export function upsertProviderSource(
-  db: SqliteDatabase,
+  db: Database.Database,
   entry: ProviderSourceEntry,
 ): ProviderSourceValidationError[] {
   const errors = validateProviderSourceEntry(entry)
@@ -333,7 +333,7 @@ export function upsertProviderSource(
  * Returns the number of entries removed.
  */
 export function removeProviderSourcesByProvider(
-  db: SqliteDatabase,
+  db: Database.Database,
   provider: WorkSourceProvider,
 ): number {
   const sources = loadProviderSources(db)
@@ -356,7 +356,7 @@ export function removeProviderSourcesByProvider(
  * 3. Return null if neither resolves
  */
 export function resolveApiKey(
-  db: SqliteDatabase,
+  db: Database.Database,
   entry: ProviderSourceEntry,
 ): string | null {
   // Try environment variable first

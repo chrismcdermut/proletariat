@@ -1,6 +1,6 @@
 /* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -48,7 +48,7 @@ function extractJson<T>(output: string): T {
  */
 describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     env = createTestEnvironment('machine-mode-');

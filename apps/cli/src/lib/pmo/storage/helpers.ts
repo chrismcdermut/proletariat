@@ -187,7 +187,7 @@ export async function rowToTicket(
     branch: row.branch || undefined,
     specId: row.spec_id || undefined,
     epicId: row.epic_id || undefined,
-    subtasks: subtaskRows.map((st: any) => ({
+    subtasks: subtaskRows.map((st) => ({
       id: st.id,
       title: st.title,
       done: st.done ?? false,
@@ -221,7 +221,7 @@ export function getAcceptanceCriteriaSync(
     .orderBy(asc(pmoTicketAcceptanceCriteria.position))
     .all()
 
-  return rows.map((row: any) => ({
+  return rows.map((row) => ({
     id: row.id,
     ticketId: row.ticketId,
     criterion: row.criterion,

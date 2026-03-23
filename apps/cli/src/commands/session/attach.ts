@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { ExecutionStorage, loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
@@ -153,7 +153,7 @@ export default class SessionAttach extends PMOCommand {
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      const db = new SqliteDatabase(dbPath)
+      const db = new Database(dbPath)
       try {
         const config = loadExecutionConfig(db)
         const termApp = detectTerminalApp()
@@ -184,12 +184,12 @@ export default class SessionAttach extends PMOCommand {
     const sessions: SessionChoice[] = []
 
     let executionStorage: ExecutionStorage | null = null
-    let db: SqliteDatabase | null = null
+    let db: Database.Database | null = null
 
     try {
       const workspaceInfo = getWorkspaceInfo()
       const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new SqliteDatabase(dbPath)
+      db = new Database(dbPath)
       executionStorage = new ExecutionStorage(db)
     } catch {
       // Not in workspace, but we can still discover tmux sessions

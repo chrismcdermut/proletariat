@@ -3,35 +3,20 @@
  * Show specs ordered by priority with completion status
  */
 
-import initSqlJs from 'sql.js';
-import fs from 'node:fs';
+import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = path.join(__dirname, '../../../.proletariat/workspace.db');
 
-const SQL = await initSqlJs();
-const buf = fs.readFileSync(dbPath);
-const db = new SQL.Database(buf);
-
-function prepare(sql) {
-  return {
-    all() {
-      const stmt = db.prepare(sql);
-      const results = [];
-      while (stmt.step()) results.push(stmt.getAsObject());
-      stmt.free();
-      return results;
-    }
-  };
-}
+const db = new Database(dbPath);
 
 console.log('\n📊 Spec Prioritization Dashboard\n');
 console.log('═'.repeat(80));
 
 // Get all specs with ticket counts
-const specs = prepare(`
+const specs = db.prepare(`
   SELECT
     s.id,
     s.title,

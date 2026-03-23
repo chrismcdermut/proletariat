@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 import { runDrizzleMigrations } from '../../src/lib/database/migrator.js';
@@ -85,7 +85,7 @@ export function getOrCreatePMOTemplate(): string {
 
   // Create in a temp file, then atomically rename (safe for concurrent processes)
   const tmpPath = `${templatePath}.${process.pid}.tmp`;
-  const db = new SqliteDatabase(tmpPath);
+  const db = new Database(tmpPath);
   db.pragma('foreign_keys = ON');
   initializePMOTables(db);
   db.close();
@@ -116,7 +116,7 @@ export function getOrCreateWorkspaceTemplate(): string {
   }
 
   const tmpPath = `${templatePath}.${process.pid}.tmp`;
-  const db = new SqliteDatabase(tmpPath);
+  const db = new Database(tmpPath);
   db.pragma('foreign_keys = ON');
   runDrizzleMigrations(db, ALL_MIGRATIONS);
   db.close();

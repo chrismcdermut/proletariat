@@ -1,27 +1,27 @@
 import { expect } from 'chai'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { runDrizzleMigrations, type Migration } from '../../src/lib/database/migrator.js'
 import { ALL_MIGRATIONS } from '../../src/lib/database/migrations/index.js'
 
 describe('Database Migration System', () => {
-  function openDb(): SqliteDatabase {
-    const db = new SqliteDatabase(':memory:')
+  function openDb(): Database.Database {
+    const db = new Database(':memory:')
     db.pragma('foreign_keys = ON')
     return db
   }
 
-  function getAppliedMigrations(db: SqliteDatabase): { id: string; name: string }[] {
+  function getAppliedMigrations(db: Database.Database): { id: string; name: string }[] {
     return db.prepare('SELECT id, name FROM prlt_migrations ORDER BY id').all() as { id: string; name: string }[]
   }
 
-  function tableExists(db: SqliteDatabase, tableName: string): boolean {
+  function tableExists(db: Database.Database, tableName: string): boolean {
     const row = db.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
     ).get(tableName)
     return !!row
   }
 
-  function columnExists(db: SqliteDatabase, tableName: string, columnName: string): boolean {
+  function columnExists(db: Database.Database, tableName: string, columnName: string): boolean {
     const info = db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[]
     return info.some(col => col.name === columnName)
   }
@@ -170,7 +170,7 @@ describe('Database Migration System', () => {
      * system was introduced. It has the old schema (e.g., agent_theme_names
      * with a 'used' column, agents without mount_mode, etc.).
      */
-    function createLegacyDatabase(): SqliteDatabase {
+    function createLegacyDatabase(): Database.Database {
       const db = openDb()
       db.pragma('foreign_keys = ON')
 

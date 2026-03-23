@@ -385,7 +385,7 @@ export class StatusStorage {
       workflowId,
       name: status.name || 'New Status',
       category,
-      position: position!,
+      position,
       color: status.color,
       description: status.description,
       isDefault: status.isDefault || false,

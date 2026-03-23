@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import { execInProcess } from './test-helpers.js';
 
 /**
@@ -16,7 +16,7 @@ describe('@smoke Config Commands E2E Tests', () => {
   let testDir: string;
   let originalCwd: string;
   let dbPath: string;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     originalCwd = process.cwd();
@@ -27,7 +27,7 @@ describe('@smoke Config Commands E2E Tests', () => {
     fs.mkdirSync(proletariatDir, { recursive: true });
     dbPath = path.join(proletariatDir, 'workspace.db');
 
-    db = new SqliteDatabase(dbPath);
+    db = new Database(dbPath);
     setupTestDatabase(db, testDir);
   });
 
@@ -114,8 +114,7 @@ describe('@smoke Config Commands E2E Tests', () => {
       const output = await execInProcess('config --set "terminal.app Ghostty"');
       expect(output).to.contain('Ghostty');
 
-      // Reload in-memory DB to see changes written by the command
-      db.reload();
+      // Verify in DB
       const row = db.prepare("SELECT value FROM workspace_settings WHERE key = 'execution.terminal.app'").get() as { value: string } | undefined;
       expect(row).to.not.be.undefined;
       expect(row!.value).to.equal('Ghostty');
@@ -124,7 +123,6 @@ describe('@smoke Config Commands E2E Tests', () => {
     it('should set terminal openInBackground', async () => {
       await execInProcess('config --set "terminal.openInBackground false"');
 
-      db.reload();
       const row = db.prepare("SELECT value FROM workspace_settings WHERE key = 'execution.terminal.open_in_background'").get() as { value: string } | undefined;
       expect(row).to.not.be.undefined;
       expect(row!.value).to.equal('false');
@@ -133,7 +131,6 @@ describe('@smoke Config Commands E2E Tests', () => {
     it('should set shell', async () => {
       await execInProcess('config --set "shell fish"');
 
-      db.reload();
       const row = db.prepare("SELECT value FROM workspace_settings WHERE key = 'execution.shell'").get() as { value: string } | undefined;
       expect(row).to.not.be.undefined;
       expect(row!.value).to.equal('fish');
@@ -142,7 +139,6 @@ describe('@smoke Config Commands E2E Tests', () => {
     it('should set tmux control mode', async () => {
       await execInProcess('config --set "tmux.controlMode true"');
 
-      db.reload();
       const row = db.prepare("SELECT value FROM workspace_settings WHERE key = 'execution.tmux.control_mode'").get() as { value: string } | undefined;
       expect(row).to.not.be.undefined;
       expect(row!.value).to.equal('true');
@@ -419,7 +415,7 @@ describe('@smoke Config Commands E2E Tests', () => {
 // Test Database Setup
 // =============================================================================
 
-function setupTestDatabase(db: SqliteDatabase, testDir: string) {
+function setupTestDatabase(db: Database.Database, testDir: string) {
   // Create all tables needed by the config command's getWorkspaceInfo() call
   db.exec(`
     -- Core workspace metadata

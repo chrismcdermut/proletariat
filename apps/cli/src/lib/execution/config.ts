@@ -5,7 +5,7 @@
  * Uses the workspace_settings table (not pmo_settings - execution is workspace-level).
  */
 
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, TerminalApp, Shell, DisplayMode, OutputMode, ExecutionEnvironment, AuthMethod, PermissionMode, CleanupPolicy, normalizeEnvironment } from './types.js'
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js'
@@ -56,22 +56,22 @@ const CONFIG_KEYS = {
   mirrorToPmoDefault: 'execution.mirror_to_pmo_default',
 }
 
-function settingsFor(db: SqliteDatabase): SettingsStore {
+function settingsFor(db: Database.Database): SettingsStore {
   return new SettingsStore(db)
 }
 
-function getSetting(db: SqliteDatabase, key: string): string | null {
+function getSetting(db: Database.Database, key: string): string | null {
   return settingsFor(db).get(key)
 }
 
-function setSetting(db: SqliteDatabase, key: string, value: string): void {
+function setSetting(db: Database.Database, key: string, value: string): void {
   settingsFor(db).set(key, value)
 }
 
 /**
  * Load execution config from database, merging with defaults
  */
-export function loadExecutionConfig(db: SqliteDatabase): ExecutionConfig {
+export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const config = { ...DEFAULT_EXECUTION_CONFIG }
 
   // Load terminal app
@@ -288,7 +288,7 @@ export function loadExecutionConfig(db: SqliteDatabase): ExecutionConfig {
 /**
  * Save a single execution config setting to database
  */
-export function saveExecutionSetting(db: SqliteDatabase, key: keyof typeof CONFIG_KEYS, value: string): void {
+export function saveExecutionSetting(db: Database.Database, key: keyof typeof CONFIG_KEYS, value: string): void {
   setSetting(db, CONFIG_KEYS[key], value)
 }
 
@@ -305,7 +305,7 @@ const VALID_CLEANUP_POLICIES: ReadonlySet<string> = new Set(['on-exit', 'persist
  *   cleanup.default → workspace default
  * Falls back to 'on-exit' if nothing is configured.
  */
-export function getCleanupPolicy(db: SqliteDatabase, actionId?: string): CleanupPolicy {
+export function getCleanupPolicy(db: Database.Database, actionId?: string): CleanupPolicy {
   // Check per-action override first
   if (actionId) {
     const actionPolicy = getSetting(db, `cleanup.actions.${actionId}`)
@@ -326,14 +326,14 @@ export function getCleanupPolicy(db: SqliteDatabase, actionId?: string): Cleanup
 /**
  * Set the default cleanup policy for the workspace.
  */
-export function setDefaultCleanupPolicy(db: SqliteDatabase, policy: CleanupPolicy): void {
+export function setDefaultCleanupPolicy(db: Database.Database, policy: CleanupPolicy): void {
   setSetting(db, 'cleanup.default', policy)
 }
 
 /**
  * Set the cleanup policy for a specific action.
  */
-export function setActionCleanupPolicy(db: SqliteDatabase, actionId: string, policy: CleanupPolicy): void {
+export function setActionCleanupPolicy(db: Database.Database, actionId: string, policy: CleanupPolicy): void {
   setSetting(db, `cleanup.actions.${actionId}`, policy)
 }
 
@@ -353,7 +353,7 @@ export function getNetworkAllowlist(
   config: ExecutionConfig,
   actionId?: string,
   actionNetworkAllowlist?: string[],
-  db?: SqliteDatabase,
+  db?: Database.Database,
 ): string[] {
   const domains = new Set<string>()
 
@@ -397,7 +397,7 @@ export function getNetworkAllowlist(
 /**
  * Set the network allowlist for a specific action in workspace_settings.
  */
-export function setActionNetworkAllowlist(db: SqliteDatabase, actionId: string, domains: string[]): void {
+export function setActionNetworkAllowlist(db: Database.Database, actionId: string, domains: string[]): void {
   const cleaned = [...new Set(domains.map(d => d.trim().toLowerCase()).filter(Boolean))]
   if (cleaned.length === 0) {
     settingsFor(db).delete(`network.actions.${actionId}`)
@@ -409,14 +409,14 @@ export function setActionNetworkAllowlist(db: SqliteDatabase, actionId: string, 
 /**
  * Save terminal app preference
  */
-export function saveTerminalApp(db: SqliteDatabase, app: TerminalApp): void {
+export function saveTerminalApp(db: Database.Database, app: TerminalApp): void {
   setSetting(db, CONFIG_KEYS.terminalApp, app)
 }
 
 /**
  * Save shell preference
  */
-export function saveShell(db: SqliteDatabase, shell: Shell): void {
+export function saveShell(db: Database.Database, shell: Shell): void {
   setSetting(db, CONFIG_KEYS.shell, shell)
 }
 
@@ -424,7 +424,7 @@ export function saveShell(db: SqliteDatabase, shell: Shell): void {
  * Save tmux control mode preference.
  * When enabled and using iTerm, tmux -CC is used for native tab integration.
  */
-export function saveTmuxControlMode(db: SqliteDatabase, enabled: boolean): void {
+export function saveTmuxControlMode(db: Database.Database, enabled: boolean): void {
   setSetting(db, CONFIG_KEYS.tmuxControlMode, enabled.toString())
 }
 
@@ -432,14 +432,14 @@ export function saveTmuxControlMode(db: SqliteDatabase, enabled: boolean): void 
  * Save terminal open in background preference.
  * When enabled, new terminal tabs open without stealing focus from current window.
  */
-export function saveTerminalOpenInBackground(db: SqliteDatabase, enabled: boolean): void {
+export function saveTerminalOpenInBackground(db: Database.Database, enabled: boolean): void {
   setSetting(db, CONFIG_KEYS.terminalOpenInBackground, enabled.toString())
 }
 
 /**
  * Save extra firewall allowlist domains.
  */
-export function saveFirewallAllowlistDomains(db: SqliteDatabase, domains: string[]): void {
+export function saveFirewallAllowlistDomains(db: Database.Database, domains: string[]): void {
   const cleaned = [...new Set(domains.map(domain => domain.trim()).filter(Boolean))]
   setSetting(db, CONFIG_KEYS.firewallAllowlistDomains, JSON.stringify(cleaned))
 }
@@ -447,7 +447,7 @@ export function saveFirewallAllowlistDomains(db: SqliteDatabase, domains: string
 /**
  * Save auth method preference (oauth or apikey)
  */
-export function saveAuthMethod(db: SqliteDatabase, method: AuthMethod): void {
+export function saveAuthMethod(db: Database.Database, method: AuthMethod): void {
   setSetting(db, CONFIG_KEYS.authMethod, method)
 }
 
@@ -455,7 +455,7 @@ export function saveAuthMethod(db: SqliteDatabase, method: AuthMethod): void {
  * Get saved auth method preference.
  * Returns null if no preference has been saved (user should be prompted).
  */
-export function getAuthMethod(db: SqliteDatabase): AuthMethod | null {
+export function getAuthMethod(db: Database.Database): AuthMethod | null {
   const value = getSetting(db, CONFIG_KEYS.authMethod)
   if (value === 'oauth' || value === 'apikey') return value
   return null
@@ -464,7 +464,7 @@ export function getAuthMethod(db: SqliteDatabase): AuthMethod | null {
 /**
  * Clear saved auth method preference (will prompt again next time)
  */
-export function clearAuthMethod(db: SqliteDatabase): void {
+export function clearAuthMethod(db: Database.Database): void {
   settingsFor(db).delete(CONFIG_KEYS.authMethod)
 }
 
@@ -472,7 +472,7 @@ export function clearAuthMethod(db: SqliteDatabase): void {
  * Get saved PR creation default preference.
  * Returns null if no preference has been saved (user should be prompted).
  */
-export function getCreatePrDefault(db: SqliteDatabase): boolean | null {
+export function getCreatePrDefault(db: Database.Database): boolean | null {
   const value = getSetting(db, CONFIG_KEYS.createPrDefault)
   if (value === 'true') return true
   if (value === 'false') return false
@@ -482,7 +482,7 @@ export function getCreatePrDefault(db: SqliteDatabase): boolean | null {
 /**
  * Save PR creation default preference.
  */
-export function saveCreatePrDefault(db: SqliteDatabase, createPr: boolean): void {
+export function saveCreatePrDefault(db: Database.Database, createPr: boolean): void {
   setSetting(db, CONFIG_KEYS.createPrDefault, createPr.toString())
 }
 
@@ -490,7 +490,7 @@ export function saveCreatePrDefault(db: SqliteDatabase, createPr: boolean): void
  * Get saved external issue mirror default preference.
  * Returns null if no preference has been saved.
  */
-export function getMirrorToPmoDefault(db: SqliteDatabase): boolean | null {
+export function getMirrorToPmoDefault(db: Database.Database): boolean | null {
   const value = getSetting(db, CONFIG_KEYS.mirrorToPmoDefault)
   if (value === 'true') return true
   if (value === 'false') return false
@@ -500,21 +500,21 @@ export function getMirrorToPmoDefault(db: SqliteDatabase): boolean | null {
 /**
  * Save external issue mirror default preference.
  */
-export function saveMirrorToPmoDefault(db: SqliteDatabase, mirrorToPmo: boolean): void {
+export function saveMirrorToPmoDefault(db: Database.Database, mirrorToPmo: boolean): void {
   setSetting(db, CONFIG_KEYS.mirrorToPmoDefault, mirrorToPmo.toString())
 }
 
 /**
  * Check if terminal app preference has been set
  */
-export function hasTerminalPreference(db: SqliteDatabase): boolean {
+export function hasTerminalPreference(db: Database.Database): boolean {
   return getSetting(db, CONFIG_KEYS.terminalApp) !== null
 }
 
 /**
  * Check if shell preference has been set
  */
-export function hasShellPreference(db: SqliteDatabase): boolean {
+export function hasShellPreference(db: Database.Database): boolean {
   return getSetting(db, CONFIG_KEYS.shell) !== null
 }
 
@@ -559,7 +559,7 @@ export function detectShell(): Shell | null {
 /**
  * Prompt user for terminal app preference (first-time setup)
  */
-export async function promptTerminalPreference(db: SqliteDatabase): Promise<TerminalApp> {
+export async function promptTerminalPreference(db: Database.Database): Promise<TerminalApp> {
   const { terminalApp } = await inquirer.prompt([
     {
       type: 'list',
@@ -594,7 +594,7 @@ export async function promptTerminalPreference(db: SqliteDatabase): Promise<Term
  * Prompt user for tmux control mode preference (iTerm only).
  * When enabled, tmux -CC is used for native iTerm tab/window integration.
  */
-export async function promptTmuxControlModePreference(db: SqliteDatabase): Promise<boolean> {
+export async function promptTmuxControlModePreference(db: Database.Database): Promise<boolean> {
   const { useControlMode } = await inquirer.prompt([
     {
       type: 'list',
@@ -623,7 +623,7 @@ export async function promptTmuxControlModePreference(db: SqliteDatabase): Promi
 /**
  * Get terminal app, auto-detecting or prompting if not set
  */
-export async function getTerminalApp(db: SqliteDatabase): Promise<TerminalApp> {
+export async function getTerminalApp(db: Database.Database): Promise<TerminalApp> {
   const config = loadExecutionConfig(db)
 
   // If already set, return it
@@ -649,7 +649,7 @@ export async function getTerminalApp(db: SqliteDatabase): Promise<TerminalApp> {
 /**
  * Prompt user for shell preference (first-time setup)
  */
-export async function promptShellPreference(db: SqliteDatabase): Promise<Shell> {
+export async function promptShellPreference(db: Database.Database): Promise<Shell> {
   const { shell } = await inquirer.prompt([
     {
       type: 'list',
@@ -673,7 +673,7 @@ export async function promptShellPreference(db: SqliteDatabase): Promise<Shell> 
 /**
  * Get shell, auto-detecting or prompting if not set
  */
-export async function getShell(db: SqliteDatabase): Promise<Shell> {
+export async function getShell(db: Database.Database): Promise<Shell> {
   const config = loadExecutionConfig(db)
 
   // If already set, return it
@@ -732,7 +732,7 @@ export interface ExecutionPromptResult {
  * Used by work start, work spawn, and work watch commands.
  */
 export async function promptExecutionSettings(
-  db: SqliteDatabase,
+  db: Database.Database,
   options: ExecutionPromptOptions
 ): Promise<ExecutionPromptResult> {
   const { displayMode, environment, log = () => {}, jsonMode } = options
@@ -914,21 +914,21 @@ export function getGitUserName(): string | null {
  * Get the configured coder name from the database.
  * Returns null if not configured.
  */
-export function getCoderName(db: SqliteDatabase): string | null {
+export function getCoderName(db: Database.Database): string | null {
   return getSetting(db, CONFIG_KEYS.coderName)
 }
 
 /**
  * Save coder name preference to database.
  */
-export function saveCoderName(db: SqliteDatabase, name: string): void {
+export function saveCoderName(db: Database.Database, name: string): void {
   setSetting(db, CONFIG_KEYS.coderName, name)
 }
 
 /**
  * Check if coder name has been configured.
  */
-export function hasCoderName(db: SqliteDatabase): boolean {
+export function hasCoderName(db: Database.Database): boolean {
   return getSetting(db, CONFIG_KEYS.coderName) !== null
 }
 
@@ -936,7 +936,7 @@ export function hasCoderName(db: SqliteDatabase): boolean {
  * Prompt user for coder name preference (first-time setup).
  * Uses git config user.name as default if available.
  */
-export async function promptCoderName(db: SqliteDatabase): Promise<string> {
+export async function promptCoderName(db: Database.Database): Promise<string> {
   const gitUserName = getGitUserName()
   const defaultName = gitUserName
     ? gitUserName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
@@ -972,7 +972,7 @@ export async function promptCoderName(db: SqliteDatabase): Promise<string> {
  * Get coder name, auto-detecting from GitHub if not set.
  * Priority: saved setting > GitHub username > git user.name > prompt
  */
-export async function getOrPromptCoderName(db: SqliteDatabase): Promise<string> {
+export async function getOrPromptCoderName(db: Database.Database): Promise<string> {
   // If already set, return it
   const existing = getCoderName(db)
   if (existing) {

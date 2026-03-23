@@ -4,7 +4,7 @@
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { SQLiteStorage } from '../pmo/storage/index.js'
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import type { WorkspaceInfo } from '../agents/commands.js'
 import type { ExecutionStorage } from '../execution/storage.js'
 
@@ -15,7 +15,7 @@ export interface McpToolContext {
   getWorkspaceContext?: () => {
     workspaceInfo: WorkspaceInfo
     executionStorage: ExecutionStorage
-    db: SqliteDatabase
+    db: Database.Database
     pmoPath: string
   }
 }

@@ -13,7 +13,7 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -63,7 +63,7 @@ async function agentExecAsync(cmd: string): Promise<AgentPromptResponse | null> 
 
 describe('Agent Commands JSON Mode', () => {
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(() => {
     env = createTestEnvironment('agent-json-');
@@ -997,7 +997,7 @@ describe('Agent Commands JSON Mode', () => {
 
   describe('Flag-specific tests', () => {
     let env: TestEnvironment;
-    let db: SqliteDatabase;
+    let db: Database.Database;
 
     beforeEach(() => {
       env = createTestEnvironment('agent-flags-');

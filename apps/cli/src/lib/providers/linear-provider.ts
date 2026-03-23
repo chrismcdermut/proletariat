@@ -8,7 +8,7 @@
  * handler skips Linear (avoiding double-write).
  */
 
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import { LinearClient } from '../linear/client.js'
 import { LinearMapper } from '../linear/mapper.js'
 import { getLinearApiKey, loadLinearConfig } from '../linear/config.js'
@@ -30,7 +30,7 @@ export class LinearTicketProvider implements TicketProvider {
   readonly name = 'linear' as const
 
   constructor(
-    private db: SqliteDatabase,
+    private db: Database.Database,
     private storage: ProviderStorage,
     private projectId: string,
     private ticketStatusCategory: string | null,

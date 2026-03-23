@@ -2,7 +2,7 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3'
 import { resetEventBus, getEventBus } from '../../src/lib/events/index.js'
 import { ActionChainingHandler, stopActionChaining } from '../../src/lib/work-lifecycle/action-chaining.js'
 import type { WorkflowRuleMatchedEvent } from '../../src/lib/events/events.js'
@@ -13,12 +13,12 @@ import { PMO_TABLES } from '../../src/lib/pmo/schema.js'
 // Test Helpers
 // =============================================================================
 
-function createTestDb(): { storage: SQLiteStorage; db: SqliteDatabase; dbPath: string; testDir: string } {
+function createTestDb(): { storage: SQLiteStorage; db: Database.Database; dbPath: string; testDir: string } {
   const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'action-chain-test-'))
   const dbPath = path.join(testDir, 'test.db')
 
   // Create empty database file (SQLiteStorage requires it to exist)
-  const initDb = new SqliteDatabase(dbPath)
+  const initDb = new Database(dbPath)
   initDb.close()
 
   // Open via SQLiteStorage to run migrations, create tables, and seed builtins
@@ -28,14 +28,14 @@ function createTestDb(): { storage: SQLiteStorage; db: SqliteDatabase; dbPath: s
   return { storage, db, dbPath, testDir }
 }
 
-function insertAction(db: SqliteDatabase, id: string, name: string): void {
+function insertAction(db: Database.Database, id: string, name: string): void {
   db.prepare(`
     INSERT OR IGNORE INTO ${PMO_TABLES.actions} (id, name, prompt, modifies_code, is_default, is_builtin, position, created_at)
     VALUES (?, ?, ?, 1, 0, 0, 0, datetime('now'))
   `).run(id, name, `Execute ${name} action`)
 }
 
-function insertRunningExecution(db: SqliteDatabase, ticketId: string, executionId: string): void {
+function insertRunningExecution(db: Database.Database, ticketId: string, executionId: string): void {
   // Temporarily disable FK checks to insert execution without a real ticket
   db.pragma('foreign_keys = OFF')
   db.prepare(`
@@ -64,7 +64,7 @@ function createMatchedEvent(overrides?: Partial<WorkflowRuleMatchedEvent>): Work
 // =============================================================================
 
 describe('ActionChainingHandler', () => {
-  let db: SqliteDatabase
+  let db: Database.Database
   let testDir: string
   let storage: SQLiteStorage
   let handler: ActionChainingHandler

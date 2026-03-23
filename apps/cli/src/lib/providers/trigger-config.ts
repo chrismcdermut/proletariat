@@ -23,7 +23,7 @@
  *   → When a PR is merged, move the ticket to "Done"
  */
 
-import type { SqliteDatabase } from '../database/sqlite.js'
+import type Database from 'better-sqlite3'
 import { getEventBus } from '../events/event-bus.js'
 import type { TicketProviderName } from './types.js'
 
@@ -59,7 +59,7 @@ export interface TriggerConfig {
  * Provides CRUD operations for configurable triggers.
  */
 export class ProviderTriggerStore {
-  constructor(private db: SqliteDatabase) {}
+  constructor(private db: Database.Database) {}
 
   /**
    * Get all triggers for a specific event, optionally filtered by provider and project.
@@ -180,7 +180,7 @@ export class TriggerHandler {
   private moveTicket: (ticketId: string, projectId: string, targetStatus: string) => Promise<void>
 
   constructor(
-    db: SqliteDatabase,
+    db: Database.Database,
     moveTicket: (ticketId: string, projectId: string, targetStatus: string) => Promise<void>,
   ) {
     this.store = new ProviderTriggerStore(db)
@@ -268,7 +268,7 @@ let _handler: TriggerHandler | undefined
  * Safe to call multiple times — subsequent calls are no-ops.
  */
 export function initTriggerHandler(
-  db: SqliteDatabase,
+  db: Database.Database,
   moveTicket: (ticketId: string, projectId: string, targetStatus: string) => Promise<void>,
 ): TriggerHandler {
   if (!_handler) {

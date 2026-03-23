@@ -14,11 +14,13 @@
  * Usage: node scripts/cleanup-test-artifacts.mjs [--dry-run] [--db <path>]
  */
 
+import { createRequire } from 'module';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { initSqlite, SqliteDatabase } from '../apps/cli/src/lib/database/sqlite.js';
 
-await initSqlite();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(path.join(__dirname, '..', 'apps', 'cli', 'package.json'));
+const Database = require('better-sqlite3');
 
 // Parse args
 const args = process.argv.slice(2);
@@ -29,7 +31,7 @@ const dbPath = dbIndex !== -1 ? args[dbIndex + 1] : '/hq/.proletariat/workspace.
 console.log(`Database: ${dbPath}`);
 console.log(`Mode: ${dryRun ? 'DRY RUN (no changes)' : 'LIVE (will modify database)'}\n`);
 
-const db = new SqliteDatabase(dbPath);
+const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 
 // ─── Test project IDs to remove ──────────────────────────────────────────────

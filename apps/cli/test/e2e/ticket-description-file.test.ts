@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import {
   cleanupTestEnvironment,
   createHQConfig,
@@ -27,7 +27,7 @@ import {
 describe('ticket create --description-file', () => {
   let template: TemplateTestEnvironment;
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   before(() => {
     template = createTemplateTestEnvironment('ticket-desc-file-', (db, pmoPath) => {

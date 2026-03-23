@@ -1,6 +1,6 @@
 /* eslint-disable max-nested-callbacks */
 import { expect } from 'chai';
-import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
+import Database from 'better-sqlite3';
 import {
   createTestEnvironment,
   cleanupTestEnvironment,
@@ -28,7 +28,7 @@ function extractJson<T>(output: string): T {
  * Setup test database with all tables required for work commands.
  * Includes: workflows, projects, tickets, columns, agent_work, actions, settings.
  */
-async function setupTestDatabase(db: SqliteDatabase, pmoPath: string): Promise<void> {
+async function setupTestDatabase(db: Database.Database, pmoPath: string): Promise<void> {
   db.exec(`
     CREATE TABLE IF NOT EXISTS pmo_settings (
       key TEXT PRIMARY KEY,
@@ -298,12 +298,12 @@ async function setupTestDatabase(db: SqliteDatabase, pmoPath: string): Promise<v
  */
 describe('Work Commands JSON Mode', () => {
   let env: TestEnvironment;
-  let db: SqliteDatabase;
+  let db: Database.Database;
 
   beforeEach(async () => {
     env = createTestEnvironment('work-json-');
 
-    db = new SqliteDatabase(env.dbPath);
+    db = new Database(env.dbPath);
     await setupTestDatabase(db, env.pmoPath);
 
     // Add workspace tables so getWorkspaceInfo() can find workspace config
