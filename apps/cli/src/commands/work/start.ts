@@ -758,6 +758,8 @@ export default class WorkStart extends PMOCommand {
         db.close()
         return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`)
       }
+      // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+      ticketId = ticket.id
 
       // In JSON mode with explicit flags, implement two-step confirm-then-execute protocol
       if (jsonMode) {

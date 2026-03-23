@@ -136,6 +136,8 @@ export default class TicketMove extends PMOCommand {
     if (!ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
+    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+    ticketId = ticket.id;
 
     // Cross-project move (when --to-project flag is provided)
     if (flags['to-project']) {

@@ -93,6 +93,8 @@ export default class TicketProject extends PMOCommand {
     if (!ticket) {
       this.error(`Ticket not found: ${ticketId}`);
     }
+    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+    ticketId = ticket.id;
 
     // Get all projects
     const projects = await this.storage.listProjects();

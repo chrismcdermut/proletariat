@@ -97,6 +97,8 @@ export default class TicketDelete extends PMOCommand {
     if (!ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
+    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+    ticketId = ticket.id;
 
     // Get board for project name (may be null if project was deleted/orphaned)
     const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
