@@ -39,6 +39,7 @@ export default class Config extends PromptCommand {
     '<%= config.bin %> <%= command.id %> --set terminal.openInBackground true',
     '<%= config.bin %> <%= command.id %> --set firewall.allowlistDomains "api.staging.example.com"',
     '<%= config.bin %> <%= command.id %> --set review_gate auto        # Set workspace review gate to auto',
+    '<%= config.bin %> <%= command.id %> --set claude-code.version 2.1.80  # Pin Claude Code version',
     '<%= config.bin %> <%= command.id %> --setting terminal.app --json  # Show terminal app choices',
   ]
 
