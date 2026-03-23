@@ -1,8 +1,5 @@
 import { expect } from 'chai'
 import Database from 'better-sqlite3'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import * as os from 'node:os'
 import {
   WorkHookStorage,
   ensureHooksTable,
@@ -20,12 +17,9 @@ import { HOOKABLE_EVENTS } from '../../src/lib/work-lifecycle/hooks/types.js'
 describe('WorkHookStorage (TKT-140)', () => {
   let db: Database.Database
   let storage: WorkHookStorage
-  let tmpDir: string
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-test-'))
-    const dbPath = path.join(tmpDir, 'test.db')
-    db = new Database(dbPath)
+    db = new Database(':memory:')
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
     storage = new WorkHookStorage(db)
@@ -33,9 +27,6 @@ describe('WorkHookStorage (TKT-140)', () => {
 
   afterEach(() => {
     if (db) db.close()
-    if (tmpDir && fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, { recursive: true, force: true })
-    }
   })
 
   // =========================================================================
