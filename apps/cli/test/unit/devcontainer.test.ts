@@ -8,6 +8,7 @@ import {
   generateDockerfile,
   generateFirewallScript,
   generatePrltSetupScript,
+  generateEntrypointScript,
   createDevcontainerConfig,
   hasDevcontainerConfig,
   DevcontainerOptions,
@@ -1072,6 +1073,142 @@ describe('Devcontainer', () => {
         )
         expect(dockerfile).to.include('ARG CC_VERSION=')
         expect(dockerfile).to.include('${CC_VERSION:+@${CC_VERSION}}')
+      })
+    })
+  })
+
+  // =============================================================================
+  // PRLT-1089: Container entrypoint auto-starts tmux sessions
+  // =============================================================================
+
+  describe('Container entrypoint (PRLT-1089)', () => {
+    describe('generateEntrypointScript', () => {
+      it('should generate a valid bash script', () => {
+        const script = generateEntrypointScript()
+
+        expect(script).to.include('#!/bin/bash')
+      })
+
+      it('should watch for prlt startup scripts in /tmp', () => {
+        const script = generateEntrypointScript()
+
+        expect(script).to.include('/tmp/prlt-*.sh')
+      })
+
+      it('should check if tmux session already exists before creating', () => {
+        const script = generateEntrypointScript()
+
+        expect(script).to.include('tmux has-session')
+      })
+
+      it('should create tmux session with correct session name', () => {
+        const script = generateEntrypointScript()
+
+        expect(script).to.include('tmux new-session -d -s')
+      })
+
+      it('should mark scripts as processed to avoid re-execution', () => {
+        const script = generateEntrypointScript()
+
+        expect(script).to.include('.started')
+      })
+
+      it('should skip already-processed scripts', () => {
+        const script = generateEntrypointScript()
+
+        expect(script).to.include('${script}.started')
+      })
+
+      it('should end with exec sleep infinity to keep container alive', () => {
+        const script = generateEntrypointScript()
+
+        expect(script).to.include('exec sleep infinity')
+      })
+
+      it('should only process executable scripts', () => {
+        const script = generateEntrypointScript()
+
+        expect(script).to.include('[ -x "$script" ]')
+      })
+    })
+
+    describe('generateDockerfile', () => {
+      it('should COPY entrypoint.sh into the image', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: '/path/to/agent',
+        }
+        const dockerfile = generateDockerfile(options)
+
+        expect(dockerfile).to.include('COPY entrypoint.sh /usr/local/bin/entrypoint.sh')
+      })
+
+      it('should make entrypoint.sh executable', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: '/path/to/agent',
+        }
+        const dockerfile = generateDockerfile(options)
+
+        expect(dockerfile).to.include('chmod +x')
+        expect(dockerfile).to.include('entrypoint.sh')
+      })
+    })
+
+    describe('createDevcontainerConfig', () => {
+      let testDir: string
+
+      beforeEach(() => {
+        testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devcontainer-entrypoint-test-'))
+      })
+
+      afterEach(() => {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true })
+        }
+      })
+
+      it('should create entrypoint.sh script', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+        }
+
+        createDevcontainerConfig(options)
+
+        const entrypointPath = path.join(testDir, '.devcontainer', 'entrypoint.sh')
+        expect(fs.existsSync(entrypointPath)).to.be.true
+      })
+
+      it('should make entrypoint.sh executable', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+        }
+
+        createDevcontainerConfig(options)
+
+        const entrypointPath = path.join(testDir, '.devcontainer', 'entrypoint.sh')
+        const stat = fs.statSync(entrypointPath)
+        // Check that the file has execute permission (mode includes 0o111)
+        expect(stat.mode & 0o111).to.be.greaterThan(0)
+      })
+
+      it('should include tmux auto-start logic in entrypoint.sh', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+        }
+
+        createDevcontainerConfig(options)
+
+        const entrypoint = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'entrypoint.sh'),
+          'utf-8'
+        )
+        expect(entrypoint).to.include('tmux new-session')
+        expect(entrypoint).to.include('/tmp/prlt-*.sh')
+        expect(entrypoint).to.include('exec sleep infinity')
       })
     })
   })

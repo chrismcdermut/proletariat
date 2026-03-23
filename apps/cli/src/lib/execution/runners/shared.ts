@@ -30,7 +30,7 @@ import {
 } from '../types.js'
 import type { TerminalApp } from '../types.js'
 import { getSetTitleCommands } from '../../terminal.js'
-import { readDevcontainerJson, generateOrchestratorDockerfile } from '../devcontainer.js'
+import { readDevcontainerJson, generateOrchestratorDockerfile, generateEntrypointScript } from '../devcontainer.js'
 import type { OrchestratorDockerOptions } from '../devcontainer.js'
 import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError } from '../codex-adapter.js'
 import { resolveToolsForSpawn } from '../../tool-registry/index.js'
@@ -267,6 +267,7 @@ export {
   getSetTitleCommands,
   readDevcontainerJson,
   generateOrchestratorDockerfile,
+  generateEntrypointScript,
   getCodexCommand,
   resolveCodexExecutionContext,
   validateCodexMode,
