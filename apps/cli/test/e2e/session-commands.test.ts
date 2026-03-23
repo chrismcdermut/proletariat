@@ -704,6 +704,110 @@ describe('@smoke Session Commands E2E Tests', () => {
       expect(pokeChoice!.name).to.include('Poke');
       expect(pokeChoice!.command).to.equal('prlt session poke --json');
     });
+
+    it('should work without PMO context (regression: PRLT-1071 git error in no-repo workspace)', () => {
+      // Create a minimal HQ with NO PMO tables — only workspace + agent_work tables.
+      // Before the fix, SessionPoke extended PMOCommand which required PMO init,
+      // causing "fatal: not a git repository" errors in workspaces without git.
+      const noPmoDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'no-pmo-poke-')));
+      const noPmoProletariatDir = path.join(noPmoDir, '.proletariat');
+      fs.mkdirSync(noPmoProletariatDir, { recursive: true });
+      const noPmoDbPath = path.join(noPmoProletariatDir, 'workspace.db');
+
+      // Create HQ config
+      fs.writeFileSync(
+        path.join(noPmoProletariatDir, 'config.json'),
+        JSON.stringify({ type: 'hq', name: 'no-pmo-hq' }),
+        'utf-8',
+      );
+
+      // Create ONLY workspace + agent_work tables (no PMO tables)
+      const noPmoDb = new Database(noPmoDbPath);
+      noPmoDb.exec(`
+        CREATE TABLE IF NOT EXISTS workspace (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        );
+        INSERT INTO workspace (id, type, workspace_name, has_pmo, created_at)
+        VALUES (1, 'hq', 'no-pmo-hq', 0, datetime('now'));
+
+        CREATE TABLE IF NOT EXISTS agents (
+          name TEXT PRIMARY KEY,
+          type TEXT NOT NULL DEFAULT 'persistent',
+          status TEXT NOT NULL DEFAULT 'active',
+          base_name TEXT,
+          theme_id TEXT,
+          worktree_path TEXT,
+          mount_mode TEXT NOT NULL DEFAULT 'worktree',
+          created_at TEXT NOT NULL,
+          cleaned_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS repositories (
+          name TEXT PRIMARY KEY,
+          path TEXT NOT NULL,
+          type TEXT DEFAULT 'main',
+          source_url TEXT,
+          action TEXT,
+          added_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS agent_worktrees (
+          agent_name TEXT NOT NULL,
+          repo_name TEXT NOT NULL,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (agent_name, repo_name)
+        );
+        CREATE TABLE IF NOT EXISTS agent_themes (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          display_name TEXT NOT NULL,
+          description TEXT,
+          builtin BOOLEAN DEFAULT FALSE,
+          created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_work (
+          id TEXT PRIMARY KEY,
+          ticket_id TEXT NOT NULL,
+          agent_name TEXT NOT NULL,
+          executor TEXT NOT NULL DEFAULT 'claude',
+          environment TEXT NOT NULL DEFAULT 'host',
+          status TEXT NOT NULL DEFAULT 'pending',
+          session_id TEXT,
+          container_id TEXT,
+          started_at TEXT,
+          completed_at TEXT
+        );
+
+        INSERT INTO agent_work (id, ticket_id, agent_name, executor, environment, status, session_id, started_at)
+        VALUES ('exec-nopmo-001', 'TKT-999', 'no-pmo-agent', 'claude', 'host', 'running', 'TKT-999-work-no-pmo-agent', datetime('now'));
+      `);
+      noPmoDb.close();
+
+      // Run poke from the no-PMO directory — should NOT fail with PMO/git errors
+      const savedCwd = process.cwd();
+      try {
+        process.chdir(noPmoDir);
+        const output = execProduction('session poke no-pmo-agent "test without pmo" --json');
+        const json = extractJson<{ error: { code: string; message: string } }>(output);
+
+        expect(json).to.not.be.null;
+        expect(json!.error).to.exist;
+        // Should reach tmux stage (SEND_FAILED or SESSION_NOT_FOUND), NOT fail at PMO/git init
+        expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
+        // Error message should NOT contain git errors
+        expect(json!.error.message).to.not.include('fatal: not a git repository');
+        expect(json!.error.message).to.not.include('PMO not found');
+      } finally {
+        process.chdir(savedCwd);
+        fs.rmSync(noPmoDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('Agent flow: command fields enable correct navigation', () => {
