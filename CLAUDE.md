@@ -29,7 +29,7 @@ specs/              # Specification files
 ## Key Patterns
 
 - **Commands**: Use oclif framework in `apps/cli/src/commands/`
-- **Database**: SQLite via better-sqlite3 in `apps/cli/src/lib/database/`
+- **Database**: SQLite via sql.js (WASM) in `apps/cli/src/lib/database/`
 - **Themes**: Optional agent naming themes in `apps/cli/src/lib/themes.ts`
 
 ## Testing
