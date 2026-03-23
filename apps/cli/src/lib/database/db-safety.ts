@@ -210,7 +210,8 @@ function attemptDumpReimport(dbPath: string): RepairResult {
         const insertSql = `INSERT OR IGNORE INTO "${name}" (${columns.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders})`
 
         const insertStmt = newDb.prepare(insertSql)
-        const insertAll = newDb.transaction((data: Record<string, unknown>[]) => {
+        const insertAll = newDb.transaction((...args: unknown[]) => {
+          const data = args[0] as Record<string, unknown>[]
           for (const row of data) {
             insertStmt.run(...columns.map(c => row[c]))
           }

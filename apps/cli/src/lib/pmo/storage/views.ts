@@ -230,12 +230,13 @@ export class ViewStorage {
    * Delete a board view.
    */
   async deleteBoardView(id: string): Promise<void> {
-    const result = this.ctx.drizzle
+    this.ctx.drizzle
       .delete(pmoBoardViews)
       .where(eq(pmoBoardViews.id, id))
       .run()
 
-    if (result.changes === 0) {
+    const { changes } = this.ctx.db.prepare('SELECT changes() as changes').get() as { changes: number }
+    if (changes === 0) {
       throw new PMOError('NOT_FOUND', `Board view not found: ${id}`)
     }
   }

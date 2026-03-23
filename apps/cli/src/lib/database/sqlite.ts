@@ -70,7 +70,7 @@ export interface RunResult {
  * Statements are re-prepared on each call for simplicity and safety.
  * For a CLI doing dozens of queries per command, the overhead is negligible.
  */
-class SqlitePreparedStatement<T = Record<string, unknown>> {
+class SqlitePreparedStatement<T = any> {
   constructor(private db: RawSqlJsDatabase, private sql: string) {}
 
   /**
@@ -186,7 +186,7 @@ export class SqliteDatabase {
    * Returns an object with .run(), .get(), .all() methods
    * compatible with better-sqlite3's prepared statements.
    */
-  prepare<T = Record<string, unknown>>(sql: string): SqlitePreparedStatement<T> {
+  prepare<T = any>(sql: string): SqlitePreparedStatement<T> {
     return new SqlitePreparedStatement<T>(this._db, sql)
   }
 
@@ -217,9 +217,9 @@ export class SqliteDatabase {
       }
 
       // Return as array of objects (same shape as better-sqlite3)
-      return results[0].values.map(row => {
+      return results[0].values.map((row: any[]) => {
         const obj: Record<string, unknown> = {}
-        columns.forEach((col, i) => {
+        columns.forEach((col: string, i: number) => {
           obj[col] = row[i]
         })
         return obj

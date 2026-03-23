@@ -5,12 +5,12 @@
  * with sql.js as the underlying driver.
  */
 
-import { drizzle } from 'drizzle-orm/sql.js'
-import type { SqlJsDatabase as DrizzleSqlJsDatabase } from 'drizzle-orm/sql.js'
+import { drizzle } from 'drizzle-orm/sql-js'
+import type { SQLJsDatabase } from 'drizzle-orm/sql-js'
 import { SqliteDatabase } from './sqlite.js'
 import * as schema from './drizzle-schema.js'
 
-export type DrizzleDB = DrizzleSqlJsDatabase<typeof schema>
+export type DrizzleDB = SQLJsDatabase<typeof schema>
 
 /**
  * Create a Drizzle database connection from an existing SqliteDatabase.

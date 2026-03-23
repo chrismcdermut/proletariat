@@ -255,12 +255,13 @@ export class DependencyStorage {
       conditions.push(eq(pmoSpecDependencies.dependencyType, dependencyType))
     }
 
-    const result = this.ctx.drizzle
+    this.ctx.drizzle
       .delete(pmoSpecDependencies)
       .where(and(...conditions))
       .run()
 
-    if (result.changes === 0) {
+    const { changes } = this.ctx.db.prepare('SELECT changes() as changes').get() as { changes: number }
+    if (changes === 0) {
       throw new PMOError('NOT_FOUND', 'Dependency not found')
     }
   }

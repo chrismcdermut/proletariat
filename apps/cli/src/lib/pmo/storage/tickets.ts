@@ -673,12 +673,13 @@ export class TicketStorage {
     // Delete ticket (by ID only, since IDs are globally unique)
     // Related data (subtasks, metadata) are deleted via CASCADE
     try {
-      const result = this.ctx.drizzle
+      this.ctx.drizzle
         .delete(pmoTickets)
         .where(eq(pmoTickets.id, id))
         .run()
 
-      if (result.changes === 0) {
+      const { changes } = this.ctx.db.prepare('SELECT changes() as changes').get() as { changes: number }
+      if (changes === 0) {
         throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
       }
     } catch (err) {

@@ -388,12 +388,13 @@ export class ProjectStorage {
     }
 
     try {
-      const result = this.ctx.drizzle
+      this.ctx.drizzle
         .delete(pmoProjects)
         .where(eq(pmoProjects.id, resolvedId))
         .run()
 
-      if (result.changes === 0) {
+      const { changes } = this.ctx.db.prepare('SELECT changes() as changes').get() as { changes: number }
+      if (changes === 0) {
         throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}`)
       }
     } catch (err) {
