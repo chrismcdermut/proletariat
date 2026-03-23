@@ -12,6 +12,7 @@ import {
   saveTerminalOpenInBackground,
   saveTmuxControlMode,
   saveShell,
+  saveExecutionSetting,
   getMirrorToPmoDefault,
   saveCreatePrDefault,
   saveMirrorToPmoDefault,
@@ -134,6 +135,10 @@ export default class Config extends PromptCommand {
             createPrDefault: config.createPrDefault ?? null,
             mirrorToPmoDefault,
             reviewGate,
+            containers: {
+              memory: config.devcontainer.memory,
+              cpus: config.devcontainer.cpus,
+            },
             firewall: {
               allowlistDomains: config.firewall.allowlistDomains,
             },
@@ -167,6 +172,10 @@ export default class Config extends PromptCommand {
           this.log(`  reviewGate:       ${reviewGate}`)
           this.log(`  firewall.allowlistDomains: ${config.firewall.allowlistDomains.join(', ') || '(none)'}`)
           this.log('')
+          this.log(styles.emphasis('Containers'))
+          this.log(`  memory:           ${config.devcontainer.memory}`)
+          this.log(`  cpus:             ${config.devcontainer.cpus}`)
+          this.log('')
           this.log(styles.emphasis('Claude Code'))
           this.log(`  version:          ${claudeCodeConfig.version ?? 'latest (not pinned)'}`)
           this.log('')
@@ -189,6 +198,8 @@ export default class Config extends PromptCommand {
         { name: `Shell: ${config.shell}`, value: 'shell', command: 'prlt config --setting shell --json' },
         { name: `Tmux Control Mode (iTerm -CC): ${config.tmux.controlMode}`, value: 'tmux.controlMode', command: 'prlt config --setting tmux.controlMode --json' },
         { name: `Firewall allowlist domains: ${config.firewall.allowlistDomains.length || 0}`, value: 'firewall.allowlistDomains', command: 'prlt config --setting firewall.allowlistDomains --json' },
+        { name: `Container Memory: ${config.devcontainer.memory}`, value: 'containers.memory', command: 'prlt config --setting containers.memory --json' },
+        { name: `Container CPUs: ${config.devcontainer.cpus}`, value: 'containers.cpus', command: 'prlt config --setting containers.cpus --json' },
         { name: `Review Gate: ${reviewGate}`, value: 'review_gate', command: 'prlt config --setting review_gate --json' },
         { name: `Claude Code Version: ${claudeCodeConfig.version ?? 'latest (not pinned)'}`, value: 'claude-code.version', command: 'prlt config --setting claude-code.version --json' },
       ]
@@ -207,10 +218,13 @@ export default class Config extends PromptCommand {
             settingChoices[3],
             new inquirer.Separator('── Execution ──'),
             settingChoices[4],
-            new inquirer.Separator('── Review ──'),
-            settingChoices[5],
             new inquirer.Separator('── Agent Containers ──'),
+            settingChoices[5],
             settingChoices[6],
+            new inquirer.Separator('── Review ──'),
+            settingChoices[7],
+            new inquirer.Separator('── Claude Code ──'),
+            settingChoices[8],
             new inquirer.Separator(),
             { name: 'Exit', value: '__exit__' },
           ],
@@ -365,6 +379,48 @@ export default class Config extends PromptCommand {
         break
       }
 
+      case 'containers.memory': {
+        const memoryChoices = [
+          { name: '2g - Minimal (light tasks)', value: '2g', command: 'prlt config --set "containers.memory 2g" --json' },
+          { name: '4g - Default (recommended)', value: '4g', command: 'prlt config --set "containers.memory 4g" --json' },
+          { name: '6g - Large (complex builds)', value: '6g', command: 'prlt config --set "containers.memory 6g" --json' },
+          { name: '8g - Extra large', value: '8g', command: 'prlt config --set "containers.memory 8g" --json' },
+        ]
+        const { newMemory } = await this.prompt<{ newMemory: string }>([
+          {
+            type: 'list',
+            name: 'newMemory',
+            message: 'Container memory limit:',
+            choices: memoryChoices,
+            default: config.devcontainer.memory,
+          },
+        ], jsonModeConfig)
+        saveExecutionSetting(db, 'devcontainerMemory', newMemory)
+        this.log(styles.success(`Container memory set to: ${newMemory}`))
+        break
+      }
+
+      case 'containers.cpus': {
+        const cpuChoices = [
+          { name: '1 - Single core', value: '1', command: 'prlt config --set "containers.cpus 1" --json' },
+          { name: '2 - Default (recommended)', value: '2', command: 'prlt config --set "containers.cpus 2" --json' },
+          { name: '4 - Quad core', value: '4', command: 'prlt config --set "containers.cpus 4" --json' },
+          { name: '8 - Octa core', value: '8', command: 'prlt config --set "containers.cpus 8" --json' },
+        ]
+        const { newCpus } = await this.prompt<{ newCpus: string }>([
+          {
+            type: 'list',
+            name: 'newCpus',
+            message: 'Container CPU limit:',
+            choices: cpuChoices,
+            default: String(config.devcontainer.cpus),
+          },
+        ], jsonModeConfig)
+        saveExecutionSetting(db, 'devcontainerCpus', newCpus)
+        this.log(styles.success(`Container CPUs set to: ${newCpus}`))
+        break
+      }
+
       case 'claude-code.version': {
         let workspaceInfo2
         try {
@@ -443,6 +499,34 @@ export default class Config extends PromptCommand {
         }
         setReviewGateSetting(db, value as 'required' | 'auto' | 'post')
         break
+      case 'containers.memory': {
+        // Validate memory format (e.g., 2g, 4g, 512m)
+        if (!/^\d+[gm]$/i.test(value)) {
+          if (jsonMode) {
+            outputErrorAsJson('INVALID_VALUE', `Invalid memory format: "${value}". Use format like "4g" or "512m"`, createMetadata('config', {}))
+            return
+          } else {
+            this.error(`Invalid memory format: "${value}". Use format like "4g" or "512m"`)
+          }
+          return
+        }
+        saveExecutionSetting(db, 'devcontainerMemory', value)
+        break
+      }
+      case 'containers.cpus': {
+        const cpuNum = parseInt(value, 10)
+        if (isNaN(cpuNum) || cpuNum < 1) {
+          if (jsonMode) {
+            outputErrorAsJson('INVALID_VALUE', `Invalid CPU count: "${value}". Must be a positive integer`, createMetadata('config', {}))
+            return
+          } else {
+            this.error(`Invalid CPU count: "${value}". Must be a positive integer`)
+          }
+          return
+        }
+        saveExecutionSetting(db, 'devcontainerCpus', value)
+        break
+      }
       case 'firewall.allowlistdomains': {
         const domains = value
           .split(',')

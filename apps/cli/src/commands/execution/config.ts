@@ -124,6 +124,10 @@ export default class ExecutionConfig extends PMOCommand {
             defaultExecutor: config.defaultExecutor,
             outputMode: config.outputMode,
             permissionMode: config.permissionMode,
+            containers: {
+              memory: config.devcontainer.memory,
+              cpus: config.devcontainer.cpus,
+            },
           }, createMetadata('execution config', flags))
           return
         } else {
@@ -148,6 +152,10 @@ export default class ExecutionConfig extends PMOCommand {
           this.log('')
           this.log(styles.emphasis('Tmux'))
           this.log(`  controlMode:        ${config.tmux.controlMode}`)
+          this.log('')
+          this.log(styles.emphasis('Containers'))
+          this.log(`  memory:             ${config.devcontainer.memory}`)
+          this.log(`  cpus:               ${config.devcontainer.cpus}`)
           this.log('')
         }
         db.close()
@@ -383,6 +391,7 @@ export default class ExecutionConfig extends PMOCommand {
       'terminal.openinbackground': ['true', 'false'],
       shell: ['bash', 'zsh', 'fish'],
       'tmux.controlmode': ['true', 'false'],
+      // containers.memory and containers.cpus have custom validation below
     }
 
     // Validate value against allowed options
@@ -422,6 +431,34 @@ export default class ExecutionConfig extends PMOCommand {
       case 'tmux.controlmode':
         saveTmuxControlMode(db, value.toLowerCase() === 'true')
         break
+      case 'containers.memory':
+        if (!/^\d+[gm]$/i.test(value)) {
+          const errMsg = `Invalid memory format: "${value}". Use format like "4g" or "512m"`
+          if (jsonMode) {
+            outputErrorAsJson('INVALID_VALUE', errMsg, createMetadata('execution config', {}))
+            return
+          } else {
+            this.error(errMsg)
+          }
+          return
+        }
+        saveExecutionSetting(db, 'devcontainerMemory', value)
+        break
+      case 'containers.cpus': {
+        const cpuNum = parseInt(value, 10)
+        if (isNaN(cpuNum) || cpuNum < 1) {
+          const errMsg = `Invalid CPU count: "${value}". Must be a positive integer`
+          if (jsonMode) {
+            outputErrorAsJson('INVALID_VALUE', errMsg, createMetadata('execution config', {}))
+            return
+          } else {
+            this.error(errMsg)
+          }
+          return
+        }
+        saveExecutionSetting(db, 'devcontainerCpus', value)
+        break
+      }
       default:
         if (jsonMode) {
           outputErrorAsJson('UNKNOWN_KEY', `Unknown config key: ${key}`, createMetadata('execution config', {}))
