@@ -686,4 +686,78 @@ describe('@smoke ExecutionStorage', () => {
       expect(executions[0].cleanupPolicy).to.equal('persistent')
     })
   })
+
+  describe('external key resolution (PRLT-1066)', () => {
+    it('getRunningExecution finds execution by external_key', () => {
+      const exec = storage.createExecution({
+        ticketId: 'TKT-100',
+        agentName: 'agent-ext',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        permissionMode: 'safe',
+        externalSource: 'linear',
+        externalKey: 'PRLT-500',
+      })
+      storage.updateStatus(exec.id, 'running')
+
+      // Lookup by external key should find it
+      const found = storage.getRunningExecution('PRLT-500')
+      expect(found).to.not.be.null
+      expect(found!.id).to.equal(exec.id)
+      expect(found!.externalKey).to.equal('PRLT-500')
+    })
+
+    it('getRunningExecution still finds execution by internal ticket_id', () => {
+      const exec = storage.createExecution({
+        ticketId: 'TKT-101',
+        agentName: 'agent-ext2',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        permissionMode: 'safe',
+        externalSource: 'linear',
+        externalKey: 'PRLT-501',
+      })
+      storage.updateStatus(exec.id, 'running')
+
+      // Lookup by internal ticket ID should still work
+      const found = storage.getRunningExecution('TKT-101')
+      expect(found).to.not.be.null
+      expect(found!.id).to.equal(exec.id)
+    })
+
+    it('listExecutions filters by external_key when ticketId is external', () => {
+      storage.createExecution({
+        ticketId: 'TKT-200',
+        agentName: 'agent-list1',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        permissionMode: 'safe',
+        externalSource: 'linear',
+        externalKey: 'PRLT-600',
+      })
+
+      storage.createExecution({
+        ticketId: 'TKT-201',
+        agentName: 'agent-list2',
+        executor: 'claude-code',
+        environment: 'host',
+        displayMode: 'terminal',
+        permissionMode: 'safe',
+      })
+
+      // Filter by external key
+      const results = storage.listExecutions({ ticketId: 'PRLT-600' })
+      expect(results).to.have.length(1)
+      expect(results[0].ticketId).to.equal('TKT-200')
+      expect(results[0].externalKey).to.equal('PRLT-600')
+
+      // Filter by internal ID should still work
+      const results2 = storage.listExecutions({ ticketId: 'TKT-200' })
+      expect(results2).to.have.length(1)
+      expect(results2[0].ticketId).to.equal('TKT-200')
+    })
+  })
 })
