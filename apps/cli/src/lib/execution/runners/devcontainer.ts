@@ -37,6 +37,8 @@ import {
 
 import { runDevcontainerInTmux } from './devcontainer-tmux.js'
 import { runDevcontainerInTerminal } from './devcontainer-terminal.js'
+import { writeWorkspaceManifest } from '../context.js'
+import type { WorkspaceManifest } from '../types.js'
 
 // =============================================================================
 // Prompt File Management
@@ -229,6 +231,17 @@ export async function runDevcontainer(
         success: false,
         error: 'Failed to start Docker container. Check Docker logs for details.',
       }
+    }
+
+    // Write workspace manifest (PRLT-1088) so agent knows which repos are available
+    if (context.workspaceRepos && context.workspaceRepos.length > 0) {
+      const manifest: WorkspaceManifest = {
+        repos: context.workspaceRepos,
+        ticket: context.ticketId,
+        agent: context.agentName,
+        action: context.actionName,
+      }
+      writeWorkspaceManifest(context.agentDir, manifest)
     }
 
     // Write prompt to file in worktree (accessible by container)
