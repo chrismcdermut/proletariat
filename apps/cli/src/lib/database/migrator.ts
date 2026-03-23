@@ -6,7 +6,7 @@
  * existing databases have no migrations table yet.
  */
 
-import { type SqliteDatabase } from './sqlite.js'
+import { SqliteDatabase } from './sqlite.js'
 
 export interface Migration {
   /** Unique, sortable migration ID (e.g. "0001") */

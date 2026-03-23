@@ -44,7 +44,7 @@ export interface PreparedStatement<T = Record<string, unknown>> {
  *
  * Usage:
  * ```typescript
- * const driver = openDriver(dbPath)
+ * const driver = createDriver(dbPath)
  * const row = driver.prepare<{ count: number }>('SELECT COUNT(*) as count FROM users').get()
  * driver.close()
  * ```
@@ -95,7 +95,19 @@ export class SqlJsDriver implements DatabaseDriver {
   constructor(private db: SqliteDatabase) {}
 
   prepare<T = Record<string, unknown>>(sql: string): PreparedStatement<T> {
-    return this.db.prepare<T>(sql)
+    const stmt = this.db.prepare(sql)
+    return {
+      run: (...params: unknown[]): RunResult => {
+        const result = stmt.run(...params)
+        return { changes: result.changes, lastInsertRowid: result.lastInsertRowid }
+      },
+      get: (...params: unknown[]): T | undefined => {
+        return stmt.get(...params) as T | undefined
+      },
+      all: (...params: unknown[]): T[] => {
+        return stmt.all(...params) as T[]
+      },
+    }
   }
 
   exec(sql: string): void {
@@ -107,7 +119,7 @@ export class SqlJsDriver implements DatabaseDriver {
   }
 
   transaction<F extends (...args: unknown[]) => unknown>(fn: F): F {
-    return this.db.transaction(fn)
+    return this.db.transaction(fn) as unknown as F
   }
 
   close(): void {
@@ -172,9 +184,10 @@ export function getRawDatabase(driver: DatabaseDriver): SqliteDatabase {
   if (driver instanceof SqlJsDriver) {
     return driver.raw
   }
+  // For other driver implementations, check the raw property
   const raw = driver.raw
-  if (raw instanceof SqliteDatabase) {
-    return raw
+  if (raw && typeof raw === 'object' && 'prepare' in raw) {
+    return raw as SqliteDatabase
   }
   throw new Error('Cannot extract raw database from this driver implementation')
 }

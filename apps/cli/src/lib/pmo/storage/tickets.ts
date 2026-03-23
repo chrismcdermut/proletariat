@@ -52,7 +52,7 @@ export class TicketStorage {
         .orderBy(asc(pmoCategories.position))
         .all()
 
-      const validNames = validCategories.map(c => c.name).join(', ')
+      const validNames = validCategories.map((c: any) => c.name).join(', ')
       throw new PMOError(
         'INVALID',
         `Invalid category "${category}". Valid categories: ${validNames}`
@@ -645,8 +645,8 @@ export class TicketStorage {
       .orderBy(asc(pmoTickets.position), asc(pmoTickets.createdAt))
       .all()
 
-    this.ctx.drizzle.transaction((tx) => {
-      tickets.forEach((ticket, idx) => {
+    this.ctx.drizzle.transaction((tx: any) => {
+      tickets.forEach((ticket: any, idx: number) => {
         tx.update(pmoTickets)
           .set({ position: (idx + 1) * 1000 })
           .where(eq(pmoTickets.id, ticket.id))
@@ -673,13 +673,12 @@ export class TicketStorage {
     // Delete ticket (by ID only, since IDs are globally unique)
     // Related data (subtasks, metadata) are deleted via CASCADE
     try {
-      this.ctx.drizzle
+      const result = this.ctx.drizzle
         .delete(pmoTickets)
         .where(eq(pmoTickets.id, id))
-        .run()
+        .run() as any
 
-      const { changes } = this.ctx.db.prepare('SELECT changes() as changes').get() as { changes: number }
-      if (changes === 0) {
+      if (result.changes === 0) {
         throw new PMOError('NOT_FOUND', `Ticket not found: ${id}`, id)
       }
     } catch (err) {

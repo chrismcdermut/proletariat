@@ -2,7 +2,7 @@ import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import { SqliteDatabase } from '../../lib/database/sqlite.js';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo, getAgentTmuxSessions, formatAgentList, resolveAgentDir } from '../../lib/agents/commands.js';
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';

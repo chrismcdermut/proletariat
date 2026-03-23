@@ -1,7 +1,7 @@
 import { Args } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import { SqliteDatabase } from '../../lib/database/sqlite.js';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';

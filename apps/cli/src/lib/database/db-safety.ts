@@ -13,15 +13,12 @@
 import { SqliteDatabase } from './sqlite.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-
 const MAX_BACKUPS = 5
 
 /**
  * Enable WAL journal mode on a database connection.
  * WAL allows concurrent readers with one writer and is significantly
  * more resistant to corruption than the default journal_mode=delete.
- *
- * Note: With sql.js (in-memory), WAL mode is a no-op but executes without error.
  */
 export function enableWALMode(db: SqliteDatabase): void {
   db.pragma('journal_mode = WAL')
@@ -210,12 +207,11 @@ function attemptDumpReimport(dbPath: string): RepairResult {
         const insertSql = `INSERT OR IGNORE INTO "${name}" (${columns.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders})`
 
         const insertStmt = newDb.prepare(insertSql)
-        const insertAll = newDb.transaction((...args: unknown[]) => {
-          const data = args[0] as Record<string, unknown>[]
+        const insertAll = newDb.transaction(((data: Record<string, unknown>[]) => {
           for (const row of data) {
             insertStmt.run(...columns.map(c => row[c]))
           }
-        })
+        }) as (...args: unknown[]) => unknown)
 
         insertAll(rows as Record<string, unknown>[])
         rowsRecovered += rows.length

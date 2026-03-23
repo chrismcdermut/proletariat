@@ -130,7 +130,7 @@ export class ViewStorage {
       .orderBy(desc(pmoBoardViews.isDefault), asc(pmoBoardViews.name))
       .all()
 
-    return rows.map((row) => this.rowToBoardView(row))
+    return rows.map((row: any) => this.rowToBoardView(row))
   }
 
   /**
@@ -230,13 +230,12 @@ export class ViewStorage {
    * Delete a board view.
    */
   async deleteBoardView(id: string): Promise<void> {
-    this.ctx.drizzle
+    const result = this.ctx.drizzle
       .delete(pmoBoardViews)
       .where(eq(pmoBoardViews.id, id))
-      .run()
+      .run() as any
 
-    const { changes } = this.ctx.db.prepare('SELECT changes() as changes').get() as { changes: number }
-    if (changes === 0) {
+    if (result.changes === 0) {
       throw new PMOError('NOT_FOUND', `Board view not found: ${id}`)
     }
   }
@@ -317,12 +316,12 @@ export class ViewStorage {
 
     // Filter columns if columnIds filter is set
     const filteredColumnRows = effectiveFilters.columnIds?.length
-      ? columnRows.filter((col) => effectiveFilters.columnIds!.includes(col.id))
+      ? columnRows.filter((col: any) => effectiveFilters.columnIds!.includes(col.id))
       : columnRows
 
     // Get tickets with filters applied
     const columns: Column[] = await Promise.all(
-      filteredColumnRows.map(async (col) => {
+      filteredColumnRows.map(async (col: any) => {
         const tickets = await this.getTicketsForColumnWithFilters(
           col.id,
           resolvedId,
@@ -439,7 +438,7 @@ export class ViewStorage {
       .orderBy(asc(pmoTickets.position), asc(pmoTickets.createdAt))
       .all()
 
-    return Promise.all(rows.map((row) => this.rowToTicketWithColumn(row)))
+    return Promise.all(rows.map((row: any) => this.rowToTicketWithColumn(row)))
   }
 
   private async rowToTicketWithColumn(row: {
@@ -474,7 +473,7 @@ export class ViewStorage {
       .orderBy(asc(pmoSubtasks.position))
       .all()
 
-    const subtasks: Subtask[] = subtaskRows.map((s) => ({
+    const subtasks: Subtask[] = subtaskRows.map((s: any) => ({
       id: s.id,
       title: s.title,
       done: s.done ?? false,

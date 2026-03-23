@@ -44,7 +44,7 @@ function parseSnapshot(value: string | null): Record<string, unknown> | null {
 
 function toDriver(dbOrDriver: DatabaseDriver | SqliteDatabase): DatabaseDriver {
   if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
-    // Looks like a raw SqliteDatabase
+    // Looks like a raw better-sqlite3 Database
     return wrapDatabase(dbOrDriver as SqliteDatabase)
   }
   return dbOrDriver as DatabaseDriver

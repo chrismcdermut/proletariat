@@ -401,7 +401,6 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
 
   // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {
-    const { SqliteDatabase } = await import('../database/sqlite.js');
     const db = new SqliteDatabase(dbPath);
     // Store relative path from HQ root (e.g., "pmo" or "repos/myrepo/pmo")
     const relativePmoPath = path.relative(hqPath, pmoPath);

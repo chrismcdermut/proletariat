@@ -11,10 +11,9 @@ import { startTelemetryBridge } from '../lib/telemetry/telemetry-bridge.js'
 /**
  * Init hook - runs before every command
  *
- * 1. Initializes the sql.js WASM module (required before any database access).
- * 2. Detects first-time users and redirects them to the `new` command.
- * 3. Shows an interactive update prompt when a newer version is cached.
- * 4. Triggers a background version check for the next startup.
+ * 1. Detects first-time users and redirects them to the `new` command.
+ * 2. Shows an interactive update prompt when a newer version is cached.
+ * 3. Triggers a background version check for the next startup.
  *
  * A user is considered "first-time" if:
  * - No workspaces are registered in machine config (~/.proletariat/config.json)
@@ -26,7 +25,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   // Initialize Sentry as early as possible for crash reporting
   await initSentry(config.version)
 
-  // Commands that work without an HQ still run database operations.
+  // Commands that work without an HQ still run native module checks.
   const hqOptionalCommands = ['init', 'new', 'commit', 'claude', 'pmo:init', 'telemetry']
   const isHqOptionalCommand = !!id && hqOptionalCommands.some(cmd => id === cmd || id.startsWith(cmd + ':'))
 
@@ -98,12 +97,8 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     })
   }
 
-  // Initialize sql.js WASM module — must happen before any database access.
-  // This is the only async operation in the database layer; after this,
-  // all SQLite operations are synchronous.
-  if (shouldInitDatabase(id)) {
-    await initSqlite()
-  }
+  // Initialize sql.js WASM module — must happen before any database access
+  await initSqlite()
 
   // ── Update check ────────────────────────────────────────────────────
   // Show the interactive update prompt (uses cached data only, never blocks on network).
@@ -147,21 +142,6 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     await shutdownAnalytics()
     return
   }
-}
-
-function shouldInitDatabase(id?: string): boolean {
-  if (!id) {
-    return false
-  }
-
-  return !(
-    id === 'help' ||
-    id.startsWith('help:') ||
-    id === 'plugins' ||
-    id.startsWith('plugins:') ||
-    id === 'autocomplete' ||
-    id.startsWith('autocomplete:')
-  )
 }
 
 /**

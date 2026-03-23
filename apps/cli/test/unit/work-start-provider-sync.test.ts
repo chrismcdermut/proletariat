@@ -7,15 +7,15 @@
  * calls provider.moveTicket() for tickets with external sources.
  */
 import { expect } from 'chai'
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from '../../src/lib/database/sqlite.js'
 import { ProviderTriggerStore, TriggerHandler } from '../../src/lib/providers/trigger-config.js'
 import { resolveTicketProvider } from '../../src/lib/providers/resolver.js'
 import { resetEventBus, getEventBus } from '../../src/lib/events/index.js'
 import type { ProviderStorage } from '../../src/lib/providers/types.js'
 import type { Ticket, CreateTicketInput, TicketFilter } from '../../src/lib/pmo/types.js'
 
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:')
+function createTestDb(): SqliteDatabase {
+  const db = new SqliteDatabase(':memory:')
   db.exec(`
     CREATE TABLE pmo_provider_triggers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +105,7 @@ describe('PRLT-1091: work start provider sync', () => {
       const storage = createMockStorage()
 
       // Use a real in-memory DB with required tables matching the actual schema
-      const realDb = new Database(':memory:')
+      const realDb = new SqliteDatabase(':memory:')
       realDb.exec(`
         CREATE TABLE IF NOT EXISTS workspace_settings (
           key TEXT PRIMARY KEY,
@@ -172,7 +172,7 @@ describe('PRLT-1091: work start provider sync', () => {
 
     it('resolves to PMO provider when ticket has no external_source', () => {
       const storage = createMockStorage()
-      const realDb = new Database(':memory:')
+      const realDb = new SqliteDatabase(':memory:')
       realDb.exec(`
         CREATE TABLE IF NOT EXISTS workspace_settings (
           key TEXT PRIMARY KEY,
@@ -194,7 +194,7 @@ describe('PRLT-1091: work start provider sync', () => {
   })
 
   describe('TriggerHandler callback should invoke provider sync', () => {
-    let db: Database.Database
+    let db: SqliteDatabase
     let handler: TriggerHandler
     let localMoveCalls: Array<{ ticketId: string; projectId: string; targetStatus: string }>
     let providerMoveCalls: Array<{ ticketId: string; targetStatus: string }>

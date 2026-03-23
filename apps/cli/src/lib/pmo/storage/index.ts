@@ -10,7 +10,7 @@
 
 import { SqliteDatabase } from '../../database/sqlite.js'
 import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
-import { type DatabaseDriver, SqlJsDriver } from '../../database/driver.js'
+import { type DatabaseDriver, BetterSqlite3Driver } from '../../database/driver.js'
 import {
   AcceptanceCriterion,
   Board,
@@ -127,7 +127,7 @@ export class SQLiteStorage implements PMOStorage {
     this.db.pragma('foreign_keys = ON')
 
     // Create DatabaseDriver abstraction
-    this.driver = new SqlJsDriver(this.db)
+    this.driver = new BetterSqlite3Driver(this.db)
 
     // Create Drizzle ORM connection wrapping the same database
     this.drizzle = createDrizzleConnection(this.db)

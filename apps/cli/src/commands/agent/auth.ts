@@ -13,7 +13,7 @@ import {
 import { findHQRoot } from '../../lib/workspace.js';
 import { getWorkspaceDbPath } from '../../lib/workspace.js';
 import { saveAuthMethod } from '../../lib/execution/config.js';
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import { SqliteDatabase } from '../../lib/database/sqlite.js';
 
 const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials';
 

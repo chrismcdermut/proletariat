@@ -1,7 +1,7 @@
 import { Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { SqliteDatabase } from '../../lib/database/sqlite.js'
+import { SqliteDatabase } from '../../lib/database/sqlite.js';
 import { PromptCommand } from '../../lib/prompt-command.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { findHQRoot } from '../../lib/workspace.js';

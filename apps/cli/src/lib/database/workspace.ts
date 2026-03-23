@@ -17,7 +17,7 @@ import {
 } from './drizzle-schema.js'
 import { eq } from 'drizzle-orm'
 import type { DatabaseDriver } from './driver.js'
-import { SqlJsDriver } from './driver.js'
+import { BetterSqlite3Driver } from './driver.js'
 import {
   enableWALMode,
   createRotatingBackup,
@@ -169,7 +169,7 @@ export function openWorkspaceDatabase(workspacePath: string, options?: { readonl
  */
 export function openWorkspaceDriver(workspacePath: string): DatabaseDriver {
   const db = openWorkspaceDatabase(workspacePath)
-  return new SqlJsDriver(db)
+  return new BetterSqlite3Driver(db)
 }
 
 /**

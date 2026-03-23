@@ -30,7 +30,7 @@ export class SettingsStore {
 
   /**
    * Create a SettingsStore.
-   * Accepts either a DatabaseDriver or a SqliteDatabase
+   * Accepts either a DatabaseDriver or a raw better-sqlite3 Database
    * (for backward compatibility during migration).
    */
   constructor(driverOrDb: DatabaseDriver | SqliteDatabase) {
@@ -88,7 +88,7 @@ export class SettingsStore {
 }
 
 /**
- * Create a SettingsStore from a SqliteDatabase.
+ * Create a SettingsStore from a raw better-sqlite3 Database.
  * Convenience function for backward compatibility.
  */
 export function createSettingsStore(db: SqliteDatabase): SettingsStore {
