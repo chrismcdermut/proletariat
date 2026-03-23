@@ -7,6 +7,7 @@ import { createSpecFolders } from './create-spec-folders.js';
 import { slugify } from './utils.js';
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getGitIdentity } from '../pr/index.js';
+import { getClaudeCodeVersion } from '../workspace-config.js';
 
 // Re-export new PMO modules
 export * from './types.js';
@@ -496,12 +497,14 @@ ${columns.join(', ')}
   if (location === 'separate') {
     console.log(chalk.blue('Creating devcontainer config for PMO...'));
     const gitIdentity = getGitIdentity();
+    const claudeCodeVersion = getClaudeCodeVersion(hqPath);
     createDevcontainerConfig({
       agentName: 'pmo',
       agentDir: pmoPath,
       repoWorktrees: [],  // PMO is the repo itself, no nested worktrees
       gitUserName: gitIdentity.name || undefined,
       gitUserEmail: gitIdentity.email || undefined,
+      claudeCodeVersion,
     });
     console.log(chalk.green('  ✓ Devcontainer config created'));
   }
