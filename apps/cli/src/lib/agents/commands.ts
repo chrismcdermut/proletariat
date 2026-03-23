@@ -36,6 +36,7 @@ import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getGitIdentity } from '../pr/index.js';
 import { getPMOContext } from '../pmo/index.js';
 import { resolveRemoteUrl } from '../repos/git.js';
+import { getClaudeCodeVersion } from '../workspace-config.js';
 
 /**
  * Resolve the directory for an agent, cascading through resolution strategies.
@@ -681,6 +682,7 @@ export async function createEphemeralAgent(
       const devcontainerDir = path.join(agentDir, '.devcontainer');
       if (!fs.existsSync(devcontainerDir)) {
         const gitIdentity = getGitIdentity();
+        const claudeCodeVersion = getClaudeCodeVersion(workspaceInfo.path);
         createDevcontainerConfig({
           agentName,
           agentDir,
@@ -688,6 +690,7 @@ export async function createEphemeralAgent(
           mountMode,
           gitUserName: gitIdentity.name || undefined,
           gitUserEmail: gitIdentity.email || undefined,
+          claudeCodeVersion,
         });
       }
     }

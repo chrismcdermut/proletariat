@@ -10,6 +10,7 @@ import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getGitIdentity } from '../pr/index.js';
 import { pruneWorktrees } from '../branch/index.js';
 import { resolveRemoteUrl } from '../repos/git.js';
+import { getClaudeCodeVersion } from '../workspace-config.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -127,6 +128,9 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
   if (!gitIdentity.name && !gitIdentity.email) {
     console.log(chalk.yellow('Warning: Could not detect git identity for devcontainer. Commits may use default identity.'));
   }
+
+  // Read pinned Claude Code version from workspace config (PRLT-1084)
+  const claudeCodeVersion = hqPath ? getClaudeCodeVersion(hqPath) : undefined;
 
   if (hqPath) {
     // HQ mode - create worktrees/clones for all repos in repos/ directory
@@ -272,6 +276,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
               mountMode,
               gitUserName: gitIdentity.name || undefined,
               gitUserEmail: gitIdentity.email || undefined,
+              claudeCodeVersion,
             });
           }
 
@@ -296,6 +301,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             mountMode: mountMode,
             gitUserName: gitIdentity.name || undefined,
             gitUserEmail: gitIdentity.email || undefined,
+            claudeCodeVersion,
           });
         }
 
@@ -422,6 +428,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             mountMode,
             gitUserName: gitIdentity.name || undefined,
             gitUserEmail: gitIdentity.email || undefined,
+            claudeCodeVersion,
           });
         }
 
