@@ -1,0 +1,75 @@
+# Example GitHub Actions workflows for prlt orchestrate
+#
+# These workflows bridge GitHub events to the prlt orchestrate daemon
+# via `prlt hook fire`. Copy and adapt them for your repository.
+
+# =============================================================================
+# CI Green → Auto-merge
+# =============================================================================
+# name: On CI Complete
+# on:
+#   check_suite:
+#     types: [completed]
+# jobs:
+#   hook:
+#     runs-on: ubuntu-latest
+#     if: github.event.check_suite.conclusion == 'success'
+#     steps:
+#       - uses: actions/checkout@v4
+#       - run: |
+#           prlt hook fire on_ci_green \
+#             --pr ${{ github.event.check_suite.pull_requests[0].number }} \
+#             --branch ${{ github.event.check_suite.head_branch }}
+
+# =============================================================================
+# CI Failed → Notify
+# =============================================================================
+# name: On CI Failed
+# on:
+#   check_suite:
+#     types: [completed]
+# jobs:
+#   hook:
+#     runs-on: ubuntu-latest
+#     if: github.event.check_suite.conclusion == 'failure'
+#     steps:
+#       - uses: actions/checkout@v4
+#       - run: |
+#           prlt hook fire on_ci_failed \
+#             --pr ${{ github.event.check_suite.pull_requests[0].number }} \
+#             --branch ${{ github.event.check_suite.head_branch }}
+
+# =============================================================================
+# PR Opened → Move ticket to Review
+# =============================================================================
+# name: On PR Opened
+# on:
+#   pull_request:
+#     types: [opened]
+# jobs:
+#   hook:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+#       - run: |
+#           prlt hook fire on_pr_opened \
+#             --pr ${{ github.event.pull_request.number }} \
+#             --branch ${{ github.event.pull_request.head.ref }}
+
+# =============================================================================
+# PR Merged → Move ticket to Done + rebase siblings
+# =============================================================================
+# name: On PR Merged
+# on:
+#   pull_request:
+#     types: [closed]
+# jobs:
+#   hook:
+#     runs-on: ubuntu-latest
+#     if: github.event.pull_request.merged == true
+#     steps:
+#       - uses: actions/checkout@v4
+#       - run: |
+#           prlt hook fire on_pr_merged \
+#             --pr ${{ github.event.pull_request.number }} \
+#             --branch ${{ github.event.pull_request.head.ref }}
