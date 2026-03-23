@@ -1,26 +1,11 @@
 import { expect } from 'chai'
-import * as os from 'node:os'
-import * as fs from 'node:fs'
-import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { runDrizzleMigrations, type Migration } from '../../src/lib/database/migrator.js'
 import { ALL_MIGRATIONS } from '../../src/lib/database/migrations/index.js'
 
 describe('Database Migration System', () => {
-  let tmpDir: string
-  let dbPath: string
-
-  beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-migration-test-'))
-    dbPath = path.join(tmpDir, 'test.db')
-  })
-
-  afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-  })
-
   function openDb(): Database.Database {
-    const db = new Database(dbPath)
+    const db = new Database(':memory:')
     db.pragma('foreign_keys = ON')
     return db
   }
