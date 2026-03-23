@@ -456,6 +456,15 @@ export type ActionEnvironment = 'devcontainer' | 'docker' | 'host' | 'vm'
 export type ActionPermissionMode = 'full' | 'readonly' | 'bypassPermissions'
 
 /**
+ * Review gate mode — controls whether agent output needs human approval before landing.
+ *
+ * - required: Agent produces output, human approves before it lands (PR for code, diff review for docs). Default.
+ * - auto: Agent ships directly. No approval gate. Commits to main or merges its own PR.
+ * - post: Agent ships immediately, human reviews after. Rollback if bad.
+ */
+export type ReviewGateMode = 'required' | 'auto' | 'post'
+
+/**
  * Trigger types for workflow rules.
  */
 export type WorkflowRuleTrigger = 'manual' | 'on_enter'
@@ -504,6 +513,7 @@ export interface WorkAction {
   permissionMode?: ActionPermissionMode       // Permission mode (full | readonly | bypassPermissions)
   timeout?: number                            // Timeout in seconds
   model?: string                              // Model override (nullable — let executor pick default)
+  reviewGate?: ReviewGateMode                  // Per-action review gate override (nullable — use workspace default)
   modifiesCode: boolean                       // Whether this action modifies code (needs branch)
   isDefault?: boolean                         // Whether this is the default action for its from_state
   isBuiltin: boolean

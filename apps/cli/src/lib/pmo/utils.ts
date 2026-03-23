@@ -355,6 +355,85 @@ export function getPrioritySortIndex(db: DatabaseLike, value: string | undefined
 }
 
 // =============================================================================
+// Review Gate Settings
+// =============================================================================
+
+import type { ReviewGateMode } from './types.js'
+
+/**
+ * Valid review gate modes.
+ */
+export const REVIEW_GATE_MODES: readonly ReviewGateMode[] = ['required', 'auto', 'post'] as const
+
+/**
+ * Default review gate mode for workspace.
+ */
+export const DEFAULT_REVIEW_GATE: ReviewGateMode = 'required'
+
+/**
+ * Settings key for workspace-level review gate default.
+ */
+const REVIEW_GATE_SETTING_KEY = 'review_gate'
+
+/**
+ * Get the workspace review gate default from pmo_settings.
+ * Returns the configured mode, or 'required' if not set.
+ *
+ * @param db - Database instance
+ * @returns The configured review gate mode
+ */
+export function getReviewGateSetting(db: DatabaseLike): ReviewGateMode {
+  const row = db.prepare(
+    `SELECT value FROM pmo_settings WHERE key = ?`
+  ).get(REVIEW_GATE_SETTING_KEY) as { value: string } | undefined
+
+  const value = row?.value
+  if (value === 'required' || value === 'auto' || value === 'post') {
+    return value
+  }
+  return DEFAULT_REVIEW_GATE
+}
+
+/**
+ * Set the workspace review gate default in pmo_settings.
+ *
+ * @param db - Database instance
+ * @param mode - Review gate mode to set
+ */
+export function setReviewGateSetting(db: DatabaseLike, mode: ReviewGateMode): void {
+  db.prepare(`
+    INSERT INTO pmo_settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = ?
+  `).run(REVIEW_GATE_SETTING_KEY, mode, mode)
+}
+
+/**
+ * Check if a value is a valid review gate mode.
+ */
+export function isValidReviewGateMode(value: string): value is ReviewGateMode {
+  return REVIEW_GATE_MODES.includes(value as ReviewGateMode)
+}
+
+/**
+ * Resolve the effective review gate mode given the hierarchy of overrides.
+ * Most specific wins: per-spawn > per-action > workspace default.
+ *
+ * @param spawnOverride - Value from --review-gate flag on `prlt work start`
+ * @param actionOverride - Value from the action's review_gate column
+ * @param db - Database instance for workspace default lookup
+ * @returns The resolved review gate mode
+ */
+export function resolveReviewGate(
+  spawnOverride: ReviewGateMode | undefined,
+  actionOverride: ReviewGateMode | undefined,
+  db: DatabaseLike,
+): ReviewGateMode {
+  if (spawnOverride) return spawnOverride
+  if (actionOverride) return actionOverride
+  return getReviewGateSetting(db)
+}
+
+// =============================================================================
 // External Metadata Helpers
 // =============================================================================
 

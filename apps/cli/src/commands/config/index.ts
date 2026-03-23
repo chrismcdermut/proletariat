@@ -17,6 +17,7 @@ import {
   saveMirrorToPmoDefault,
   saveFirewallAllowlistDomains,
 } from '../../lib/execution/config.js'
+import { getReviewGateSetting, setReviewGateSetting, isValidReviewGateMode } from '../../lib/pmo/utils.js'
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
 import {
   shouldOutputJson,
@@ -36,6 +37,7 @@ export default class Config extends PromptCommand {
     '<%= config.bin %> <%= command.id %> --set terminal.app iTerm',
     '<%= config.bin %> <%= command.id %> --set terminal.openInBackground true',
     '<%= config.bin %> <%= command.id %> --set firewall.allowlistDomains "api.staging.example.com"',
+    '<%= config.bin %> <%= command.id %> --set review_gate auto        # Set workspace review gate to auto',
     '<%= config.bin %> <%= command.id %> --setting terminal.app --json  # Show terminal app choices',
   ]
 
@@ -81,6 +83,7 @@ export default class Config extends PromptCommand {
       // Load current config
       const config = loadExecutionConfig(db)
       const mirrorToPmoDefault = getMirrorToPmoDefault(db)
+      const reviewGate = getReviewGateSetting(db)
 
       // Handle --set flag
       if (flags.set && flags.set.length > 0) {
@@ -125,6 +128,7 @@ export default class Config extends PromptCommand {
             permissionMode: config.permissionMode,
             createPrDefault: config.createPrDefault ?? null,
             mirrorToPmoDefault,
+            reviewGate,
             firewall: {
               allowlistDomains: config.firewall.allowlistDomains,
             },
@@ -152,6 +156,7 @@ export default class Config extends PromptCommand {
           this.log(`  permissionMode:   ${config.permissionMode}`)
           this.log(`  createPrDefault:  ${config.createPrDefault ?? 'not set (will prompt)'}`)
           this.log(`  mirrorToPmoDefault: ${mirrorToPmoDefault ?? 'not set (default: true)'}`)
+          this.log(`  reviewGate:       ${reviewGate}`)
           this.log(`  firewall.allowlistDomains: ${config.firewall.allowlistDomains.join(', ') || '(none)'}`)
           this.log('')
         }
@@ -173,6 +178,7 @@ export default class Config extends PromptCommand {
         { name: `Shell: ${config.shell}`, value: 'shell', command: 'prlt config --setting shell --json' },
         { name: `Tmux Control Mode (iTerm -CC): ${config.tmux.controlMode}`, value: 'tmux.controlMode', command: 'prlt config --setting tmux.controlMode --json' },
         { name: `Firewall allowlist domains: ${config.firewall.allowlistDomains.length || 0}`, value: 'firewall.allowlistDomains', command: 'prlt config --setting firewall.allowlistDomains --json' },
+        { name: `Review Gate: ${reviewGate}`, value: 'review_gate', command: 'prlt config --setting review_gate --json' },
       ]
 
       const { setting } = await this.prompt<{ setting: string }>([
@@ -189,6 +195,8 @@ export default class Config extends PromptCommand {
             settingChoices[3],
             new inquirer.Separator('── Execution ──'),
             settingChoices[4],
+            new inquirer.Separator('── Review ──'),
+            settingChoices[5],
             new inquirer.Separator(),
             { name: 'Exit', value: '__exit__' },
           ],
@@ -303,6 +311,27 @@ export default class Config extends PromptCommand {
         break
       }
 
+      case 'review_gate': {
+        const currentGate = getReviewGateSetting(db)
+        const gateChoices = [
+          { name: 'required — Agent creates PR, human approves before landing (default)', value: 'required', command: 'prlt config --set "review_gate required" --json' },
+          { name: 'auto — Agent ships directly, no approval gate', value: 'auto', command: 'prlt config --set "review_gate auto" --json' },
+          { name: 'post — Agent ships immediately, human reviews after', value: 'post', command: 'prlt config --set "review_gate post" --json' },
+        ]
+        const { newGate } = await this.prompt<{ newGate: string }>([
+          {
+            type: 'list',
+            name: 'newGate',
+            message: 'Select review gate mode:',
+            choices: gateChoices,
+            default: currentGate,
+          },
+        ], jsonModeConfig)
+        setReviewGateSetting(db, newGate as 'required' | 'auto' | 'post')
+        this.log(styles.success(`Review gate set to: ${newGate}`))
+        break
+      }
+
       case 'firewall.allowlistDomains': {
         const { domainsInput } = await this.prompt<{ domainsInput: string }>([
           {
@@ -354,6 +383,19 @@ export default class Config extends PromptCommand {
         break
       case 'execution.mirror_to_pmo_default':
         saveMirrorToPmoDefault(db, value.toLowerCase() === 'true')
+        break
+      case 'review_gate':
+      case 'reviewgate':
+        if (!isValidReviewGateMode(value)) {
+          if (jsonMode) {
+            outputErrorAsJson('INVALID_VALUE', `Invalid review gate mode: "${value}". Must be: required, auto, or post`, createMetadata('config', {}))
+            return
+          } else {
+            this.error(`Invalid review gate mode: "${value}". Must be: required, auto, or post`)
+          }
+          return
+        }
+        setReviewGateSetting(db, value as 'required' | 'auto' | 'post')
         break
       case 'firewall.allowlistdomains': {
         const domains = value

@@ -16,6 +16,7 @@ import { addWorktreeColumns } from './0007_add_worktree_columns.js'
 import { addAgentMountMode } from './0008_add_agent_mount_mode.js'
 import { createMediaItems } from './0009_create_media_items.js'
 import { addTicketPosition } from './0010_add_ticket_position.js'
+import { addReviewGate } from './0011_add_review_gate.js'
 
 /**
  * Ordered list of all migrations.
@@ -32,4 +33,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   addAgentMountMode,
   createMediaItems,
   addTicketPosition,
+  addReviewGate,
 ]

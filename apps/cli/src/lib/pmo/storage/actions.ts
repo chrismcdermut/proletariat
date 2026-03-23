@@ -3,7 +3,7 @@
  */
 
 import { PMO_TABLES } from '../schema.js'
-import { PMOError, WorkAction, WorkActionFilter, ActionExecutor, ActionEnvironment, ActionPermissionMode } from '../types.js'
+import { PMOError, WorkAction, WorkActionFilter, ActionExecutor, ActionEnvironment, ActionPermissionMode, ReviewGateMode } from '../types.js'
 import { slugify } from '../utils.js'
 import { StorageContext, WorkActionRow } from './types.js'
 
@@ -86,8 +86,8 @@ export class ActionStorage {
 
     this.ctx.db.prepare(`
       INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_state, to_state,
-        executor, environment, permission_mode, timeout, model, modifies_code, is_default, is_builtin, position, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        executor, environment, permission_mode, timeout, model, review_gate, modifies_code, is_default, is_builtin, position, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       action.name,
@@ -101,6 +101,7 @@ export class ActionStorage {
       action.permissionMode || null,
       action.timeout || null,
       action.model || null,
+      action.reviewGate || null,
       modifiesCode ? 1 : 0,
       action.isDefault ? 1 : 0,
       action.isBuiltin ? 1 : 0,
@@ -122,6 +123,7 @@ export class ActionStorage {
       permissionMode: action.permissionMode,
       timeout: action.timeout,
       model: action.model,
+      reviewGate: action.reviewGate,
       modifiesCode,
       isDefault: action.isDefault,
       isBuiltin: action.isBuiltin || false,
@@ -200,6 +202,10 @@ export class ActionStorage {
     if (changes.model !== undefined) {
       updates.push('model = ?')
       params.push(changes.model || null)
+    }
+    if (changes.reviewGate !== undefined) {
+      updates.push('review_gate = ?')
+      params.push(changes.reviewGate || null)
     }
     if (changes.modifiesCode !== undefined) {
       updates.push('modifies_code = ?')
@@ -288,6 +294,7 @@ export class ActionStorage {
       permissionMode: (row.permission_mode as ActionPermissionMode) || undefined,
       timeout: row.timeout || undefined,
       model: row.model || undefined,
+      reviewGate: (row.review_gate as ReviewGateMode) || undefined,
       modifiesCode: row.modifies_code === 1,
       isDefault: row.is_default === 1,
       isBuiltin: row.is_builtin === 1,

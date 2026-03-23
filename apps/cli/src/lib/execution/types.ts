@@ -189,6 +189,7 @@ export interface ExecutionContext {
   pmoPath?: string // PMO path for mounting into container
   repoWorktrees?: string[] // Names of repo worktrees to mount for git worktree resolution
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
+  reviewGate?: 'required' | 'auto' | 'post' // Review gate mode (resolved at work start)
   // Action context (what the agent should do)
   actionId?: string       // Action ID (e.g., 'implement', 'groom')
   actionName?: string     // Action name for display
