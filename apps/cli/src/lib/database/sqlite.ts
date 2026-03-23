@@ -157,6 +157,7 @@ export class SqliteDatabase {
   private _dbPath: string | null
   private _open: boolean = true
   private _readonly: boolean = false
+  private _savepointCounter: number = 0
 
   constructor(pathOrMemory: string, options?: { readonly?: boolean }) {
     const SQL = getSqlJs()
@@ -233,17 +234,24 @@ export class SqliteDatabase {
   /**
    * Create a transaction function.
    * Returns a new function that, when called, runs the wrapped function
-   * inside a SQLite transaction (BEGIN/COMMIT/ROLLBACK).
+   * inside a SQLite transaction.
+   *
+   * Uses SAVEPOINT/RELEASE for all levels, which correctly handles:
+   * - Top-level calls (SAVEPOINT implicitly starts a transaction)
+   * - Nested calls within other transactions
+   * - Calls within externally-created savepoints (e.g., test helpers)
    */
   transaction<F extends (...args: unknown[]) => unknown>(fn: F): F {
     return ((...args: unknown[]) => {
-      this._db.run('BEGIN')
+      const savepointName = `sp_${++this._savepointCounter}`
+      this._db.run(`SAVEPOINT ${savepointName}`)
       try {
         const result = fn(...args)
-        this._db.run('COMMIT')
+        this._db.run(`RELEASE ${savepointName}`)
         return result
       } catch (e) {
-        this._db.run('ROLLBACK')
+        this._db.run(`ROLLBACK TO ${savepointName}`)
+        this._db.run(`RELEASE ${savepointName}`)
         throw e
       }
     }) as unknown as F
