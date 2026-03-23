@@ -33,6 +33,8 @@ const CONFIG_KEYS = {
   tmuxSession: 'execution.tmux.session',
   tmuxLayout: 'execution.tmux.layout',
   tmuxControlMode: 'execution.tmux.control_mode',
+  devcontainerMemory: 'execution.devcontainer.memory',
+  devcontainerCpus: 'execution.devcontainer.cpus',
   dockerImage: 'execution.docker.image',
   dockerNetwork: 'execution.docker.network',
   dockerMemory: 'execution.docker.memory',
@@ -152,6 +154,19 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const tmuxControlMode = getSetting(db, CONFIG_KEYS.tmuxControlMode)
   if (tmuxControlMode !== null) {
     config.tmux = { ...config.tmux, controlMode: tmuxControlMode === 'true' }
+  }
+
+  // Load devcontainer resource limits (containers.memory / containers.cpus)
+  const devcontainerMemory = getSetting(db, CONFIG_KEYS.devcontainerMemory)
+  if (devcontainerMemory) {
+    config.devcontainer = { ...config.devcontainer, memory: devcontainerMemory }
+  }
+  const devcontainerCpus = getSetting(db, CONFIG_KEYS.devcontainerCpus)
+  if (devcontainerCpus) {
+    const parsed = parseInt(devcontainerCpus, 10)
+    if (!isNaN(parsed) && parsed > 0) {
+      config.devcontainer = { ...config.devcontainer, cpus: parsed }
+    }
   }
 
   // Load docker settings

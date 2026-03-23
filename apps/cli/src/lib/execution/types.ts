@@ -480,8 +480,8 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   },
   devcontainer: {
     defaultImage: 'mcr.microsoft.com/devcontainers/base:ubuntu',
-    memory: '8g',
-    cpus: 4,
+    memory: '4g',
+    cpus: 2,
     autoStart: true,
   },
   docker: {

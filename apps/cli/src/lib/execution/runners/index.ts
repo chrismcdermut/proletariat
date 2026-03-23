@@ -122,6 +122,7 @@ export {
   containerExists,
   isContainerRunning,
   getContainerId,
+  checkDockerMemoryCapacity,
   // Prompt building
   buildPrompt,
   buildOrchestratorSystemPrompt,
