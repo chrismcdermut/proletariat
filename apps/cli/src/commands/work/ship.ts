@@ -16,6 +16,7 @@ import {
   mergePR,
   getGitHubRepo,
   getDefaultBaseBranch,
+  rebaseConflictingSiblingPRs,
   type PRInfo,
   type PRCheck,
 } from '../../lib/pr/index.js';
@@ -48,6 +49,7 @@ export default class WorkShip extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 --dry-run',
     '<%= config.bin %> <%= command.id %> TKT-001 --wait',
     '<%= config.bin %> <%= command.id %> TKT-001 --no-rebase',
+    '<%= config.bin %> <%= command.id %> TKT-001 --no-rebase-siblings',
   ];
 
   static args = {
@@ -88,6 +90,11 @@ export default class WorkShip extends PMOCommand {
     admin: Flags.boolean({
       description: 'Use admin privileges to bypass branch protections',
       default: false,
+    }),
+    'rebase-siblings': Flags.boolean({
+      description: 'After merging, rebase other open PRs that become conflicting',
+      default: true,
+      allowNo: true,
     }),
   };
 
@@ -287,6 +294,9 @@ export default class WorkShip extends PMOCommand {
         if (flags['delete-branch']) {
           this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '5' : '3'}. Delete remote branch ${prInfo.headBranch}`));
         }
+        if (flags['rebase-siblings']) {
+          this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '6' : '4'}. Check and rebase conflicting sibling PRs`));
+        }
 
         db.close();
         return;
@@ -421,6 +431,43 @@ export default class WorkShip extends PMOCommand {
         }
       }
 
+      // --- Step 7: Auto-rebase conflicting sibling PRs ---
+      let siblingRebaseResults: Array<{ prNumber: number; headBranch: string; success: boolean; error?: string }> = [];
+      if (flags['rebase-siblings']) {
+        try {
+          this.log(styles.muted('   Checking sibling PRs for conflicts...'));
+          const results = rebaseConflictingSiblingPRs(
+            prNumber,
+            cwd,
+            (msg) => this.log(styles.muted(`   ${msg}`)),
+          );
+
+          siblingRebaseResults = results.map(r => ({
+            prNumber: r.prNumber,
+            headBranch: r.headBranch,
+            success: r.success,
+            error: r.error,
+          }));
+
+          const succeeded = results.filter(r => r.success);
+          const failed = results.filter(r => !r.success);
+
+          if (results.length === 0) {
+            this.log(styles.muted('   No conflicting sibling PRs found'));
+          } else {
+            for (const r of succeeded) {
+              this.log(styles.success(`   Rebased sibling PR #${r.prNumber} (${r.headBranch})`));
+            }
+            for (const r of failed) {
+              this.log(styles.warning(`   Failed to rebase PR #${r.prNumber}: ${r.error}`));
+            }
+          }
+        } catch {
+          // Non-critical — don't block ship for sibling rebase failures
+          this.log(styles.muted('   Sibling PR rebase check skipped (error)'));
+        }
+      }
+
       db.close();
 
       // --- Output ---
@@ -435,6 +482,7 @@ export default class WorkShip extends PMOCommand {
             ticketId: ticketId ?? null,
             ticketMovedToDone,
             ticketTransitionProvider: ticketTransitionProvider ?? null,
+            siblingRebases: siblingRebaseResults,
           },
           createMetadata('work ship', flags),
         );
@@ -453,6 +501,11 @@ export default class WorkShip extends PMOCommand {
         if (previousColumn) {
           this.log(styles.muted(`   From:   ${previousColumn}`));
         }
+      }
+      if (siblingRebaseResults.length > 0) {
+        const succeeded = siblingRebaseResults.filter(r => r.success).length;
+        const failed = siblingRebaseResults.filter(r => !r.success).length;
+        this.log(styles.muted(`   Sibling rebases: ${succeeded} succeeded, ${failed} failed`));
       }
     } catch (error) {
       db.close();
