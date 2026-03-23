@@ -18,6 +18,8 @@ import { createMediaItems } from './0009_create_media_items.js'
 import { addTicketPosition } from './0010_add_ticket_position.js'
 import { addReviewGate } from './0011_add_review_gate.js'
 import { addActionNetworkAllowlist } from './0012_add_action_network_allowlist.js'
+import { agentLifecycleStates } from './0013_agent_lifecycle_states.js'
+import { orchestrateHooks } from './0014_orchestrate_hooks.js'
 
 /**
  * Ordered list of all migrations.
@@ -36,4 +38,6 @@ export const ALL_MIGRATIONS: Migration[] = [
   addTicketPosition,
   addReviewGate,
   addActionNetworkAllowlist,
+  agentLifecycleStates,
+  orchestrateHooks,
 ]
