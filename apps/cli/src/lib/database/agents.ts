@@ -18,8 +18,19 @@ import {
 import { withDrizzle, openWorkspaceDatabase } from './workspace.js'
 
 export type AgentType = 'persistent' | 'ephemeral'
-export type AgentStatus = 'active' | 'cleaned'
+export type AgentStatus = 'active' | 'running' | 'completed' | 'dead' | 'cleaned'
 export type MountMode = 'worktree' | 'clone'
+
+/**
+ * Statuses that indicate an agent's name is available for recycling.
+ * These agents have finished their work or been cleaned up.
+ */
+export const RECYCLABLE_STATUSES: AgentStatus[] = ['completed', 'dead', 'cleaned']
+
+/**
+ * Statuses that indicate an agent is still "alive" (name is in use).
+ */
+export const ACTIVE_STATUSES: AgentStatus[] = ['active', 'running']
 
 export interface Agent {
   name: string
@@ -156,7 +167,8 @@ export function addEphemeralAgentToDatabase(
 
 /**
  * Try to add an ephemeral agent to the database.
- * Returns null if the name already exists (concurrency-safe).
+ * Returns null if the name already exists and is in an active state (concurrency-safe).
+ * If the name exists but is in a terminal state (completed/dead/cleaned), recycles it.
  */
 export function tryAddEphemeralAgentToDatabase(
   workspacePath: string,
@@ -172,6 +184,41 @@ export function tryAddEphemeralAgentToDatabase(
     const now = new Date().toISOString()
     const worktreePath = `agents/temp/${agentName}`
 
+    // Check if there's an existing record with this name
+    const existing = ddb.select().from(agentsTable)
+      .where(eq(agentsTable.name, agentName))
+      .get()
+
+    if (existing) {
+      const existingAgent = toAgent(existing)
+      // Only recycle names from terminal states
+      if (existingAgent.status === 'completed' || existingAgent.status === 'dead' || existingAgent.status === 'cleaned') {
+        // Recycle: update the existing record back to active
+        ddb.update(agentsTable)
+          .set({
+            type: 'ephemeral',
+            status: 'active',
+            baseName,
+            themeId: themeId || null,
+            worktreePath,
+            mountMode,
+            createdAt: now,
+            cleanedAt: null,
+          })
+          .where(eq(agentsTable.name, agentName))
+          .run()
+
+        const agent = ddb.select().from(agentsTable)
+          .where(eq(agentsTable.name, agentName))
+          .get()
+        if (!agent) return null
+        return toAgent(agent)
+      }
+      // Name is in use by an active/running agent — collision
+      return null
+    }
+
+    // No existing record — insert new
     ddb.insert(agentsTable).values({
       name: agentName,
       type: 'ephemeral',
@@ -201,13 +248,20 @@ export function tryAddEphemeralAgentToDatabase(
 }
 
 /**
- * Get all ephemeral agent names from the database
+ * Get ephemeral agent names that are still in use (active or running).
+ * Names of completed/dead/cleaned agents are excluded to allow recycling.
  */
 export function getEphemeralAgentNames(workspacePath: string): Set<string> {
   return withDrizzle(workspacePath, (ddb) => {
     const rows = ddb.select({ name: agentsTable.name })
       .from(agentsTable)
-      .where(eq(agentsTable.type, 'ephemeral'))
+      .where(and(
+        eq(agentsTable.type, 'ephemeral'),
+        or(
+          eq(agentsTable.status, 'active'),
+          eq(agentsTable.status, 'running'),
+        ),
+      ))
       .all()
     return new Set(rows.map(a => a.name.toLowerCase()))
   })
@@ -228,7 +282,9 @@ export function removeEphemeralAgent(workspacePath: string, agentName: string): 
 }
 
 /**
- * Get all agents in workspace
+ * Get all agents in workspace.
+ * By default returns agents with active lifecycle statuses (active, running).
+ * Set includeCleanedUp=true to include completed, dead, and cleaned agents.
  */
 export function getWorkspaceAgents(workspacePath: string, includeCleanedUp: boolean = false): Agent[] {
   return withDrizzle(workspacePath, (ddb) => {
@@ -241,6 +297,7 @@ export function getWorkspaceAgents(workspacePath: string, includeCleanedUp: bool
       rows = ddb.select().from(agentsTable)
         .where(or(
           eq(agentsTable.status, 'active'),
+          eq(agentsTable.status, 'running'),
           isNull(agentsTable.status),
         ))
         .orderBy(asc(agentsTable.createdAt))
@@ -268,6 +325,7 @@ export function getAgentByPath(workspacePath: string, absolutePath: string): Age
     const rows = ddb.select().from(agentsTable)
       .where(or(
         eq(agentsTable.status, 'active'),
+        eq(agentsTable.status, 'running'),
         isNull(agentsTable.status),
       ))
       .all()
@@ -298,6 +356,9 @@ export function markAgentCleaned(workspacePath: string, agentName: string): void
 
 /**
  * Sync agents in database with what exists on disk.
+ * Agents whose directories no longer exist are transitioned:
+ * - 'running' agents -> 'dead' (unexpected disappearance)
+ * - 'active' agents -> 'cleaned' (normal cleanup)
  */
 export function syncAgentsWithDisk(workspacePath: string): string[] {
   const agentList = getWorkspaceAgents(workspacePath, false)
@@ -314,7 +375,11 @@ export function syncAgentsWithDisk(workspacePath: string): string[] {
     }
 
     if (!fs.existsSync(agentDir)) {
-      markAgentCleaned(workspacePath, agent.name)
+      if (agent.status === 'running') {
+        markAgentDead(workspacePath, agent.name)
+      } else {
+        markAgentCleaned(workspacePath, agent.name)
+      }
       cleanedAgents.push(agent.name)
     }
   }
@@ -340,7 +405,7 @@ export function discoverAgentsOnDisk(workspacePath: string): DiscoverResult {
 
   const allAgents = getWorkspaceAgents(workspacePath, true)
   const cleanedAgentsMap = new Map(
-    allAgents.filter(a => a.status === 'cleaned').map(a => [a.name.toLowerCase(), a])
+    allAgents.filter(a => a.status === 'cleaned' || a.status === 'completed' || a.status === 'dead').map(a => [a.name.toLowerCase(), a])
   )
 
   withDrizzle(workspacePath, (ddb) => {
@@ -430,5 +495,157 @@ export function removeAgentsFromDatabase(workspacePath: string, agentNames: stri
     })
 
     transaction()
+  })
+}
+
+// =============================================================================
+// Agent Lifecycle Transitions
+// =============================================================================
+
+/**
+ * Mark an agent as running (actively executing work).
+ * Valid transition from: active
+ */
+export function markAgentRunning(workspacePath: string, agentName: string): void {
+  withDrizzle(workspacePath, (ddb) => {
+    ddb.update(agentsTable)
+      .set({ status: 'running' })
+      .where(and(
+        eq(agentsTable.name, agentName),
+        eq(agentsTable.status, 'active'),
+      ))
+      .run()
+  })
+}
+
+/**
+ * Mark an agent as completed (work finished successfully).
+ * Valid transition from: active, running
+ */
+export function markAgentCompleted(workspacePath: string, agentName: string): void {
+  withDrizzle(workspacePath, (ddb) => {
+    ddb.update(agentsTable)
+      .set({ status: 'completed', cleanedAt: new Date().toISOString() })
+      .where(and(
+        eq(agentsTable.name, agentName),
+        or(
+          eq(agentsTable.status, 'active'),
+          eq(agentsTable.status, 'running'),
+        ),
+      ))
+      .run()
+  })
+}
+
+/**
+ * Mark an agent as dead (died unexpectedly / orphaned).
+ * Valid transition from: active, running
+ */
+export function markAgentDead(workspacePath: string, agentName: string): void {
+  withDrizzle(workspacePath, (ddb) => {
+    ddb.update(agentsTable)
+      .set({ status: 'dead', cleanedAt: new Date().toISOString() })
+      .where(and(
+        eq(agentsTable.name, agentName),
+        or(
+          eq(agentsTable.status, 'active'),
+          eq(agentsTable.status, 'running'),
+        ),
+      ))
+      .run()
+  })
+}
+
+/**
+ * Reactivate an agent (e.g., when its directory reappears on disk).
+ * Valid transition from: completed, dead, cleaned
+ */
+export function reactivateAgent(workspacePath: string, agentName: string): void {
+  withDrizzle(workspacePath, (ddb) => {
+    ddb.update(agentsTable)
+      .set({ status: 'active', cleanedAt: null })
+      .where(and(
+        eq(agentsTable.name, agentName),
+        or(
+          eq(agentsTable.status, 'completed'),
+          eq(agentsTable.status, 'dead'),
+          eq(agentsTable.status, 'cleaned'),
+        ),
+      ))
+      .run()
+  })
+}
+
+/**
+ * Get agent record by name (any status).
+ */
+export function getAgent(workspacePath: string, agentName: string): Agent | null {
+  return withDrizzle(workspacePath, (ddb) => {
+    const row = ddb.select().from(agentsTable)
+      .where(eq(agentsTable.name, agentName))
+      .get()
+    return row ? toAgent(row) : null
+  })
+}
+
+// =============================================================================
+// Agent Record Pruning (GC)
+// =============================================================================
+
+export interface PruneOptions {
+  /** Only prune agents older than this many days (default: 30) */
+  olderThanDays?: number
+  /** Only prune agents with these statuses (default: completed, dead, cleaned) */
+  statuses?: AgentStatus[]
+  /** Dry run - return what would be pruned without actually deleting */
+  dryRun?: boolean
+}
+
+export interface PruneResult {
+  pruned: Agent[]
+  dryRun: boolean
+}
+
+/**
+ * Prune (permanently delete) stale agent records from the database.
+ * Only removes agents in terminal states (completed, dead, cleaned) that
+ * are older than the specified threshold.
+ */
+export function pruneAgentRecords(workspacePath: string, options?: PruneOptions): PruneResult {
+  const olderThanDays = options?.olderThanDays ?? 30
+  const statuses = options?.statuses ?? RECYCLABLE_STATUSES
+  const dryRun = options?.dryRun ?? false
+
+  const cutoffDate = new Date()
+  cutoffDate.setDate(cutoffDate.getDate() - olderThanDays)
+  const cutoffIso = cutoffDate.toISOString()
+
+  return withDrizzle(workspacePath, (ddb) => {
+    // Find candidates for pruning
+    const candidates = ddb.select().from(agentsTable)
+      .where(and(
+        // Only prune agents in the specified terminal statuses
+        or(...statuses.map(s => eq(agentsTable.status, s))),
+        // Only prune agents created before the cutoff
+        sql`${agentsTable.createdAt} < ${cutoffIso}`,
+      ))
+      .all()
+      .map(toAgent)
+
+    if (dryRun) {
+      return { pruned: candidates, dryRun: true }
+    }
+
+    // Delete the candidates and their worktree records
+    for (const agent of candidates) {
+      ddb.delete(agentWorktreesTable)
+        .where(eq(agentWorktreesTable.agentName, agent.name))
+        .run()
+      ddb.delete(agentsTable)
+        .where(eq(agentsTable.name, agent.name))
+        .run()
+    }
+
+    return { pruned: candidates, dryRun: false }
   })
 }

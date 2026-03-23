@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS agent_theme_names (
 CREATE TABLE IF NOT EXISTS agents (
   name TEXT PRIMARY KEY,
   type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'running', 'completed', 'dead', 'cleaned')),
   base_name TEXT,
   theme_id TEXT,
   worktree_path TEXT,
@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS agents (
   cleaned_at TEXT,
   FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 
 -- Agent-owned worktrees
 CREATE TABLE IF NOT EXISTS agent_worktrees (

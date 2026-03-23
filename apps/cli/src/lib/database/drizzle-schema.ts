@@ -65,7 +65,7 @@ export const agentThemeNames = sqliteTable('agent_theme_names', {
 export const agents = sqliteTable('agents', {
   name: text('name').primaryKey(),
   type: text('type', { enum: ['persistent', 'ephemeral'] }).notNull().default('persistent'),
-  status: text('status', { enum: ['active', 'cleaned'] }).notNull().default('active'),
+  status: text('status', { enum: ['active', 'running', 'completed', 'dead', 'cleaned'] }).notNull().default('active'),
   baseName: text('base_name'),
   themeId: text('theme_id'),
   worktreePath: text('worktree_path'),
@@ -74,6 +74,7 @@ export const agents = sqliteTable('agents', {
   cleanedAt: text('cleaned_at'),
 }, (table) => ({
   idxTheme: index('idx_agents_theme').on(table.themeId),
+  idxStatus: index('idx_agents_status').on(table.status),
 }))
 
 /**

@@ -17,6 +17,9 @@ import {
   getEphemeralAgentNames,
   getActiveTheme,
   markAgentCleaned,
+  markAgentRunning,
+  markAgentCompleted,
+  markAgentDead,
   discoverAgentsOnDisk,
   Agent,
   Repository,
@@ -716,11 +719,14 @@ export async function createEphemeralAgent(
     );
 
     if (agent) {
+      // Transition to 'running' state — agent is now actively executing work
+      markAgentRunning(workspaceInfo.path, agentName);
+
       return {
         name: agentName,
         baseName,
         worktreePath: agentDir,
-        agent
+        agent: { ...agent, status: 'running' as const }
       };
     }
 
@@ -1326,11 +1332,22 @@ export async function cleanupAgent(
     }
   }
 
-  // 6. Mark agent as cleaned in database (not delete)
+  // 6. Mark agent lifecycle status in database (not delete — preserves history)
   // Skip marking as cleaned when keeping directory - agent is still partially alive
   if (!dryRun && result.success && !keepDir) {
-    log(`Marking agent "${agentName}" as cleaned`);
-    markAgentCleaned(workspaceInfo.path, agentName);
+    if (force && agent.status === 'running') {
+      // Forced cleanup of a running agent = died unexpectedly
+      log(`Marking agent "${agentName}" as dead (forced cleanup while running)`);
+      markAgentDead(workspaceInfo.path, agentName);
+    } else if (agent.status === 'running') {
+      // Normal cleanup of a running agent = completed successfully
+      log(`Marking agent "${agentName}" as completed`);
+      markAgentCompleted(workspaceInfo.path, agentName);
+    } else {
+      // Standard cleanup path (active or other states)
+      log(`Marking agent "${agentName}" as cleaned`);
+      markAgentCleaned(workspaceInfo.path, agentName);
+    }
   }
 
   return result;
@@ -1343,9 +1360,9 @@ export function getCleanableAgents(
   workspaceInfo: WorkspaceInfo,
   checkRunning: boolean = true
 ): Agent[] {
-  // Get active ephemeral agents
+  // Get ephemeral agents in active lifecycle states
   const ephemeralAgents = workspaceInfo.agents.filter(
-    a => a.type === 'ephemeral' && a.status === 'active'
+    a => a.type === 'ephemeral' && (a.status === 'active' || a.status === 'running')
   );
 
   if (!checkRunning) {

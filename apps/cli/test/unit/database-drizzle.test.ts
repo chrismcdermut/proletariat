@@ -13,7 +13,15 @@ import {
   addAgentsToDatabase,
   getWorkspaceAgents,
   getAgentByPath,
+  getAgent,
   markAgentCleaned,
+  markAgentRunning,
+  markAgentCompleted,
+  markAgentDead,
+  reactivateAgent,
+  pruneAgentRecords,
+  RECYCLABLE_STATUSES,
+  ACTIVE_STATUSES,
   removeAgentsFromDatabase,
   tryAddEphemeralAgentToDatabase,
   getEphemeralAgentNames,
@@ -461,6 +469,274 @@ describe('Database Drizzle-First Layer (TKT-1090)', () => {
       expect(result.exists).to.be.true
       expect(result.projectCount).to.equal(0)
       expect(result.ticketCount).to.equal(0)
+    })
+  })
+
+  // =========================================================================
+  // Agent Lifecycle States (TKT-259 / PRLT-1097)
+  // =========================================================================
+  describe('Agent lifecycle transitions (PRLT-1097)', () => {
+    it('marks agent as running (active → running)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentRunning(testDir, 'worker')
+      const agent = getAgent(testDir, 'worker')
+      expect(agent).to.not.be.null
+      expect(agent!.status).to.equal('running')
+    })
+
+    it('marks agent as completed (running → completed)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentRunning(testDir, 'worker')
+      markAgentCompleted(testDir, 'worker')
+      const agent = getAgent(testDir, 'worker')
+      expect(agent).to.not.be.null
+      expect(agent!.status).to.equal('completed')
+      expect(agent!.cleaned_at).to.not.be.null
+    })
+
+    it('marks agent as completed from active (active → completed)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentCompleted(testDir, 'worker')
+      const agent = getAgent(testDir, 'worker')
+      expect(agent!.status).to.equal('completed')
+    })
+
+    it('marks agent as dead (running → dead)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentRunning(testDir, 'worker')
+      markAgentDead(testDir, 'worker')
+      const agent = getAgent(testDir, 'worker')
+      expect(agent).to.not.be.null
+      expect(agent!.status).to.equal('dead')
+      expect(agent!.cleaned_at).to.not.be.null
+    })
+
+    it('does not transition from completed to running (invalid)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentCompleted(testDir, 'worker')
+      markAgentRunning(testDir, 'worker') // should be a no-op
+      const agent = getAgent(testDir, 'worker')
+      expect(agent!.status).to.equal('completed')
+    })
+
+    it('does not transition from dead to completed (invalid)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentDead(testDir, 'worker')
+      markAgentCompleted(testDir, 'worker') // should be a no-op
+      const agent = getAgent(testDir, 'worker')
+      expect(agent!.status).to.equal('dead')
+    })
+
+    it('reactivates a completed agent (completed → active)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentCompleted(testDir, 'worker')
+      reactivateAgent(testDir, 'worker')
+      const agent = getAgent(testDir, 'worker')
+      expect(agent!.status).to.equal('active')
+      expect(agent!.cleaned_at).to.be.null
+    })
+
+    it('reactivates a dead agent (dead → active)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentDead(testDir, 'worker')
+      reactivateAgent(testDir, 'worker')
+      const agent = getAgent(testDir, 'worker')
+      expect(agent!.status).to.equal('active')
+      expect(agent!.cleaned_at).to.be.null
+    })
+
+    it('reactivates a cleaned agent (cleaned → active)', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      markAgentCleaned(testDir, 'worker')
+      reactivateAgent(testDir, 'worker')
+      const agent = getAgent(testDir, 'worker')
+      expect(agent!.status).to.equal('active')
+      expect(agent!.cleaned_at).to.be.null
+    })
+
+    it('does not reactivate an already active agent', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['worker'])
+      reactivateAgent(testDir, 'worker') // no-op, already active
+      const agent = getAgent(testDir, 'worker')
+      expect(agent!.status).to.equal('active')
+    })
+
+    it('excludes completed/dead/cleaned agents from default listing', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['a1', 'a2', 'a3'])
+      markAgentCompleted(testDir, 'a1')
+      markAgentDead(testDir, 'a2')
+      const active = getWorkspaceAgents(testDir, false)
+      expect(active).to.have.length(1)
+      expect(active[0].name).to.equal('a3')
+    })
+
+    it('includes all agents when includeCleanedUp=true', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['a1', 'a2', 'a3'])
+      markAgentCompleted(testDir, 'a1')
+      markAgentDead(testDir, 'a2')
+      const all = getWorkspaceAgents(testDir, true)
+      expect(all).to.have.length(3)
+    })
+  })
+
+  describe('Agent name recycling (PRLT-1097)', () => {
+    it('recycles a completed agent name for new ephemeral agent', () => {
+      setupFreshWorkspace()
+      const first = tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      expect(first).to.not.be.null
+      markAgentCompleted(testDir, 'bold-bezos')
+
+      // Should recycle the name
+      const second = tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      expect(second).to.not.be.null
+      expect(second!.status).to.equal('active')
+      expect(second!.cleaned_at).to.be.null
+    })
+
+    it('recycles a dead agent name for new ephemeral agent', () => {
+      setupFreshWorkspace()
+      tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      markAgentDead(testDir, 'bold-bezos')
+
+      const recycled = tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      expect(recycled).to.not.be.null
+      expect(recycled!.status).to.equal('active')
+    })
+
+    it('recycles a cleaned agent name for new ephemeral agent', () => {
+      setupFreshWorkspace()
+      tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      markAgentCleaned(testDir, 'bold-bezos')
+
+      const recycled = tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      expect(recycled).to.not.be.null
+      expect(recycled!.status).to.equal('active')
+    })
+
+    it('blocks name reuse for active agents', () => {
+      setupFreshWorkspace()
+      tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      // Agent is active — name should be blocked
+      const duplicate = tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      expect(duplicate).to.be.null
+    })
+
+    it('blocks name reuse for running agents', () => {
+      setupFreshWorkspace()
+      tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      markAgentRunning(testDir, 'bold-bezos')
+      const duplicate = tryAddEphemeralAgentToDatabase(testDir, 'bold-bezos', 'bezos')
+      expect(duplicate).to.be.null
+    })
+
+    it('excludes recycled names from getEphemeralAgentNames', () => {
+      setupFreshWorkspace()
+      tryAddEphemeralAgentToDatabase(testDir, 'a1', 'base')
+      tryAddEphemeralAgentToDatabase(testDir, 'a2', 'base')
+      markAgentCompleted(testDir, 'a1')
+      const names = getEphemeralAgentNames(testDir)
+      expect(names.size).to.equal(1)
+      expect(names.has('a2')).to.be.true
+      expect(names.has('a1')).to.be.false
+    })
+  })
+
+  describe('Agent record pruning (PRLT-1097)', () => {
+    it('prunes old completed agents', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['old-agent'])
+      markAgentCompleted(testDir, 'old-agent')
+
+      // Manually backdate created_at to 60 days ago
+      const db = openWorkspaceDatabase(testDir)
+      const oldDate = new Date()
+      oldDate.setDate(oldDate.getDate() - 60)
+      db.prepare('UPDATE agents SET created_at = ? WHERE name = ?').run(oldDate.toISOString(), 'old-agent')
+      db.close()
+
+      const result = pruneAgentRecords(testDir, { olderThanDays: 30 })
+      expect(result.dryRun).to.be.false
+      expect(result.pruned).to.have.length(1)
+      expect(result.pruned[0].name).to.equal('old-agent')
+
+      // Agent should be gone from database
+      const agent = getAgent(testDir, 'old-agent')
+      expect(agent).to.be.null
+    })
+
+    it('does not prune recent agents', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['new-agent'])
+      markAgentCompleted(testDir, 'new-agent')
+
+      const result = pruneAgentRecords(testDir, { olderThanDays: 30 })
+      expect(result.pruned).to.have.length(0)
+
+      // Agent should still exist
+      const agent = getAgent(testDir, 'new-agent')
+      expect(agent).to.not.be.null
+    })
+
+    it('does not prune active/running agents', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['active-agent', 'running-agent'])
+      markAgentRunning(testDir, 'running-agent')
+
+      // Backdate both
+      const db = openWorkspaceDatabase(testDir)
+      const oldDate = new Date()
+      oldDate.setDate(oldDate.getDate() - 60)
+      db.prepare('UPDATE agents SET created_at = ?').run(oldDate.toISOString())
+      db.close()
+
+      const result = pruneAgentRecords(testDir, { olderThanDays: 30 })
+      expect(result.pruned).to.have.length(0)
+    })
+
+    it('supports dry-run mode', () => {
+      setupFreshWorkspace()
+      addAgentsToDatabase(testDir, ['old-agent'])
+      markAgentCompleted(testDir, 'old-agent')
+
+      const db = openWorkspaceDatabase(testDir)
+      const oldDate = new Date()
+      oldDate.setDate(oldDate.getDate() - 60)
+      db.prepare('UPDATE agents SET created_at = ? WHERE name = ?').run(oldDate.toISOString(), 'old-agent')
+      db.close()
+
+      const result = pruneAgentRecords(testDir, { olderThanDays: 30, dryRun: true })
+      expect(result.dryRun).to.be.true
+      expect(result.pruned).to.have.length(1)
+
+      // Agent should NOT be deleted in dry-run mode
+      const agent = getAgent(testDir, 'old-agent')
+      expect(agent).to.not.be.null
+    })
+
+    it('RECYCLABLE_STATUSES contains completed, dead, cleaned', () => {
+      expect(RECYCLABLE_STATUSES).to.include('completed')
+      expect(RECYCLABLE_STATUSES).to.include('dead')
+      expect(RECYCLABLE_STATUSES).to.include('cleaned')
+      expect(RECYCLABLE_STATUSES).to.not.include('active')
+      expect(RECYCLABLE_STATUSES).to.not.include('running')
+    })
+
+    it('ACTIVE_STATUSES contains active and running', () => {
+      expect(ACTIVE_STATUSES).to.include('active')
+      expect(ACTIVE_STATUSES).to.include('running')
+      expect(ACTIVE_STATUSES).to.not.include('completed')
     })
   })
 })
