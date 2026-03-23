@@ -111,13 +111,11 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   }
 
   // ── First-time user detection ───────────────────────────────────────
-  // Skip for help-related commands/flags
   // When user runs just `prlt` with no args, id is undefined
   if (!id || id === 'help') {
     // Check if this is first-time user running bare `prlt`
     if (!id && isFirstTimeUser()) {
-      // Run new command - in TTY it prompts interactively,
-      // in non-TTY it outputs a JSON prompt for the HQ name
+      // Redirect to `prlt new` which handles first-time vs returning flow
       const { run } = await import('@oclif/core')
       await run(['new'], config)
       await shutdownAnalytics()
@@ -131,8 +129,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     const chalk = await import('chalk')
     console.log(chalk.default.yellow('\n⚠️  No headquarters found. Let\'s set one up first.\n'))
 
-    // Run new command - in TTY it prompts interactively,
-    // in non-TTY it outputs a JSON prompt for the HQ name
+    // Redirect to `prlt new` which handles first-time vs returning flow
     const { run } = await import('@oclif/core')
     await run(['new'], config)
 
@@ -158,7 +155,7 @@ function shouldValidateNativeModules(id?: string): boolean {
 }
 
 /**
- * Check if this is a first-time user (no headquarters configured)
+ * Check if this is a first-time user (no headquarters configured anywhere)
  */
 function isFirstTimeUser(): boolean {
   // Check if user is currently inside a valid HQ directory
