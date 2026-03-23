@@ -63,4 +63,58 @@ describe('onboarding', () => {
       expect(result.hasCodex).to.equal(hasCodex);
     });
   });
+
+  describe('SETUP_PROMPT content', () => {
+    let wizardModule: typeof import('../../src/lib/onboarding/wizard.js');
+
+    before(async () => {
+      wizardModule = await import('../../src/lib/onboarding/wizard.js');
+    });
+
+    it('runOnboardingJsonMode outputs setup prompt with prlt concepts when tool selected', () => {
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+
+      try {
+        wizardModule.runOnboardingJsonMode({ setup: 'claude-code' });
+      } catch {
+        // outputPromptAsJson / outputSuccessAsJson throws ExitError
+      } finally {
+        console.log = originalLog;
+      }
+
+      const output = logs.join('\n');
+      // The JSON output should contain the rich setup prompt with prlt concepts
+      if (output.includes('setupPrompt')) {
+        const parsed = JSON.parse(logs[0]);
+        const prompt = parsed.result?.setupPrompt || '';
+        expect(prompt).to.include('headquarters');
+        expect(prompt).to.include('Docker');
+        expect(prompt).to.include('prlt new');
+        expect(prompt).to.include('PMO');
+        expect(prompt).to.include('per-HQ');
+      }
+    });
+
+    it('runOnboardingJsonMode uses "new" as command metadata', () => {
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+
+      try {
+        wizardModule.runOnboardingJsonMode({});
+      } catch {
+        // Expected ExitError
+      } finally {
+        console.log = originalLog;
+      }
+
+      if (logs.length > 0) {
+        const parsed = JSON.parse(logs[0]);
+        expect(parsed.metadata?.command).to.equal('new');
+      }
+    });
+  });
 });

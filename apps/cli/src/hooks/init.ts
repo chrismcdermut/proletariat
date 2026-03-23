@@ -44,13 +44,20 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
-  // Skip when --help or --version flags are present - these should always be available
-  // Check both process.argv (production CLI) and the oclif-provided argv
-  // (programmatic invocation via @oclif/test runCommand)
-  if (process.argv.includes('--help') || process.argv.includes('-h') ||
-      argv?.includes('--help') || argv?.includes('-h') ||
-      process.argv.includes('--version') || process.argv.includes('-v') ||
+  // Skip when --version flag is present - always available
+  if (process.argv.includes('--version') || process.argv.includes('-v') ||
       argv?.includes('--version') || argv?.includes('-v')) {
+    return
+  }
+
+  // When --help is used, show model-friendly context if no HQ is configured
+  const isHelpFlag = process.argv.includes('--help') || process.argv.includes('-h') ||
+      argv?.includes('--help') || argv?.includes('-h')
+  if (isHelpFlag) {
+    if (isFirstTimeUser()) {
+      showLandingPage()
+    }
+    // Let oclif's help plugin render the standard help after this
     return
   }
 
@@ -112,10 +119,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   if (!id || id === 'help') {
     // Check if this is first-time user running bare `prlt`
     if (!id && isFirstTimeUser()) {
-      // Run new command - in TTY it prompts interactively,
-      // in non-TTY it outputs a JSON prompt for the HQ name
-      const { run } = await import('@oclif/core')
-      await run(['new'], config)
+      showLandingPage()
       await shutdownAnalytics()
       return
     }
@@ -124,17 +128,65 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
 
   // For all other commands, check if first-time user
   if (!isHqOptionalCommand && isFirstTimeUser()) {
+    showLandingPage()
+
     const chalk = await import('chalk')
-    console.log(chalk.default.yellow('\n⚠️  No headquarters found. Let\'s set one up first.\n'))
-
-    // Run new command - in TTY it prompts interactively,
-    // in non-TTY it outputs a JSON prompt for the HQ name
-    const { run } = await import('@oclif/core')
-    await run(['new'], config)
-
-    console.log(chalk.default.blue(`\n✅ Setup complete! You can now run: prlt ${id}\n`))
+    console.log(chalk.default.yellow(`\nRun ${chalk.default.bold('prlt new')} first, then retry: prlt ${id}\n`))
     await shutdownAnalytics()
     return
+  }
+}
+
+/**
+ * Show the model-friendly landing page when no HQ is configured.
+ *
+ * Designed to give both humans and AI models enough context to
+ * understand what prlt is and how to get started.
+ */
+function showLandingPage(): void {
+  // Check if running in a non-TTY environment (AI agent / piped output)
+  const nonTTY = !process.stdout.isTTY || !process.stdin.isTTY ||
+    process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true'
+
+  if (nonTTY) {
+    // Machine-readable output for AI models
+    const output = {
+      type: 'info',
+      tool: 'prlt',
+      description: 'AI agent orchestration platform',
+      status: 'no_hq_configured',
+      concepts: {
+        hq: 'A headquarters (HQ) is a workspace directory that contains repos, agents, and a project board. It is the root of all prlt operations.',
+        agents: 'AI coding agents that run in isolated Docker containers or git worktrees, each working on a ticket.',
+        pmo: 'Project Management Office — a kanban board for tracking tickets. Can sync with Linear, Jira, Asana, Monday, Trello, or Shortcut.',
+      },
+      getting_started: [
+        { step: 1, command: 'prlt new', description: 'Create a workspace (HQ)' },
+        { step: 2, command: 'cd <name>-hq', description: 'Navigate into the new HQ' },
+        { step: 3, command: 'prlt linear connect', description: 'Connect your PMO provider (Linear, Jira, Asana, etc.)' },
+        { step: 4, command: 'prlt work implement TKT-1', description: 'Spawn an agent on a ticket' },
+      ],
+      prerequisites: [
+        'Docker running',
+        'A PMO account (Linear, Jira, ClickUp, Trello, Monday) — optional',
+      ],
+      workflow: 'prlt new → cd into HQ → connect PMO → create ticket → spawn agent → get PR',
+    }
+    console.log(JSON.stringify(output, null, 2))
+  } else {
+    // Human-readable colored output
+    console.log('')
+    console.log('  prlt - AI agent orchestration')
+    console.log('')
+    console.log('  Get started:')
+    console.log('    prlt new              Create a workspace')
+    console.log('    prlt linear connect   Connect your Linear board')
+    console.log('    prlt work implement   Spawn an agent on a ticket')
+    console.log('')
+    console.log('  Prerequisites:')
+    console.log('    - Docker running')
+    console.log('    - A PMO account (Linear, Jira, ClickUp, Trello, Monday)')
+    console.log('')
   }
 }
 

@@ -2,6 +2,7 @@ import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import inquirer from 'inquirer';
 import {
   promptForHQName,
   promptForHQLocation,
@@ -19,9 +20,18 @@ import {
   buildPromptConfig,
   createMetadata,
 } from '../lib/prompt-json.js';
+import { runOnboardingWizard } from '../lib/onboarding/wizard.js';
 
 export default class New extends Command {
-  static description = 'Create a new headquarters for managing repositories, agents, and projects';
+  static description = `Create a new headquarters (HQ) for managing repositories, agents, and projects.
+
+An HQ is a workspace directory containing repos, agents, and a project board.
+Setup can be done manually (step-by-step prompts) or with an AI agent (Claude Code or Codex).
+
+After creation, cd into the HQ and connect your PMO provider:
+  prlt linear connect   # or jira, asana, monday, trello, shortcut
+Then spawn agents on tickets:
+  prlt work implement TKT-1`;
 
   static examples = [
     // Human mode (interactive)
@@ -54,6 +64,10 @@ export default class New extends Command {
       default: true,
       allowNo: true,
     }),
+    setup: Flags.string({
+      description: 'Setup method: manual, claude-code, or codex',
+      options: ['manual', 'claude-code', 'codex'],
+    }),
   };
 
   async run(): Promise<void> {
@@ -71,6 +85,32 @@ export default class New extends Command {
    */
   private async runHumanMode(): Promise<void> {
     console.log(chalk.blue('🚀 Creating a new headquarters...\n'));
+
+    // Step 0: Choose setup method — agent-guided or manual
+    const { setupMethod } = await inquirer.prompt([{
+      type: 'list',
+      name: 'setupMethod',
+      message: 'How would you like to configure your HQ?',
+      choices: [
+        { name: 'Manual config (step-by-step prompts)', value: 'manual' },
+        { name: 'Agent-guided config (AI walks you through setup)', value: 'agent' },
+      ],
+    }]);
+
+    if (setupMethod === 'agent') {
+      const result = await runOnboardingWizard();
+      if (result.method === 'ai' && result.spawned) {
+        // Agent completed setup — nothing else to do
+        return;
+      }
+      if (result.method === 'ai' && !result.spawned) {
+        // Agent failed to spawn — fall through to manual
+        console.log(chalk.yellow('Falling back to manual setup...\n'));
+      }
+      // If result.method === 'manual', user chose manual in the wizard — continue below
+    }
+
+    // Manual config: step-by-step prompts
 
     // Step 1: Get HQ name
     const hqName = await promptForHQName();
@@ -115,8 +155,23 @@ export default class New extends Command {
     agents?: string;
     repos?: string;
     pmo: boolean;
+    setup?: string;
   }): Promise<void> {
-    // If --name not provided, output a prompt so agents can supply it
+    // If --setup not provided, prompt for setup method first
+    if (!flags.setup && !flags.name) {
+      const { runOnboardingJsonMode } = await import('../lib/onboarding/wizard.js');
+      runOnboardingJsonMode(flags as Record<string, unknown>);
+      return;
+    }
+
+    // If agent-guided setup was chosen, handle it
+    if (flags.setup && flags.setup !== 'manual') {
+      const { runOnboardingJsonMode } = await import('../lib/onboarding/wizard.js');
+      runOnboardingJsonMode({ ...flags, setup: flags.setup } as Record<string, unknown>);
+      return;
+    }
+
+    // Manual setup: If --name not provided, output a prompt so agents can supply it
     if (!flags.name) {
       outputPromptAsJson(
         buildPromptConfig('input', 'name', 'Enter a name for your headquarters:', undefined, undefined),

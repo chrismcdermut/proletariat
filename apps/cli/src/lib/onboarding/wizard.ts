@@ -49,15 +49,72 @@ function buildSetupChoices(detection: ToolDetectionResult): PromptChoice[] {
   return choices;
 }
 
-const SETUP_PROMPT = `You are helping a user set up Proletariat HQ for the first time.
-Run the following commands to create their headquarters:
+const SETUP_PROMPT = `You are helping a user set up Proletariat (prlt) for the first time.
 
-1. Run: prlt new
-2. Follow the interactive prompts to configure the HQ name, agents, repos, and PMO.
-3. When done, show them how to create their first ticket: prlt ticket create
-4. Show them how to spawn their first agent: prlt work spawn
+## What is Proletariat?
 
-Be helpful and guide them through each step. If any step fails, explain what went wrong and how to fix it.`;
+Proletariat is an AI agent orchestration platform. It manages a "headquarters" (HQ) — a directory that contains:
+- repos/ — cloned git repositories your agents work on
+- agents/ — isolated workspaces (Docker containers or git worktrees) for each AI agent
+- pmo/ — a project management office with a kanban board for tracking tickets
+- .proletariat/ — config and a SQLite database
+
+## Prerequisites
+
+Before starting, the user needs:
+- Docker running (agents run in containers)
+- A PMO account (Linear, Jira, ClickUp, Trello, or Monday) — optional but recommended
+
+## Setup Steps
+
+1. Run: prlt new --name <project-name>
+   This creates the HQ directory structure. Choose a descriptive name (e.g., "acme-app").
+   The HQ will be created at ./<name>-hq/ by default.
+
+2. Once the HQ is created, cd into it:
+   cd <name>-hq
+
+3. Connect a PMO provider (optional but recommended):
+   prlt linear connect    # for Linear
+   prlt jira connect      # for Jira
+   prlt asana connect     # for Asana
+   prlt monday connect    # for Monday.com
+   prlt trello connect    # for Trello
+   prlt shortcut connect  # for Shortcut
+
+4. Add repositories:
+   prlt repo add <path-or-url>
+
+5. Create a first ticket:
+   prlt ticket create --title "My first task"
+
+6. Spawn an agent to work on it:
+   prlt work implement TKT-1
+
+## What Happens Next
+
+After setup, the typical workflow is:
+  prlt ticket create → prlt work implement → agent works → prlt pr → code review → merge
+
+The PMO provider and AI tool preferences are stored per-HQ, not machine-wide.
+
+Guide the user through each step. If any step fails, explain what went wrong and how to fix it.
+After setup is complete, remind the user to cd into their new HQ directory.`;
+
+/**
+ * Build the command-line arguments for spawning an AI tool.
+ * Each tool has its own CLI interface for passing a system prompt.
+ */
+function buildToolArgs(tool: DetectedTool): string[] {
+  if (tool.name === 'claude-code') {
+    return ['--print', SETUP_PROMPT];
+  }
+  if (tool.name === 'codex') {
+    return ['--prompt', SETUP_PROMPT];
+  }
+  // Fallback: pass as positional argument
+  return [SETUP_PROMPT];
+}
 
 /**
  * Spawn an AI tool to handle the setup automatically.
@@ -69,7 +126,8 @@ function spawnAISetup(tool: DetectedTool): Promise<boolean> {
     console.log(chalk.gray('─'.repeat(60)));
     console.log('');
 
-    const child = spawn(tool.command, ['--print', SETUP_PROMPT], {
+    const args = buildToolArgs(tool);
+    const child = spawn(tool.command, args, {
       stdio: 'inherit',
       env: { ...process.env },
     });
@@ -149,7 +207,7 @@ export async function runOnboardingWizard(): Promise<OnboardingResult> {
 export function runOnboardingJsonMode(flags: Record<string, unknown>): void {
   const detection = detectAITools();
   const choices = buildSetupChoices(detection);
-  const metadata = createMetadata('init', flags);
+  const metadata = createMetadata('new', flags);
 
   // If a setup method is provided via flag, report success with detection results
   if (flags.setup) {

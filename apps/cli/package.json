@@ -1,6 +1,6 @@
 {
   "name": "@proletariat/cli",
-  "description": "Agent orchestration platform for AI labor - Spin up workers on demand for multi-agent development",
+  "description": "AI agent orchestration — create an HQ, connect your PMO (Linear/Jira/Asana), and spawn agents on tickets",
   "version": "0.3.86",
   "author": "Chris McDermut",
   "mcpName": "io.github.chrismcdermut/proletariat-cli",
