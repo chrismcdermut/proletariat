@@ -80,7 +80,8 @@ export default class GHLogin extends Command {
     this.log(styles.muted('Starting GitHub authentication...\n'));
 
     // Run gh auth login interactively - track for cleanup on Ctrl+C
-    const child = spawn('gh', ['auth', 'login'], {
+    // PRLT-1095: Request 'workflow' scope so agents can push .github/workflows/ changes
+    const child = spawn('gh', ['auth', 'login', '-s', 'workflow'], {
       stdio: 'inherit',
       shell: true,
     });

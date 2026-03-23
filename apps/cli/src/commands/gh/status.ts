@@ -2,6 +2,7 @@ import { Command } from '@oclif/core';
 import chalk from 'chalk';
 import { styles } from '../../lib/styles.js';
 import { isGHInstalled, isGHAuthenticated, getGHUsername, isGHTokenInEnv } from '../../lib/pr/index.js';
+import { hasWorkflowScope } from '../../lib/execution/runners/shared.js';
 import {
   isMachineOutput,
   outputSuccessAsJson,
@@ -31,6 +32,7 @@ export default class GHStatus extends Command {
     const ghAuthenticated = ghInstalled && isGHAuthenticated();
     const username = ghAuthenticated ? getGHUsername() : null;
     const ghTokenSet = isGHTokenInEnv();
+    const workflowScope = ghAuthenticated ? hasWorkflowScope() : false;
 
     // In JSON mode, output status as JSON
     if (jsonMode) {
@@ -40,6 +42,7 @@ export default class GHStatus extends Command {
           ghAuthenticated,
           username,
           ghTokenSet,
+          workflowScope,
           ready: ghInstalled && ghAuthenticated && ghTokenSet,
         },
         createMetadata('gh status', flags)
@@ -76,14 +79,28 @@ export default class GHStatus extends Command {
     // Check if GH_TOKEN is available for devcontainers
     if (ghTokenSet) {
       this.log(chalk.green('  ✓ GH_TOKEN available for devcontainers'));
-      this.log(styles.muted(''));
-      this.log(chalk.green('All set! PR creation will work in both host and devcontainers.'));
     } else {
       this.log(chalk.yellow('  ⚠ GH_TOKEN not set'));
       this.log(styles.muted(''));
       this.log(styles.muted('    PR creation works on host, but not in devcontainers.'));
       this.log(styles.muted('    Run to see setup instructions:'));
       this.log(chalk.cyan('      prlt gh token'));
+    }
+
+    // PRLT-1095: Check workflow scope for CI file modifications
+    if (workflowScope) {
+      this.log(chalk.green('  ✓ Token has workflow scope (can push CI changes)'));
+    } else {
+      this.log(chalk.yellow('  ⚠ Token missing workflow scope'));
+      this.log(styles.muted(''));
+      this.log(styles.muted('    Agents cannot push changes to .github/workflows/ files.'));
+      this.log(styles.muted('    Add the workflow scope:'));
+      this.log(chalk.cyan('      gh auth refresh -h github.com -s workflow'));
+    }
+
+    if (ghTokenSet && workflowScope) {
+      this.log(styles.muted(''));
+      this.log(chalk.green('All set! PR creation and CI changes will work in devcontainers.'));
     }
   }
 }

@@ -33,6 +33,7 @@ import {
   checkDockerDaemon,
   ensureDockerContainer,
   copyClaudeCredentials,
+  ensureWorkflowScope,
 } from './shared.js'
 
 import { runDevcontainerInTmux } from './devcontainer-tmux.js'
@@ -216,6 +217,15 @@ export async function runDevcontainer(
         }
       } catch (err) {
         console.debug('[runners:docker] gh auth token failed:', err)
+      }
+    }
+
+    // PRLT-1095: Ensure token has workflow scope for pushing .github/workflows/ changes.
+    // Without this scope, agents cannot update CI files even when the ticket requires it.
+    if (process.env.GITHUB_TOKEN || process.env.GH_TOKEN) {
+      const hasScope = ensureWorkflowScope()
+      if (!hasScope) {
+        console.debug('[runners:docker] WARNING: GitHub token lacks workflow scope. Agents will not be able to push changes to .github/workflows/ files. Run: gh auth refresh -h github.com -s workflow')
       }
     }
 

@@ -155,6 +155,122 @@ export function isGitHubTokenAvailable(): boolean {
 }
 
 // =============================================================================
+// GitHub Token Scopes (PRLT-1095)
+// =============================================================================
+
+/**
+ * Get the OAuth scopes of the current GitHub token.
+ * Parses `gh auth status` output to extract the "Token scopes:" line.
+ * Returns an array of scope strings (e.g. ['repo', 'workflow']).
+ */
+export function getGitHubTokenScopes(): string[] {
+  try {
+    // gh auth status writes to stderr
+    const output = execSync('gh auth status', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 })
+    return parseScopesFromAuthStatus(output)
+  } catch (error: unknown) {
+    // gh auth status exits non-zero when not authenticated, but still writes status to stderr
+    const stderr = (error as { stderr?: string })?.stderr || ''
+    if (stderr) {
+      return parseScopesFromAuthStatus(stderr)
+    }
+    return []
+  }
+}
+
+/**
+ * Parse scope strings from gh auth status output.
+ * Handles both active and inactive account entries — returns scopes from the active account.
+ */
+export function parseScopesFromAuthStatus(output: string): string[] {
+  const lines = output.split('\n')
+  let inActiveAccount = false
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    // Track whether we're in the active account block
+    if (trimmed.startsWith('- Active account: true')) {
+      inActiveAccount = true
+      continue
+    }
+    if (trimmed.startsWith('- Active account: false')) {
+      inActiveAccount = false
+      continue
+    }
+
+    // Only parse scopes from the active account
+    if (inActiveAccount && trimmed.startsWith('- Token scopes:')) {
+      const scopePart = trimmed.replace('- Token scopes:', '').trim()
+      if (!scopePart || scopePart === "''") return []
+      return scopePart
+        .replace(/^'|'$/g, '')
+        .split(',')
+        .map(s => s.trim().replace(/^'|'$/g, ''))
+        .filter(Boolean)
+    }
+  }
+
+  // Fallback: if no "Active account" markers found, parse first Token scopes line
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('- Token scopes:')) {
+      const scopePart = trimmed.replace('- Token scopes:', '').trim()
+      if (!scopePart || scopePart === "''") return []
+      return scopePart
+        .replace(/^'|'$/g, '')
+        .split(',')
+        .map(s => s.trim().replace(/^'|'$/g, ''))
+        .filter(Boolean)
+    }
+  }
+
+  return []
+}
+
+/**
+ * Check if the current GitHub token has the 'workflow' scope.
+ * The workflow scope is required to push changes to .github/workflows/ files.
+ */
+export function hasWorkflowScope(): boolean {
+  const scopes = getGitHubTokenScopes()
+  return scopes.includes('workflow')
+}
+
+/**
+ * Attempt to ensure the GitHub token has workflow scope.
+ * If the current token lacks it, tries `gh auth refresh -s workflow` to add the scope.
+ * Returns true if workflow scope is (now) available, false otherwise.
+ */
+export function ensureWorkflowScope(): boolean {
+  if (hasWorkflowScope()) return true
+
+  console.debug('[runners:github] Token missing workflow scope, attempting gh auth refresh...')
+  try {
+    execSync('gh auth refresh -h github.com -s workflow', {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 30000,
+    })
+    // Re-fetch the token after refresh so env vars pick up the new one
+    try {
+      const refreshedToken = execSync('gh auth token', { encoding: 'utf-8', stdio: 'pipe' }).trim()
+      if (refreshedToken) {
+        process.env.GITHUB_TOKEN = refreshedToken
+        process.env.GH_TOKEN = refreshedToken
+      }
+    } catch {
+      // Non-fatal — token refresh may have worked but re-fetch failed
+    }
+    console.debug('[runners:github] Successfully added workflow scope to token')
+    return true
+  } catch {
+    console.debug('[runners:github] Failed to refresh token with workflow scope (may require interactive auth)')
+    return false
+  }
+}
+
+// =============================================================================
 // Docker Status Check
 // =============================================================================
 

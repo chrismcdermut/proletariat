@@ -39,6 +39,7 @@ Displays:
 - gh CLI installation status
 - Authentication status and username
 - GH_TOKEN availability for devcontainers
+- Token workflow scope status (required for CI file changes)
 
 ### Token Setup
 
@@ -65,6 +66,36 @@ Provides shell-specific instructions for setting `GH_TOKEN` environment variable
 | GH_TOKEN | GitHub personal access token | Devcontainer PR creation |
 | GITHUB_TOKEN | Alternative token name | Some integrations |
 
+## Token Scopes
+
+The GitHub token must have the **`workflow`** scope for agents to push changes to `.github/workflows/` files. Without this scope, agents will fail when tickets require CI/CD changes.
+
+### Required Scopes
+
+| Scope | Purpose |
+|-------|---------|
+| `repo` | Push code, create PRs |
+| `workflow` | Push changes to `.github/workflows/` files |
+
+### Checking Scopes
+
+```bash
+# Check current token scopes
+gh auth status
+
+# If workflow scope is missing, add it
+gh auth refresh -h github.com -s workflow
+```
+
+### How It Works
+
+When spawning a Docker agent, `prlt` automatically:
+1. Checks if the token has the `workflow` scope
+2. Attempts `gh auth refresh -s workflow` if the scope is missing
+3. Warns if the scope cannot be added (e.g., non-interactive environment)
+
+New logins via `prlt gh login` automatically request the `workflow` scope.
+
 ## Token Setup by Shell
 
 ### Zsh (~/.zshrc)
@@ -83,6 +114,7 @@ export GH_TOKEN=$(gh auth token)
 - **Host auth sufficient**: `gh auth login` works for host operations
 - **Token for containers**: `GH_TOKEN` must be exported for devcontainer access
 - **Token refresh**: Token is dynamically fetched from gh CLI, stays current
+- **Workflow scope required**: Token must have `workflow` scope for CI file changes (PRLT-1095)
 
 ## Related Domains
 

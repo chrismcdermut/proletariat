@@ -10,6 +10,9 @@ import {
   checkDockerDaemon,
   getGitHubToken,
   isGitHubTokenAvailable,
+  getGitHubTokenScopes,
+  parseScopesFromAuthStatus,
+  hasWorkflowScope,
 } from '../../src/lib/execution/runners/shared.js'
 import type { ExecutionContext, TerminalApp } from '../../src/lib/execution/types.js'
 
@@ -213,6 +216,85 @@ describe('Runner Shared Utilities (TKT-140)', () => {
 
     it('should be consistent with getGitHubToken', () => {
       expect(isGitHubTokenAvailable()).to.equal(getGitHubToken() !== null)
+    })
+  })
+
+  // =========================================================================
+  // GitHub Token Scopes (PRLT-1095)
+  // =========================================================================
+  describe('parseScopesFromAuthStatus', () => {
+    it('should parse scopes from active account', () => {
+      const output = [
+        'github.com',
+        '  ✓ Logged in to github.com account testuser (GITHUB_TOKEN)',
+        '  - Active account: true',
+        '  - Git operations protocol: ssh',
+        '  - Token: gho_****',
+        "  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'",
+      ].join('\n')
+      const scopes = parseScopesFromAuthStatus(output)
+      expect(scopes).to.deep.equal(['gist', 'read:org', 'repo', 'workflow'])
+    })
+
+    it('should prefer active account over inactive account', () => {
+      const output = [
+        'github.com',
+        '  ✓ Logged in to github.com account user1 (GITHUB_TOKEN)',
+        '  - Active account: true',
+        '  - Token: gho_****',
+        "  - Token scopes: 'repo'",
+        '',
+        '  ✓ Logged in to github.com account user2 (hosts.yml)',
+        '  - Active account: false',
+        '  - Token: gho_****',
+        "  - Token scopes: 'repo', 'workflow'",
+      ].join('\n')
+      const scopes = parseScopesFromAuthStatus(output)
+      expect(scopes).to.deep.equal(['repo'])
+      expect(scopes).to.not.include('workflow')
+    })
+
+    it('should return empty array for no scopes', () => {
+      const output = [
+        '  - Active account: true',
+        "  - Token scopes: ''",
+      ].join('\n')
+      expect(parseScopesFromAuthStatus(output)).to.deep.equal([])
+    })
+
+    it('should return empty array for empty input', () => {
+      expect(parseScopesFromAuthStatus('')).to.deep.equal([])
+    })
+
+    it('should fall back to first Token scopes line when no Active account markers', () => {
+      const output = [
+        'github.com',
+        '  ✓ Logged in to github.com',
+        "  - Token scopes: 'repo', 'workflow'",
+      ].join('\n')
+      const scopes = parseScopesFromAuthStatus(output)
+      expect(scopes).to.deep.equal(['repo', 'workflow'])
+    })
+  })
+
+  describe('getGitHubTokenScopes', () => {
+    it('should return an array', () => {
+      const scopes = getGitHubTokenScopes()
+      expect(scopes).to.be.an('array')
+    })
+
+    it('should not throw', () => {
+      expect(() => getGitHubTokenScopes()).to.not.throw()
+    })
+  })
+
+  describe('hasWorkflowScope', () => {
+    it('should return a boolean', () => {
+      expect(hasWorkflowScope()).to.be.a('boolean')
+    })
+
+    it('should not throw', () => {
+      expect(() => hasWorkflowScope()).to.not.throw()
     })
   })
 })
