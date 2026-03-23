@@ -1,14 +1,25 @@
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PMO_TABLES } from '../pmo/schema.js'
 import type { MondayItemMap } from './types.js'
+import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
+
+function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
+  if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
+    return wrapDatabase(dbOrDriver as Database.Database)
+  }
+  return dbOrDriver as DatabaseDriver
+}
 
 export class MondayMapper {
-  constructor(private db: Database.Database) {
+  private driver: DatabaseDriver
+
+  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+    this.driver = toDriver(dbOrDriver)
     this.ensureTable()
   }
 
   private ensureTable(): void {
-    this.db.exec(`
+    this.driver.exec(`
       CREATE TABLE IF NOT EXISTS ${PMO_TABLES.monday_item_map} (
         pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
         monday_board_id TEXT NOT NULL,
@@ -23,19 +34,19 @@ export class MondayMapper {
       )
     `)
 
-    this.db.exec(`
+    this.driver.exec(`
       CREATE INDEX IF NOT EXISTS idx_pmo_monday_item_map_item_id
       ON ${PMO_TABLES.monday_item_map}(monday_item_id)
     `)
 
-    this.db.exec(`
+    this.driver.exec(`
       CREATE INDEX IF NOT EXISTS idx_pmo_monday_item_map_board_id
       ON ${PMO_TABLES.monday_item_map}(monday_board_id)
     `)
   }
 
   createOrUpdateMapping(map: Omit<MondayItemMap, 'lastSyncedAt' | 'createdAt'>): void {
-    this.db.prepare(`
+    this.driver.prepare(`
       INSERT INTO ${PMO_TABLES.monday_item_map}
         (pmo_ticket_id, monday_board_id, monday_item_id, monday_item_name, monday_item_url, sync_direction, last_synced_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -57,31 +68,31 @@ export class MondayMapper {
   }
 
   getByTicketId(ticketId: string): MondayItemMap | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare<Record<string, unknown>>(`
       SELECT * FROM ${PMO_TABLES.monday_item_map} WHERE pmo_ticket_id = ?
-    `).get(ticketId) as Record<string, unknown> | undefined
+    `).get(ticketId)
 
     return row ? this.rowToMap(row) : null
   }
 
   getByMondayItemId(itemId: string): MondayItemMap | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare<Record<string, unknown>>(`
       SELECT * FROM ${PMO_TABLES.monday_item_map} WHERE monday_item_id = ?
-    `).get(itemId) as Record<string, unknown> | undefined
+    `).get(itemId)
 
     return row ? this.rowToMap(row) : null
   }
 
   listMappings(): MondayItemMap[] {
-    const rows = this.db.prepare(`
+    const rows = this.driver.prepare<Record<string, unknown>>(`
       SELECT * FROM ${PMO_TABLES.monday_item_map} ORDER BY created_at DESC
-    `).all() as Record<string, unknown>[]
+    `).all()
 
     return rows.map((row) => this.rowToMap(row))
   }
 
   updateSyncTimestamp(ticketId: string): void {
-    this.db.prepare(`
+    this.driver.prepare(`
       UPDATE ${PMO_TABLES.monday_item_map}
       SET last_synced_at = CURRENT_TIMESTAMP
       WHERE pmo_ticket_id = ?
@@ -89,7 +100,7 @@ export class MondayMapper {
   }
 
   deleteMapping(ticketId: string): void {
-    this.db.prepare(`
+    this.driver.prepare(`
       DELETE FROM ${PMO_TABLES.monday_item_map}
       WHERE pmo_ticket_id = ?
     `).run(ticketId)

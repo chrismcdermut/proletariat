@@ -1,14 +1,25 @@
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PMO_TABLES } from '../pmo/schema.js'
 import type { AsanaTaskMap } from './types.js'
+import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
+
+function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
+  if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
+    return wrapDatabase(dbOrDriver as Database.Database)
+  }
+  return dbOrDriver as DatabaseDriver
+}
 
 export class AsanaMapper {
-  constructor(private db: Database.Database) {
+  private driver: DatabaseDriver
+
+  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+    this.driver = toDriver(dbOrDriver)
     this.ensureTable()
   }
 
   private ensureTable(): void {
-    this.db.exec(`
+    this.driver.exec(`
       CREATE TABLE IF NOT EXISTS ${PMO_TABLES.asana_task_map} (
         pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
         asana_task_gid TEXT NOT NULL,
@@ -20,14 +31,14 @@ export class AsanaMapper {
       )
     `)
 
-    this.db.exec(`
+    this.driver.exec(`
       CREATE INDEX IF NOT EXISTS idx_pmo_asana_task_map_task_gid
         ON ${PMO_TABLES.asana_task_map}(asana_task_gid)
     `)
   }
 
   createOrUpdateMapping(pmoTicketId: string, asanaTaskGid: string, asanaProjectGid?: string): void {
-    this.db.prepare(`
+    this.driver.prepare(`
       INSERT INTO ${PMO_TABLES.asana_task_map}
         (pmo_ticket_id, asana_task_gid, asana_project_gid, last_synced_at, created_at)
       VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -39,31 +50,31 @@ export class AsanaMapper {
   }
 
   getByTicketId(ticketId: string): AsanaTaskMap | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare<Record<string, unknown>>(`
       SELECT * FROM ${PMO_TABLES.asana_task_map} WHERE pmo_ticket_id = ?
-    `).get(ticketId) as Record<string, unknown> | undefined
+    `).get(ticketId)
 
     return row ? this.rowToMap(row) : null
   }
 
   getByTaskGid(asanaTaskGid: string): AsanaTaskMap | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare<Record<string, unknown>>(`
       SELECT * FROM ${PMO_TABLES.asana_task_map} WHERE asana_task_gid = ?
-    `).get(asanaTaskGid) as Record<string, unknown> | undefined
+    `).get(asanaTaskGid)
 
     return row ? this.rowToMap(row) : null
   }
 
   listMappings(): AsanaTaskMap[] {
-    const rows = this.db.prepare(`
+    const rows = this.driver.prepare<Record<string, unknown>>(`
       SELECT * FROM ${PMO_TABLES.asana_task_map} ORDER BY created_at DESC
-    `).all() as Record<string, unknown>[]
+    `).all()
 
     return rows.map((row) => this.rowToMap(row))
   }
 
   updateSyncTimestamp(ticketId: string): void {
-    this.db.prepare(`
+    this.driver.prepare(`
       UPDATE ${PMO_TABLES.asana_task_map}
       SET last_synced_at = CURRENT_TIMESTAMP
       WHERE pmo_ticket_id = ?

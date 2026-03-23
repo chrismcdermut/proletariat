@@ -5,7 +5,7 @@
  * Handles import (Linear → PMO) and reverse lookup for sync operations.
  */
 
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PMO_TABLES } from '../pmo/schema.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
 import type { ExternalExecutionMapping } from '../external-issues/types.js'
@@ -19,12 +19,22 @@ import {
   LINEAR_STATE_TO_PMO_CATEGORY,
   LINEAR_PRIORITY_TO_PMO,
 } from './types.js'
+import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
+
+function toDriver(dbOrDriver: DatabaseDriver | Database.Database): DatabaseDriver {
+  if ('prepare' in dbOrDriver && 'pragma' in dbOrDriver && !('raw' in dbOrDriver)) {
+    return wrapDatabase(dbOrDriver as Database.Database)
+  }
+  return dbOrDriver as DatabaseDriver
+}
 
 export class LinearMapper {
+  private driver: DatabaseDriver
   private externalMappingStore: ExternalExecutionMappingStore
 
-  constructor(private db: Database.Database) {
-    this.externalMappingStore = new ExternalExecutionMappingStore(db)
+  constructor(dbOrDriver: DatabaseDriver | Database.Database) {
+    this.driver = toDriver(dbOrDriver)
+    this.externalMappingStore = new ExternalExecutionMappingStore(this.driver)
     this.ensureTable()
   }
 
@@ -33,7 +43,7 @@ export class LinearMapper {
    * Uses CREATE TABLE IF NOT EXISTS to match the schema defined in schema.ts.
    */
   private ensureTable(): void {
-    this.db.exec(`
+    this.driver.exec(`
       CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_issue_map} (
         pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
         provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
@@ -47,11 +57,11 @@ export class LinearMapper {
         UNIQUE (provider, external_id)
       )
     `)
-    this.db.exec(`
+    this.driver.exec(`
       CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_external_id
         ON ${PMO_TABLES.external_issue_map}(provider, external_id)
     `)
-    this.db.exec(`
+    this.driver.exec(`
       CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_external_key_eim
         ON ${PMO_TABLES.external_issue_map}(provider, external_key)
     `)
@@ -216,7 +226,7 @@ export class LinearMapper {
    * Create a mapping record.
    */
   createMapping(map: Omit<LinearIssueMap, 'lastSyncedAt'>): void {
-    this.db.prepare(`
+    this.driver.prepare(`
       INSERT INTO ${PMO_TABLES.external_issue_map}
         (pmo_ticket_id, provider, external_id, external_key, external_url, team_key, sync_direction, created_at)
       VALUES (?, 'linear', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -247,7 +257,7 @@ export class LinearMapper {
    * Get a mapping by PMO ticket ID.
    */
   getByTicketId(ticketId: string): LinearIssueMap | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare(`
       SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE pmo_ticket_id = ? AND provider = 'linear'
     `).get(ticketId) as Record<string, unknown> | undefined
 
@@ -258,7 +268,7 @@ export class LinearMapper {
    * Get a mapping by Linear issue ID.
    */
   getByLinearId(linearIssueId: string): LinearIssueMap | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare(`
       SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' AND external_id = ?
     `).get(linearIssueId) as Record<string, unknown> | undefined
 
@@ -274,7 +284,7 @@ export class LinearMapper {
    * Get a mapping by Linear identifier (e.g., "ENG-123").
    */
   getByIdentifier(identifier: string): LinearIssueMap | null {
-    const row = this.db.prepare(`
+    const row = this.driver.prepare(`
       SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' AND external_key = ?
     `).get(identifier) as Record<string, unknown> | undefined
 
@@ -290,7 +300,7 @@ export class LinearMapper {
    * List all mappings.
    */
   listMappings(): LinearIssueMap[] {
-    const rows = this.db.prepare(`
+    const rows = this.driver.prepare(`
       SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' ORDER BY created_at DESC
     `).all() as Record<string, unknown>[]
 
@@ -322,7 +332,7 @@ export class LinearMapper {
    * Delete a mapping by PMO ticket ID.
    */
   deleteMapping(pmoTicketId: string): void {
-    this.db.prepare(`
+    this.driver.prepare(`
       DELETE FROM ${PMO_TABLES.external_issue_map} WHERE pmo_ticket_id = ? AND provider = 'linear'
     `).run(pmoTicketId)
   }
