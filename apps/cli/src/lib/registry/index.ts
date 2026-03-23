@@ -6,7 +6,7 @@
  * regardless of which workspace they belong to.
  */
 
-import Database from 'better-sqlite3'
+import { type DatabaseDriver, openDriver } from '../database/driver.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
@@ -86,7 +86,7 @@ function getMachineRegistryPath(): string {
  * Open (or create) the machine-level agent registry at ~/.prlt/agents.db.
  * Ensures the ~/.prlt directory and schema exist.
  */
-export function openMachineRegistry(): Database.Database {
+export function openMachineRegistry(): DatabaseDriver {
   const dbPath = getMachineRegistryPath()
   const dir = path.dirname(dbPath)
 
@@ -95,11 +95,10 @@ export function openMachineRegistry(): Database.Database {
   }
 
   try {
-    const db = new Database(dbPath)
-    db.pragma('journal_mode = WAL')
-    db.pragma('busy_timeout = 3000')
-    db.exec(REGISTRY_SCHEMA)
-    return db
+    const driver = openDriver(dbPath, { foreignKeys: false, busyTimeout: 3000 })
+    driver.pragma('journal_mode = WAL')
+    driver.exec(REGISTRY_SCHEMA)
+    return driver
   } catch (error) {
     throwIfNativeBindingError(error, 'machine agent registry')
     throw error
@@ -210,7 +209,7 @@ export function getMachineAgents(filters?: {
 
     sql += ' ORDER BY last_seen_at DESC'
 
-    const rows = db.prepare(sql).all(...params) as MachineAgentRow[]
+    const rows = db.prepare<MachineAgentRow>(sql).all(...params)
     return rows.map(rowToMachineAgent)
   } finally {
     db.close()
@@ -226,9 +225,9 @@ export function getMachineAgent(
 ): MachineAgent | undefined {
   const db = openMachineRegistry()
   try {
-    const row = db.prepare(
+    const row = db.prepare<MachineAgentRow>(
       'SELECT * FROM agents WHERE agent_name = ? AND project_path = ?'
-    ).get(agentName, projectPath) as MachineAgentRow | undefined
+    ).get(agentName, projectPath)
     return row ? rowToMachineAgent(row) : undefined
   } finally {
     db.close()

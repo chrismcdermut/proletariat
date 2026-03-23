@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import Database from 'better-sqlite3';
+import { openDriver } from '../database/driver.js';
 import { isValidHQ } from '../workspace.js';
 import { throwIfNativeBindingError } from '../database/native-validation.js';
 
@@ -47,11 +47,11 @@ function hasPMOTables(dbPath: string): boolean {
   }
 
   try {
-    const db = new Database(dbPath);
-    const result = db.prepare(
+    const driver = openDriver(dbPath, { foreignKeys: false });
+    const result = driver.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
     ).get();
-    db.close();
+    driver.close();
 
     return result !== undefined;
   } catch (error) {
@@ -102,9 +102,9 @@ export function findPMO(): string | null {
           if (hasTables) {
             // Read PMO path from database (new behavior)
             try {
-              const db = new Database(dbPath);
-              const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
-              db.close();
+              const driver = openDriver(dbPath, { foreignKeys: false });
+              const result = driver.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+              driver.close();
 
               if (result) {
                 const absolutePath = path.isAbsolute(result.value)
@@ -154,9 +154,9 @@ export function findPMO(): string | null {
         const dbPath = path.join(activeHqPath, '.proletariat', 'workspace.db');
         if (hasPMOTables(dbPath)) {
           try {
-            const db = new Database(dbPath);
-            const result = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
-            db.close();
+            const driver = openDriver(dbPath, { foreignKeys: false });
+            const result = driver.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
+            driver.close();
 
             if (result) {
               return resolvePmoPath(result.value, activeHqPath);
