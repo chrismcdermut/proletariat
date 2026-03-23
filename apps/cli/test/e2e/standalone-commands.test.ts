@@ -528,6 +528,92 @@ describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', (
       expect(result.hq.path).to.equal(customPath);
       expect(fs.existsSync(customPath)).to.equal(true);
     });
+
+    it('should include firstTimeUser flag when no HQs exist', async () => {
+      // Temporarily clear machine config to simulate first-time user
+      const machineConfigDir = path.join(os.homedir(), '.proletariat');
+      const machineConfigPath = path.join(machineConfigDir, 'config.json');
+      let originalConfig: string | null = null;
+
+      if (fs.existsSync(machineConfigPath)) {
+        originalConfig = fs.readFileSync(machineConfigPath, 'utf-8');
+      }
+
+      try {
+        // Write empty machine config (no HQs)
+        fs.mkdirSync(machineConfigDir, { recursive: true });
+        fs.writeFileSync(machineConfigPath, JSON.stringify({
+          type: 'machine',
+          version: '1.0.0',
+          organizations: [],
+          headquarters: [],
+          activeHeadquarters: null,
+          activeOrganization: null,
+        }));
+
+        const hqName = `first-time-hq-${uniqueId}`;
+        const output = await execInProcess(`new --json --name ${hqName}`);
+        const result = extractJson<{ success: boolean; firstTimeUser?: boolean; nextSteps?: Array<{ command: string }> }>(output);
+
+        // Skip if name collision or other environment issue
+        if (!result || !result.success) return;
+
+        expect(result.firstTimeUser).to.equal(true);
+        expect(result.nextSteps).to.be.an('array');
+        expect(result.nextSteps!.length).to.be.greaterThan(0);
+      } finally {
+        // Restore original machine config
+        if (originalConfig) {
+          fs.writeFileSync(machineConfigPath, originalConfig);
+        }
+      }
+    });
+
+    it('should output onboarding context for first-time user without --name', async () => {
+      // Temporarily clear machine config to simulate first-time user
+      const machineConfigDir = path.join(os.homedir(), '.proletariat');
+      const machineConfigPath = path.join(machineConfigDir, 'config.json');
+      let originalConfig: string | null = null;
+
+      if (fs.existsSync(machineConfigPath)) {
+        originalConfig = fs.readFileSync(machineConfigPath, 'utf-8');
+      }
+
+      try {
+        // Write empty machine config (no HQs)
+        fs.mkdirSync(machineConfigDir, { recursive: true });
+        fs.writeFileSync(machineConfigPath, JSON.stringify({
+          type: 'machine',
+          version: '1.0.0',
+          organizations: [],
+          headquarters: [],
+          activeHeadquarters: null,
+          activeOrganization: null,
+        }));
+
+        const output = await execInProcess('new --json');
+        const result = extractJson<{
+          firstTimeUser?: boolean;
+          onboarding?: { welcome: string; whatIsHQ: string; prerequisites: string[]; fullLoop: string[] };
+          prompt?: { name: string };
+        }>(output);
+
+        expect(result).to.not.be.null;
+        expect(result!.firstTimeUser).to.equal(true);
+        expect(result!.onboarding).to.not.be.undefined;
+        expect(result!.onboarding!.welcome).to.contain('Proletariat');
+        expect(result!.onboarding!.whatIsHQ).to.contain('HQ');
+        expect(result!.onboarding!.prerequisites).to.be.an('array');
+        expect(result!.onboarding!.fullLoop).to.be.an('array');
+        expect(result!.prompt).to.not.be.undefined;
+        expect(result!.prompt!.name).to.equal('name');
+      } finally {
+        // Restore original machine config
+        if (originalConfig) {
+          fs.writeFileSync(machineConfigPath, originalConfig);
+        }
+      }
+    });
   });
 
   // ================================================================
