@@ -6,7 +6,7 @@
  * existing databases have no migrations table yet.
  */
 
-import Database from 'better-sqlite3'
+import { type SqliteDatabase } from './sqlite.js'
 
 export interface Migration {
   /** Unique, sortable migration ID (e.g. "0001") */
@@ -14,7 +14,7 @@ export interface Migration {
   /** Human-readable name (e.g. "baseline") */
   name: string
   /** Apply the migration to the database */
-  up: (db: Database.Database) => void
+  up: (db: SqliteDatabase) => void
 }
 
 /**
@@ -27,7 +27,7 @@ export interface Migration {
  *
  * Safe to call on both brand-new and existing databases.
  */
-export function runDrizzleMigrations(db: Database.Database, migrations: Migration[]): void {
+export function runDrizzleMigrations(db: SqliteDatabase, migrations: Migration[]): void {
   // Ensure the tracking table exists
   db.exec(`
     CREATE TABLE IF NOT EXISTS prlt_migrations (

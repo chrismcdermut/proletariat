@@ -2,14 +2,13 @@
  * Database Driver Abstraction Layer
  *
  * Defines a driver-agnostic interface for SQLite database access.
- * This allows swapping the underlying implementation (better-sqlite3, sql.js, etc.)
- * without changing consumer code.
+ * Uses SqliteDatabase (sql.js/WASM) as the underlying implementation.
  *
  * All database access in the codebase should go through this interface
- * rather than importing better-sqlite3 directly.
+ * rather than using raw sql.js directly.
  */
 
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from './sqlite.js'
 
 // =============================================================================
 // Driver Interface
@@ -41,11 +40,11 @@ export interface PreparedStatement<T = Record<string, unknown>> {
  * Database driver interface that abstracts over the underlying SQLite implementation.
  *
  * This is the single interface through which all database access should flow.
- * Implementations exist for better-sqlite3 (current) with sql.js planned.
+ * Backed by sql.js (pure JS/WASM SQLite, zero native dependencies).
  *
  * Usage:
  * ```typescript
- * const driver = createDriver(dbPath)
+ * const driver = openDriver(dbPath)
  * const row = driver.prepare<{ count: number }>('SELECT COUNT(*) as count FROM users').get()
  * driver.close()
  * ```
@@ -83,32 +82,20 @@ export interface DatabaseDriver {
 }
 
 // =============================================================================
-// BetterSqlite3 Driver Implementation
+// SqliteDatabase Driver Implementation
 // =============================================================================
 
 /**
- * DatabaseDriver implementation backed by better-sqlite3.
+ * DatabaseDriver implementation backed by sql.js (WASM SQLite).
  *
- * This is the primary driver used in production. It wraps a better-sqlite3
- * Database instance behind the DatabaseDriver interface.
+ * This is the primary driver used in production. It wraps a SqliteDatabase
+ * instance behind the DatabaseDriver interface.
  */
-export class BetterSqlite3Driver implements DatabaseDriver {
-  constructor(private db: Database.Database) {}
+export class SqlJsDriver implements DatabaseDriver {
+  constructor(private db: SqliteDatabase) {}
 
   prepare<T = Record<string, unknown>>(sql: string): PreparedStatement<T> {
-    const stmt = this.db.prepare(sql)
-    return {
-      run: (...params: unknown[]): RunResult => {
-        const result = stmt.run(...params)
-        return { changes: result.changes, lastInsertRowid: result.lastInsertRowid }
-      },
-      get: (...params: unknown[]): T | undefined => {
-        return stmt.get(...params) as T | undefined
-      },
-      all: (...params: unknown[]): T[] => {
-        return stmt.all(...params) as T[]
-      },
-    }
+    return this.db.prepare<T>(sql)
   }
 
   exec(sql: string): void {
@@ -120,7 +107,7 @@ export class BetterSqlite3Driver implements DatabaseDriver {
   }
 
   transaction<F extends (...args: unknown[]) => unknown>(fn: F): F {
-    return this.db.transaction(fn) as unknown as F
+    return this.db.transaction(fn)
   }
 
   close(): void {
@@ -132,33 +119,35 @@ export class BetterSqlite3Driver implements DatabaseDriver {
   }
 
   /**
-   * Access the underlying better-sqlite3 Database instance.
+   * Access the underlying SqliteDatabase instance.
    * @internal Use for Drizzle ORM interop only.
    */
-  get raw(): Database.Database {
+  get raw(): SqliteDatabase {
     return this.db
   }
 }
+
+// Keep the old name as an alias for backward compatibility during migration
+export { SqlJsDriver as BetterSqlite3Driver }
 
 // =============================================================================
 // Factory Functions
 // =============================================================================
 
 /**
- * Create a DatabaseDriver from an existing better-sqlite3 Database instance.
- * Useful when migrating existing code that already has a Database object.
+ * Create a DatabaseDriver from an existing SqliteDatabase instance.
  */
-export function wrapDatabase(db: Database.Database): DatabaseDriver {
-  return new BetterSqlite3Driver(db)
+export function wrapDatabase(db: SqliteDatabase): DatabaseDriver {
+  return new SqlJsDriver(db)
 }
 
 /**
- * Create a DatabaseDriver by opening a new better-sqlite3 connection.
- * Configures standard pragmas (WAL mode, foreign keys, busy timeout).
+ * Create a DatabaseDriver by opening a new sql.js connection.
+ * Configures standard pragmas (foreign keys, busy timeout).
  */
 export function openDriver(dbPath: string, options?: { foreignKeys?: boolean; busyTimeout?: number; readonly?: boolean }): DatabaseDriver {
   const readOnly = options?.readonly ?? false
-  const db = new Database(dbPath, readOnly ? { readonly: true } : undefined)
+  const db = new SqliteDatabase(dbPath, readOnly ? { readonly: true } : undefined)
   if (!readOnly) {
     db.pragma('journal_mode = WAL')
   }
@@ -170,24 +159,22 @@ export function openDriver(dbPath: string, options?: { foreignKeys?: boolean; bu
   } else {
     db.pragma('busy_timeout = 5000')
   }
-  return new BetterSqlite3Driver(db)
+  return new SqlJsDriver(db)
 }
 
 /**
- * Extract the raw better-sqlite3 Database from a driver.
- * Throws if the driver is not a BetterSqlite3Driver.
+ * Extract the raw SqliteDatabase from a driver.
  *
  * Use this for interop with code that still requires the raw connection
- * (e.g., Drizzle ORM, legacy code being migrated).
+ * (e.g., Drizzle ORM).
  */
-export function getRawDatabase(driver: DatabaseDriver): Database.Database {
-  if (driver instanceof BetterSqlite3Driver) {
+export function getRawDatabase(driver: DatabaseDriver): SqliteDatabase {
+  if (driver instanceof SqlJsDriver) {
     return driver.raw
   }
-  // For other driver implementations, check the raw property
   const raw = driver.raw
-  if (raw && typeof raw === 'object' && 'prepare' in raw) {
-    return raw as Database.Database
+  if (raw instanceof SqliteDatabase) {
+    return raw
   }
   throw new Error('Cannot extract raw database from this driver implementation')
 }

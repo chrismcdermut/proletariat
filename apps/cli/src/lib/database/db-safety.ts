@@ -10,10 +10,9 @@
  * See: PRLT-1081
  */
 
-import Database from 'better-sqlite3'
+import { SqliteDatabase } from './sqlite.js'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { throwIfNativeBindingError } from './native-validation.js'
 
 const MAX_BACKUPS = 5
 
@@ -21,8 +20,10 @@ const MAX_BACKUPS = 5
  * Enable WAL journal mode on a database connection.
  * WAL allows concurrent readers with one writer and is significantly
  * more resistant to corruption than the default journal_mode=delete.
+ *
+ * Note: With sql.js (in-memory), WAL mode is a no-op but executes without error.
  */
-export function enableWALMode(db: Database.Database): void {
+export function enableWALMode(db: SqliteDatabase): void {
   db.pragma('journal_mode = WAL')
 }
 
@@ -87,7 +88,7 @@ export interface IntegrityCheckResult {
  * Run PRAGMA integrity_check on a database.
  * Returns { ok: true } if the database is healthy, or { ok: false, errors } with details.
  */
-export function checkIntegrity(db: Database.Database): IntegrityCheckResult {
+export function checkIntegrity(db: SqliteDatabase): IntegrityCheckResult {
   try {
     const rows = db.pragma('integrity_check') as { integrity_check: string }[]
     const errors = rows
@@ -107,7 +108,7 @@ export function checkIntegrity(db: Database.Database): IntegrityCheckResult {
  * Quick integrity check using PRAGMA quick_check (faster than full integrity_check).
  * Skips checking that the contents of table rows match the indexes.
  */
-export function quickCheckIntegrity(db: Database.Database): IntegrityCheckResult {
+export function quickCheckIntegrity(db: SqliteDatabase): IntegrityCheckResult {
   try {
     const rows = db.pragma('quick_check') as { quick_check: string }[]
     const errors = rows
@@ -164,13 +165,13 @@ export function repairDatabase(dbPath: string): RepairResult {
  * then creates a fresh database from that SQL.
  */
 function attemptDumpReimport(dbPath: string): RepairResult {
-  let corruptDb: Database.Database | null = null
-  let newDb: Database.Database | null = null
+  let corruptDb: SqliteDatabase | null = null
+  let newDb: SqliteDatabase | null = null
   const tempPath = `${dbPath}.repair-temp`
 
   try {
     // Open corrupt database — may partially work
-    corruptDb = new Database(dbPath, { readonly: true })
+    corruptDb = new SqliteDatabase(dbPath, { readonly: true })
 
     // Dump all recoverable SQL
     const tables = corruptDb.prepare(
@@ -182,7 +183,7 @@ function attemptDumpReimport(dbPath: string): RepairResult {
     }
 
     // Create new database with recovered schema
-    newDb = new Database(tempPath)
+    newDb = new SqliteDatabase(tempPath)
     newDb.pragma('journal_mode = WAL')
 
     for (const { sql } of tables) {
@@ -280,9 +281,9 @@ function attemptBackupRestore(dbPath: string): RepairResult {
     }
 
     // Validate the backup
-    let backupDb: Database.Database | null = null
+    let backupDb: SqliteDatabase | null = null
     try {
-      backupDb = new Database(backupPath, { readonly: true })
+      backupDb = new SqliteDatabase(backupPath, { readonly: true })
       const check = checkIntegrity(backupDb)
       backupDb.close()
       backupDb = null
