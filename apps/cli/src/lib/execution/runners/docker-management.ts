@@ -187,7 +187,7 @@ export function createDockerContainer(
       ...resourceFlags,
       ...securityFlags,
       imageName,
-      'sleep infinity',
+      '/usr/local/bin/entrypoint.sh',
     ].join(' ')
     console.debug(`[runners:docker] Creating container: ${createCmd}`)
     execSync(createCmd, { stdio: 'pipe' })

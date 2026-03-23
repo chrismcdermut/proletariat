@@ -20,6 +20,7 @@ import type { StateCategory, ReviewGateMode } from '../pmo/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
 import type { TicketProvider, ProviderMoveResult, ProviderStorage } from '../providers/types.js'
 import { tryValidateCommits, type CommitValidationResult } from '../execution/commit-validation.js'
+import { moveWithProvider } from '../providers/state-resolution.js'
 
 export interface PostExecutionContext {
   ticketId: string
@@ -148,29 +149,10 @@ export async function handlePostExecutionTransition(
     }
   }
 
-  // Determine target column based on review gate mode:
-  // - auto: move to Done (no human review needed)
-  // - post: move to Review (human reviews post-merge)
-  // - required: move to Review (human must approve)
-  const targetColumnType = reviewGate === 'auto' ? 'done' : 'review'
-  const targetColumnName = getWorkColumnSetting(db, targetColumnType)
-
-  // Get board columns to find the target column
-  const board = await storage.getProjectBoard(ticket.projectId)
-  if (!board) {
-    return { transitioned: false, reviewGate }
-  }
-
-  const columnNames = board.columns.map(col => col.name)
-  const targetColumn = findColumnByName(columnNames, targetColumnName)
-  if (!targetColumn) {
-    return { transitioned: false, reviewGate }
-  }
-
-  // Already in target state — skip
-  if (ticket.statusName === targetColumn) {
-    return { transitioned: false, reviewGate }
-  }
+  // Determine semantic intent based on review gate mode:
+  // - auto: intent is 'done' (no human review needed)
+  // - post/required: intent is 'review' (human reviews)
+  const intent = reviewGate === 'auto' ? 'done' : 'review'
 
   // Resolve the appropriate provider for this ticket
   // Cast to ProviderStorage — at runtime the actual object is SQLiteStorage
@@ -183,17 +165,60 @@ export async function handlePostExecutionTransition(
     ticket.metadata,
   )
 
-  // Move ticket via the provider
+  // Use state resolution engine to resolve intent → actual state and move
   const previousState = ticket.statusName
-  const moveResult = await provider.moveTicket(context.ticketId, targetColumn)
+  const resolution = await moveWithProvider(
+    provider,
+    storage as ProviderStorage,
+    ticket.projectId,
+    context.ticketId,
+    intent,
+    db,
+    ticket.statusName,  // skip if already in resolved state
+  )
 
-  if (!moveResult.success) {
+  if (!resolution.success) {
+    // If skipped (no match), fall back to legacy column matching
+    if (resolution.resolvedVia === 'skipped') {
+      const targetColumnType = reviewGate === 'auto' ? 'done' : 'review'
+      const targetColumnName = getWorkColumnSetting(db, targetColumnType)
+      const board = await storage.getProjectBoard(ticket.projectId)
+      if (!board) {
+        return { transitioned: false, reviewGate }
+      }
+      const columnNames = board.columns.map(col => col.name)
+      const targetColumn = findColumnByName(columnNames, targetColumnName)
+      if (!targetColumn || ticket.statusName === targetColumn) {
+        return { transitioned: false, reviewGate }
+      }
+      const moveResult = await provider.moveTicket(context.ticketId, targetColumn)
+      if (!moveResult.success) {
+        return {
+          transitioned: false,
+          fromState: previousState,
+          toState: targetColumn,
+          provider: moveResult.provider,
+          providerError: moveResult.error,
+          validation,
+          reviewGate,
+        }
+      }
+      return {
+        transitioned: true,
+        fromState: previousState,
+        toState: targetColumn,
+        provider: moveResult.provider,
+        validation,
+        reviewGate,
+      }
+    }
+
     return {
       transitioned: false,
       fromState: previousState,
-      toState: targetColumn,
-      provider: moveResult.provider,
-      providerError: moveResult.error,
+      toState: resolution.stateName,
+      provider: provider.name,
+      providerError: resolution.error || resolution.warning,
       validation,
       reviewGate,
     }
@@ -202,8 +227,8 @@ export async function handlePostExecutionTransition(
   return {
     transitioned: true,
     fromState: previousState,
-    toState: targetColumn,
-    provider: moveResult.provider,
+    toState: resolution.stateName,
+    provider: provider.name,
     validation,
     reviewGate,
   }

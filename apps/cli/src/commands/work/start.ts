@@ -48,7 +48,7 @@ import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCl
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod, getCreatePrDefault, getMirrorToPmoDefault, getCleanupPolicy } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
-import { detectRepoWorktrees, resolveWorktreePath } from '../../lib/execution/context.js'
+import { detectRepoWorktrees, resolveWorktreePath, buildWorkspaceRepos } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 import {
   buildLinearMetadata,
@@ -383,6 +383,10 @@ export default class WorkStart extends PMOCommand {
     }),
     'allow-network': Flags.string({
       description: 'Extra domains to allow in container firewall (comma-separated, e.g., api.linear.app,api.slack.com)',
+    }),
+    repo: Flags.string({
+      description: 'Repository to mount in agent workspace (can be specified multiple times, first is primary)',
+      multiple: true,
     }),
   }
 
@@ -1395,6 +1399,9 @@ export default class WorkStart extends PMOCommand {
       // HQ path comes from workspaceInfo (not derived from pmoPath since pmo can be nested in repos)
       const hqPath = workspaceInfo.path
 
+      // Build structured workspace repo info (PRLT-1088)
+      const workspaceRepos = buildWorkspaceRepos(agentDir, repoWorktrees)
+
       const context: ExecutionContext = {
         ticketId: ticket.id,
         externalTicketId: branchTicketId !== ticket.id ? branchTicketId : undefined,
@@ -1411,6 +1418,7 @@ export default class WorkStart extends PMOCommand {
         hqPath,
         pmoPath: this.pmoPath,          // PMO path for container mounting
         repoWorktrees,
+        workspaceRepos,   // Structured workspace repo info (PRLT-1088)
         isEphemeral: isEphemeralAgent,
         // Tool policy (TKT-083)
         toolPolicy: flags['tool-policy'],
@@ -2965,6 +2973,9 @@ export default class WorkStart extends PMOCommand {
     // Get default action for batch mode (use 'implement')
     const defaultAction = await this.storage.getAction('implement')
 
+    // Build structured workspace repo info (PRLT-1088)
+    const workspaceRepos = buildWorkspaceRepos(agentDir, repoWorktrees)
+
     // Build context
     const context: ExecutionContext = {
       ticketId: ticket.id,
@@ -2982,6 +2993,7 @@ export default class WorkStart extends PMOCommand {
       hqPath: workspaceInfo.path,
       pmoPath: this.pmoPath,
       repoWorktrees,
+      workspaceRepos,   // Structured workspace repo info (PRLT-1088)
       isEphemeral: workspaceInfo.agents.find(a => a.name === agentName)?.type === 'ephemeral',
       createPR: flags['create-pr'] || false,
       reviewGate: resolveReviewGate(

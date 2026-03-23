@@ -16,6 +16,7 @@ import {
   ExecutionContext,
   ExecutionConfig,
   generateOrchestratorDockerfile,
+  generateEntrypointScript,
 } from './shared.js'
 
 import type { OrchestratorDockerOptions } from './shared.js'
@@ -97,11 +98,15 @@ export async function runOrchestratorInDocker(
     }
     const dockerfileContent = generateOrchestratorDockerfile(orchestratorDockerOptions)
 
-    // Write Dockerfile to temp directory
+    // Write Dockerfile and entrypoint to temp directory
     const buildDir = path.join(hqPath, '.proletariat', 'orchestrator-docker')
     fs.mkdirSync(buildDir, { recursive: true })
     const dockerfilePath = path.join(buildDir, 'Dockerfile')
     fs.writeFileSync(dockerfilePath, dockerfileContent)
+
+    // Write entrypoint script (PRLT-1089: auto-start tmux sessions)
+    const entrypointContent = generateEntrypointScript()
+    fs.writeFileSync(path.join(buildDir, 'entrypoint.sh'), entrypointContent, { mode: 0o755 })
 
     // Build the image
     const hostPrltVersion = getHostPrltVersion()
@@ -157,7 +162,7 @@ export async function runOrchestratorInDocker(
       `--memory=${config.devcontainer.memory}`,
       `--cpus=${config.devcontainer.cpus}`,
       imageName,
-      'sleep infinity',  // Keep container running
+      '/usr/local/bin/entrypoint.sh',  // PRLT-1089: entrypoint auto-starts tmux sessions
     ].join(' ')
 
     console.debug(`[runners:orchestrator-docker] Creating container: ${createCmd}`)

@@ -261,7 +261,8 @@ RUN if [ "\${PRLT_REGISTRY}" = "npm" ] || [ "\${PRLT_REGISTRY}" = "gh" ]; then \
 # Copy and set up scripts
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
 COPY setup-prlt.sh /usr/local/bin/setup-prlt.sh
-RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/setup-prlt.sh
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/setup-prlt.sh /usr/local/bin/entrypoint.sh
 
 # Allow node user to run firewall script without password
 RUN echo "node ALL=(ALL) NOPASSWD: /usr/local/bin/init-firewall.sh" >> /etc/sudoers
@@ -703,6 +704,45 @@ echo "Workspace setup complete"
 }
 
 /**
+ * Generate container entrypoint script.
+ * PRLT-1089: Watches for startup scripts in /tmp and auto-launches tmux sessions.
+ * This ensures agents start even if the host-side docker exec fails.
+ */
+export function generateEntrypointScript(): string {
+  return `#!/bin/bash
+# Container entrypoint - auto-starts tmux sessions for startup scripts
+# PRLT-1089: Containers would start but tmux sessions wouldn't launch
+# if the host-side docker exec failed. This entrypoint watches for
+# startup scripts deposited in /tmp and automatically executes them.
+
+# Background watcher: monitor /tmp for prlt startup scripts
+(
+  while true; do
+    for script in /tmp/prlt-*.sh; do
+      [ -f "\$script" ] || continue
+      [ -x "\$script" ] || continue
+      # Skip already-processed scripts
+      [ -f "\${script}.started" ] && continue
+      # Extract session name from script path: /tmp/prlt-{sessionName}.sh
+      session_name=\$(basename "\$script" .sh | sed 's/^prlt-//')
+      # Check if tmux session already exists (host may have created it)
+      if ! tmux has-session -t "\$session_name" 2>/dev/null; then
+        echo "[entrypoint] Auto-starting tmux session '\$session_name' from \$script"
+        tmux new-session -d -s "\$session_name" -n "\$session_name" "bash \$script"
+      fi
+      # Mark as processed regardless (host or entrypoint may have created it)
+      touch "\${script}.started"
+    done
+    sleep 2
+  done
+) &
+
+# Keep container alive
+exec sleep infinity
+`
+}
+
+/**
  * Create .devcontainer/ directory structure for an agent
  * Writes devcontainer.json, Dockerfile, and init-firewall.sh
  */
@@ -736,6 +776,11 @@ export function createDevcontainerConfig(options: DevcontainerOptions, config?: 
   const setupScript = generatePrltSetupScript()
   const setupScriptPath = path.join(devcontainerDir, 'setup-prlt.sh')
   fs.writeFileSync(setupScriptPath, setupScript, { mode: 0o755 })
+
+  // Generate and write container entrypoint script (PRLT-1089)
+  const entrypointScript = generateEntrypointScript()
+  const entrypointScriptPath = path.join(devcontainerDir, 'entrypoint.sh')
+  fs.writeFileSync(entrypointScriptPath, entrypointScript, { mode: 0o755 })
 }
 
 // =============================================================================
@@ -831,6 +876,10 @@ RUN if [ "\${PRLT_REGISTRY}" = "npm" ] || [ "\${PRLT_REGISTRY}" = "gh" ]; then \
     else \\
       echo "prlt will be mounted from host (mount mode)"; \\
     fi
+
+# Copy entrypoint script (PRLT-1089: auto-start tmux sessions)
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # Set default editor
 ENV EDITOR=nano
