@@ -197,6 +197,101 @@ describe('Prompt Builder (TKT-140)', () => {
   })
 
   // =========================================================================
+  // buildPrompt — Workspace Context (PRLT-1088)
+  // =========================================================================
+  describe('buildPrompt (workspace context)', () => {
+    it('should include workspace section when workspaceRepos is provided', () => {
+      const prompt = buildPrompt(makeContext({
+        workspaceRepos: [
+          {
+            name: 'proletariat',
+            path: '/workspace/proletariat',
+            remote: 'chrismcdermut/proletariat',
+            branch: 'main',
+            primary: true,
+          },
+        ],
+      }))
+      expect(prompt).to.include('## Workspace')
+      expect(prompt).to.include('/workspace/proletariat')
+      expect(prompt).to.include('chrismcdermut/proletariat')
+      expect(prompt).to.include('branch: main')
+      expect(prompt).to.include('PRIMARY')
+      expect(prompt).to.include('Work in the primary repo')
+    })
+
+    it('should include multiple repos with primary marker', () => {
+      const prompt = buildPrompt(makeContext({
+        workspaceRepos: [
+          {
+            name: 'proletariat',
+            path: '/workspace/proletariat',
+            remote: 'chrismcdermut/proletariat',
+            branch: 'main',
+            primary: true,
+          },
+          {
+            name: 'proletariat-marketing',
+            path: '/workspace/proletariat-marketing',
+            remote: 'chrismcdermut/proletariat-marketing',
+            branch: 'main',
+            primary: false,
+          },
+        ],
+      }))
+      expect(prompt).to.include('/workspace/proletariat')
+      expect(prompt).to.include('/workspace/proletariat-marketing')
+      // Only proletariat should be marked as PRIMARY
+      const lines = prompt.split('\n')
+      const primaryLines = lines.filter(l => l.includes('PRIMARY'))
+      expect(primaryLines).to.have.length(1)
+      expect(primaryLines[0]).to.include('proletariat')
+    })
+
+    it('should not include workspace section when workspaceRepos is empty', () => {
+      const prompt = buildPrompt(makeContext({ workspaceRepos: [] }))
+      expect(prompt).to.not.include('## Workspace')
+    })
+
+    it('should not include workspace section when workspaceRepos is undefined', () => {
+      const prompt = buildPrompt(makeContext({ workspaceRepos: undefined }))
+      expect(prompt).to.not.include('## Workspace')
+    })
+
+    it('should handle repos without remote or branch info', () => {
+      const prompt = buildPrompt(makeContext({
+        workspaceRepos: [
+          {
+            name: 'local-repo',
+            path: '/workspace/local-repo',
+            primary: true,
+          },
+        ],
+      }))
+      expect(prompt).to.include('/workspace/local-repo')
+      expect(prompt).to.include('PRIMARY')
+      expect(prompt).to.not.include('undefined')
+    })
+
+    it('should place workspace section before ticket section', () => {
+      const prompt = buildPrompt(makeContext({
+        workspaceRepos: [
+          {
+            name: 'proletariat',
+            path: '/workspace/proletariat',
+            primary: true,
+          },
+        ],
+      }))
+      const workspaceIdx = prompt.indexOf('## Workspace')
+      const ticketIdx = prompt.indexOf('# Ticket:')
+      expect(workspaceIdx).to.be.greaterThan(-1)
+      expect(ticketIdx).to.be.greaterThan(-1)
+      expect(workspaceIdx).to.be.lessThan(ticketIdx)
+    })
+  })
+
+  // =========================================================================
   // buildPrompt — Orchestrator Mode
   // =========================================================================
   describe('buildPrompt (orchestrator mode)', () => {
