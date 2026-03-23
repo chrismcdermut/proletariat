@@ -18,6 +18,12 @@ import {
 import { eq } from 'drizzle-orm'
 import type { DatabaseDriver } from './driver.js'
 import { BetterSqlite3Driver } from './driver.js'
+import {
+  enableWALMode,
+  createRotatingBackup,
+  quickCheckIntegrity,
+  repairDatabase,
+} from './db-safety.js'
 
 export interface WorkspaceConfig {
   id: number
@@ -90,7 +96,12 @@ export function getConfigPath(workspacePath: string): string {
 }
 
 /**
- * Open workspace database connection
+ * Open workspace database connection.
+ *
+ * Safety features (PRLT-1081):
+ * - Creates a rotating backup before opening (keeps last 5)
+ * - Enables WAL journal mode for corruption resistance
+ * - Runs a quick integrity check; auto-repairs if corruption detected
  */
 export function openWorkspaceDatabase(workspacePath: string): Database.Database {
   const dbPath = getDatabasePath(workspacePath)
@@ -99,6 +110,9 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
     throw new Error(`Database not found: ${dbPath}. Run 'prlt new' first.`)
   }
 
+  // Auto-backup before opening (cheap insurance against corruption)
+  createRotatingBackup(dbPath)
+
   let db: Database.Database
   try {
     db = new Database(dbPath)
@@ -106,8 +120,40 @@ export function openWorkspaceDatabase(workspacePath: string): Database.Database 
     throwIfNativeBindingError(error, 'openWorkspaceDatabase')
     throw error
   }
+
+  // Enable WAL mode — allows concurrent readers with one writer,
+  // significantly more resistant to corruption than journal_mode=delete
+  enableWALMode(db)
   db.pragma('foreign_keys = ON')
   db.pragma('busy_timeout = 5000')
+
+  // Quick integrity check on startup
+  const integrity = quickCheckIntegrity(db)
+  if (!integrity.ok) {
+    db.close()
+
+    // Attempt auto-repair
+    const repair = repairDatabase(dbPath)
+    if (!repair.success) {
+      throw new Error(
+        `Database corruption detected in ${dbPath}.\n` +
+        `Integrity errors: ${integrity.errors.join('; ')}\n` +
+        `Auto-repair failed: ${repair.message}\n` +
+        `Run 'prlt db repair' for manual recovery options.`
+      )
+    }
+
+    // Re-open the repaired database
+    try {
+      db = new Database(dbPath)
+    } catch (error) {
+      throwIfNativeBindingError(error, 'openWorkspaceDatabase (post-repair)')
+      throw error
+    }
+    enableWALMode(db)
+    db.pragma('foreign_keys = ON')
+    db.pragma('busy_timeout = 5000')
+  }
 
   runDrizzleMigrations(db, ALL_MIGRATIONS)
   ensureEphemeralAgentTypes(db)
@@ -155,6 +201,7 @@ export function createWorkspaceDatabase(
     throw error
   }
 
+  enableWALMode(db)
   db.pragma('foreign_keys = ON')
   runDrizzleMigrations(db, ALL_MIGRATIONS)
 
