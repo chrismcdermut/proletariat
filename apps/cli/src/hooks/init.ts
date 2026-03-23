@@ -145,8 +145,12 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
  */
 function showLandingPage(): void {
   // Check if running in a non-TTY environment (AI agent / piped output)
-  const nonTTY = !process.stdout.isTTY || !process.stdin.isTTY ||
+  // Respect PRLT_FORCE_TEXT to force human-readable output in non-TTY contexts (e.g., E2E tests)
+  const forceText = process.env.PRLT_FORCE_TEXT === '1' || process.env.PRLT_FORCE_TEXT === 'true'
+  const nonTTY = !forceText && (
+    !process.stdout.isTTY || !process.stdin.isTTY ||
     process.env.PRLT_JSON === '1' || process.env.PRLT_JSON === 'true'
+  )
 
   if (nonTTY) {
     // Machine-readable output for AI models
