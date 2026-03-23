@@ -400,20 +400,19 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
   }
 
   // Save PMO path and column settings (relative to HQ root for container compatibility)
+  // Use the storage's database connection to avoid conflicting writes from multiple connections.
   try {
-    const db = new SqliteDatabase(dbPath);
+    const rawDb = storage.getRawDb();
     // Store relative path from HQ root (e.g., "pmo" or "repos/myrepo/pmo")
     const relativePmoPath = path.relative(hqPath, pmoPath);
-    db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', relativePmoPath);
+    rawDb.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run('pmo_path', relativePmoPath);
 
     // Set column settings based on template
     // These determine which columns work commands use for transitions
     const columnSettings = getColumnSettingsForTemplate(boardTemplate, columns);
     for (const [key, value] of Object.entries(columnSettings)) {
-      db.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run(key, value);
+      rawDb.prepare('INSERT OR REPLACE INTO pmo_settings (key, value) VALUES (?, ?)').run(key, value);
     }
-
-    db.close();
   } catch {
     // Ignore if settings table doesn't exist
   }

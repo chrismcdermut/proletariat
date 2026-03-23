@@ -68,9 +68,8 @@ describe('@smoke PMO Init Commands E2E Tests', () => {
     it('should create project in database with correct name', async () => {
       await execInProcess('pmo init --location separate --template kanban --name "test-board" --machine');
 
-      // Re-open database to see new tables
-      db.close();
-      db = new SqliteDatabase(dbPath);
+      // Reload in-memory database to see tables created by the command
+      db.reload();
 
       const project = db.prepare('SELECT * FROM pmo_projects WHERE id = ?').get('test-board') as { id: string; name: string } | undefined;
       expect(project).to.not.be.undefined;
@@ -91,8 +90,7 @@ describe('@smoke PMO Init Commands E2E Tests', () => {
     it('should store PMO path setting in database', async () => {
       await execInProcess('pmo init --location separate --template kanban --name "test-board" --machine');
 
-      db.close();
-      db = new SqliteDatabase(dbPath);
+      db.reload();
 
       const pmoPath = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
       expect(pmoPath).to.not.be.undefined;
@@ -107,8 +105,7 @@ describe('@smoke PMO Init Commands E2E Tests', () => {
       expect(output).to.contain('PMO initialized successfully');
 
       // Verify defaults were applied: template=kanban, location=separate
-      db.close();
-      db = new SqliteDatabase(dbPath);
+      db.reload();
 
       const pmoPath = db.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
       expect(pmoPath).to.not.be.undefined;
@@ -119,8 +116,7 @@ describe('@smoke PMO Init Commands E2E Tests', () => {
     it('should initialize with linear template', async () => {
       await execInProcess('pmo init --location separate --template linear --name "linear-board" --machine');
 
-      db.close();
-      db = new SqliteDatabase(dbPath);
+      db.reload();
 
       const project = db.prepare('SELECT * FROM pmo_projects WHERE id = ?').get('linear-board') as { id: string; name: string; template: string } | undefined;
       expect(project).to.not.be.undefined;
@@ -165,8 +161,7 @@ describe('@smoke PMO Init Commands E2E Tests', () => {
       expect(output).to.contain('PMO initialized successfully');
 
       // VERIFY END RESULT: Old PMO is gone, new one exists
-      db.close();
-      db = new SqliteDatabase(dbPath);
+      db.reload();
       const oldProject = db.prepare('SELECT * FROM pmo_projects WHERE id = ?').get('existing-project');
       expect(oldProject).to.be.undefined;
 
@@ -326,8 +321,7 @@ describe('@smoke PMO Init Commands E2E Tests', () => {
         await execInProcess('pmo init --action reinitialize --confirmation "delete pmo" --location separate --template kanban --name "reinit-board" --machine');
 
         // Verify old data is gone, new data exists
-        db.close();
-        db = new SqliteDatabase(dbPath);
+        db.reload();
 
         const oldProjectAfter = db.prepare('SELECT * FROM pmo_projects WHERE id = ?').get('existing-project');
         expect(oldProjectAfter).to.be.undefined;

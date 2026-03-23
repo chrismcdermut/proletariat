@@ -174,6 +174,8 @@ export class SqliteDatabase {
   private _readonly: boolean = false
   private _savepointCounter: number = 0
   private _transactionDepth: number = 0
+  /** Timestamp of last load/save — used to detect external file modifications */
+  private _lastSyncMs: number = 0
 
   constructor(pathOrMemory: string, options?: { readonly?: boolean }) {
     const SQL = getSqlJs()
@@ -187,14 +189,33 @@ export class SqliteDatabase {
       if (fs.existsSync(pathOrMemory)) {
         const buf = fs.readFileSync(pathOrMemory)
         this._db = new SQL.Database(buf)
+        this._lastSyncMs = fs.statSync(pathOrMemory).mtimeMs
       } else {
         // Create new empty database; write immediately so the file exists
         this._db = new SQL.Database()
         if (!this._readonly) {
           const data = this._db.export()
           fs.writeFileSync(pathOrMemory, Buffer.from(data))
+          this._lastSyncMs = fs.statSync(pathOrMemory).mtimeMs
         }
       }
+    }
+  }
+
+  /**
+   * Check if the underlying file was modified by another connection.
+   * If so, reload the database from disk to see the latest changes.
+   * This provides behavior similar to better-sqlite3's shared file access.
+   */
+  private _checkForExternalChanges(): void {
+    if (!this._dbPath || !this._open || this._transactionDepth > 0) return
+    try {
+      const currentMtime = fs.statSync(this._dbPath).mtimeMs
+      if (currentMtime > this._lastSyncMs) {
+        this.reload()
+      }
+    } catch {
+      // File may have been deleted — ignore
     }
   }
 
@@ -204,6 +225,7 @@ export class SqliteDatabase {
    * compatible with better-sqlite3's prepared statements.
    */
   prepare<T = any>(sql: string): SqlitePreparedStatement<T> {
+    this._checkForExternalChanges()
     return new SqlitePreparedStatement<T>(this._db, sql, this._readonly, () => this._autoSave())
   }
 
@@ -211,6 +233,7 @@ export class SqliteDatabase {
    * Execute raw SQL (DDL, multi-statement). No return value.
    */
   exec(sql: string): void {
+    this._checkForExternalChanges()
     if (this._readonly) {
       const trimmed = sql.trimStart().toUpperCase()
       if (trimmed.startsWith('INSERT') || trimmed.startsWith('UPDATE') ||
@@ -321,6 +344,7 @@ export class SqliteDatabase {
     if (this._dbPath && !this._readonly && this._open) {
       const data = this._db.export()
       fs.writeFileSync(this._dbPath, Buffer.from(data))
+      this._lastSyncMs = fs.statSync(this._dbPath).mtimeMs
     }
   }
 
@@ -336,6 +360,7 @@ export class SqliteDatabase {
       this._db.close()
       const SQL = getSqlJs()
       this._db = new SQL.Database(buf)
+      this._lastSyncMs = fs.statSync(this._dbPath).mtimeMs
     }
   }
 

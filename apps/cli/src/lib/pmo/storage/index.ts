@@ -1196,6 +1196,15 @@ export class SQLiteStorage implements PMOStorage {
     this.db.close()
   }
 
+  /**
+   * Get the underlying SqliteDatabase for direct SQL operations.
+   * Prefer using typed storage methods when available.
+   * @internal Used by createPMO for settings that don't go through Drizzle.
+   */
+  getRawDb(): SqliteDatabase {
+    return this.db
+  }
+
   // ===========================================================================
   // Cache Operations (for git storage compatibility)
   // ===========================================================================
