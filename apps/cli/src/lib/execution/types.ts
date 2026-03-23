@@ -169,6 +169,34 @@ export interface AgentWork {
 }
 
 // =============================================================================
+// Workspace Repo Info (PRLT-1088)
+// =============================================================================
+
+/**
+ * Structured information about a repository in the agent workspace.
+ * Used for workspace manifest and prompt injection so agents know
+ * exactly which repos are available.
+ */
+export interface WorkspaceRepo {
+  name: string       // Directory name (e.g., 'proletariat')
+  path: string       // Absolute path inside container (e.g., '/workspace/proletariat')
+  remote?: string    // GitHub remote (e.g., 'chrismcdermut/proletariat')
+  branch?: string    // Current branch name
+  primary: boolean   // Whether this is the primary repo to work in
+}
+
+/**
+ * Workspace manifest written to /workspace/.prlt-workspace.json
+ * so agents know exactly what repos are available and what to work on.
+ */
+export interface WorkspaceManifest {
+  repos: WorkspaceRepo[]
+  ticket: string
+  agent: string
+  action?: string
+}
+
+// =============================================================================
 // Execution Context
 // =============================================================================
 
@@ -188,6 +216,7 @@ export interface ExecutionContext {
   hqPath?: string // HQ root path for storing execution artifacts
   pmoPath?: string // PMO path for mounting into container
   repoWorktrees?: string[] // Names of repo worktrees to mount for git worktree resolution
+  workspaceRepos?: WorkspaceRepo[] // Structured workspace repo info (PRLT-1088)
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
   reviewGate?: 'required' | 'auto' | 'post' // Review gate mode (resolved at work start)
   // Action context (what the agent should do)

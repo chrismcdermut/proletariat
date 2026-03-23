@@ -294,6 +294,38 @@ function buildOrchestratorPrompt(context: ExecutionContext): string {
   return prompt
 }
 
+/**
+ * Build workspace context section from workspace repos info (PRLT-1088).
+ * Tells the agent exactly which repos are available and which is primary.
+ */
+function buildWorkspaceSection(context: ExecutionContext): string {
+  if (!context.workspaceRepos || context.workspaceRepos.length === 0) return ''
+
+  let section = `## Workspace\n\n`
+  section += `You are working in a container with the following repos:\n`
+
+  for (const repo of context.workspaceRepos) {
+    let line = `- ${repo.path}`
+    if (repo.remote) {
+      line += ` (${repo.remote}`
+      if (repo.branch) {
+        line += `, branch: ${repo.branch}`
+      }
+      line += `)`
+    } else if (repo.branch) {
+      line += ` (branch: ${repo.branch})`
+    }
+    if (repo.primary) {
+      line += ` — PRIMARY`
+    }
+    section += `${line}\n`
+  }
+
+  section += `\nWork in the primary repo. Do not look for other repos.\n\n`
+
+  return section
+}
+
 export function buildPrompt(context: ExecutionContext): string {
   if (context.isOrchestrator) {
     return buildOrchestratorPrompt(context)
@@ -313,6 +345,9 @@ export function buildPrompt(context: ExecutionContext): string {
     prompt += context.actionPrompt
     prompt += `\n\n---\n\n`
   }
+
+  // Inject workspace context before ticket section (PRLT-1088)
+  prompt += buildWorkspaceSection(context)
 
   prompt += `# Ticket: ${context.ticketId}\n\n`
   prompt += `**Title:** ${context.ticketTitle}\n\n`
