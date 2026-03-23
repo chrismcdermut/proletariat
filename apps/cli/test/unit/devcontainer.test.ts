@@ -949,4 +949,130 @@ describe('Devcontainer', () => {
       })
     })
   })
+
+  // =============================================================================
+  // PRLT-1084: Pin Claude Code version in agent containers
+  // =============================================================================
+
+  describe('Claude Code version pinning (PRLT-1084)', () => {
+    const makeOptions = (overrides: Partial<DevcontainerOptions> = {}): DevcontainerOptions => ({
+      agentName: 'test-agent',
+      agentDir: '/path/to/agents/staff/test-agent',
+      ...overrides,
+    })
+
+    describe('generateDevcontainerJson', () => {
+      it('should include CC_VERSION build arg when claudeCodeVersion is specified', () => {
+        const options = makeOptions({ claudeCodeVersion: '2.1.80' })
+        const result = generateDevcontainerJson(options)
+
+        expect(result.build.args).to.have.property('CC_VERSION', '2.1.80')
+      })
+
+      it('should not include CC_VERSION build arg when claudeCodeVersion is not specified', () => {
+        const options = makeOptions()
+        const result = generateDevcontainerJson(options)
+
+        expect(result.build.args).to.not.have.property('CC_VERSION')
+      })
+
+      it('should not include CC_VERSION build arg when claudeCodeVersion is undefined', () => {
+        const options = makeOptions({ claudeCodeVersion: undefined })
+        const result = generateDevcontainerJson(options)
+
+        expect(result.build.args).to.not.have.property('CC_VERSION')
+      })
+    })
+
+    describe('generateDockerfile', () => {
+      it('should include ARG CC_VERSION in Dockerfile', () => {
+        const options = makeOptions()
+        const result = generateDockerfile(options)
+
+        expect(result).to.include('ARG CC_VERSION=')
+      })
+
+      it('should use CC_VERSION in claude-code install command', () => {
+        const options = makeOptions()
+        const result = generateDockerfile(options)
+
+        // Should use bash parameter expansion to conditionally append version
+        expect(result).to.include('@anthropic-ai/claude-code${CC_VERSION:+@${CC_VERSION}}')
+      })
+
+      it('should install Claude Code without version when CC_VERSION is empty', () => {
+        // When CC_VERSION is empty/unset, ${CC_VERSION:+@${CC_VERSION}} expands to nothing
+        // so npm install -g @anthropic-ai/claude-code installs latest
+        const options = makeOptions()
+        const result = generateDockerfile(options)
+
+        // Verify the bash expansion pattern is correct
+        expect(result).to.include('${CC_VERSION:+@${CC_VERSION}}')
+      })
+    })
+
+    describe('createDevcontainerConfig with claudeCodeVersion', () => {
+      let testDir: string
+
+      beforeEach(() => {
+        testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devcontainer-ccversion-test-'))
+      })
+
+      afterEach(() => {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true })
+        }
+      })
+
+      it('should include CC_VERSION in devcontainer.json build args when version is pinned', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'pinned-agent',
+          agentDir: testDir,
+          claudeCodeVersion: '2.1.80',
+        }
+
+        createDevcontainerConfig(options)
+
+        const jsonContent = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'devcontainer.json'),
+          'utf-8'
+        )
+        const config = JSON.parse(jsonContent)
+        expect(config.build.args.CC_VERSION).to.equal('2.1.80')
+      })
+
+      it('should not include CC_VERSION in devcontainer.json when version is not pinned', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'unpinned-agent',
+          agentDir: testDir,
+        }
+
+        createDevcontainerConfig(options)
+
+        const jsonContent = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'devcontainer.json'),
+          'utf-8'
+        )
+        const config = JSON.parse(jsonContent)
+        expect(config.build.args).to.not.have.property('CC_VERSION')
+      })
+
+      it('should include CC_VERSION ARG in generated Dockerfile', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+          claudeCodeVersion: '2.1.80',
+        }
+
+        createDevcontainerConfig(options)
+
+        const dockerfile = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'Dockerfile'),
+          'utf-8'
+        )
+        expect(dockerfile).to.include('ARG CC_VERSION=')
+        expect(dockerfile).to.include('${CC_VERSION:+@${CC_VERSION}}')
+      })
+    })
+  })
 })
