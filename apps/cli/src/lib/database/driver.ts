@@ -156,9 +156,12 @@ export function wrapDatabase(db: Database.Database): DatabaseDriver {
  * Create a DatabaseDriver by opening a new better-sqlite3 connection.
  * Configures standard pragmas (WAL mode, foreign keys, busy timeout).
  */
-export function openDriver(dbPath: string, options?: { foreignKeys?: boolean; busyTimeout?: number }): DatabaseDriver {
-  const db = new Database(dbPath)
-  db.pragma('journal_mode = WAL')
+export function openDriver(dbPath: string, options?: { foreignKeys?: boolean; busyTimeout?: number; readonly?: boolean }): DatabaseDriver {
+  const readOnly = options?.readonly ?? false
+  const db = new Database(dbPath, readOnly ? { readonly: true } : undefined)
+  if (!readOnly) {
+    db.pragma('journal_mode = WAL')
+  }
   if (options?.foreignKeys !== false) {
     db.pragma('foreign_keys = ON')
   }

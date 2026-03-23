@@ -285,17 +285,15 @@ export async function promptForOrganization(): Promise<string> {
 export function createHQStructure(hqPath: string, hqName: string, themeId?: string, quiet?: boolean): void {
   if (!quiet) console.log(chalk.blue(`\n🏗️  Creating HQ at ${hqPath}...`));
 
-  // Get theme-specific directory names
-  const persistentDir = getThemePersistentDir(themeId);
-  const ephemeralDir = getThemeEphemeralDir(themeId);
-
-  // Create directories
+  // Create core directories (required for HQ to function)
   fs.mkdirSync(hqPath, { recursive: true });
   fs.mkdirSync(path.join(hqPath, '.proletariat'), { recursive: true });
   fs.mkdirSync(path.join(hqPath, 'repos'), { recursive: true });
-  fs.mkdirSync(path.join(hqPath, 'agents'), { recursive: true });
-  fs.mkdirSync(path.join(hqPath, 'agents', persistentDir), { recursive: true });
-  fs.mkdirSync(path.join(hqPath, 'agents', ephemeralDir), { recursive: true });
+
+  // Agent directories are created lazily when agents are actually
+  // added (in createAgentWorktrees / createEphemeralAgent), not
+  // eagerly here. This avoids permission errors in container
+  // environments where HQ may be read-only.
 }
 
 /**

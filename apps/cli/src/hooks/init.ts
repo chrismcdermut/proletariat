@@ -40,6 +40,12 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     return
   }
 
+  // Skip when running inside an agent container — the container has
+  // its own HQ context and should not trigger first-time user flows
+  if (process.env.PRLT_AGENT_NAME) {
+    return
+  }
+
   // Skip init redirect when explicitly disabled (e.g., e2e test isolation)
   if (process.env.PRLT_SKIP_INIT_REDIRECT === '1') {
     return

@@ -37,6 +37,7 @@ import { getGitIdentity } from '../pr/index.js';
 import { getPMOContext } from '../pmo/index.js';
 import { resolveRemoteUrl } from '../repos/git.js';
 import { getClaudeCodeVersion } from '../workspace-config.js';
+import { isContainerEnvironment, tryMkdir } from '../container.js';
 
 /**
  * Resolve the directory for an agent, cascading through resolution strategies.
@@ -135,8 +136,10 @@ export function getWorkspaceInfo(): WorkspaceInfo {
       try {
         const config = getWorkspaceConfig(hqPath);
         if (config) {
-          // Discover agents on disk and sync with database
-          discoverAgentsOnDisk(hqPath);
+          // Skip agent discovery in container environments — HQ may be read-only
+          if (!isContainerEnvironment()) {
+            discoverAgentsOnDisk(hqPath);
+          }
           const agents = getWorkspaceAgents(hqPath);
           const repositories = getWorkspaceRepositories(hqPath);
           const activeTheme = getActiveTheme(hqPath);
@@ -175,8 +178,10 @@ export function getWorkspaceInfo(): WorkspaceInfo {
       try {
         const config = getWorkspaceConfig(currentDir);
         if (config) {
-          // Discover agents on disk and sync with database
-          discoverAgentsOnDisk(currentDir);
+          // Skip agent discovery in container environments — HQ may be read-only
+          if (!isContainerEnvironment()) {
+            discoverAgentsOnDisk(currentDir);
+          }
           const agents = getWorkspaceAgents(currentDir);
           const repositories = getWorkspaceRepositories(currentDir);
           const activeTheme = getActiveTheme(currentDir);
@@ -626,15 +631,21 @@ export async function createEphemeralAgent(
     const baseName = extractBaseName(agentName);
 
     // Create temp agents directory if it doesn't exist
-    if (!fs.existsSync(tempAgentsBasePath)) {
-      fs.mkdirSync(tempAgentsBasePath, { recursive: true });
+    if (!tryMkdir(tempAgentsBasePath, 'ephemeral agents base')) {
+      throw new Error(
+        `Cannot create ephemeral agents directory: ${tempAgentsBasePath}\n` +
+        'The directory may be read-only. Agent creation requires write access to HQ.'
+      );
     }
 
     const agentDir = path.join(tempAgentsBasePath, agentName);
 
     // Create agent directory
-    if (!fs.existsSync(agentDir)) {
-      fs.mkdirSync(agentDir, { recursive: true });
+    if (!tryMkdir(agentDir, 'ephemeral agent')) {
+      throw new Error(
+        `Cannot create agent directory: ${agentDir}\n` +
+        'The directory may be read-only. Agent creation requires write access to HQ.'
+      );
     }
 
     // Create worktrees/clones for each repository

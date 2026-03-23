@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { openDriver } from '../database/driver.js';
 import { isValidHQ } from '../workspace.js';
+import { isReadOnlyHQMount } from '../container.js';
 import { throwIfNativeBindingError } from '../database/native-validation.js';
 
 /**
@@ -47,7 +48,7 @@ function hasPMOTables(dbPath: string): boolean {
   }
 
   try {
-    const driver = openDriver(dbPath, { foreignKeys: false });
+    const driver = openDriver(dbPath, { foreignKeys: false, readonly: isReadOnlyHQMount(path.dirname(path.dirname(dbPath))) });
     const result = driver.prepare(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
     ).get();
@@ -102,7 +103,7 @@ export function findPMO(): string | null {
           if (hasTables) {
             // Read PMO path from database (new behavior)
             try {
-              const driver = openDriver(dbPath, { foreignKeys: false });
+              const driver = openDriver(dbPath, { foreignKeys: false, readonly: isReadOnlyHQMount(path.dirname(path.dirname(dbPath))) });
               const result = driver.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
               driver.close();
 
@@ -154,7 +155,7 @@ export function findPMO(): string | null {
         const dbPath = path.join(activeHqPath, '.proletariat', 'workspace.db');
         if (hasPMOTables(dbPath)) {
           try {
-            const driver = openDriver(dbPath, { foreignKeys: false });
+            const driver = openDriver(dbPath, { foreignKeys: false, readonly: isReadOnlyHQMount(path.dirname(path.dirname(dbPath))) });
             const result = driver.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;
             driver.close();
 

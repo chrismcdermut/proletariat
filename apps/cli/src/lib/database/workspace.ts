@@ -8,6 +8,7 @@ import Database from 'better-sqlite3'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { isEphemeralAgentName } from '../themes.js'
+import { isReadOnlyHQMount } from '../container.js'
 import { throwIfNativeBindingError } from './native-validation.js'
 import { runDrizzleMigrations } from './migrator.js'
 import { ALL_MIGRATIONS } from './migrations/index.js'
@@ -103,60 +104,73 @@ export function getConfigPath(workspacePath: string): string {
  * - Enables WAL journal mode for corruption resistance
  * - Runs a quick integrity check; auto-repairs if corruption detected
  */
-export function openWorkspaceDatabase(workspacePath: string): Database.Database {
+export function openWorkspaceDatabase(workspacePath: string, options?: { readonly?: boolean }): Database.Database {
   const dbPath = getDatabasePath(workspacePath)
 
   if (!fs.existsSync(dbPath)) {
     throw new Error(`Database not found: ${dbPath}. Run 'prlt new' first.`)
   }
 
-  // Auto-backup before opening (cheap insurance against corruption)
-  createRotatingBackup(dbPath)
+  // Determine if we should open read-only.
+  // In container environments, the HQ mount at PRLT_HQ_PATH is typically
+  // read-only. We detect this by checking if the workspace path matches
+  // the HQ path AND we're in a container. This avoids accidentally opening
+  // local/test databases as read-only.
+  const readOnly = options?.readonly ?? isReadOnlyHQMount(workspacePath)
+
+  if (!readOnly) {
+    // Auto-backup before opening (cheap insurance against corruption)
+    createRotatingBackup(dbPath)
+  }
 
   let db: Database.Database
   try {
-    db = new Database(dbPath)
+    db = new Database(dbPath, readOnly ? { readonly: true } : undefined)
   } catch (error) {
     throwIfNativeBindingError(error, 'openWorkspaceDatabase')
     throw error
   }
 
-  // Enable WAL mode — allows concurrent readers with one writer,
-  // significantly more resistant to corruption than journal_mode=delete
-  enableWALMode(db)
+  if (!readOnly) {
+    // Enable WAL mode — allows concurrent readers with one writer,
+    // significantly more resistant to corruption than journal_mode=delete
+    enableWALMode(db)
+  }
   db.pragma('foreign_keys = ON')
   db.pragma('busy_timeout = 5000')
 
-  // Quick integrity check on startup
-  const integrity = quickCheckIntegrity(db)
-  if (!integrity.ok) {
-    db.close()
+  if (!readOnly) {
+    // Quick integrity check on startup
+    const integrity = quickCheckIntegrity(db)
+    if (!integrity.ok) {
+      db.close()
 
-    // Attempt auto-repair
-    const repair = repairDatabase(dbPath)
-    if (!repair.success) {
-      throw new Error(
-        `Database corruption detected in ${dbPath}.\n` +
-        `Integrity errors: ${integrity.errors.join('; ')}\n` +
-        `Auto-repair failed: ${repair.message}\n` +
-        `Run 'prlt db repair' for manual recovery options.`
-      )
+      // Attempt auto-repair
+      const repair = repairDatabase(dbPath)
+      if (!repair.success) {
+        throw new Error(
+          `Database corruption detected in ${dbPath}.\n` +
+          `Integrity errors: ${integrity.errors.join('; ')}\n` +
+          `Auto-repair failed: ${repair.message}\n` +
+          `Run 'prlt db repair' for manual recovery options.`
+        )
+      }
+
+      // Re-open the repaired database
+      try {
+        db = new Database(dbPath)
+      } catch (error) {
+        throwIfNativeBindingError(error, 'openWorkspaceDatabase (post-repair)')
+        throw error
+      }
+      enableWALMode(db)
+      db.pragma('foreign_keys = ON')
+      db.pragma('busy_timeout = 5000')
     }
 
-    // Re-open the repaired database
-    try {
-      db = new Database(dbPath)
-    } catch (error) {
-      throwIfNativeBindingError(error, 'openWorkspaceDatabase (post-repair)')
-      throw error
-    }
-    enableWALMode(db)
-    db.pragma('foreign_keys = ON')
-    db.pragma('busy_timeout = 5000')
+    runDrizzleMigrations(db, ALL_MIGRATIONS)
+    ensureEphemeralAgentTypes(db)
   }
-
-  runDrizzleMigrations(db, ALL_MIGRATIONS)
-  ensureEphemeralAgentTypes(db)
 
   return db
 }
