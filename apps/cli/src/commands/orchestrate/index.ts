@@ -12,6 +12,7 @@
 
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
+import * as readline from 'node:readline'
 import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
@@ -141,6 +142,9 @@ export default class Orchestrate extends PMOCommand {
         this.log(styles.muted(`  Applied preset "${parsedFlags.preset}" (${count} hooks)`))
       }
 
+      // Readline interface for interactive confirmations in daemon mode
+      let rl: readline.Interface | null = null
+
       // Create the orchestrate engine
       const engine = new OrchestrateEngine({
         db,
@@ -148,6 +152,38 @@ export default class Orchestrate extends PMOCommand {
           if (verbose || jsonMode) {
             this.log(msg)
           }
+        },
+        onConfirm: async (hookName, event, action) => {
+          // In JSON mode, output as JSON and auto-deny (external system should handle)
+          if (jsonMode) {
+            outputSuccessAsJson(
+              { type: 'confirmation_required', hookName, event, action },
+              createMetadata('orchestrate', flags),
+            )
+            return false
+          }
+
+          // Interactive confirmation via readline
+          return new Promise<boolean>((resolve) => {
+            this.log('')
+            this.log(`${styles.warning('[confirm]')} Hook "${hookName}" wants to run:`)
+            this.log(`  Event: ${styles.emphasis(event)}`)
+            this.log(`  Action: ${styles.code(action)}`)
+
+            if (!rl) {
+              rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+            }
+
+            rl.question(`  Approve? (yes/no): `, (answer) => {
+              const approved = answer.trim().toLowerCase().startsWith('y')
+              if (approved) {
+                this.log(styles.success('  Approved'))
+              } else {
+                this.log(styles.muted('  Denied'))
+              }
+              resolve(approved)
+            })
+          })
         },
         onNotify: (hookName, event, action, result) => {
           this.log(`${styles.info('[notify]')} ${hookName}: ${event} → ${action} (${result.success ? 'ok' : 'failed'})`)
@@ -229,6 +265,7 @@ export default class Orchestrate extends PMOCommand {
         const cleanup = () => {
           engine.stop()
           if (pollTimer) clearInterval(pollTimer)
+          if (rl) { rl.close(); rl = null }
           this.log(styles.muted('\n  Orchestrate daemon stopped'))
           resolve()
         }
