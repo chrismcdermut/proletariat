@@ -33,3 +33,22 @@ export {
   type TriggerConfig,
 } from './trigger-config.js'
 export { resolveTicketProvider, resolveProjectProvider } from './resolver.js'
+export {
+  move,
+  moveWithProvider,
+  createPMProviderAdapter,
+  llmResolveState,
+  getStateMapConfig,
+  setStateMapConfig,
+  deleteStateMapConfig,
+  listStateMapConfigs,
+  type PMProvider,
+  type PMState,
+  type StateResolutionResult,
+} from './state-resolution.js'
+export {
+  DEFAULT_INTENTS,
+  getDefaultIntent,
+  matchIntentByAliases,
+  type SemanticIntent,
+} from './state-intents.js'
