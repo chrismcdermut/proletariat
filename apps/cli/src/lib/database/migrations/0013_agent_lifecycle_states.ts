@@ -8,13 +8,13 @@
  * so we recreate the table with the new constraint.
  */
 
-import type { SqliteDatabase } from '../sqlite.js'
+import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 
 export const agentLifecycleStates: Migration = {
   id: '0013',
   name: 'agent_lifecycle_states',
-  up: (db: SqliteDatabase) => {
+  up: (db: Database.Database) => {
     // SQLite doesn't support modifying CHECK constraints, so we need to
     // recreate the table. We use a migration-safe approach:
     // 1. Create new table with updated constraint
