@@ -14,6 +14,10 @@ import {
 } from '../../src/lib/execution/devcontainer.js'
 
 import {
+  DEFAULT_EXECUTION_CONFIG,
+} from '../../src/lib/execution/types.js'
+
+import {
   getGitIdentity,
 } from '../../src/lib/pr/index.js'
 
@@ -800,6 +804,148 @@ describe('Devcontainer', () => {
         const config = JSON.parse(jsonContent)
         const credentialMount = config.mounts.find((m: string) => m.includes('claude-credentials'))
         expect(credentialMount).to.not.exist
+      })
+    })
+  })
+
+  // =============================================================================
+  // PRLT-1079: Configurable network allowlist per action/spawn
+  // =============================================================================
+
+  describe('Configurable network allowlist (PRLT-1079)', () => {
+    describe('generateFirewallScript', () => {
+      it('should include extra allowlist domains in firewall script', () => {
+        const script = generateFirewallScript('claude-code', ['api.linear.app', 'api.slack.com'])
+
+        expect(script).to.include('add_domain "api.linear.app"')
+        expect(script).to.include('add_domain "api.slack.com"')
+      })
+
+      it('should deduplicate allowlist domains', () => {
+        const script = generateFirewallScript('claude-code', ['api.linear.app', 'api.linear.app'])
+
+        // Should only appear once in the extra domains section
+        const matches = script.match(/add_domain "api\.linear\.app"/g)
+        // Appears once in the extra allowlist section
+        expect(matches).to.have.lengthOf(1)
+      })
+
+      it('should normalize domains to lowercase', () => {
+        const script = generateFirewallScript('claude-code', ['API.Linear.App'])
+
+        expect(script).to.include('add_domain "api.linear.app"')
+      })
+
+      it('should reject domains with invalid characters', () => {
+        const script = generateFirewallScript('claude-code', ['valid.domain.com', 'invalid domain!', '$(evil)'])
+
+        expect(script).to.include('add_domain "valid.domain.com"')
+        expect(script).to.not.include('invalid domain!')
+        expect(script).to.not.include('$(evil)')
+      })
+
+      it('should still include default domains when extra allowlist is provided', () => {
+        const script = generateFirewallScript('claude-code', ['api.linear.app'])
+
+        expect(script).to.include('api.anthropic.com')
+        expect(script).to.include('github.com')
+        expect(script).to.include('registry.npmjs.org')
+        expect(script).to.include('api.linear.app')
+      })
+
+      it('should support runtime PRLT_EXTRA_ALLOWLIST_DOMAINS alongside extra domains', () => {
+        const script = generateFirewallScript('claude-code', ['api.linear.app'])
+
+        expect(script).to.include('PRLT_EXTRA_ALLOWLIST_DOMAINS')
+        expect(script).to.include('add_domain "api.linear.app"')
+      })
+    })
+
+    describe('createDevcontainerConfig with networkAllowlist', () => {
+      let testDir: string
+
+      beforeEach(() => {
+        testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devcontainer-allowlist-test-'))
+      })
+
+      afterEach(() => {
+        if (fs.existsSync(testDir)) {
+          fs.rmSync(testDir, { recursive: true, force: true })
+        }
+      })
+
+      it('should include action-level domains in firewall script', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+          networkAllowlist: ['api.linear.app', 'api.slack.com'],
+        }
+
+        createDevcontainerConfig(options)
+
+        const firewall = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'init-firewall.sh'),
+          'utf-8'
+        )
+        expect(firewall).to.include('add_domain "api.linear.app"')
+        expect(firewall).to.include('add_domain "api.slack.com"')
+      })
+
+      it('should merge config-level and action-level domains', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+          networkAllowlist: ['api.linear.app'],
+        }
+
+        const config = {
+          ...DEFAULT_EXECUTION_CONFIG,
+          firewall: { allowlistDomains: ['api.staging.example.com'] },
+        }
+
+        createDevcontainerConfig(options, config)
+
+        const firewall = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'init-firewall.sh'),
+          'utf-8'
+        )
+        expect(firewall).to.include('add_domain "api.linear.app"')
+        expect(firewall).to.include('add_domain "api.staging.example.com"')
+      })
+
+      it('should work with empty networkAllowlist', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+          networkAllowlist: [],
+        }
+
+        createDevcontainerConfig(options)
+
+        const firewall = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'init-firewall.sh'),
+          'utf-8'
+        )
+        // Should still have default domains
+        expect(firewall).to.include('api.anthropic.com')
+        expect(firewall).to.include('github.com')
+      })
+
+      it('should work with no networkAllowlist', () => {
+        const options: DevcontainerOptions = {
+          agentName: 'test-agent',
+          agentDir: testDir,
+        }
+
+        createDevcontainerConfig(options)
+
+        const firewall = fs.readFileSync(
+          path.join(testDir, '.devcontainer', 'init-firewall.sh'),
+          'utf-8'
+        )
+        // Should still have default domains
+        expect(firewall).to.include('api.anthropic.com')
+        expect(firewall).to.include('github.com')
       })
     })
   })

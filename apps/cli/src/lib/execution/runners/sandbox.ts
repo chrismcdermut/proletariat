@@ -81,10 +81,11 @@ export function buildSrtCommand(
   // Allow read to temp directory (needed for script execution)
   args.push(`--fs-write=${os.tmpdir()}`)
 
-  // Network: merge sandbox domains with firewall allowlist
+  // Network: merge sandbox domains with firewall allowlist and action-level allowlist (PRLT-1079)
   const allDomains = new Set([
     ...config.sandbox.networkDomains,
     ...config.firewall.allowlistDomains,
+    ...(context.networkAllowlist || []),
   ])
   for (const domain of allDomains) {
     args.push(`--net-allow=${domain}`)

@@ -144,8 +144,11 @@ export function createDockerContainer(
   ]
 
   const hasWorktrees = context.repoWorktrees && context.repoWorktrees.length > 0
-  const firewallAllowlistDomains = [...new Set((config.firewall?.allowlistDomains || [])
-    .map(domain => domain.trim().toLowerCase())
+  // Merge workspace-level and action-level network allowlists (PRLT-1079)
+  const firewallAllowlistDomains = [...new Set([
+    ...(config.firewall?.allowlistDomains || []),
+    ...(context.networkAllowlist || []),
+  ].map(domain => domain.trim().toLowerCase())
     .filter(domain => /^[a-z0-9.-]+$/.test(domain)))]
   const envVars: string[] = [
     `-e DEVCONTAINER=true`,

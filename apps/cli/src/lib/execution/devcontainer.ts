@@ -29,6 +29,8 @@ export interface DevcontainerOptions {
   gitUserEmail?: string
   /** Executor type - determines which CLI tools to install and which API domains to whitelist */
   executor?: ExecutorType
+  /** Extra domains to allow in the container firewall (merged with config.firewall.allowlistDomains) */
+  networkAllowlist?: string[]
 }
 
 export interface DevcontainerJson {
@@ -745,7 +747,12 @@ export function createDevcontainerConfig(options: DevcontainerOptions, config?: 
   fs.writeFileSync(dockerfilePath, dockerfile)
 
   // Generate and write firewall script (executor-aware for API domain whitelisting)
-  const firewallScript = generateFirewallScript(options.executor, config?.firewall.allowlistDomains ?? [])
+  // Merge workspace-level allowlist with per-action/spawn allowlist
+  const allAllowlistDomains = [
+    ...(config?.firewall.allowlistDomains ?? []),
+    ...(options.networkAllowlist ?? []),
+  ]
+  const firewallScript = generateFirewallScript(options.executor, allAllowlistDomains)
   const firewallScriptPath = path.join(devcontainerDir, 'init-firewall.sh')
   fs.writeFileSync(firewallScriptPath, firewallScript, { mode: 0o755 })
 

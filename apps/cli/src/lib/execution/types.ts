@@ -196,6 +196,7 @@ export interface ExecutionContext {
   actionPrompt?: string   // The action prompt (start instruction for agent)
   actionEndPrompt?: string // The action end prompt (completion instructions)
   modifiesCode?: boolean  // Whether this action modifies code (needs branch)
+  networkAllowlist?: string[] // Extra domains to allow in container firewall for this action
   // Custom message (appended as additional instructions to any action)
   customMessage?: string
   // Docker credential mode

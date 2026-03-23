@@ -337,6 +337,75 @@ export function setActionCleanupPolicy(db: Database.Database, actionId: string, 
   setSetting(db, `cleanup.actions.${actionId}`, policy)
 }
 
+// =============================================================================
+// Network Allowlist Configuration
+// =============================================================================
+
+/**
+ * Resolve the network allowlist for a spawn, merging layers:
+ *   1. Action-level: action.networkAllowlist (from pmo_actions table)
+ *   2. Per-action override: network.actions.{actionId} (from workspace_settings)
+ *   3. Workspace global: firewall.allowlistDomains (from ExecutionConfig)
+ *
+ * All layers are merged (union). Duplicates are removed.
+ */
+export function getNetworkAllowlist(
+  config: ExecutionConfig,
+  actionId?: string,
+  actionNetworkAllowlist?: string[],
+  db?: Database.Database,
+): string[] {
+  const domains = new Set<string>()
+
+  // Layer 1: workspace-level firewall.allowlistDomains (always applied)
+  for (const domain of config.firewall.allowlistDomains) {
+    domains.add(domain.trim().toLowerCase())
+  }
+
+  // Layer 2: per-action override from workspace_settings
+  if (db && actionId) {
+    const settingValue = getSetting(db, `network.actions.${actionId}`)
+    if (settingValue) {
+      try {
+        const parsed = JSON.parse(settingValue)
+        if (Array.isArray(parsed)) {
+          for (const d of parsed) {
+            if (typeof d === 'string' && d.trim()) {
+              domains.add(d.trim().toLowerCase())
+            }
+          }
+        }
+      } catch {
+        // Backward-compatible fallback: comma-separated
+        for (const d of settingValue.split(',')) {
+          if (d.trim()) domains.add(d.trim().toLowerCase())
+        }
+      }
+    }
+  }
+
+  // Layer 3: action-level networkAllowlist (from pmo_actions table)
+  if (actionNetworkAllowlist) {
+    for (const domain of actionNetworkAllowlist) {
+      domains.add(domain.trim().toLowerCase())
+    }
+  }
+
+  return [...domains].filter(Boolean)
+}
+
+/**
+ * Set the network allowlist for a specific action in workspace_settings.
+ */
+export function setActionNetworkAllowlist(db: Database.Database, actionId: string, domains: string[]): void {
+  const cleaned = [...new Set(domains.map(d => d.trim().toLowerCase()).filter(Boolean))]
+  if (cleaned.length === 0) {
+    settingsFor(db).delete(`network.actions.${actionId}`)
+  } else {
+    setSetting(db, `network.actions.${actionId}`, JSON.stringify(cleaned))
+  }
+}
+
 /**
  * Save terminal app preference
  */

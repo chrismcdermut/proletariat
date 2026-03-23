@@ -43,6 +43,7 @@ interface ActionRow {
   environment: string | null
   permission_mode: string | null
   model: string | null
+  network_allowlist: string | null
 }
 
 // =============================================================================
@@ -222,6 +223,9 @@ export class ActionChainingHandler {
 
     // Spawn the agent with the action's configuration
     // Note: chained actions always run in background mode
+    const actionAllowlist = action.network_allowlist
+      ? (JSON.parse(action.network_allowlist) as string[])
+      : undefined
     const result = await spawnAgentForTicket(
       ticket,
       agentName,
@@ -233,6 +237,7 @@ export class ActionChainingHandler {
       {
         displayMode: 'background',
         log: (msg: string) => this.log(`[action-chain] ${msg}`),
+        networkAllowlist: actionAllowlist,
       },
     )
 
