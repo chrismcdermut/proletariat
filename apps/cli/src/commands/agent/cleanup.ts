@@ -112,19 +112,19 @@ export default class Cleanup extends PMOCommand {
       if (!agent) {
         return handleError('AGENT_NOT_FOUND', `Agent "${args.name}" not found.`);
       }
-      if (agent.status === 'cleaned') {
+      if (agent.status === 'cleaned' || agent.status === 'completed' || agent.status === 'dead') {
         if (jsonMode) {
-          outputErrorAsJson('ALREADY_CLEANED', `Agent "${args.name}" has already been cleaned up.`, createMetadata('agent cleanup', flags));
+          outputErrorAsJson('ALREADY_CLEANED', `Agent "${args.name}" has already been cleaned up (status: ${agent.status}).`, createMetadata('agent cleanup', flags));
           return;
         }
-        this.log(colors.warning(`Agent "${args.name}" has already been cleaned up.`));
+        this.log(colors.warning(`Agent "${args.name}" has already been cleaned up (status: ${agent.status}).`));
         return;
       }
       agentsToCleanup = [args.name];
     } else if (flags.all) {
       // All ephemeral agents (even running ones)
       const allEphemeral = workspaceInfo.agents.filter(
-        a => a.type === 'ephemeral' && a.status === 'active'
+        a => a.type === 'ephemeral' && (a.status === 'active' || a.status === 'running')
       );
       if (allEphemeral.length === 0) {
         if (jsonMode) {
@@ -149,7 +149,7 @@ export default class Cleanup extends PMOCommand {
       agentsToCleanup = cleanable.map(a => a.name);
     } else {
       // Interactive mode - show list of cleanable agents
-      const allAgents = workspaceInfo.agents.filter(a => a.status === 'active');
+      const allAgents = workspaceInfo.agents.filter(a => a.status === 'active' || a.status === 'running');
       if (allAgents.length === 0) {
         if (jsonMode) {
           outputErrorAsJson('NO_AGENTS', 'No agents to clean up.', createMetadata('agent cleanup', flags));

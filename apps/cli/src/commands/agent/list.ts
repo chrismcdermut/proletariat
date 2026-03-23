@@ -44,8 +44,8 @@ export default class List extends PMOCommand {
       // Get workspace information
       const workspaceInfo = getWorkspaceInfo();
 
-      // Filter to active agents only
-      const activeAgents = workspaceInfo.agents.filter(a => a.status === 'active');
+      // Filter to alive agents (active or running)
+      const activeAgents = workspaceInfo.agents.filter(a => a.status === 'active' || a.status === 'running');
 
       // Determine type filter - prompt if not provided (but not in JSON mode)
       let typeFilter = flags.type as 'staff' | 'temp' | 'all' | undefined;
