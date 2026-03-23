@@ -4,9 +4,10 @@
 
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { WorkAction } from '../../pmo/types.js'
+import type { WorkAction, ReviewGateMode } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
 import { errorResponse, strictTool } from '../helpers.js'
+import { getReviewGateSetting, setReviewGateSetting, isValidReviewGateMode } from '../../pmo/utils.js'
 
 export function registerActionTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,
@@ -27,6 +28,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
                 id: a.id,
                 name: a.name,
                 description: a.description,
+                reviewGate: a.reviewGate,
                 modifiesCode: a.modifiesCode,
                 isBuiltin: a.isBuiltin,
               })),
@@ -67,6 +69,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
       prompt: z.string().describe('Start prompt'),
       description: z.string().optional(),
       end_prompt: z.string().optional(),
+      review_gate: z.enum(['required', 'auto', 'post']).optional().describe('Review gate mode override (default: use workspace setting)'),
       modifies_code: z.boolean().optional(),
     },
     async (params) => {
@@ -76,6 +79,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
           prompt: params.prompt,
           description: params.description,
           endPrompt: params.end_prompt,
+          reviewGate: params.review_gate as ReviewGateMode | undefined,
           modifiesCode: params.modifies_code ?? true,
         })
         return {
@@ -101,6 +105,46 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
           content: [{
             type: 'text' as const,
             text: JSON.stringify({ success: true, message: 'Action deleted' }, null, 2),
+          }],
+        }
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'review_gate_get',
+    'Get workspace review gate setting (required | auto | post)',
+    {},
+    async () => {
+      try {
+        const db = ctx.storage.getDatabase()
+        const mode = getReviewGateSetting(db)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({ success: true, review_gate: mode }, null, 2),
+          }],
+        }
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+  )
+
+  strictTool(server,
+    'review_gate_set',
+    'Set workspace review gate default (required | auto | post)',
+    { mode: z.enum(['required', 'auto', 'post']).describe('Review gate mode') },
+    async (params) => {
+      try {
+        const db = ctx.storage.getDatabase()
+        setReviewGateSetting(db, params.mode)
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({ success: true, review_gate: params.mode, message: `Workspace review gate set to: ${params.mode}` }, null, 2),
           }],
         }
       } catch (error) {
