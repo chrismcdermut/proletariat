@@ -1,8 +1,7 @@
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import type { AsanaConfig } from './types.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
-
-const SETTINGS_TABLE = 'workspace_settings'
+import { SettingsStore } from '../database/settings-store.js'
 
 const ASANA_CONFIG_KEYS = {
   accessToken: 'asana.access_token',
@@ -12,59 +11,44 @@ const ASANA_CONFIG_KEYS = {
   projectName: 'asana.project_name',
 } as const
 
-function getSetting(db: Database.Database, key: string): string | null {
-  const row = db
-    .prepare(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`)
-    .get(key) as { value: string } | undefined
-  return row?.value ?? null
-}
-
-function setSetting(db: Database.Database, key: string, value: string): void {
-  db.prepare(`
-    INSERT INTO ${SETTINGS_TABLE} (key, value)
-    VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(key, value)
-}
-
-function deleteSetting(db: Database.Database, key: string): void {
-  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(key)
-}
-
 export function isAsanaConfigured(db: Database.Database): boolean {
-  return getSetting(db, ASANA_CONFIG_KEYS.accessToken) !== null
+  return new SettingsStore(db).has(ASANA_CONFIG_KEYS.accessToken)
 }
 
 export function loadAsanaConfig(db: Database.Database): AsanaConfig | null {
-  const accessToken = getSetting(db, ASANA_CONFIG_KEYS.accessToken)
+  const settings = new SettingsStore(db)
+  const accessToken = settings.get(ASANA_CONFIG_KEYS.accessToken)
   if (!accessToken) return null
 
   return {
     accessToken,
-    workspaceGid: getSetting(db, ASANA_CONFIG_KEYS.workspaceGid) ?? undefined,
-    workspaceName: getSetting(db, ASANA_CONFIG_KEYS.workspaceName) ?? undefined,
-    projectGid: getSetting(db, ASANA_CONFIG_KEYS.projectGid) ?? undefined,
-    projectName: getSetting(db, ASANA_CONFIG_KEYS.projectName) ?? undefined,
+    workspaceGid: settings.get(ASANA_CONFIG_KEYS.workspaceGid) ?? undefined,
+    workspaceName: settings.get(ASANA_CONFIG_KEYS.workspaceName) ?? undefined,
+    projectGid: settings.get(ASANA_CONFIG_KEYS.projectGid) ?? undefined,
+    projectName: settings.get(ASANA_CONFIG_KEYS.projectName) ?? undefined,
   }
 }
 
 export function saveAsanaAccessToken(db: Database.Database, accessToken: string): void {
-  setSetting(db, ASANA_CONFIG_KEYS.accessToken, accessToken)
+  new SettingsStore(db).set(ASANA_CONFIG_KEYS.accessToken, accessToken)
 }
 
 export function saveAsanaWorkspace(db: Database.Database, workspaceGid: string, workspaceName: string): void {
-  setSetting(db, ASANA_CONFIG_KEYS.workspaceGid, workspaceGid)
-  setSetting(db, ASANA_CONFIG_KEYS.workspaceName, workspaceName)
+  const settings = new SettingsStore(db)
+  settings.set(ASANA_CONFIG_KEYS.workspaceGid, workspaceGid)
+  settings.set(ASANA_CONFIG_KEYS.workspaceName, workspaceName)
 }
 
 export function saveAsanaProject(db: Database.Database, projectGid: string, projectName: string): void {
-  setSetting(db, ASANA_CONFIG_KEYS.projectGid, projectGid)
-  setSetting(db, ASANA_CONFIG_KEYS.projectName, projectName)
+  const settings = new SettingsStore(db)
+  settings.set(ASANA_CONFIG_KEYS.projectGid, projectGid)
+  settings.set(ASANA_CONFIG_KEYS.projectName, projectName)
 }
 
 export function clearAsanaConfig(db: Database.Database): void {
+  const settings = new SettingsStore(db)
   for (const key of Object.values(ASANA_CONFIG_KEYS)) {
-    deleteSetting(db, key)
+    settings.delete(key)
   }
 }
 
@@ -87,5 +71,5 @@ export function getAsanaAccessToken(db: Database.Database): string | null {
   if (envToken) return envToken
 
   // 3. Legacy: stored workspace setting
-  return getSetting(db, ASANA_CONFIG_KEYS.accessToken)
+  return new SettingsStore(db).get(ASANA_CONFIG_KEYS.accessToken)
 }

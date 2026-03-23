@@ -11,11 +11,11 @@
  * `work.provider_sources`.
  */
 
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import type { WorkSourceProvider } from './config.js'
 import { WORK_SOURCE_PROVIDERS, isWorkSourceProvider } from './config.js'
+import { SettingsStore } from '../database/settings-store.js'
 
-const SETTINGS_TABLE = 'workspace_settings'
 const PROVIDER_SOURCES_KEY = 'work.provider_sources'
 
 // =============================================================================
@@ -110,23 +110,8 @@ export function validateProviderSourceEntry(
 // Persistence
 // =============================================================================
 
-function getRawSetting(db: Database.Database, key: string): string | null {
-  const row = db
-    .prepare(`SELECT value FROM ${SETTINGS_TABLE} WHERE key = ?`)
-    .get(key) as { value: string } | undefined
-  return row?.value ?? null
-}
-
-function setRawSetting(db: Database.Database, key: string, value: string): void {
-  db.prepare(`
-    INSERT INTO ${SETTINGS_TABLE} (key, value)
-    VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(key, value)
-}
-
-function deleteRawSetting(db: Database.Database, key: string): void {
-  db.prepare(`DELETE FROM ${SETTINGS_TABLE} WHERE key = ?`).run(key)
+function settingsFor(db: Database.Database): SettingsStore {
+  return new SettingsStore(db)
 }
 
 /**
@@ -134,7 +119,7 @@ function deleteRawSetting(db: Database.Database, key: string): void {
  * Returns an empty array if none are configured.
  */
 export function loadProviderSources(db: Database.Database): ProviderSourceEntry[] {
-  const raw = getRawSetting(db, PROVIDER_SOURCES_KEY)
+  const raw = settingsFor(db).get(PROVIDER_SOURCES_KEY)
   if (!raw) return []
 
   try {
@@ -156,11 +141,12 @@ export function loadProviderSources(db: Database.Database): ProviderSourceEntry[
  * Save the full list of provider source entries to the database.
  */
 export function saveProviderSources(db: Database.Database, sources: ProviderSourceEntry[]): void {
+  const settings = settingsFor(db)
   if (sources.length === 0) {
-    deleteRawSetting(db, PROVIDER_SOURCES_KEY)
+    settings.delete(PROVIDER_SOURCES_KEY)
     return
   }
-  setRawSetting(db, PROVIDER_SOURCES_KEY, JSON.stringify(sources))
+  settings.set(PROVIDER_SOURCES_KEY, JSON.stringify(sources))
 }
 
 /**
@@ -378,7 +364,7 @@ export function resolveApiKey(
   if (envValue) return envValue
 
   // Try workspace_settings key
-  const dbValue = getRawSetting(db, entry.apiKeyRef)
+  const dbValue = settingsFor(db).get(entry.apiKeyRef)
   if (dbValue) return dbValue
 
   return null
