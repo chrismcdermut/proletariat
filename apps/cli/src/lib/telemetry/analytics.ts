@@ -412,18 +412,22 @@ export function trackCommandRun(options: {
 
 /**
  * Track an agent being spawned.
+ *
+ * Privacy: No ticket IDs, branch names, or usernames.
  */
 export function trackAgentSpawned(options: {
   executor: string
   environment: string
   action: string
   ephemeral: boolean
+  provider?: string
 }): void {
   trackEvent('agent_spawned', null, {
     executor: options.executor,
     environment: options.environment,
     action: options.action,
     ephemeral: String(options.ephemeral),
+    ...(options.provider ? { provider: options.provider } : {}),
   })
 }
 
@@ -475,6 +479,80 @@ export function trackMCPToolCalled(options: {
   trackEvent('mcp_tool_called', null, {
     tool_name: options.toolName,
     success: String(options.success),
+  })
+}
+
+// ─── Granular Telemetry Events ────────────────────────────────────────────────
+
+/**
+ * Track a work primitive completing (groom, resolve, implement, review, peek, poke, stop).
+ *
+ * Privacy: No ticket IDs, descriptions, file paths, or code content.
+ */
+export function trackPrimitiveExecuted(options: {
+  primitive: string
+  durationMs: number
+  success: boolean
+  errorType?: string
+}): void {
+  trackEvent('primitive_executed', options.durationMs, {
+    primitive: options.primitive,
+    success: options.success,
+    ...(options.errorType ? { error_type: options.errorType } : {}),
+  })
+}
+
+/**
+ * Track an agent completing successfully.
+ *
+ * Privacy: No ticket IDs, branch names, or usernames.
+ */
+export function trackAgentCompleted(options: {
+  action: string
+  durationMs: number
+  exitReason: 'completed' | 'errored' | 'stopped' | 'orphaned'
+  prCreated: boolean
+}): void {
+  trackEvent('agent_completed', options.durationMs, {
+    action: options.action,
+    exit_reason: options.exitReason,
+    pr_created: options.prCreated,
+  })
+}
+
+/**
+ * Track an agent encountering an error.
+ *
+ * Privacy: No ticket IDs, error messages (may contain PII), or stack traces.
+ */
+export function trackAgentErrored(options: {
+  action: string
+  durationMs: number
+  exitReason: 'errored'
+  errorType?: string
+}): void {
+  trackEvent('agent_errored', options.durationMs, {
+    action: options.action,
+    exit_reason: options.exitReason,
+    ...(options.errorType ? { error_type: options.errorType } : {}),
+  })
+}
+
+/**
+ * Track a ticket operation (fetch, move, update, comment, create, list).
+ *
+ * Privacy: No ticket IDs, descriptions, or ticket content.
+ */
+export function trackTicketOperation(options: {
+  operation: 'fetch' | 'move' | 'update' | 'comment' | 'create' | 'list'
+  provider: string
+  durationMs: number
+  success: boolean
+}): void {
+  trackEvent('ticket_operation', options.durationMs, {
+    operation: options.operation,
+    provider: options.provider,
+    success: options.success,
   })
 }
 

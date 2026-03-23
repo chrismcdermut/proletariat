@@ -9,6 +9,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { multiLineInput } from '../../lib/multiline-input.js';
+import { trackTicketOperation } from '../../lib/telemetry/analytics.js';
 
 export default class TicketEdit extends PMOCommand {
   static description = 'Edit an existing ticket';
@@ -256,7 +257,9 @@ export default class TicketEdit extends PMOCommand {
     }
 
     // Update the ticket
+    const updateStart = Date.now();
     const updatedTicket = await this.storage.updateTicket(ticketId!, updates);
+    trackTicketOperation({ operation: 'update', provider: 'pmo', durationMs: Date.now() - updateStart, success: true });
 
     // Auto-export to board.md
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));

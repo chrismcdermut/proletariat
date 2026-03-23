@@ -6,6 +6,7 @@ import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check
 import { handleUpdatePrompt } from '../lib/update-prompt.js'
 import { initSentry } from '../lib/telemetry.js'
 import { initAnalytics, shutdownAnalytics, trackCommandRun } from '../lib/telemetry/analytics.js'
+import { startTelemetryBridge } from '../lib/telemetry/telemetry-bridge.js'
 
 /**
  * Init hook - runs before every command
@@ -60,6 +61,9 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   ;(globalThis as Record<string, unknown>).__prlt_command_start = commandStart
   ;(globalThis as Record<string, unknown>).__prlt_command_id = id
   initAnalytics(config.version)
+
+  // Start telemetry bridge — subscribes to EventBus for granular tracking
+  startTelemetryBridge()
 
   // Register a process.on('exit') handler as a safety net for telemetry.
   // Most commands now return normally through oclif lifecycle (postrun hook),

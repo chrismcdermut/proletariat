@@ -6,6 +6,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 
 export default class WorkPeek extends PMOCommand {
   static description = 'View what an agent is doing on a ticket (non-interactive)'
@@ -53,10 +54,12 @@ export default class WorkPeek extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkPeek)
+    const startTime = Date.now()
 
     const jsonMode = shouldOutputJson(flags)
 
     const handleError = (code: string, message: string): void => {
+      trackPrimitiveExecuted({ primitive: 'peek', durationMs: Date.now() - startTime, success: false, errorType: 'command_error' })
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('work peek', flags))
         return
@@ -89,5 +92,6 @@ export default class WorkPeek extends PMOCommand {
     }
 
     await this.config.runCommand('session:peek', peekArgs)
+    trackPrimitiveExecuted({ primitive: 'peek', durationMs: Date.now() - startTime, success: true })
   }
 }

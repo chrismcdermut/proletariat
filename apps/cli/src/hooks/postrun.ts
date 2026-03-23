@@ -1,6 +1,7 @@
 import { Hook } from '@oclif/core'
 import { flushSentry } from '../lib/telemetry.js'
 import { trackCommandRun, shutdownAnalytics } from '../lib/telemetry/analytics.js'
+import { stopTelemetryBridge } from '../lib/telemetry/telemetry-bridge.js'
 import { flushPendingVersionCheck } from '../lib/update-check.js'
 
 /**
@@ -36,6 +37,9 @@ const hook: Hook<'postrun'> = async function ({ Command, argv }) {
       })
     }
   }
+
+  // Stop telemetry bridge before shutdown to ensure all events are captured
+  stopTelemetryBridge()
 
   // Flush pending events — don't delay CLI exit longer than necessary
   await Promise.all([

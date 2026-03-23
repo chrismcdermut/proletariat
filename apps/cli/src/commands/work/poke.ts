@@ -5,6 +5,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 
 export default class WorkPoke extends PMOCommand {
   static description = 'Send a message to steer an agent working on a ticket'
@@ -54,10 +55,12 @@ export default class WorkPoke extends PMOCommand {
 
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkPoke)
+    const startTime = Date.now()
 
     const jsonMode = shouldOutputJson(flags)
 
     const handleError = (code: string, message: string): void => {
+      trackPrimitiveExecuted({ primitive: 'poke', durationMs: Date.now() - startTime, success: false, errorType: 'command_error' })
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('work poke', flags))
         return
@@ -90,5 +93,6 @@ export default class WorkPoke extends PMOCommand {
     }
 
     await this.config.runCommand('session:poke', pokeArgs)
+    trackPrimitiveExecuted({ primitive: 'poke', durationMs: Date.now() - startTime, success: true })
   }
 }

@@ -14,6 +14,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 
 export default class WorkStop extends PMOCommand {
   static description = 'Stop a running agent working on a ticket'
@@ -43,8 +44,10 @@ export default class WorkStop extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags } = await this.parse(WorkStop)
     const jsonMode = shouldOutputJson(flags)
+    const startTime = Date.now()
 
     const handleError = (code: string, message: string): void => {
+      trackPrimitiveExecuted({ primitive: 'stop', durationMs: Date.now() - startTime, success: false, errorType: 'command_error' })
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('work stop', flags))
         return
@@ -105,6 +108,9 @@ export default class WorkStop extends PMOCommand {
 
       // Update execution status
       executionStorage.updateStatus(execution.id, 'stopped')
+
+      // Track primitive completion
+      trackPrimitiveExecuted({ primitive: 'stop', durationMs: Date.now() - startTime, success: true })
 
       if (jsonMode) {
         outputSuccessAsJson({
