@@ -133,6 +133,8 @@ export default class TicketEdit extends PMOCommand {
     if (!ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
+    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+    ticketId = ticket.id;
 
     // Determine what to update
     let updates: {

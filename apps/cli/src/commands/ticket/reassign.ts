@@ -118,6 +118,8 @@ export default class TicketReassign extends PMOCommand {
     if (!ticket) {
       this.error(`Ticket "${ticketId}" not found.`);
     }
+    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+    ticketId = ticket.id;
 
     // Get target assignee
     let targetAssignee = args.assignee || flags.to;

@@ -131,6 +131,8 @@ export default class TicketUpdate extends PMOCommand {
     if (!ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
+    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+    ticketId = ticket.id;
 
     // Check if any flags were provided
     const hasFlags = flags.title !== undefined || flags.description !== undefined ||

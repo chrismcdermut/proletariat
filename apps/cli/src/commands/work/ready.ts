@@ -145,6 +145,8 @@ export default class WorkReady extends PMOCommand {
         db.close();
         return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
       }
+      // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+      ticketId = ticket.id;
 
       // Get configured column name (from pmo_settings or default)
       // "ready" moves ticket to Review column (work complete moves to Done)

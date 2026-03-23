@@ -120,6 +120,8 @@ export default class TicketCancel extends PMOCommand {
     if (!ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
+    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
+    ticketId = ticket.id;
 
     // Move to Canceled column through provider (routes to Linear/Jira/PMO as appropriate)
     const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId!);
