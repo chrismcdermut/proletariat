@@ -435,7 +435,7 @@ echo "Firewall setup complete."
 
 /**
  * Generate prlt setup script.
- * Rebuilds better-sqlite3 if prlt is mounted from host (not installed via npm).
+ * Sets up prlt CLI in the container (no native module rebuild needed — sql.js is pure WASM).
  */
 export function generatePrltSetupScript(): string {
   // Note: Using single quotes in heredoc marker ('GITWRAPPER') prevents bash variable expansion
@@ -652,49 +652,16 @@ if command -v prlt &> /dev/null; then
 fi
 
 # Check if mounted prlt exists at /opt/prlt (skip if already configured via npm)
+# No native module rebuild needed — sql.js is pure JS/WASM.
 if [ "$PRLT_CONFIGURED" = "false" ] && [ -d "/opt/prlt/apps/cli" ]; then
     echo "Setting up mounted prlt..."
 
-    PRLT_LOCAL="/home/node/.prlt-local"
-
-    # Only rebuild if not already done
-    if [ ! -f "$PRLT_LOCAL/.setup-complete" ]; then
-        echo "Rebuilding native modules for container architecture..."
-        mkdir -p "$PRLT_LOCAL"
-
-        # Install only better-sqlite3 with correct architecture
-        cd "$PRLT_LOCAL"
-        npm init -y > /dev/null 2>&1
-        npm install better-sqlite3@12.6.2 --build-from-source 2>&1 || {
-            echo "Warning: better-sqlite3 rebuild failed"
-        }
-
-        touch "$PRLT_LOCAL/.setup-complete"
-        echo "Native module rebuild complete"
-    else
-        echo "prlt native modules already set up"
-    fi
-
-    # Create ESM loader to redirect better-sqlite3 to rebuilt version
-    LOADER="/home/node/.prlt-local/loader.mjs"
-    cat > "$LOADER" << 'LOADER_EOF'
-export async function resolve(specifier, context, nextResolve) {
-  if (specifier === "better-sqlite3") {
-    return {
-      shortCircuit: true,
-      url: "file:///home/node/.prlt-local/node_modules/better-sqlite3/lib/index.js"
-    };
-  }
-  return nextResolve(specifier, context);
-}
-LOADER_EOF
-
-    # Create wrapper script that uses ESM loader for native module resolution
+    # Create wrapper script that runs the mounted prlt directly
     WRAPPER="/home/node/.npm-global/bin/prlt"
     mkdir -p /home/node/.npm-global/bin
     cat > "$WRAPPER" << 'WRAPPER_EOF'
 #!/bin/bash
-NODE_NO_WARNINGS=1 exec node --experimental-loader /home/node/.prlt-local/loader.mjs /opt/prlt/apps/cli/bin/run.js "$@"
+exec node /opt/prlt/apps/cli/bin/run.js "$@"
 WRAPPER_EOF
     chmod +x "$WRAPPER"
     # Create prltdev symlink for consistency with dev environment
