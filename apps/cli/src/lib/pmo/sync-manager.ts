@@ -30,6 +30,7 @@ import { initWorkflowRuleEvaluator } from '../work-lifecycle/rule-evaluator.js';
 import { initActionChaining } from '../work-lifecycle/action-chaining.js';
 import { initContainerCleanupHook } from '../work-lifecycle/container-cleanup-hook.js';
 import { initTriggerHandler } from '../providers/trigger-config.js';
+import { resolveTicketProvider } from '../providers/resolver.js';
 
 /**
  * Get the board path for a project
@@ -314,6 +315,17 @@ export function getStorageWithAutoSync(
       await storage.moveTicket(projectId, ticketId, targetStatus);
     } catch {
       // Trigger-driven moves are non-fatal
+    }
+
+    // Sync to external provider (e.g., Linear) if ticket was imported from one
+    try {
+      const ticket = await storage.getTicketById(ticketId);
+      const provider = resolveTicketProvider(ticketId, projectId, storage.getDatabase(), storage, ticket?.metadata);
+      if (provider.name !== 'pmo') {
+        await provider.moveTicket(ticketId, targetStatus);
+      }
+    } catch {
+      // Non-fatal — don't block triggers for provider sync failures
     }
   });
 
