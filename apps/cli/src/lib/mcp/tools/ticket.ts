@@ -22,8 +22,6 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       owner: z.string().optional().describe('Filter by owner'),
       search: z.string().optional().describe('Search in title/description'),
       epic: z.string().optional().describe('Filter by epic ID'),
-      label: z.string().optional().describe('Filter by label name'),
-      label_group: z.string().optional().describe('Filter by label group name'),
       all_projects: z.boolean().optional().describe('List from all projects'),
       limit: z.number().min(1).optional().describe('Maximum number of tickets to return (default: 50)'),
       offset: z.number().min(0).optional().describe('Number of tickets to skip for pagination (default: 0)'),
@@ -40,8 +38,6 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
             owner: params.owner,
             search: params.search,
             epic: params.epic,
-            label: params.label,
-            labelGroup: params.label_group,
             allProjects: params.all_projects,
           }
         )
@@ -58,9 +54,7 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
               count: tickets.length,
               offset,
               limit,
-              tickets: await Promise.all(tickets.map(async (t: Ticket) => {
-                const ticketLabels = await ctx.storage.getLabelsForTicket(t.id)
-                return {
+              tickets: tickets.map((t: Ticket) => ({
                   id: t.id,
                   title: t.title,
                   priority: t.priority,
@@ -69,8 +63,6 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
                   statusCategory: t.statusCategory,
                   assignee: t.assignee,
                   position: t.position,
-                  labels: ticketLabels.map(l => ({ id: l.id, name: l.name, groupName: l.groupName })),
-                }
               })),
             }, null, 2),
           }],
@@ -94,7 +86,6 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       assignee: z.string().optional().describe('Assignee'),
       owner: z.string().optional().describe('Owner'),
       epic_id: z.string().optional().describe('Epic ID to link'),
-      labels: z.array(z.string()).optional().describe('Labels to add'),
       subtasks: z.array(z.string()).optional().describe('Subtasks to add'),
     },
     async (params) => {
@@ -114,25 +105,8 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
           assignee: params.assignee,
           owner: params.owner,
           epicId: params.epic_id,
-          labels: params.labels,
           subtasks: params.subtasks?.map((title) => ({ id: '', title, done: false })),
         })
-        // Add structured labels from the labels param via junction table
-        if (params.labels && params.labels.length > 0) {
-          for (const labelName of params.labels) {
-            try {
-              // Try to add as structured label (by name or ID)
-              const labelById = await ctx.storage.getLabel(labelName)
-              if (labelById) {
-                await ctx.storage.addLabelToTicket(ticket.id, labelById.id)
-              } else {
-                await ctx.storage.addLabelToTicketByName(ticket.id, labelName)
-              }
-            } catch {
-              // If label doesn't exist in the label system, it stays only in the legacy JSON array
-            }
-          }
-        }
         return {
           content: [{
             type: 'text' as const,
@@ -153,20 +127,10 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       try {
         const ticket = await ctx.storage.getTicket(params.id)
         if (!ticket) throw new Error(`Ticket not found: ${params.id}`)
-        const ticketLabels = await ctx.storage.getLabelsForTicket(params.id)
-        const ticketData = formatTicketFull(ticket)
-        // Override labels with structured label data from junction table
-        ticketData.labels = ticketLabels.map(l => ({
-          id: l.id,
-          name: l.name,
-          color: l.color,
-          groupId: l.groupId,
-          groupName: l.groupName,
-        })) as unknown as string[]
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, ticket: ticketData }, null, 2),
+            text: JSON.stringify({ success: true, ticket: formatTicketFull(ticket) }, null, 2),
           }],
         }
       } catch (error) {

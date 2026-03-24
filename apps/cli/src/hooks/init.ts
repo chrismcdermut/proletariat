@@ -26,7 +26,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   await initSentry(config.version)
 
   // Commands that work without an HQ still run native module checks.
-  const hqOptionalCommands = ['init', 'new', 'commit', 'claude', 'pmo:init', 'telemetry']
+  const hqOptionalCommands = ['init', 'new', 'commit', 'claude', 'telemetry']
   const isHqOptionalCommand = !!id && hqOptionalCommands.some(cmd => id === cmd || id.startsWith(cmd + ':'))
 
   // Skip when running under oclif tooling (manifest, readme generation)

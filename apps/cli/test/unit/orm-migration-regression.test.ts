@@ -474,27 +474,23 @@ describe('ORM Migration Regression Suite', () => {
   // ===========================================================================
 
   describe('Category Validation', () => {
-    it('accepts valid categories (case-insensitive)', async () => {
+    it('accepts any category as free-form string', async () => {
       const ticket = await storage.createTicket(projectId, {
         title: 'Category test',
         category: 'Feature',
       });
 
-      // Category should be normalized to the DB value
-      expect(ticket.category).to.exist;
-      expect(ticket.category!.toLowerCase()).to.equal('feature');
+      // Categories are free-form — PM tool is the source of truth
+      expect(ticket.category).to.equal('Feature');
     });
 
-    it('rejects invalid categories', async () => {
-      try {
-        await storage.createTicket(projectId, {
-          title: 'Invalid category test',
-          category: 'invalid-nonexistent-category',
-        });
-        expect.fail('Should have thrown');
-      } catch (err: unknown) {
-        expect((err as Error).message).to.match(/invalid category/i);
-      }
+    it('accepts custom categories', async () => {
+      const ticket = await storage.createTicket(projectId, {
+        title: 'Custom category test',
+        category: 'custom-category',
+      });
+
+      expect(ticket.category).to.equal('custom-category');
     });
   });
 
