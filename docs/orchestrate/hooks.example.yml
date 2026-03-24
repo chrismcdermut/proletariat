@@ -1,0 +1,60 @@
+# .proletariat/hooks.yml
+#
+# Event-driven hook configuration for prlt orchestrate.
+# Load with: prlt orchestrate --load-yaml
+# Or apply a preset instead: prlt hook preset supervised
+#
+# Modes:
+#   auto    — fires immediately, no human needed
+#   confirm — pauses, waits for approval
+#   notify  — fires but also pings
+#   off     — disabled
+
+on_ci_green:
+  - action: merge-pr
+    mode: auto
+
+on_pr_merged:
+  - action: move-ticket
+    mode: auto
+    args:
+      target: done
+  - action: rebase-conflicting-prs
+    mode: auto
+
+on_pr_opened:
+  - action: move-ticket
+    mode: auto
+    args:
+      target: review
+
+on_ticket_ready:
+  - action: spawn-agent
+    mode: confirm
+
+on_agent_died:
+  - action: respawn
+    mode: auto
+    max_retries: 2
+  - action: notify
+    mode: auto
+
+on_ci_failed:
+  - action: notify
+    mode: auto
+  - action: spawn-fix-agent
+    mode: confirm
+
+on_agent_completed:
+  - action: cleanup-container
+    mode: auto
+
+on_agent_idle:
+  - action: health-check
+    mode: auto
+
+on_agent_spawned:
+  - action: move-ticket
+    mode: auto
+    args:
+      target: in-progress

@@ -19,6 +19,8 @@ import { addTicketPosition } from './0010_add_ticket_position.js'
 import { addReviewGate } from './0011_add_review_gate.js'
 import { addActionNetworkAllowlist } from './0012_add_action_network_allowlist.js'
 import { agentLifecycleStates } from './0013_agent_lifecycle_states.js'
+import { agentWorkLifecycle } from './0014_agent_work_lifecycle.js'
+import { orchestrateHooks } from './0015_orchestrate_hooks.js'
 
 /**
  * Ordered list of all migrations.
@@ -38,4 +40,6 @@ export const ALL_MIGRATIONS: Migration[] = [
   addReviewGate,
   addActionNetworkAllowlist,
   agentLifecycleStates,
+  agentWorkLifecycle,
+  orchestrateHooks,
 ]
