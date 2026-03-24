@@ -14,6 +14,7 @@ import { expect } from 'chai'
 import type { TicketProvider, ProviderStorage } from '../../src/lib/providers/types.js'
 import type { Ticket, CreateTicketInput, UpdateTicketInput } from '../../src/lib/pmo/types.js'
 import { PMOTicketProvider } from '../../src/lib/providers/pmo-provider.js'
+import { TrelloTicketProvider } from '../../src/lib/providers/trello-provider.js'
 import { EventEmittingProvider } from '../../src/lib/providers/event-emitting-provider.js'
 
 // =============================================================================
@@ -67,6 +68,23 @@ describe('TicketProvider interface completeness (PRLT-1064 Phase 2)', () => {
     const provider: TicketProvider = new PMOTicketProvider(storage, 'test-project')
 
     // These would cause TypeScript compile errors if any method is missing
+    expect(typeof provider.listTickets).to.equal('function')
+    expect(typeof provider.getTicket).to.equal('function')
+    expect(typeof provider.createTicket).to.equal('function')
+    expect(typeof provider.updateTicket).to.equal('function')
+    expect(typeof provider.moveTicket).to.equal('function')
+    expect(typeof provider.assignTicket).to.equal('function')
+  })
+
+  it('TrelloTicketProvider implements all 6 universal operations', () => {
+    const storage = createMockStorage()
+    const mockDb = {
+      prepare: () => ({ get: () => undefined, all: () => [], run: () => ({}) }),
+      exec: () => {},
+      pragma: () => {},
+    } as any
+    const provider: TicketProvider = new TrelloTicketProvider(mockDb, storage, 'test-project', null)
+
     expect(typeof provider.listTickets).to.equal('function')
     expect(typeof provider.getTicket).to.equal('function')
     expect(typeof provider.createTicket).to.equal('function')
