@@ -27,6 +27,7 @@ const CREDENTIAL_KEYS = new Set([
   'trello.api_token',
   'shortcut.api_token',
   'monday.api_token',
+  'clickup.api_key',
 ])
 
 /**
