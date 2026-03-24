@@ -544,7 +544,7 @@ export function trackAgentErrored(options: {
  * Privacy: No ticket IDs, descriptions, or ticket content.
  */
 export function trackTicketOperation(options: {
-  operation: 'fetch' | 'move' | 'update' | 'comment' | 'create' | 'list'
+  operation: 'fetch' | 'move' | 'update' | 'comment' | 'create' | 'list' | 'assign'
   provider: string
   durationMs: number
   success: boolean
