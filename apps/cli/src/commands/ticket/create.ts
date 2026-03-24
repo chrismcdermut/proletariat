@@ -457,20 +457,22 @@ export default class TicketCreate extends PMOCommand {
       }));
       const message = 'Multiple ticket providers configured. Where should this ticket be created?';
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'source', message, choices),
-          createMetadata('ticket create', flags as Record<string, unknown>)
-        );
-        return 'pmo'
-      }
-
-      const { selectedSource } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedSource',
+      const selectedSource = await this.selectFromList({
         message,
-        choices,
-      }]);
+        items: allProviders.map(p => ({
+          name: p === 'pmo' ? 'PMO (local)' : `${p.charAt(0).toUpperCase() + p.slice(1)}`,
+          value: p,
+        })),
+        getName: (item) => item.name,
+        getValue: (item) => item.value,
+        getCommand: (item) => `prlt ticket create --source ${item.value} --json`,
+        jsonMode: jsonMode
+          ? { flags: flags as Record<string, unknown> & { json?: boolean; machine?: boolean }, commandName: 'ticket create' }
+          : null,
+      });
+
+      // In JSON mode selectFromList returns null (prompt already emitted)
+      if (selectedSource === null) return 'pmo';
 
       // Only 'linear' gets the special path; everything else falls through to PMO
       return selectedSource === 'linear' ? 'linear' : 'pmo';
@@ -500,20 +502,16 @@ export default class TicketCreate extends PMOCommand {
     // Collect title (required)
     let title = flags.title as string | undefined;
     if (!title) {
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('input', 'title', 'Enter ticket title:', undefined, undefined),
-          createMetadata('ticket create', flags)
-        );
-        return
-      }
-
-      const { inputTitle } = await inquirer.prompt([{
-        type: 'input',
-        name: 'inputTitle',
+      const inputTitle = await this.promptForInput({
         message: 'Enter ticket title:',
+        fieldName: 'title',
         validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
-      }]);
+        jsonMode: jsonMode
+          ? { flags: flags as Record<string, unknown> & { json?: boolean; machine?: boolean }, commandName: 'ticket create', commandHint: 'Provide --title flag', example: 'prlt ticket create --source linear --title "My ticket"' }
+          : null,
+      });
+      // In JSON mode, promptForInput returns '' (prompt already emitted)
+      if (jsonMode && !inputTitle) return;
       title = inputTitle;
     }
 
