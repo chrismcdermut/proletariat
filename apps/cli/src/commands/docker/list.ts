@@ -1,9 +1,9 @@
 import { Command, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
@@ -66,10 +66,9 @@ export default class DockerList extends Command {
     }
 
     // Open database
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     let db: Database.Database
     try {
-      db = new Database(dbPath)
+      db = openWorkspaceDatabase(workspaceInfo.path)
     } catch {
       this.error('Could not open workspace database.')
     }

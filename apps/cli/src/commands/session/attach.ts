@@ -3,9 +3,10 @@ import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage, loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
 import { detectTerminalApp } from '../orchestrator/attach.js'
 import {
@@ -152,16 +153,15 @@ export default class SessionAttach extends PMOCommand {
     let useControlMode = false
     try {
       const workspaceInfo = getWorkspaceInfo()
-      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      const db = new Database(dbPath)
+      const controlDb = openWorkspaceDatabase(workspaceInfo.path)
       try {
-        const config = loadExecutionConfig(db)
+        const config = loadExecutionConfig(controlDb)
         const termApp = detectTerminalApp()
         if (termApp === 'iTerm') {
           useControlMode = shouldUseControlMode('iTerm', config.tmux.controlMode)
         }
       } finally {
-        db.close()
+        controlDb.close()
       }
     } catch {
       // Not in a workspace or DB not available - fall back to no control mode
@@ -188,8 +188,7 @@ export default class SessionAttach extends PMOCommand {
 
     try {
       const workspaceInfo = getWorkspaceInfo()
-      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new Database(dbPath)
+      db = openWorkspaceDatabase(workspaceInfo.path)
       executionStorage = new ExecutionStorage(db)
     } catch {
       // Not in workspace, but we can still discover tmux sessions

@@ -1,8 +1,7 @@
 import { Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
-import * as path from 'node:path'
-import * as fs from 'node:fs'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { findHQRoot } from '../../lib/workspace.js'
@@ -226,30 +225,27 @@ export default class OrchestratorStop extends PromptCommand {
 
     // Update execution record to stopped (only if in HQ)
     if (hqPath) {
-      const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-      if (fs.existsSync(dbPath)) {
-        let db: Database.Database | null = null
-        try {
-          db = new Database(dbPath)
-          const executionStorage = new ExecutionStorage(db)
-          // Match new format: orchestrator-{name}
-          const agentNameToMatch = orchestratorName ? `orchestrator-${orchestratorName}` : undefined
-          const matchNames = agentNameToMatch ? [agentNameToMatch] : []
-          // Also match old format for backward compatibility
-          matchNames.push('orchestrator')
+      let db: Database.Database | null = null
+      try {
+        db = openWorkspaceDatabase(hqPath)
+        const executionStorage = new ExecutionStorage(db)
+        // Match new format: orchestrator-{name}
+        const agentNameToMatch = orchestratorName ? `orchestrator-${orchestratorName}` : undefined
+        const matchNames = agentNameToMatch ? [agentNameToMatch] : []
+        // Also match old format for backward compatibility
+        matchNames.push('orchestrator')
 
-          for (const matchName of matchNames) {
-            const running = executionStorage.listExecutions({ agentName: matchName, status: 'running' })
-            const starting = executionStorage.listExecutions({ agentName: matchName, status: 'starting' })
-            for (const exec of [...running, ...starting]) {
-              executionStorage.updateStatus(exec.id, 'stopped')
-            }
+        for (const matchName of matchNames) {
+          const running = executionStorage.listExecutions({ agentName: matchName, status: 'running' })
+          const starting = executionStorage.listExecutions({ agentName: matchName, status: 'starting' })
+          for (const exec of [...running, ...starting]) {
+            executionStorage.updateStatus(exec.id, 'stopped')
           }
-        } catch {
-          // Non-fatal
-        } finally {
-          db?.close()
         }
+      } catch {
+        // Non-fatal
+      } finally {
+        db?.close()
       }
     }
 

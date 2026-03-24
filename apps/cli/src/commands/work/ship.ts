@@ -1,7 +1,6 @@
 import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import Database from 'better-sqlite3';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
@@ -31,6 +30,7 @@ import { validateBranchName } from '../../lib/branch/index.js';
 import { PMO_TABLES } from '../../lib/pmo/schema.js';
 import type { Ticket } from '../../lib/pmo/types.js';
 import { execSync } from 'node:child_process';
+import { openWorkspaceDatabase } from '../../lib/database/index.js';
 
 /**
  * Sleep for the given number of milliseconds.
@@ -129,8 +129,7 @@ export default class WorkShip extends PMOCommand {
       return handleError('NOT_IN_WORKSPACE', 'Not in a workspace. Run "prlt new" first.');
     }
 
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
-    const db = new Database(dbPath);
+    const db = openWorkspaceDatabase(workspaceInfo.path);
     const executionStorage = new ExecutionStorage(db);
 
     try {

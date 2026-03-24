@@ -2,8 +2,8 @@ import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
-import Database from 'better-sqlite3';
 import { colors } from '../../lib/colors.js';
+import { openWorkspaceDatabase } from '../../lib/database/index.js';
 import { getWorkspaceInfo, getAgentTmuxSessions, formatAgentList, resolveAgentDir } from '../../lib/agents/commands.js';
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js';
 import { getTerminalApp } from '../../lib/execution/config.js';
@@ -307,8 +307,7 @@ export default class Shell extends PMOCommand {
       });
     } else {
       // Open in new terminal window using the same method as work start
-      const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-      const db = new Database(dbPath);
+      const db = openWorkspaceDatabase(hqPath);
 
       try {
         const terminalApp = await getTerminalApp(db);
@@ -377,8 +376,7 @@ exec bash
       });
     } else {
       // Open in new terminal window
-      const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-      const db = new Database(dbPath);
+      const db = openWorkspaceDatabase(hqPath);
 
       try {
         const terminalApp = await getTerminalApp(db);

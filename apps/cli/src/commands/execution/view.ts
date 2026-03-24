@@ -1,9 +1,8 @@
 import { Args } from '@oclif/core'
 import * as fs from 'node:fs'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
@@ -60,8 +59,7 @@ export default class ExecutionView extends PMOCommand {
     }
 
     // Open database
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(workspaceInfo.path)
     const executionStorage = new ExecutionStorage(db)
 
     try {

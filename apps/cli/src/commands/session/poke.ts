@@ -1,10 +1,10 @@
 import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
-import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
 import {
   getHostTmuxSessionNames,
@@ -294,8 +294,7 @@ export default class SessionPoke extends PromptCommand {
 
     try {
       const workspaceInfo = getWorkspaceInfo()
-      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new Database(dbPath)
+      db = openWorkspaceDatabase(workspaceInfo.path)
       executionStorage = new ExecutionStorage(db)
     } catch {
       if (jsonMode) {

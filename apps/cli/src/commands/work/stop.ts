@@ -1,6 +1,5 @@
 import { Args, Flags } from '@oclif/core'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -15,6 +14,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import { trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 
 export default class WorkStop extends PMOCommand {
   static description = 'Stop a running agent working on a ticket'
@@ -69,10 +69,9 @@ export default class WorkStop extends PMOCommand {
     }
 
     // Open database
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
     let db: Database.Database
     try {
-      db = new Database(dbPath)
+      db = openWorkspaceDatabase(workspaceInfo.path)
     } catch {
       return handleError('DB_ERROR', 'Could not open workspace database.')
     }

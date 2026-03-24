@@ -3,7 +3,7 @@ import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard, type Ticket } from '../../lib/pmo/index.js'
 import { trackAgentSpawned, trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 import { enrichAgentSession } from '../../lib/telemetry/telemetry-bridge.js'
@@ -29,7 +29,7 @@ import {
   WorkspaceInfo,
   resolveAgentDir,
 } from '../../lib/agents/commands.js'
-import { Agent } from '../../lib/database/index.js'
+import { Agent, openWorkspaceDatabase } from '../../lib/database/index.js'
 import {
   DisplayMode,
   SessionManager,
@@ -605,8 +605,7 @@ export default class WorkStart extends PMOCommand {
     }
 
     // Open database for execution storage
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(workspaceInfo.path)
     const executionStorage = new ExecutionStorage(db)
 
     try {

@@ -1,6 +1,4 @@
 import { Flags } from '@oclif/core'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -66,6 +64,7 @@ import {
   ExternalIssueAdapterError,
   type NormalizedIssueEnvelope,
 } from '../../lib/external-issues/types.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 
 export default class WorkSpawn extends PMOCommand {
   static description = 'Spawn work for multiple tickets by column (batch mode)'
@@ -940,8 +939,7 @@ export default class WorkSpawn extends PMOCommand {
     }
 
     // Open database
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(workspaceInfo.path)
 
     try {
       // Get board to list available columns

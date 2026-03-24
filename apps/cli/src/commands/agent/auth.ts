@@ -11,9 +11,9 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { findHQRoot } from '../../lib/workspace.js';
-import { getWorkspaceDbPath } from '../../lib/workspace.js';
 import { saveAuthMethod } from '../../lib/execution/config.js';
-import Database from 'better-sqlite3';
+import type Database from 'better-sqlite3';
+import { openWorkspaceDatabase } from '../../lib/database/index.js';
 
 const CLAUDE_CREDENTIALS_VOLUME = 'claude-credentials';
 
@@ -51,10 +51,7 @@ export default class Auth extends PromptCommand {
     try {
       const hqPath = findHQRoot();
       if (!hqPath) return null;
-      const dbPath = getWorkspaceDbPath(hqPath);
-      const db = new Database(dbPath);
-      db.pragma('foreign_keys = ON');
-      return db;
+      return openWorkspaceDatabase(hqPath);
     } catch {
       return null;
     }

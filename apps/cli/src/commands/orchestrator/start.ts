@@ -1,8 +1,6 @@
 import { Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
-import * as path from 'node:path'
-import * as fs from 'node:fs'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { findHQRoot } from '../../lib/workspace.js'
@@ -40,7 +38,7 @@ import {
   detectTerminalApp,
 } from '../../lib/execution/config.js'
 import { ensureBuiltinThemes } from '../../lib/themes.js'
-import { getActiveTheme, getAvailableThemeNames } from '../../lib/database/index.js'
+import { getActiveTheme, getAvailableThemeNames, openWorkspaceDatabase } from '../../lib/database/index.js'
 import { getConnectedIntegrations } from '../../lib/work-source/index.js'
 
 /**
@@ -545,25 +543,22 @@ export default class OrchestratorStart extends PromptCommand {
 
     if (flags.action && !actionPrompt) {
       // Load action from DB
-      const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-      if (fs.existsSync(dbPath)) {
-        let db: Database.Database | null = null
-        try {
-          db = new Database(dbPath)
-          const row = db.prepare('SELECT prompt, name FROM actions WHERE id = ? OR name = ?').get(flags.action, flags.action) as { prompt: string; name: string } | undefined
-          if (row) {
-            actionPrompt = row.prompt
-            actionName = row.name
-          } else {
-            if (jsonMode) {
-              outputErrorAsJson('ACTION_NOT_FOUND', `Action "${flags.action}" not found.`, createMetadata('orchestrator start', flags))
-              return
-            }
-            this.error(`Action "${flags.action}" not found.`)
+      let db: Database.Database | null = null
+      try {
+        db = openWorkspaceDatabase(hqPath)
+        const row = db.prepare('SELECT prompt, name FROM actions WHERE id = ? OR name = ?').get(flags.action, flags.action) as { prompt: string; name: string } | undefined
+        if (row) {
+          actionPrompt = row.prompt
+          actionName = row.name
+        } else {
+          if (jsonMode) {
+            outputErrorAsJson('ACTION_NOT_FOUND', `Action "${flags.action}" not found.`, createMetadata('orchestrator start', flags))
+            return
           }
-        } finally {
-          db?.close()
+          this.error(`Action "${flags.action}" not found.`)
         }
+      } finally {
+        db?.close()
       }
     }
 
@@ -592,16 +587,13 @@ export default class OrchestratorStart extends PromptCommand {
     executionConfig.permissionMode = permissionMode
 
     // Load saved preferences from workspace DB
-    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
     let db: Database.Database | null = null
     try {
-      if (fs.existsSync(dbPath)) {
-        db = new Database(dbPath)
-        const savedConfig = loadExecutionConfig(db)
-        executionConfig.terminal = savedConfig.terminal
-        executionConfig.shell = savedConfig.shell
-        executionConfig.tmux = savedConfig.tmux
-      }
+      db = openWorkspaceDatabase(hqPath)
+      const savedConfig = loadExecutionConfig(db)
+      executionConfig.terminal = savedConfig.terminal
+      executionConfig.shell = savedConfig.shell
+      executionConfig.tmux = savedConfig.tmux
     } catch {
       // Ignore config loading errors, use defaults
     }

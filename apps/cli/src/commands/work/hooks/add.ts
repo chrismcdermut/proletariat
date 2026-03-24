@@ -1,6 +1,4 @@
 import { Flags } from '@oclif/core'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
 import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
@@ -16,6 +14,7 @@ import {
 import { withSignalSafePrompt } from '../../../lib/signal-handler.js'
 import { WorkHookStorage, HOOKABLE_EVENTS } from '../../../lib/work-lifecycle/hooks/index.js'
 import type { HookableEvent, HookActionType } from '../../../lib/work-lifecycle/hooks/index.js'
+import { openWorkspaceDatabase } from '../../../lib/database/index.js'
 
 export default class WorkHooksAdd extends PMOCommand {
   static description = 'Add a work lifecycle hook'
@@ -62,8 +61,7 @@ export default class WorkHooksAdd extends PMOCommand {
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(workspaceInfo.path)
 
     try {
       const hookStorage = new WorkHookStorage(db)
