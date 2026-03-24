@@ -90,16 +90,16 @@ describe('Update Check', () => {
       expect(shouldCheck({ latest_version: null, last_checked_at: null, dismissed_version: null })).to.be.true
     })
 
-    it('returns true when last check was more than 20 hours ago', () => {
-      const twentyOneHoursAgo = new Date(Date.now() - 21 * 60 * 60 * 1000).toISOString()
+    it('returns true when last check was more than 4 hours ago', () => {
+      const fiveHoursAgo = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()
       expect(shouldCheck({
         latest_version: '1.0.0',
-        last_checked_at: twentyOneHoursAgo,
+        last_checked_at: fiveHoursAgo,
         dismissed_version: null,
       })).to.be.true
     })
 
-    it('returns false when last check was less than 20 hours ago', () => {
+    it('returns false when last check was less than 4 hours ago', () => {
       const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString()
       expect(shouldCheck({
         latest_version: '1.0.0',
@@ -114,6 +114,44 @@ describe('Update Check', () => {
         last_checked_at: 'not-a-date',
         dismissed_version: null,
       })).to.be.true
+    })
+
+    it('returns true when installed version is newer than cached latest (stale cache)', () => {
+      const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString()
+      // User is on 0.3.92 but cache says latest is 0.3.91 — cache is stale
+      expect(shouldCheck({
+        latest_version: '0.3.91',
+        last_checked_at: oneHourAgo,
+        dismissed_version: null,
+      }, '0.3.92')).to.be.true
+    })
+
+    it('returns false when cached latest is newer than installed version (cache is valid)', () => {
+      const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString()
+      // User is on 0.3.91, cache says latest is 0.3.92 — cache is still valid
+      expect(shouldCheck({
+        latest_version: '0.3.92',
+        last_checked_at: oneHourAgo,
+        dismissed_version: null,
+      }, '0.3.91')).to.be.false
+    })
+
+    it('returns false when installed version equals cached latest (no staleness)', () => {
+      const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString()
+      expect(shouldCheck({
+        latest_version: '0.3.92',
+        last_checked_at: oneHourAgo,
+        dismissed_version: null,
+      }, '0.3.92')).to.be.false
+    })
+
+    it('falls back to time-based check when no currentVersion provided', () => {
+      const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString()
+      expect(shouldCheck({
+        latest_version: '0.3.91',
+        last_checked_at: oneHourAgo,
+        dismissed_version: null,
+      })).to.be.false
     })
   })
 

@@ -36,7 +36,7 @@ export type PackageManager = 'brew' | 'npm' | 'standalone'
 // ---------------------------------------------------------------------------
 
 /** Minimum hours between version checks */
-const CHECK_INTERVAL_HOURS = 20
+const CHECK_INTERVAL_HOURS = 4
 
 /** npm package name for registry lookup */
 const NPM_PACKAGE_NAME = '@proletariat/cli'
@@ -106,10 +106,19 @@ export function writeCache(cache: VersionCheckCache): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true if enough time has elapsed since the last check.
+ * Returns true if enough time has elapsed since the last check,
+ * or if the cache is stale because the installed version is newer
+ * than the cached "latest" version.
  */
-export function shouldCheck(cache: VersionCheckCache): boolean {
+export function shouldCheck(cache: VersionCheckCache, currentVersion?: string): boolean {
   if (!cache.last_checked_at) {
+    return true
+  }
+
+  // If the installed version is newer than what's cached as "latest",
+  // the cache is stale — a newer version was published and the user
+  // already has it (or the cache recorded an outdated value).
+  if (currentVersion && cache.latest_version && isNewerVersion(cache.latest_version, currentVersion)) {
     return true
   }
 
@@ -434,11 +443,14 @@ export function getCachedUpdateInfo(currentVersion: string): UpdateInfo {
  * The fetch runs without blocking startup, but the promise is tracked
  * internally so it can be flushed before process exit via
  * {@link flushPendingVersionCheck}.
+ *
+ * When `currentVersion` is provided, forces a re-check if the installed
+ * version is newer than the cached "latest" (stale cache detection).
  */
-export function triggerBackgroundCheck(pm: PackageManager): void {
+export function triggerBackgroundCheck(pm: PackageManager, currentVersion?: string): void {
   const cache = readCache()
 
-  if (!shouldCheck(cache)) {
+  if (!shouldCheck(cache, currentVersion)) {
     return
   }
 
