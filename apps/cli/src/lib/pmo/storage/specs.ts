@@ -15,7 +15,7 @@ import {
 } from '../../database/drizzle-schema.js'
 import { PMOError, Project, Spec, SpecFilter, Ticket } from '../types.js'
 import { generateEntityId } from '../utils.js'
-import { StorageContext, TicketRow } from './types.js'
+import { StorageContext, SpecRow, TicketRow } from './types.js'
 import { rowToSpec, rowToTicket, wrapSqliteError } from './helpers.js'
 
 export class SpecStorage {
@@ -105,7 +105,7 @@ export class SpecStorage {
 
     if (!row) return null
 
-    return rowToSpec(row as any)
+    return rowToSpec(row as SpecRow)
   }
 
   /**
@@ -162,7 +162,7 @@ export class SpecStorage {
       .orderBy(asc(pmoSpecs.title))
       .all()
 
-    return rows.map((row) => rowToSpec(row as any))
+    return rows.map((row) => rowToSpec(row as SpecRow))
   }
 
   /**
@@ -488,7 +488,7 @@ export class SpecStorage {
       .orderBy(asc(pmoSpecs.title))
       .all()
 
-    return rows.map((row) => rowToSpec(row as any))
+    return rows.map((row) => rowToSpec(row as SpecRow))
   }
 
   /**

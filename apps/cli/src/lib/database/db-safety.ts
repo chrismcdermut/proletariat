@@ -251,13 +251,13 @@ function attemptDumpReimport(dbPath: string): RepairResult {
   } catch (error) {
     // Clean up on failure
     if (corruptDb) {
-      try { corruptDb.close() } catch { /* ignore */ }
+      try { corruptDb.close() } catch { /* db handle may already be invalid — safe to ignore during cleanup */ }
     }
     if (newDb) {
-      try { newDb.close() } catch { /* ignore */ }
+      try { newDb.close() } catch { /* db handle may already be invalid — safe to ignore during cleanup */ }
     }
     if (fs.existsSync(tempPath)) {
-      try { fs.unlinkSync(tempPath) } catch { /* ignore */ }
+      try { fs.unlinkSync(tempPath) } catch { /* temp file cleanup is best-effort */ }
     }
 
     return {
@@ -314,7 +314,7 @@ function attemptBackupRestore(dbPath: string): RepairResult {
       }
     } catch {
       if (backupDb) {
-        try { backupDb.close() } catch { /* ignore */ }
+        try { backupDb.close() } catch { /* db handle may already be invalid — safe to ignore during cleanup */ }
       }
       continue
     }

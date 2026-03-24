@@ -125,7 +125,7 @@ export function createDashboardServer(options: DashboardServerOptions): Promise<
 
             // Close all SSE connections
             for (const client of sseClients) {
-              try { client.end() } catch { /* ignore */ }
+              try { client.end() } catch { /* client may have already disconnected — safe to ignore */ }
             }
             sseClients.clear()
 
