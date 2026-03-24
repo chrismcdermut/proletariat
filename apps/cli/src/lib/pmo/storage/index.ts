@@ -15,28 +15,15 @@ import {
   AcceptanceCriterion,
   Board,
   BoardConfig,
-  BoardView,
-  BoardViewFilter,
-  BoardViewFilters,
-  Category,
-  CategoryFilter,
-  CategoryType,
   Column,
   CreateTicketInput,
   Epic,
   EpicDependency,
   EpicDependencyType,
   EpicFilter,
-  PhaseFilter,
-  PhaseTemplate,
-  PhaseTemplateFilter,
   PMOStorage,
   Project,
   ProjectFilter,
-  ProjectPhase,
-  Roadmap,
-  RoadmapFilter,
-  RoadmapProject,
   Spec,
   SpecDependency,
   SpecDependencyType,
@@ -57,23 +44,15 @@ import {
   Workflow,
   WorkflowFilter,
   WorkflowStatus,
-  Label,
-  LabelFilter,
-  LabelGroup,
-  LabelGroupFilter,
 } from '../types.js'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { StorageContext } from './types.js'
 import {
   runMigrations,
   seedBuiltinWorkflows,
-  seedBuiltinPhases,
-  seedBuiltinPhaseTemplates,
   seedBuiltinActions,
   seedBuiltinWorkflowRules,
   seedBuiltinTicketTemplates,
-  seedBuiltinCategories,
-  seedBuiltinLabels,
   updateBoardTimestamp,
 } from './base.js'
 import { ProjectStorage } from './projects.js'
@@ -84,13 +63,8 @@ import { EpicStorage } from './epics.js'
 import { DependencyStorage } from './dependencies.js'
 import { StatusStorage } from './statuses.js'
 import { TemplateStorage } from './templates.js'
-import { PhaseStorage } from './phases.js'
 import { ActionStorage } from './actions.js'
 import { WorkflowRuleStorage } from './workflow-rules.js'
-import { ViewStorage } from './views.js'
-import { RoadmapStorage } from './roadmaps.js'
-import { CategoryStorage } from './categories.js'
-import { LabelStorage } from './labels.js'
 
 const T = PMO_TABLES
 
@@ -111,13 +85,8 @@ export class SQLiteStorage implements PMOStorage {
   private dependencyStorage: DependencyStorage
   private statusStorage: StatusStorage
   private templateStorage: TemplateStorage
-  private phaseStorage: PhaseStorage
   private actionStorage: ActionStorage
   private workflowRuleStorage: WorkflowRuleStorage
-  private viewStorage: ViewStorage
-  private roadmapStorage: RoadmapStorage
-  private categoryStorage: CategoryStorage
-  private labelStorage: LabelStorage
 
   constructor(dbPath: string) {
     this.dbPath = dbPath
@@ -150,13 +119,8 @@ export class SQLiteStorage implements PMOStorage {
     this.dependencyStorage = new DependencyStorage(ctx)
     this.statusStorage = new StatusStorage(ctx)
     this.templateStorage = new TemplateStorage(ctx)
-    this.phaseStorage = new PhaseStorage(ctx)
     this.actionStorage = new ActionStorage(ctx)
     this.workflowRuleStorage = new WorkflowRuleStorage(ctx)
-    this.viewStorage = new ViewStorage(ctx)
-    this.roadmapStorage = new RoadmapStorage(ctx)
-    this.categoryStorage = new CategoryStorage(ctx)
-    this.labelStorage = new LabelStorage(ctx)
 
     // Ensure PMO tables exist
     this.ensurePMOTables()
@@ -197,13 +161,9 @@ export class SQLiteStorage implements PMOStorage {
 
     // Seed built-in data (workflows are the source of truth for status configurations)
     seedBuiltinWorkflows(this.db)
-    seedBuiltinPhases(this.db)
-    seedBuiltinPhaseTemplates(this.db)
     seedBuiltinActions(this.db)
     seedBuiltinWorkflowRules(this.db)
     seedBuiltinTicketTemplates(this.db)
-    seedBuiltinCategories(this.db)
-    seedBuiltinLabels(this.db)
 
     // Validate schema
     validateTicketSchema(this.db)
@@ -660,69 +620,6 @@ export class SQLiteStorage implements PMOStorage {
   }
 
   // ===========================================================================
-  // Phase Operations
-  // ===========================================================================
-
-  async listPhases(filter?: PhaseFilter): Promise<ProjectPhase[]> {
-    return this.phaseStorage.listPhases(filter)
-  }
-
-  async getPhase(id: string): Promise<ProjectPhase | null> {
-    return this.phaseStorage.getPhase(id)
-  }
-
-  async createPhase(phase: Partial<ProjectPhase>): Promise<ProjectPhase> {
-    return this.phaseStorage.createPhase(phase)
-  }
-
-  async updatePhase(id: string, changes: Partial<ProjectPhase>): Promise<ProjectPhase> {
-    return this.phaseStorage.updatePhase(id, changes)
-  }
-
-  async deletePhase(id: string): Promise<void> {
-    return this.phaseStorage.deletePhase(id)
-  }
-
-  async reorderPhase(id: string, newPosition: number): Promise<ProjectPhase> {
-    return this.phaseStorage.reorderPhase(id, newPosition)
-  }
-
-  async getDefaultPhase(): Promise<ProjectPhase | null> {
-    return this.phaseStorage.getDefaultPhase()
-  }
-
-  // ===========================================================================
-  // Phase Template Operations
-  // ===========================================================================
-
-  async listPhaseTemplates(filter?: PhaseTemplateFilter): Promise<PhaseTemplate[]> {
-    return this.phaseStorage.listPhaseTemplates(filter)
-  }
-
-  async getPhaseTemplate(id: string): Promise<PhaseTemplate | null> {
-    return this.phaseStorage.getPhaseTemplate(id)
-  }
-
-  async applyPhaseTemplate(templateId: string): Promise<ProjectPhase[]> {
-    return this.phaseStorage.applyPhaseTemplate(templateId)
-  }
-
-  async savePhaseTemplate(name: string, description?: string): Promise<PhaseTemplate> {
-    return this.phaseStorage.savePhaseTemplate(name, description)
-  }
-
-  async updatePhaseTemplate(
-    id: string,
-    changes: { name?: string; description?: string }
-  ): Promise<PhaseTemplate> {
-    return this.phaseStorage.updatePhaseTemplate(id, changes)
-  }
-
-  async deletePhaseTemplate(id: string): Promise<void> {
-    return this.phaseStorage.deletePhaseTemplate(id)
-  }
-
-  // ===========================================================================
   // Action Operations
   // ===========================================================================
 
@@ -826,206 +723,6 @@ export class SQLiteStorage implements PMOStorage {
 
   async unarchiveProject(id: string): Promise<Project> {
     return this.projectStorage.unarchiveProject(id)
-  }
-
-  // ===========================================================================
-  // Board View Operations
-  // ===========================================================================
-
-  async listBoardViews(filter?: BoardViewFilter): Promise<BoardView[]> {
-    return this.viewStorage.listBoardViews(filter)
-  }
-
-  async getBoardView(id: string): Promise<BoardView | null> {
-    return this.viewStorage.getBoardView(id)
-  }
-
-  async createBoardView(view: Partial<BoardView>): Promise<BoardView> {
-    return this.viewStorage.createBoardView(view)
-  }
-
-  async updateBoardView(id: string, changes: Partial<BoardView>): Promise<BoardView> {
-    return this.viewStorage.updateBoardView(id, changes)
-  }
-
-  async deleteBoardView(id: string): Promise<void> {
-    return this.viewStorage.deleteBoardView(id)
-  }
-
-  async getDefaultBoardView(projectId: string): Promise<BoardView | null> {
-    return this.viewStorage.getDefaultBoardView(projectId)
-  }
-
-  async getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board> {
-    return this.viewStorage.getBoardWithView(projectId, viewId, filters)
-  }
-
-  // ===========================================================================
-  // Roadmap Operations
-  // ===========================================================================
-
-  async listRoadmaps(filter?: RoadmapFilter): Promise<Roadmap[]> {
-    return this.roadmapStorage.listRoadmaps(filter)
-  }
-
-  async getRoadmap(id: string): Promise<Roadmap | null> {
-    return this.roadmapStorage.getRoadmap(id)
-  }
-
-  async createRoadmap(roadmap: Partial<Roadmap> & { name: string }): Promise<Roadmap> {
-    return this.roadmapStorage.createRoadmap(roadmap)
-  }
-
-  async updateRoadmap(id: string, changes: Partial<Roadmap>): Promise<Roadmap> {
-    return this.roadmapStorage.updateRoadmap(id, changes)
-  }
-
-  async deleteRoadmap(id: string): Promise<void> {
-    return this.roadmapStorage.deleteRoadmap(id)
-  }
-
-  async getDefaultRoadmap(): Promise<Roadmap | null> {
-    return this.roadmapStorage.getDefaultRoadmap()
-  }
-
-  async setDefaultRoadmap(id: string): Promise<Roadmap> {
-    return this.roadmapStorage.setDefaultRoadmap(id)
-  }
-
-  // ===========================================================================
-  // Roadmap Project Operations
-  // ===========================================================================
-
-  async listRoadmapProjects(roadmapId: string): Promise<Project[]> {
-    return this.roadmapStorage.listRoadmapProjects(roadmapId)
-  }
-
-  async addProjectToRoadmap(roadmapId: string, projectId: string, position?: number): Promise<RoadmapProject> {
-    return this.roadmapStorage.addProjectToRoadmap(roadmapId, projectId, position)
-  }
-
-  async removeProjectFromRoadmap(roadmapId: string, projectId: string): Promise<void> {
-    return this.roadmapStorage.removeProjectFromRoadmap(roadmapId, projectId)
-  }
-
-  async reorderRoadmapProject(roadmapId: string, projectId: string, newPosition: number): Promise<RoadmapProject> {
-    return this.roadmapStorage.reorderRoadmapProject(roadmapId, projectId, newPosition)
-  }
-
-  async getRoadmapsForProject(projectId: string): Promise<Roadmap[]> {
-    return this.roadmapStorage.getRoadmapsForProject(projectId)
-  }
-
-  // ===========================================================================
-  // Category Operations
-  // ===========================================================================
-
-  async listCategories(filter?: CategoryFilter): Promise<Category[]> {
-    return this.categoryStorage.listCategories(filter)
-  }
-
-  async getCategory(id: string): Promise<Category | null> {
-    return this.categoryStorage.getCategory(id)
-  }
-
-  async getCategoryByName(name: string, type: CategoryType): Promise<Category | null> {
-    return this.categoryStorage.getCategoryByName(name, type)
-  }
-
-  async createCategory(category: Partial<Category> & { name: string; type: CategoryType }): Promise<Category> {
-    return this.categoryStorage.createCategory(category)
-  }
-
-  async updateCategory(id: string, changes: Partial<Category>): Promise<Category> {
-    return this.categoryStorage.updateCategory(id, changes)
-  }
-
-  async renameCategory(id: string, newName: string): Promise<Category> {
-    return this.categoryStorage.renameCategory(id, newName)
-  }
-
-  async deleteCategory(id: string): Promise<void> {
-    return this.categoryStorage.deleteCategory(id)
-  }
-
-  async getCategoryNames(type: CategoryType): Promise<string[]> {
-    return this.categoryStorage.getCategoryNames(type)
-  }
-
-  async isValidCategory(name: string, type: CategoryType): Promise<boolean> {
-    return this.categoryStorage.isValidCategory(name, type)
-  }
-
-  // ===========================================================================
-  // Label Operations
-  // ===========================================================================
-
-  async listLabelGroups(filter?: LabelGroupFilter): Promise<LabelGroup[]> {
-    return this.labelStorage.listLabelGroups(filter)
-  }
-
-  async getLabelGroup(id: string): Promise<LabelGroup | null> {
-    return this.labelStorage.getLabelGroup(id)
-  }
-
-  async getLabelGroupByName(name: string): Promise<LabelGroup | null> {
-    return this.labelStorage.getLabelGroupByName(name)
-  }
-
-  async createLabelGroup(group: Partial<LabelGroup> & { name: string }): Promise<LabelGroup> {
-    return this.labelStorage.createLabelGroup(group)
-  }
-
-  async updateLabelGroup(id: string, changes: Partial<LabelGroup>): Promise<LabelGroup> {
-    return this.labelStorage.updateLabelGroup(id, changes)
-  }
-
-  async deleteLabelGroup(id: string): Promise<void> {
-    return this.labelStorage.deleteLabelGroup(id)
-  }
-
-  async listLabels(filter?: LabelFilter): Promise<Label[]> {
-    return this.labelStorage.listLabels(filter)
-  }
-
-  async getLabel(id: string): Promise<Label | null> {
-    return this.labelStorage.getLabel(id)
-  }
-
-  async getLabelByName(name: string, groupId?: string): Promise<Label | null> {
-    return this.labelStorage.getLabelByName(name, groupId)
-  }
-
-  async createLabel(label: Partial<Label> & { name: string }): Promise<Label> {
-    return this.labelStorage.createLabel(label)
-  }
-
-  async updateLabel(id: string, changes: Partial<Label>): Promise<Label> {
-    return this.labelStorage.updateLabel(id, changes)
-  }
-
-  async deleteLabel(id: string): Promise<void> {
-    return this.labelStorage.deleteLabel(id)
-  }
-
-  async addLabelToTicket(ticketId: string, labelId: string): Promise<void> {
-    return this.labelStorage.addLabelToTicket(ticketId, labelId)
-  }
-
-  async removeLabelFromTicket(ticketId: string, labelId: string): Promise<void> {
-    return this.labelStorage.removeLabelFromTicket(ticketId, labelId)
-  }
-
-  async getLabelsForTicket(ticketId: string): Promise<Label[]> {
-    return this.labelStorage.getLabelsForTicket(ticketId)
-  }
-
-  async addLabelToTicketByName(ticketId: string, labelName: string): Promise<void> {
-    return this.labelStorage.addLabelToTicketByName(ticketId, labelName)
-  }
-
-  async removeLabelFromTicketByName(ticketId: string, labelName: string): Promise<void> {
-    return this.labelStorage.removeLabelFromTicketByName(ticketId, labelName)
   }
 
   // ===========================================================================

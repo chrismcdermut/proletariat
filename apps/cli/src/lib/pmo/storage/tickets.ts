@@ -14,10 +14,6 @@ import {
   pmoWorkflowStatuses,
   pmoSubtasks,
   pmoTicketMetadata,
-  pmoCategories,
-  pmoTicketLabels,
-  pmoLabels,
-  pmoLabelGroups,
   pmoExternalIssueMap,
 } from '../../database/drizzle-schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
@@ -29,37 +25,12 @@ export class TicketStorage {
   constructor(private ctx: StorageContext) {}
 
   /**
-   * Validate a category against the DB.
-   * Returns the valid category name if found, throws error if invalid.
+   * Normalize a category value.
+   * Categories are free-form strings — validation happens in the PM tool, not locally.
    */
   private async validateCategory(category: string | null | undefined): Promise<string | null> {
     if (!category) return null
-
-    const row = this.ctx.drizzle
-      .select({ name: pmoCategories.name })
-      .from(pmoCategories)
-      .where(and(
-        sql`LOWER(${pmoCategories.name}) = LOWER(${category})`,
-        eq(pmoCategories.type, 'ticket')
-      ))
-      .get()
-
-    if (!row) {
-      const validCategories = this.ctx.drizzle
-        .select({ name: pmoCategories.name })
-        .from(pmoCategories)
-        .where(eq(pmoCategories.type, 'ticket'))
-        .orderBy(asc(pmoCategories.position))
-        .all()
-
-      const validNames = validCategories.map(c => c.name).join(', ')
-      throw new PMOError(
-        'INVALID',
-        `Invalid category "${category}". Valid categories: ${validNames}`
-      )
-    }
-
-    return row.name
+    return category
   }
 
   /**
@@ -749,26 +720,6 @@ export class TicketStorage {
     if (filter?.column) {
       conditions.push(eq(pmoWorkflowStatuses.name, filter.column))
     }
-    if (filter?.label) {
-      conditions.push(
-        sql`${pmoTickets.id} IN (
-          SELECT ${pmoTicketLabels.ticketId} FROM ${pmoTicketLabels}
-          JOIN ${pmoLabels} ON ${pmoTicketLabels.labelId} = ${pmoLabels.id}
-          WHERE LOWER(${pmoLabels.name}) = LOWER(${filter.label})
-        )`
-      )
-    }
-    if (filter?.labelGroup) {
-      conditions.push(
-        sql`${pmoTickets.id} IN (
-          SELECT ${pmoTicketLabels.ticketId} FROM ${pmoTicketLabels}
-          JOIN ${pmoLabels} ON ${pmoTicketLabels.labelId} = ${pmoLabels.id}
-          JOIN ${pmoLabelGroups} ON ${pmoLabels.groupId} = ${pmoLabelGroups.id}
-          WHERE LOWER(${pmoLabelGroups.name}) = LOWER(${filter.labelGroup})
-        )`
-      )
-    }
-
     // Build order clause
     const orderClauses = projectIdOrName === undefined
       ? [asc(pmoProjects.name), asc(pmoWorkflowStatuses.position), asc(pmoTickets.position), asc(pmoTickets.createdAt)]

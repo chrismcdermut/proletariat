@@ -5,7 +5,6 @@
 
 import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
-import { StateCategory, TICKET_CATEGORIES, STATE_CATEGORY_ORDER } from '../types.js'
 import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
 import { setWorkspacePriorities, DEFAULT_PRIORITIES } from '../utils.js'
 
@@ -19,13 +18,10 @@ export function initializePMOTables(db: Database.Database): void {
   runMigrations(db)
   db.exec(PMO_SCHEMA_SQL)
   seedBuiltinWorkflows(db)  // Workflows are the source of truth for status configurations
-  seedBuiltinPhases(db)
-  seedBuiltinPhaseTemplates(db)
   seedBuiltinActions(db)
   seedBuiltinWorkflowRules(db)
   seedBuiltinTicketTemplates(db)
   seedDefaultPriorities(db)  // Seed default priority scale if not set
-  seedBuiltinLabels(db)  // Seed built-in label groups and labels
   validateTicketSchema(db)
 }
 
@@ -535,131 +531,6 @@ export function seedBuiltinWorkflows(db: Database.Database): void {
 
 // REMOVED: seedBuiltinTemplates - workflows are now used directly (no separate template concept)
 // Built-in workflows are seeded in seedBuiltinWorkflows() above
-
-/**
- * Seed default project phases.
- */
-export function seedBuiltinPhases(db: Database.Database): void {
-  const defaultPhases: Array<{
-    id: string
-    name: string
-    category: StateCategory
-    position: number
-    description?: string
-    isDefault?: boolean
-  }> = [
-    { id: 'idea', name: 'Idea', category: 'backlog', position: 0, description: 'Project concept, not yet planned', isDefault: true },
-    { id: 'planned', name: 'Planned', category: 'unstarted', position: 0, description: 'Scheduled for work but not started' },
-    { id: 'active', name: 'Active', category: 'started', position: 0, description: 'Work is in progress' },
-    { id: 'completed', name: 'Completed', category: 'completed', position: 0, description: 'Project finished successfully' },
-    { id: 'canceled', name: 'Canceled', category: 'canceled', position: 0, description: "Project won't be completed" },
-  ]
-
-  const insertPhase = db.prepare(`
-    INSERT OR IGNORE INTO ${T.phases} (id, name, category, position, description, is_default, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  const now = new Date().toISOString()
-  for (const phase of defaultPhases) {
-    insertPhase.run(
-      phase.id,
-      phase.name,
-      phase.category,
-      phase.position,
-      phase.description || null,
-      phase.isDefault ? 1 : 0,
-      now
-    )
-  }
-}
-
-/**
- * Seed built-in phase templates.
- */
-export function seedBuiltinPhaseTemplates(db: Database.Database): void {
-  type TemplatePhase = {
-    name: string
-    category: StateCategory
-    position: number
-    description?: string
-    isDefault?: boolean
-  }
-
-  const builtinPhaseTemplates: Array<{
-    id: string
-    name: string
-    description: string
-    phases: TemplatePhase[]
-  }> = [
-    {
-      id: 'default',
-      name: 'Default',
-      description: 'Standard project lifecycle phases',
-      phases: [
-        { name: 'Idea', category: 'backlog', position: 0, description: 'Project concept, not yet planned', isDefault: true },
-        { name: 'Planned', category: 'unstarted', position: 0, description: 'Scheduled for work but not started' },
-        { name: 'Active', category: 'started', position: 0, description: 'Work is in progress' },
-        { name: 'Completed', category: 'completed', position: 0, description: 'Project finished successfully' },
-        { name: 'Canceled', category: 'canceled', position: 0, description: "Project won't be completed" },
-      ],
-    },
-    {
-      id: 'agile',
-      name: 'Agile',
-      description: 'Agile/Scrum project phases',
-      phases: [
-        { name: 'Backlog', category: 'backlog', position: 0, description: 'Not yet prioritized' },
-        { name: 'Groomed', category: 'unstarted', position: 0, description: 'Ready to be picked up' },
-        { name: 'In Sprint', category: 'started', position: 0, description: 'Actively being worked on', isDefault: true },
-        { name: 'Done', category: 'completed', position: 0, description: 'Sprint work completed' },
-        { name: 'Dropped', category: 'canceled', position: 0, description: 'Removed from backlog' },
-      ],
-    },
-    {
-      id: 'product',
-      name: 'Product',
-      description: 'Product development lifecycle',
-      phases: [
-        { name: 'Discovery', category: 'backlog', position: 0, description: 'Research and exploration' },
-        { name: 'Definition', category: 'unstarted', position: 0, description: 'Requirements and specs', isDefault: true },
-        { name: 'Development', category: 'started', position: 0, description: 'Building the product' },
-        { name: 'Launch', category: 'completed', position: 0, description: 'Shipped to users' },
-        { name: 'Growth', category: 'completed', position: 1, description: 'Post-launch iteration' },
-        { name: 'Sunset', category: 'canceled', position: 0, description: 'End of life' },
-      ],
-    },
-    {
-      id: 'startup',
-      name: 'Startup',
-      description: 'Lean startup methodology',
-      phases: [
-        { name: 'Hypothesis', category: 'backlog', position: 0, description: 'Untested idea' },
-        { name: 'Validated', category: 'unstarted', position: 0, description: 'Problem validated', isDefault: true },
-        { name: 'Building', category: 'started', position: 0, description: 'MVP in progress' },
-        { name: 'Measuring', category: 'started', position: 1, description: 'Collecting feedback' },
-        { name: 'Scaling', category: 'completed', position: 0, description: 'Growth phase' },
-        { name: 'Pivoted', category: 'canceled', position: 0, description: 'Changed direction' },
-      ],
-    },
-  ]
-
-  const insertTemplate = db.prepare(`
-    INSERT OR IGNORE INTO ${T.phase_templates} (id, name, description, is_builtin, phases, created_at)
-    VALUES (?, ?, ?, 1, ?, ?)
-  `)
-
-  const now = new Date().toISOString()
-  for (const template of builtinPhaseTemplates) {
-    insertTemplate.run(
-      template.id,
-      template.name,
-      template.description,
-      JSON.stringify(template.phases),
-      now
-    )
-  }
-}
 
 /**
  * Rule for agents about using the globally installed prlt command.
@@ -1438,55 +1309,6 @@ Why is this refactor needed?
 }
 
 /**
- * Seed built-in categories from TICKET_CATEGORIES and STATE_CATEGORY_ORDER.
- */
-export function seedBuiltinCategories(db: Database.Database): void {
-  const insertCategory = db.prepare(`
-    INSERT OR IGNORE INTO ${T.categories} (id, name, type, description, position, is_builtin, created_at)
-    VALUES (?, ?, ?, ?, ?, 1, ?)
-  `)
-
-  const now = new Date().toISOString()
-
-  // Seed ticket categories from TICKET_CATEGORIES
-  for (let i = 0; i < TICKET_CATEGORIES.length; i++) {
-    const category = TICKET_CATEGORIES[i]
-    const id = `ticket-${category}`
-    insertCategory.run(
-      id,
-      category,
-      'ticket',
-      null,
-      i,
-      now
-    )
-  }
-
-  // Seed status categories from STATE_CATEGORY_ORDER
-  const statusCategoryDescriptions: Record<string, string> = {
-    triage: 'Inbox - needs review before entering workflow',
-    backlog: 'Not yet scheduled for work',
-    unstarted: 'Scheduled but work has not begun',
-    started: 'Work is actively in progress',
-    completed: 'Work finished successfully',
-    canceled: 'Work will not be done',
-  }
-
-  for (let i = 0; i < STATE_CATEGORY_ORDER.length; i++) {
-    const category = STATE_CATEGORY_ORDER[i]
-    const id = `status-${category}`
-    insertCategory.run(
-      id,
-      category,
-      'status',
-      statusCategoryDescriptions[category] || null,
-      i,
-      now
-    )
-  }
-}
-
-/**
  * Seed default priorities if not already set.
  * Preserves any existing user-defined priority scale.
  */
@@ -1500,147 +1322,6 @@ export function seedDefaultPriorities(db: Database.Database): void {
   if (!row) {
     // No priorities set yet - seed with defaults
     setWorkspacePriorities(db, [...DEFAULT_PRIORITIES])
-  }
-}
-
-/**
- * Seed built-in label groups and labels.
- * Creates Function, Type, and Area groups with their labels.
- * Migrates existing ticket category values to Function labels.
- */
-export function seedBuiltinLabels(db: Database.Database): void {
-  const now = new Date().toISOString()
-
-  const insertGroup = db.prepare(`
-    INSERT OR IGNORE INTO ${T.label_groups} (id, name, description, is_exclusive, is_required, position, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  const insertLabel = db.prepare(`
-    INSERT OR IGNORE INTO ${T.labels} (id, name, color, description, group_id, position, is_builtin, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
-  `)
-
-  // Built-in label groups
-  const groups = [
-    {
-      id: 'function',
-      name: 'Function',
-      description: 'Business function category (diet enforcement)',
-      isExclusive: true,
-      isRequired: true,
-      position: 0,
-      labels: [
-        { id: 'fn-ship', name: 'ship', description: 'Core product development', color: '#2da44e' },
-        { id: 'fn-grow', name: 'grow', description: 'Marketing, adoption, community', color: '#bf8700' },
-        { id: 'fn-support', name: 'support', description: 'Docs, error messages, onboarding', color: '#0969da' },
-        { id: 'fn-bizops', name: 'bizops', description: 'Infrastructure, CI/CD, operations', color: '#8250df' },
-        { id: 'fn-strategy', name: 'strategy', description: 'Design decisions, spikes, retros, planning', color: '#cf222e' },
-      ],
-    },
-    {
-      id: 'type',
-      name: 'Type',
-      description: 'Work type classification',
-      isExclusive: true,
-      isRequired: false,
-      position: 1,
-      labels: [
-        { id: 'type-bug', name: 'bug', description: 'Bug fix', color: '#cf222e' },
-        { id: 'type-feature', name: 'feature', description: 'New feature', color: '#2da44e' },
-        { id: 'type-improvement', name: 'improvement', description: 'Enhancement to existing feature', color: '#0969da' },
-        { id: 'type-task', name: 'task', description: 'General task', color: '#6e7781' },
-      ],
-    },
-    {
-      id: 'area',
-      name: 'Area',
-      description: 'System area (non-exclusive)',
-      isExclusive: false,
-      isRequired: false,
-      position: 2,
-      labels: [
-        { id: 'area-cli', name: 'cli', description: 'CLI tool', color: '#0969da' },
-        { id: 'area-pmo', name: 'pmo', description: 'Project management', color: '#8250df' },
-        { id: 'area-agent', name: 'agent', description: 'Agent system', color: '#2da44e' },
-        { id: 'area-docker', name: 'docker', description: 'Docker integration', color: '#bf8700' },
-        { id: 'area-mcp', name: 'mcp', description: 'MCP server', color: '#cf222e' },
-        { id: 'area-desktop', name: 'desktop', description: 'Desktop app', color: '#6e7781' },
-      ],
-    },
-  ]
-
-  for (const group of groups) {
-    insertGroup.run(
-      group.id,
-      group.name,
-      group.description,
-      group.isExclusive ? 1 : 0,
-      group.isRequired ? 1 : 0,
-      group.position,
-      now
-    )
-
-    for (let i = 0; i < group.labels.length; i++) {
-      const label = group.labels[i]
-      insertLabel.run(
-        label.id,
-        label.name,
-        label.color,
-        label.description,
-        group.id,
-        i,
-        now
-      )
-    }
-  }
-
-  // Migrate existing category column values to Function label group
-  // Only run if there are tickets with category set but no Function label yet
-  migrateCategoryToFunctionLabels(db)
-}
-
-/**
- * Migrate existing ticket category values to Function label group entries.
- * Maps known category names to function labels (e.g., 'ship' -> fn-ship).
- * This is idempotent - only creates associations that don't exist yet.
- */
-function migrateCategoryToFunctionLabels(db: Database.Database): void {
-  // Map of old category values to function label IDs
-  // The ticket's category field contains values like 'feature', 'bug', etc.
-  // The diet system uses ship/grow/support/bizops/strategy which are different
-  // from ticket categories. The diet categories map to the Function label group.
-  // Since existing categories (feature, bug, etc.) don't map to Function labels,
-  // we only migrate if the category field happens to contain a Function label name.
-  const functionLabelMap: Record<string, string> = {
-    ship: 'fn-ship',
-    grow: 'fn-grow',
-    support: 'fn-support',
-    bizops: 'fn-bizops',
-    strategy: 'fn-strategy',
-  }
-
-  const tickets = db.prepare(`
-    SELECT id, category FROM ${T.tickets}
-    WHERE category IS NOT NULL AND category != ''
-  `).all() as Array<{ id: string; category: string }>
-
-  const insertTicketLabel = db.prepare(`
-    INSERT OR IGNORE INTO ${T.ticket_labels} (ticket_id, label_id)
-    VALUES (?, ?)
-  `)
-
-  for (const ticket of tickets) {
-    const labelId = functionLabelMap[ticket.category.toLowerCase()]
-    if (labelId) {
-      // Check label exists before inserting
-      const labelExists = db.prepare(
-        `SELECT id FROM ${T.labels} WHERE id = ?`
-      ).get(labelId) as { id: string } | undefined
-      if (labelExists) {
-        insertTicketLabel.run(ticket.id, labelId)
-      }
-    }
   }
 }
 

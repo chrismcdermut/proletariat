@@ -1078,23 +1078,6 @@ export interface PMOStorage {
   updateTicketTemplate(id: string, changes: Partial<TicketTemplate>): Promise<TicketTemplate>
   deleteTicketTemplate(id: string): Promise<void>
 
-  // Project Phase Operations (workspace-scoped)
-  listPhases(filter?: PhaseFilter): Promise<ProjectPhase[]>
-  getPhase(id: string): Promise<ProjectPhase | null>
-  createPhase(phase: Partial<ProjectPhase>): Promise<ProjectPhase>
-  updatePhase(id: string, changes: Partial<ProjectPhase>): Promise<ProjectPhase>
-  deletePhase(id: string): Promise<void>
-  reorderPhase(id: string, newPosition: number): Promise<ProjectPhase>
-  getDefaultPhase(): Promise<ProjectPhase | null>
-
-  // Phase Template Operations
-  listPhaseTemplates(filter?: PhaseTemplateFilter): Promise<PhaseTemplate[]>
-  getPhaseTemplate(id: string): Promise<PhaseTemplate | null>
-  applyPhaseTemplate(templateId: string): Promise<ProjectPhase[]>
-  savePhaseTemplate(name: string, description?: string): Promise<PhaseTemplate>
-  updatePhaseTemplate(id: string, changes: { name?: string; description?: string }): Promise<PhaseTemplate>
-  deletePhaseTemplate(id: string): Promise<void>
-
   // Work Action Operations
   listActions(filter?: WorkActionFilter): Promise<WorkAction[]>
   getAction(id: string): Promise<WorkAction | null>
@@ -1118,31 +1101,6 @@ export interface PMOStorage {
   listProjects(filter?: ProjectFilter): Promise<Project[]>
   archiveProject(id: string): Promise<Project>
   unarchiveProject(id: string): Promise<Project>
-
-  // Board View Operations
-  listBoardViews(filter?: BoardViewFilter): Promise<BoardView[]>
-  getBoardView(id: string): Promise<BoardView | null>
-  createBoardView(view: Partial<BoardView>): Promise<BoardView>
-  updateBoardView(id: string, changes: Partial<BoardView>): Promise<BoardView>
-  deleteBoardView(id: string): Promise<void>
-  getDefaultBoardView(projectId: string): Promise<BoardView | null>
-  getBoardWithView(projectId: string, viewId?: string, filters?: BoardViewFilters): Promise<Board>
-
-  // Roadmap Operations
-  listRoadmaps(filter?: RoadmapFilter): Promise<Roadmap[]>
-  getRoadmap(id: string): Promise<Roadmap | null>
-  createRoadmap(roadmap: Partial<Roadmap> & { name: string }): Promise<Roadmap>
-  updateRoadmap(id: string, changes: Partial<Roadmap>): Promise<Roadmap>
-  deleteRoadmap(id: string): Promise<void>
-  getDefaultRoadmap(): Promise<Roadmap | null>
-  setDefaultRoadmap(id: string): Promise<Roadmap>
-
-  // Roadmap Project Operations (managing projects within a roadmap)
-  listRoadmapProjects(roadmapId: string): Promise<Project[]>
-  addProjectToRoadmap(roadmapId: string, projectId: string, position?: number): Promise<RoadmapProject>
-  removeProjectFromRoadmap(roadmapId: string, projectId: string): Promise<void>
-  reorderRoadmapProject(roadmapId: string, projectId: string, newPosition: number): Promise<RoadmapProject>
-  getRoadmapsForProject(projectId: string): Promise<Roadmap[]>
 
   // Sync Operations
   pull(): Promise<SyncResult>
