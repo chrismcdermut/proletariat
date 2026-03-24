@@ -588,6 +588,7 @@ Use these commands to interact with the ticket system. Always use the global \`p
 
 const PRLT_COMMANDS_CODE = `
 | \`prlt commit "message"\` | Create a commit with ticket ID from branch name |
+| \`prlt work propose <id>\` | Create a PR and move ticket to Review (preferred for agents) |
 | \`prlt work ready <id> --pr\` | Mark ticket ready for review and create a PR |`
 
 const PRLT_COMMANDS_REVIEW = `
@@ -829,12 +830,13 @@ ${PRLT_COMMANDS_CODE}`,
    \`\`\`
    This formats your commit as a conventional commit with the ticket ID.
 
-2. **Mark work as ready** by running:
+2. **Propose your work for review** by running:
    \`\`\`bash
-   prlt work ready {{TICKET_ID}} --pr
+   prlt work propose {{TICKET_ID}}
    \`\`\`
-   This moves the ticket to review and creates a pull request.
+   This creates a pull request and moves the ticket to Review automatically.
 
+**IMPORTANT:** Use \`prlt work propose\` — do NOT use \`gh pr create\` directly, as that skips ticket state transitions.
 **IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
       fromState: 'Todo',
       toState: 'In Progress',
