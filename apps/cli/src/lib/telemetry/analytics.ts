@@ -286,7 +286,7 @@ function readAndClearQueue(): QueuedEvent[] {
   } catch {
     return []
   } finally {
-    try { fs.unlinkSync(claimPath) } catch { /* ignore */ }
+    try { fs.unlinkSync(claimPath) } catch { /* claimed file cleanup is best-effort — another process may have removed it */ }
   }
 }
 
@@ -343,7 +343,7 @@ export function initAnalytics(version: string): void {
       })
 
       if (analyticsShutdown) {
-        try { ph.shutdown() } catch { /* ignore */ }
+        try { ph.shutdown() } catch { /* PostHog shutdown is best-effort — process is exiting anyway */ }
       } else {
         posthogClient = ph as unknown as PostHogClientInstance
       }

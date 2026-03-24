@@ -118,7 +118,7 @@ ${containerPostExec}
       console.debug(`[runners:tmux] Killing existing tmux session "${sessionName}" in container`)
       try {
         execSync(`docker exec ${actualContainerId} tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' })
-      } catch { /* Ignore */ }
+      } catch { /* kill-session may fail if session died between has-session and kill — non-fatal */ }
     } catch { /* Session doesn't exist */ }
 
     // Create tmux session

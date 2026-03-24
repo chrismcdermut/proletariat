@@ -119,17 +119,17 @@ export default class Orchestrate extends PMOCommand {
           if (workflowYaml.branches?.target) {
             try {
               db.prepare("INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('workflow.branches.target', ?)").run(workflowYaml.branches.target)
-            } catch { /* ignore */ }
+            } catch { /* workspace_settings table may not exist yet — non-fatal, orchestration works without it */ }
           }
           if (workflowYaml.branches?.strategy) {
             try {
               db.prepare("INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('workflow.branches.strategy', ?)").run(workflowYaml.branches.strategy)
-            } catch { /* ignore */ }
+            } catch { /* workspace_settings table may not exist yet — non-fatal, orchestration works without it */ }
           }
           if (workflowYaml.review?.auto_merge_on_green !== undefined) {
             try {
               db.prepare("INSERT OR REPLACE INTO workspace_settings (key, value) VALUES ('workflow.review.auto_merge_on_green', ?)").run(String(workflowYaml.review.auto_merge_on_green))
-            } catch { /* ignore */ }
+            } catch { /* workspace_settings table may not exist yet — non-fatal, orchestration works without it */ }
           }
         }
       }
@@ -233,7 +233,7 @@ export default class Orchestrate extends PMOCommand {
         try {
           const hookCount = (db.prepare('SELECT COUNT(*) as count FROM pmo_work_hooks WHERE enabled = 1').get() as { count: number })?.count ?? 0
           this.log(styles.muted(`  ${hookCount} active hooks`))
-        } catch { /* ignore */ }
+        } catch { /* hook count is cosmetic — db may not have pmo_work_hooks table yet */ }
 
         if (parsedFlags['poll-interval'] && (parsedFlags['poll-interval'] as number) > 0) {
           this.log(styles.muted(`  Polling every ${parsedFlags['poll-interval']}s for external events`))

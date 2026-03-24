@@ -109,7 +109,7 @@ export default class DbRepair extends Command {
       }
     } catch (error) {
       if (db) {
-        try { db.close() } catch { /* ignore */ }
+        try { db.close() } catch { /* db.close() may fail if handle is already invalid — safe to ignore during cleanup */ }
       }
       this.log(styles.error(`  Could not open database: ${error instanceof Error ? error.message : error}`))
     }
@@ -183,7 +183,7 @@ export default class DbRepair extends Command {
       }
     } catch (error) {
       if (db) {
-        try { db.close() } catch { /* ignore */ }
+        try { db.close() } catch { /* db.close() may fail if handle is already invalid — safe to ignore during cleanup */ }
       }
 
       if (checkOnly) {

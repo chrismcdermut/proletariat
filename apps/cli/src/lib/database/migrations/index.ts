@@ -21,6 +21,7 @@ import { addActionNetworkAllowlist } from './0012_add_action_network_allowlist.j
 import { agentLifecycleStates } from './0013_agent_lifecycle_states.js'
 import { agentWorkLifecycle } from './0014_agent_work_lifecycle.js'
 import { orchestrateHooks } from './0015_orchestrate_hooks.js'
+import { schemaCatchup } from './0016_schema_catchup.js'
 
 /**
  * Ordered list of all migrations.
@@ -42,4 +43,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   agentLifecycleStates,
   agentWorkLifecycle,
   orchestrateHooks,
+  schemaCatchup,
 ]

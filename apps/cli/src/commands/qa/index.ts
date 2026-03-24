@@ -360,7 +360,7 @@ Clean up your tmux session when done.`,
       } catch (agentError) {
         // Rollback ticket
         if (!jsonMode) this.log(styles.muted('   Rolling back ticket creation...'))
-        try { await storage.deleteTicket(ticket.id) } catch { /* ignore */ }
+        try { await storage.deleteTicket(ticket.id) } catch { /* rollback best-effort — original agentError takes priority */ }
         throw agentError
       }
 

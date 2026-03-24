@@ -41,6 +41,7 @@ import { getPMOContext } from '../pmo/index.js';
 import { resolveRemoteUrl } from '../repos/git.js';
 import { getClaudeCodeVersion } from '../workspace-config.js';
 import { isContainerEnvironment, tryMkdir } from '../container.js';
+import { findHQRoot, isValidHQ } from '../workspace.js';
 
 /**
  * Resolve the directory for an agent, cascading through resolution strategies.
@@ -121,101 +122,105 @@ export interface WorkspaceInfo {
 /**
  * Find workspace root and return workspace information.
  *
- * Search priority:
- * 1. PRLT_HQ_PATH environment variable (ONLY when DEVCONTAINER=true or PRLT_TEST_ENV=true)
- * 2. Current directory tree for HQ with workspace.db
+ * Search priority (unified with findHQRoot from workspace.ts):
+ * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true or PRLT_TEST_ENV=true)
+ * 2. Walk up directory tree — checks config.json type='hq' AND workspace.db
+ *    (uses isValidHQ for HQ detection, same as findHQRoot)
+ * 3. Machine config fallback (activeHeadquarters / defaultHQ via findHQRoot)
+ *
+ * Key fix (PRLT-1105): workspace DETECTION uses config.json (same as findHQRoot),
+ * not the database. If the workspace is detected but the DB can't be read,
+ * throws a descriptive error instead of the misleading "not in workspace".
  *
  * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
  * working in different workspaces simultaneously.
  */
 export function getWorkspaceInfo(): WorkspaceInfo {
-  // Check PRLT_HQ_PATH environment variable (only in devcontainers or test environments)
-  const hqPath = process.env.PRLT_HQ_PATH;
+  // 1. Check PRLT_HQ_PATH (devcontainer/test only) — same check as findHQRoot
+  const envHqPath = process.env.PRLT_HQ_PATH;
   const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
-
-  if (hqPath && allowEnvHqPath) {
-    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
-    if (fs.existsSync(dbPath)) {
-      try {
-        const config = getWorkspaceConfig(hqPath);
-        if (config) {
-          // Skip agent discovery in container environments — HQ may be read-only
-          if (!isContainerEnvironment()) {
-            discoverAgentsOnDisk(hqPath);
-          }
-          const agents = getWorkspaceAgents(hqPath);
-          const repositories = getWorkspaceRepositories(hqPath);
-          const activeTheme = getActiveTheme(hqPath);
-          const persistentAgentsDir = getThemePersistentDir(activeTheme?.id);
-          const ephemeralAgentsDir = getThemeEphemeralDir(activeTheme?.id);
-
-          const agentsPath = config.type === 'hq'
-            ? path.join(hqPath, 'agents', persistentAgentsDir)
-            : hqPath;
-
-          return {
-            path: hqPath,
-            type: config.type,
-            workspaceName: config.workspace_name,
-            hasPMO: config.has_pmo,
-            agents,
-            repositories,
-            agentsPath,
-            activeThemeId: activeTheme?.id ?? null,
-            persistentAgentsDir,
-            ephemeralAgentsDir,
-          };
-        }
-      } catch {
-        // Continue to directory tree search if PRLT_HQ_PATH is invalid
-      }
+  if (envHqPath && allowEnvHqPath) {
+    const resolvedPath = path.resolve(envHqPath);
+    if (isValidHQ(resolvedPath) || fs.existsSync(path.join(resolvedPath, '.proletariat', 'workspace.db'))) {
+      return buildWorkspaceInfoFromPath(resolvedPath);
     }
   }
 
-  // Search up the directory tree
+  // 2. Walk up directory tree — local workspace takes priority over machine config
+  //    Check config.json (HQ type, same detection as findHQRoot) AND workspace.db (non-HQ)
   let currentDir = process.cwd();
-
-  while (currentDir !== '/') {
-    const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
-    if (fs.existsSync(dbPath)) {
-      try {
-        const config = getWorkspaceConfig(currentDir);
-        if (config) {
-          // Skip agent discovery in container environments — HQ may be read-only
-          if (!isContainerEnvironment()) {
-            discoverAgentsOnDisk(currentDir);
-          }
-          const agents = getWorkspaceAgents(currentDir);
-          const repositories = getWorkspaceRepositories(currentDir);
-          const activeTheme = getActiveTheme(currentDir);
-          const persistentAgentsDir = getThemePersistentDir(activeTheme?.id);
-          const ephemeralAgentsDir = getThemeEphemeralDir(activeTheme?.id);
-
-          const agentsPath = config.type === 'hq'
-            ? path.join(currentDir, 'agents', persistentAgentsDir)
-            : currentDir;
-
-          return {
-            path: currentDir,
-            type: config.type,
-            workspaceName: config.workspace_name,
-            hasPMO: config.has_pmo,
-            agents,
-            repositories,
-            agentsPath,
-            activeThemeId: activeTheme?.id ?? null,
-            persistentAgentsDir,
-            ephemeralAgentsDir,
-          };
-        }
-      } catch {
-        // Continue searching if database is corrupted
-      }
+  while (currentDir !== '/' && currentDir !== path.dirname(currentDir)) {
+    // Check for HQ via config.json — same detection as findHQRoot uses
+    if (isValidHQ(currentDir)) {
+      return buildWorkspaceInfoFromPath(currentDir);
+    }
+    // Check for non-HQ workspace via workspace.db
+    if (fs.existsSync(path.join(currentDir, '.proletariat', 'workspace.db'))) {
+      return buildWorkspaceInfoFromPath(currentDir);
     }
     currentDir = path.dirname(currentDir);
   }
 
+  // 3. Fall back to machine config (activeHeadquarters, defaultHQ)
+  //    This was missing before — findHQRoot includes it
+  const hqPath = findHQRoot();
+  if (hqPath) {
+    return buildWorkspaceInfoFromPath(hqPath);
+  }
+
   throw new Error('Not in an HQ or workspace directory. Run "prlt new" first.');
+}
+
+/**
+ * Build WorkspaceInfo from a known workspace path.
+ * Throws descriptive errors if the database can't be opened or read,
+ * instead of silently falling through to "not in workspace".
+ */
+function buildWorkspaceInfoFromPath(workspacePath: string): WorkspaceInfo {
+  const dbPath = path.join(workspacePath, '.proletariat', 'workspace.db');
+
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(
+      `Found HQ at ${workspacePath} but workspace database is missing.\n` +
+      `Run "prlt db repair" or "prlt new" to reinitialize.`
+    );
+  }
+
+  const config = getWorkspaceConfig(workspacePath);
+  if (!config) {
+    throw new Error(
+      `Found workspace at ${workspacePath} but could not read workspace configuration from database.\n` +
+      `The database may be corrupted or missing the workspace table.\n` +
+      `Run "prlt db repair" to attempt recovery.`
+    );
+  }
+
+  // Skip agent discovery in container environments — HQ may be read-only
+  if (!isContainerEnvironment()) {
+    discoverAgentsOnDisk(workspacePath);
+  }
+  const agents = getWorkspaceAgents(workspacePath);
+  const repositories = getWorkspaceRepositories(workspacePath);
+  const activeTheme = getActiveTheme(workspacePath);
+  const persistentAgentsDir = getThemePersistentDir(activeTheme?.id);
+  const ephemeralAgentsDir = getThemeEphemeralDir(activeTheme?.id);
+
+  const agentsPath = config.type === 'hq'
+    ? path.join(workspacePath, 'agents', persistentAgentsDir)
+    : workspacePath;
+
+  return {
+    path: workspacePath,
+    type: config.type,
+    workspaceName: config.workspace_name,
+    hasPMO: config.has_pmo,
+    agents,
+    repositories,
+    agentsPath,
+    activeThemeId: activeTheme?.id ?? null,
+    persistentAgentsDir,
+    ephemeralAgentsDir,
+  };
 }
 
 /**
@@ -670,6 +675,7 @@ export async function createEphemeralAgent(
                 });
               }
             } catch {
+              // Clone failed (network issue, auth, etc.) — fall back to empty directory so agent can still start
               if (!fs.existsSync(targetPath)) {
                 fs.mkdirSync(targetPath, { recursive: true });
               }
@@ -682,6 +688,7 @@ export async function createEphemeralAgent(
                 stdio: 'pipe'
               });
             } catch {
+              // Worktree creation failed (source repo issues, path conflicts) — fall back to empty directory
               if (!fs.existsSync(targetPath)) {
                 fs.mkdirSync(targetPath, { recursive: true });
               }
@@ -791,7 +798,7 @@ export function tmuxSessionExists(sessionName: string): boolean {
     execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`, { stdio: 'pipe' });
     return true;
   } catch {
-    return false;
+    return false; /* session does not exist */
   }
 }
 
@@ -823,7 +830,7 @@ export function getActiveTmuxSessions(): Array<{ name: string; ticketId: string;
       })
       .filter(s => s.ticketId.startsWith('TKT-'));
   } catch {
-    return [];
+    return []; /* tmux not available or no server running */
   }
 }
 
@@ -847,7 +854,7 @@ export function killTmuxSession(sessionName: string): boolean {
     execSync(`tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' });
     return true;
   } catch {
-    return false;
+    return false; /* session already dead or tmux not running */
   }
 }
 
@@ -974,7 +981,7 @@ export function findWorktreeForBranch(
         };
       }
     } catch {
-      continue;
+      continue; /* worktree list failed for this repo — try next one */
     }
   }
 
@@ -992,7 +999,7 @@ function getAgentContainers(agentDir: string): string[] {
     );
     return output.trim().split('\n').filter(Boolean);
   } catch {
-    return [];
+    return []; /* docker not available or not running */
   }
 }
 

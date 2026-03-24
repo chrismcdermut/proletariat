@@ -33,13 +33,13 @@ export function checkPMOExists(dbPath: string): { exists: boolean; projectCount:
       return { exists: false, projectCount: 0, ticketCount: 0 }
     }
 
-    const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number }
-    const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number }
+    const projectCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_projects').get() as { count: number } | undefined
+    const ticketCountResult = db.prepare('SELECT COUNT(*) as count FROM pmo_tickets').get() as { count: number } | undefined
 
     return {
       exists: true,
-      projectCount: projectCountResult.count,
-      ticketCount: ticketCountResult.count,
+      projectCount: projectCountResult?.count ?? 0,
+      ticketCount: ticketCountResult?.count ?? 0,
     }
   } finally {
     db.close()
