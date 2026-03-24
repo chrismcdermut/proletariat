@@ -186,16 +186,21 @@ export default class TicketUpdate extends PMOCommand {
       changedFields.push(`Labels: ${labelList.length > 0 ? labelList.join(', ') : 'none'}`);
     }
 
-    // Apply field changes (everything except status)
+    // Resolve provider once for all operations (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId || '');
+
+    // Apply field changes (everything except status) through provider
     if (Object.keys(changes).length > 0) {
       const updateStart = Date.now();
-      await this.storage.updateTicket(ticketId!, changes);
-      trackTicketOperation({ operation: 'update', provider: 'pmo', durationMs: Date.now() - updateStart, success: true });
+      const updateResult = await provider.updateTicket(ticketId!, changes);
+      trackTicketOperation({ operation: 'update', provider: updateResult.provider, durationMs: Date.now() - updateStart, success: updateResult.success });
+      if (!updateResult.success) {
+        return handleError('UPDATE_FAILED', `Failed to update ticket: ${updateResult.error}`);
+      }
     }
 
     // Handle status change separately via provider
     if (flags.status !== undefined) {
-      const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId || '');
       const moveResult = await provider.moveTicket(ticketId!, flags.status);
 
       if (!moveResult.success) {
@@ -314,8 +319,13 @@ export default class TicketUpdate extends PMOCommand {
       changes.category = updateCategory || undefined;
     }
 
-    // Update ticket
-    await this.storage.updateTicket(ticketId, changes);
+    // Update ticket through provider (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId, ticket?.projectId || '');
+    const result = await provider.updateTicket(ticketId, changes);
+
+    if (!result.success) {
+      this.error(`Failed to update ticket: ${result.error}`);
+    }
 
     // Auto-export
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -475,14 +485,22 @@ export default class TicketUpdate extends PMOCommand {
           changes.category = updateCategory || undefined;
         }
 
+        const ticket = allTickets.find(t => t.id === ticketId);
         // eslint-disable-next-line no-await-in-loop
-        await this.storage.updateTicket(ticketId, changes);
+        const provider = await this.resolveTicketProvider(ticketId, ticket?.projectId || '');
+        // eslint-disable-next-line no-await-in-loop
+        const result = await provider.updateTicket(ticketId, changes);
 
-        const updates: string[] = [];
-        if (updatePriority !== undefined) updates.push(`P:${updatePriority || 'none'}`);
-        if (updateCategory !== undefined) updates.push(`C:${updateCategory || 'none'}`);
-        this.log(styles.success(`${ticketId}: ${updates.join(', ')}`));
-        successCount++;
+        if (result.success) {
+          const updates: string[] = [];
+          if (updatePriority !== undefined) updates.push(`P:${updatePriority || 'none'}`);
+          if (updateCategory !== undefined) updates.push(`C:${updateCategory || 'none'}`);
+          this.log(styles.success(`${ticketId}: ${updates.join(', ')}`));
+          successCount++;
+        } else {
+          this.log(styles.error(`Failed to update ${ticketId}: ${result.error}`));
+          failCount++;
+        }
       } catch (error) {
         this.log(styles.error(`Failed to update ${ticketId}: ${error instanceof Error ? error.message : String(error)}`));
         failCount++;

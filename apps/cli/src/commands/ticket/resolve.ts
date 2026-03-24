@@ -344,8 +344,14 @@ export default class TicketResolve extends PMOCommand {
     // Rewrite description with answers
     const newDescription = rewriteDescription(ticket.description || '', answers);
 
-    // Update the ticket description
-    await this.storage.updateTicket(ticketId, { description: newDescription });
+    // Resolve provider for this ticket (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId, ticket.projectId || '');
+
+    // Update the ticket description through provider
+    const descResult = await provider.updateTicket(ticketId, { description: newDescription });
+    if (!descResult.success) {
+      this.error(`Failed to update ticket description: ${descResult.error}`);
+    }
 
     // Label management: remove needs-clarification, add ready
     const currentLabels = [...ticket.labels];
@@ -355,7 +361,10 @@ export default class TicketResolve extends PMOCommand {
       updatedLabels.push('ready');
     }
     if (JSON.stringify(updatedLabels) !== JSON.stringify(currentLabels)) {
-      await this.storage.updateTicket(ticketId, { labels: updatedLabels } as Partial<Ticket>);
+      const labelResult = await provider.updateTicket(ticketId, { labels: updatedLabels } as Partial<Ticket>);
+      if (!labelResult.success) {
+        this.log(styles.warning(`Warning: Failed to update labels: ${labelResult.error}`));
+      }
     }
 
     // Move to Ready column if all questions answered and ticket has a project
@@ -371,16 +380,17 @@ export default class TicketResolve extends PMOCommand {
               (s.category === 'unstarted' && s.name.toLowerCase() !== 'needs clarification')
           );
           if (readyStatus && readyStatus.name !== ticket.statusName) {
-            await this.storage.moveTicket(
-              ticket.projectId,
+            const moveResult = await provider.moveTicket(
               ticketId,
               readyStatus.name
             );
-            this.log(
-              styles.muted(
-                `   Moved to column: ${readyStatus.name}`
-              )
-            );
+            if (moveResult.success) {
+              this.log(
+                styles.muted(
+                  `   Moved to column: ${readyStatus.name}`
+                )
+              );
+            }
           }
         }
       } catch {
