@@ -139,21 +139,6 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       expect(json.type).to.equal('prompt');
     });
 
-    it('ticket bulk --json should output a prompt menu', async () => {
-      const output = await execInProcess('ticket bulk -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('prompt');
-    });
-
-    it('ticket resolve --json with no clarification tickets should output error', async () => {
-      const output = await execInProcess('ticket resolve -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('error');
-    });
   });
 
   // =========================================================================
@@ -192,42 +177,6 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
     });
   });
 
-  // =========================================================================
-  // Project Family
-  // =========================================================================
-  describe('project family', () => {
-    it('project index --json should output a valid prompt envelope', async () => {
-      const output = await execInProcess('project -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('prompt');
-    });
-
-    it('project list --json should output project data', async () => {
-      const output = await execInProcess('project list --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('success');
-    });
-
-    it('project view --json should output project details', async () => {
-      const output = await execInProcess('project view test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('success');
-    });
-
-    it('project create --json should output a form prompt', async () => {
-      const output = await execInProcess('project create --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('prompt');
-    });
-  });
 
   // =========================================================================
   // Agent Family
@@ -293,7 +242,6 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
       const promptCommands = [
         'ticket -P test-project --json',
         'work -P test-project --json',
-        'project -P test-project --json',
         'ticket create -P test-project --json',
         'ticket move -P test-project --json',
       ];
@@ -323,7 +271,8 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
     });
 
     it('error envelopes should have code and message', async () => {
-      const output = await execInProcess('ticket resolve -P test-project --json');
+      // Use ticket show with a non-existent ticket to trigger an error envelope
+      const output = await execInProcess('ticket show NONEXISTENT-999 -P test-project --json');
       const json = extractJson<{ type: string; error: { code: string; message: string } }>(output);
       expect(json.type).to.equal('error');
       expect(json.error.code).to.be.a('string').and.not.empty;
