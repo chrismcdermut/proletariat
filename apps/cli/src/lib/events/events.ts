@@ -116,6 +116,28 @@ export interface WorkflowRuleMatchedEvent {
 }
 
 // =============================================================================
+// Orchestrate Events
+// =============================================================================
+
+/**
+ * Generic event payload for orchestrate daemon events.
+ * These events are triggered externally (GitHub Actions, polling, prlt hook fire)
+ * and carry flexible context.
+ */
+export interface OrchestrateGenericEvent {
+  ticket?: string
+  pr?: number
+  branch?: string
+  agent?: string
+  container?: string
+  executionId?: string
+  prUrl?: string
+  projectId?: string
+  timestamp: Date
+  [key: string]: unknown
+}
+
+// =============================================================================
 // Event Map
 // =============================================================================
 
@@ -141,6 +163,19 @@ export interface RuntimeEventMap {
   'work:pr_merged': WorkPRMergedEvent
   'work:pr_closed': WorkPRClosedEvent
   'work:completed': WorkCompletedEvent
+
+  // Orchestrate events (external triggers + daemon events)
+  'on_ci_green': OrchestrateGenericEvent
+  'on_ci_failed': OrchestrateGenericEvent
+  'on_pr_opened': OrchestrateGenericEvent
+  'on_pr_merged': OrchestrateGenericEvent
+  'on_pr_conflicting': OrchestrateGenericEvent
+  'on_ticket_ready': OrchestrateGenericEvent
+  'on_agent_spawned': OrchestrateGenericEvent
+  'on_agent_died': OrchestrateGenericEvent
+  'on_agent_completed': OrchestrateGenericEvent
+  'on_agent_idle': OrchestrateGenericEvent
+  'on_version_published': OrchestrateGenericEvent
 }
 
 /** Union of all event names. */

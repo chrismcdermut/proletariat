@@ -1,0 +1,19 @@
+# .proletariat/workflow.yml
+#
+# Workflow configuration — controls the shape of the work pipeline.
+# Separate from hooks — this determines branch strategy, PR behavior,
+# and review requirements.
+
+branches:
+  target: main                      # or develop, staging
+  strategy: squash                  # squash, merge, rebase
+
+on_implement_complete:
+  - create-pr                       # or commit-to-branch, draft-pr
+
+on_review_complete:
+  - merge-pr                        # or auto-merge-on-green
+
+review:
+  required: false                   # or true, or "auto" (AI review)
+  auto_merge_on_green: true         # merge when CI passes, no human review

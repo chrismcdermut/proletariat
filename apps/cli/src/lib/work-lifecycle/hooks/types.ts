@@ -10,16 +10,29 @@ import type { RuntimeEventName } from '../../events/events.js'
 
 /**
  * Work lifecycle event names that can trigger hooks.
- * Subset of RuntimeEventName limited to work-relevant events.
+ * Subset of RuntimeEventName limited to work-relevant events,
+ * plus orchestrate daemon events for pipeline automation.
  */
 export type HookableEvent = Extract<
   RuntimeEventName,
   | 'work:started'
   | 'work:status_changed'
   | 'work:pr_created'
+  | 'work:pr_merged'
   | 'work:completed'
   | 'agent:spawned'
   | 'agent:stopped'
+  | 'on_ci_green'
+  | 'on_ci_failed'
+  | 'on_pr_opened'
+  | 'on_pr_merged'
+  | 'on_pr_conflicting'
+  | 'on_ticket_ready'
+  | 'on_agent_spawned'
+  | 'on_agent_died'
+  | 'on_agent_completed'
+  | 'on_agent_idle'
+  | 'on_version_published'
 >
 
 /** All hookable event names for validation. */
@@ -27,9 +40,21 @@ export const HOOKABLE_EVENTS: HookableEvent[] = [
   'work:started',
   'work:status_changed',
   'work:pr_created',
+  'work:pr_merged',
   'work:completed',
   'agent:spawned',
   'agent:stopped',
+  'on_ci_green',
+  'on_ci_failed',
+  'on_pr_opened',
+  'on_pr_merged',
+  'on_pr_conflicting',
+  'on_ticket_ready',
+  'on_agent_spawned',
+  'on_agent_died',
+  'on_agent_completed',
+  'on_agent_idle',
+  'on_version_published',
 ]
 
 /**

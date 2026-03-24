@@ -13,6 +13,7 @@ export type {
   AgentOutputEvent,
   TicketStatusChangedEvent,
   TicketPRLinkedEvent,
+  OrchestrateGenericEvent,
 } from './events.js'
 
 export {
