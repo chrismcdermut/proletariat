@@ -55,12 +55,40 @@ cd apps/cli && pnpm build
 
 ## Provider Architecture
 
-Commands route through a configured **ticket provider** (Linear, Jira, local PMO), not hardcoded to local PMO.
+**All ticket operations MUST go through the `TicketProvider` interface** (`src/lib/providers/types.ts`). Never call PMO storage directly for ticket reads/writes.
 
-- **Local PMO** is just the default provider for users without integrations — it is not a cache layer.
-- **Linear is the source of truth** when configured — prlt reads and writes directly to Linear.
+- Use `resolveTicketProvider()` or `resolveProjectProvider()` from `src/lib/providers/resolver.ts` to get the correct provider
+- **Local PMO** is just another provider (implements `TicketProvider`), not a cache or intermediary
+- **Linear is the source of truth** when configured — prlt reads and writes directly to Linear API
+- Never sync/mirror Linear data into PMO — they are parallel providers, not a pipeline
+
+```typescript
+// WRONG — bypasses provider, goes to PMO directly
+import { PMOStorage } from '../../lib/pmo/storage.js'
+const tickets = await storage.listTickets(projectId)
+
+// RIGHT — goes through provider adapter to configured source
+const provider = resolveProjectProvider(db, storage, projectId)
+const result = await provider.listTickets(projectId, filter)
+```
 
 Provider implementations live in `apps/cli/src/lib/providers/`.
+
+## Database Access
+
+**All database access MUST go through the DAL** (`src/lib/database/index.ts`). Never import `better-sqlite3` or the database driver directly.
+
+```typescript
+// WRONG — imports driver directly
+import Database from 'better-sqlite3'
+const db = new Database(dbPath)
+
+// RIGHT — goes through DAL
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
+const db = openWorkspaceDatabase(hqPath)
+```
+
+The DAL provides safety features: WAL mode, backups, integrity checks, auto-repair, and migrations.
 
 ## Branch Naming
 
