@@ -1,8 +1,8 @@
 import { Args, Flags } from '@oclif/core'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
 import {
   parseSessionName,
@@ -237,8 +237,7 @@ export default class SessionPeek extends PMOCommand {
     let db: Database.Database | null = null
     try {
       const workspaceInfo = getWorkspaceInfo()
-      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new Database(dbPath)
+      db = openWorkspaceDatabase(workspaceInfo.path)
       const executionStorage = new ExecutionStorage(db)
       const execution = executionStorage.getExecution(executionId)
 
@@ -431,8 +430,7 @@ export default class SessionPeek extends PMOCommand {
 
     try {
       const workspaceInfo = getWorkspaceInfo()
-      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new Database(dbPath)
+      db = openWorkspaceDatabase(workspaceInfo.path)
       executionStorage = new ExecutionStorage(db)
     } catch {
       // Not in workspace — can still discover tmux sessions

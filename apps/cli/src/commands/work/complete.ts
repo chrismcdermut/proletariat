@@ -1,7 +1,6 @@
 import { Args } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import Database from 'better-sqlite3';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
@@ -15,6 +14,7 @@ import {
 import { trackWorkCompleted } from '../../lib/telemetry/analytics.js';
 import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
 import { detectRepoWorktrees } from '../../lib/execution/context.js';
+import { openWorkspaceDatabase } from '../../lib/database/index.js';
 
 export default class WorkComplete extends PMOCommand {
   static description = 'Mark work as complete (moves ticket to Done column)';
@@ -60,8 +60,7 @@ export default class WorkComplete extends PMOCommand {
     }
 
     // Open database for execution storage
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
-    const db = new Database(dbPath);
+    const db = openWorkspaceDatabase(workspaceInfo.path);
     const executionStorage = new ExecutionStorage(db);
 
     try {

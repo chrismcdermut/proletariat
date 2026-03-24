@@ -1,6 +1,5 @@
 import { Flags } from '@oclif/core'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo, resolveAgentDir } from '../../lib/agents/commands.js'
@@ -22,6 +21,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
 import { onShutdown } from '../../lib/signal-handler.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 
 export default class WorkWatch extends PMOCommand {
   static description = 'Watch a column and auto-spawn agents for new tickets'
@@ -125,8 +125,7 @@ export default class WorkWatch extends PMOCommand {
     this.projectId = await this.requireProject()
 
     // Open database for execution storage
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(workspaceInfo.path)
     const executionStorage = new ExecutionStorage(db)
 
     // Register graceful shutdown via centralized signal handler

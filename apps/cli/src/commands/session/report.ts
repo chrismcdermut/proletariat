@@ -11,10 +11,9 @@
  */
 
 import { Flags } from '@oclif/core'
-import * as path from 'node:path'
 import { execSync } from 'node:child_process'
-import Database from 'better-sqlite3'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
 import { cleanupAgentContainer } from '../../lib/execution/container-cleanup.js'
 import { trackEvent } from '../../lib/telemetry/analytics.js'
@@ -85,8 +84,7 @@ export default class SessionReport extends PMOCommand {
     }
 
     // Open database
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(workspaceInfo.path)
     const executionStorage = new ExecutionStorage(db)
     let needsSelfTerminate = false
 

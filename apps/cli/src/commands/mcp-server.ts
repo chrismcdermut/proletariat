@@ -19,7 +19,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import { openWorkspaceDatabase } from '../lib/database/index.js'
 import { getPMOContext } from '../lib/pmo/pmo-context.js'
 import type { McpToolContext } from '../lib/mcp/types.js'
 import { getWorkspaceInfo } from '../lib/agents/commands.js'
@@ -77,8 +77,7 @@ export default class McpServerCommand extends Command {
     try {
       const workspaceInfo = getWorkspaceInfo()
       if (workspaceInfo && pmoContext) {
-        const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-        const db = new Database(dbPath)
+        const db = openWorkspaceDatabase(workspaceInfo.path)
         const executionStorage = new ExecutionStorage(db)
         workspaceContext = {
           workspaceInfo,

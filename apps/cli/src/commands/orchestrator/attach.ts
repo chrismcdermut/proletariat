@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
-import Database from 'better-sqlite3'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
@@ -293,8 +293,7 @@ export default class OrchestratorAttach extends PromptCommand {
     let useControlMode = false
     try {
       const workspaceInfo = getWorkspaceInfo()
-      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      const db = new Database(dbPath)
+      const db = openWorkspaceDatabase(workspaceInfo.path)
       try {
         const config = loadExecutionConfig(db)
         const termApp = detectTerminalApp()

@@ -1,6 +1,4 @@
 import { Args, Flags } from '@oclif/core'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
 import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { getWorkspaceInfo } from '../../../lib/agents/commands.js'
@@ -11,6 +9,7 @@ import {
   createMetadata,
 } from '../../../lib/prompt-json.js'
 import { WorkHookStorage } from '../../../lib/work-lifecycle/hooks/index.js'
+import { openWorkspaceDatabase } from '../../../lib/database/index.js'
 
 export default class WorkHooksToggle extends PMOCommand {
   static description = 'Enable or disable a work lifecycle hook'
@@ -63,8 +62,7 @@ export default class WorkHooksToggle extends PMOCommand {
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(workspaceInfo.path)
 
     try {
       const hookStorage = new WorkHookStorage(db)

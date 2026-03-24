@@ -2,6 +2,7 @@ import { Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import Database from 'better-sqlite3';
+import { openWorkspaceDatabase } from '../../lib/database/index.js';
 import { PromptCommand } from '../../lib/prompt-command.js';
 import { machineOutputFlags } from '../../lib/pmo/index.js';
 import { findHQRoot } from '../../lib/workspace.js';
@@ -134,14 +135,17 @@ export default class Open extends PromptCommand {
     executionConfig.permissionMode = 'danger'; // Default to danger mode for quick open
 
     // Try to load saved preferences from workspace DB or home dir
-    const dbPath = hqPath
-      ? path.join(hqPath, '.proletariat', 'workspace.db')
-      : path.join(process.env.HOME || '', '.proletariat', 'adhoc.db');
-
     let db: Database.Database | null = null;
     try {
-      if (fs.existsSync(dbPath)) {
-        db = new Database(dbPath);
+      if (hqPath) {
+        db = openWorkspaceDatabase(hqPath);
+      } else {
+        const adhocDbPath = path.join(process.env.HOME || '', '.proletariat', 'adhoc.db');
+        if (fs.existsSync(adhocDbPath)) {
+          db = new Database(adhocDbPath);
+        }
+      }
+      if (db) {
         const savedConfig = loadExecutionConfig(db);
         executionConfig.terminal = savedConfig.terminal;
         executionConfig.shell = savedConfig.shell;

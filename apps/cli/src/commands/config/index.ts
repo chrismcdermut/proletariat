@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import inquirer from 'inquirer'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
@@ -79,8 +79,7 @@ export default class Config extends PromptCommand {
     }
 
     // Open database
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(workspaceInfo.path)
 
     try {
       // Load current config

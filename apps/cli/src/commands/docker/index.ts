@@ -2,10 +2,10 @@
 import inquirer from 'inquirer'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { execSync } from 'node:child_process'
-import * as path from 'node:path'
-import Database from 'better-sqlite3'
+import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
 import { FlagResolver, shouldOutputJson } from '../../lib/flags/index.js'
@@ -117,8 +117,7 @@ export default class Docker extends PromptCommand {
 
     try {
       workspaceInfo = getWorkspaceInfo()
-      const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
-      db = new Database(dbPath)
+      db = openWorkspaceDatabase(workspaceInfo.path)
       executionStorage = new ExecutionStorage(db)
       containerStorage = new ContainerStorage(db)
     } catch {

@@ -1,7 +1,6 @@
 import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import Database from 'better-sqlite3';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
 import { styles } from '../../lib/styles.js';
@@ -29,6 +28,7 @@ import {
 import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
 import { detectRepoWorktrees } from '../../lib/execution/context.js';
 import { ensureRemoteUpToDate } from '../../lib/repos/git.js';
+import { openWorkspaceDatabase } from '../../lib/database/index.js';
 
 export default class WorkReady extends PMOCommand {
   static description = 'Mark work as ready for review (moves ticket to In Review column)';
@@ -98,8 +98,7 @@ export default class WorkReady extends PMOCommand {
     }
 
     // Open database for execution storage
-    const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db');
-    const db = new Database(dbPath);
+    const db = openWorkspaceDatabase(workspaceInfo.path);
     const executionStorage = new ExecutionStorage(db);
 
     try {

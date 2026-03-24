@@ -6,6 +6,7 @@ import { execSync } from 'node:child_process'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import Database from 'better-sqlite3'
+import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { findHQRoot } from '../../lib/workspace.js'
 import {
   getWorkspaceInfo,
@@ -528,8 +529,7 @@ export default class Claude extends PromptCommand {
     }
 
     // Open database
-    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db')
-    const db = new Database(dbPath)
+    const db = openWorkspaceDatabase(hqPath)
     const executionStorage = new ExecutionStorage(db)
 
     try {
