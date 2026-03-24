@@ -17,6 +17,7 @@ import {
 } from '../types.js'
 import { readDevcontainerJson } from '../devcontainer.js'
 import { isClaudeExecutor } from './executor.js'
+import { getMachineId } from '../../telemetry/analytics.js'
 
 /**
  * Parse a Docker memory string (e.g., '4g', '512m', '2048m') into bytes.
@@ -275,6 +276,7 @@ export function createDockerContainer(
     ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
     ...(firewallAllowlistDomains.length > 0 ? [`-e PRLT_EXTRA_ALLOWLIST_DOMAINS="${firewallAllowlistDomains.join(',')}"`] : []),
     ...(hasWorktrees ? [`-e PRLT_MOUNT_MODE=worktree`] : []),
+    `-e PRLT_TELEMETRY_MACHINE_ID="${getMachineId()}"`,
     ...(prltInfo ? [
       `-e PRLT_REGISTRY="${prltInfo.registry}"`,
       `-e PRLT_VERSION="${prltInfo.version}"`,
