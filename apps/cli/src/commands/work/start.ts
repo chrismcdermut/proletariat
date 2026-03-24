@@ -214,6 +214,8 @@ function buildExternalSpawnContextMessage(
 export default class WorkStart extends PMOCommand {
   static description = 'Start work on a ticket (launches an agent to implement it)'
 
+  static strict = false  // Allow multiple ticket ID args for batch spawn
+
   static examples = [
     '<%= config.bin %> <%= command.id %> TKT-001',
     '<%= config.bin %> <%= command.id %> TKT-001 --create-pr  # Create PR when work is ready',
@@ -234,11 +236,13 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --from-issue                       # Uses workspace default source',
     '<%= config.bin %> <%= command.id %> TKT-001 --review-gate auto        # Ship directly, no approval needed',
     '<%= config.bin %> <%= command.id %> TKT-001 --review-gate post        # Ship then human reviews after',
+    '<%= config.bin %> <%= command.id %> PRLT-1085 PRLT-1086 PRLT-1087 --action implement --create-pr  # Batch spawn in parallel',
+    '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 TKT-003 --max-parallel 2  # Limit concurrent spawns',
   ]
 
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID - prompts with dropdown if not provided',
+      description: 'Ticket ID(s) - prompts with dropdown if not provided. Pass multiple IDs for batch spawn.',
       required: false,
     }),
   }
@@ -387,6 +391,10 @@ export default class WorkStart extends PMOCommand {
     repo: Flags.string({
       description: 'Repository to mount in agent workspace (can be specified multiple times, first is primary)',
       multiple: true,
+    }),
+    'max-parallel': Flags.integer({
+      description: 'Maximum number of concurrent spawns when starting multiple tickets (default: unlimited)',
+      min: 1,
     }),
   }
 
@@ -549,7 +557,7 @@ export default class WorkStart extends PMOCommand {
   }
 
   async execute(): Promise<void> {
-    const { args, flags } = await this.parse(WorkStart)
+    const { args, flags, argv } = await this.parse(WorkStart)
     let projectId = (flags as { project?: string }).project
 
     // Check for conflicting PR flags
@@ -612,6 +620,13 @@ export default class WorkStart extends PMOCommand {
       // Handle batch mode (--all)
       if (flags.all) {
         await this.runBatchMode(workspaceInfo, db, executionStorage, flags)
+        return
+      }
+
+      // Handle multi-ticket batch spawn: prlt work start TICKET1 TICKET2 TICKET3
+      const ticketIdArgs = (argv as string[]).filter(a => !a.startsWith('-'))
+      if (ticketIdArgs.length > 1) {
+        await this.runMultiTicketBatch(ticketIdArgs, workspaceInfo, db, executionStorage, flags)
         return
       }
 
@@ -2569,6 +2584,165 @@ export default class WorkStart extends PMOCommand {
     } catch (error) {
       db.close()
       throw error
+    }
+  }
+
+  /**
+   * Run multi-ticket batch spawn: prlt work start TICKET1 TICKET2 TICKET3
+   * Spawns agents in parallel with optional --max-parallel concurrency limit.
+   */
+  private async runMultiTicketBatch(
+    ticketIds: string[],
+    workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
+    db: Database.Database,
+    executionStorage: ExecutionStorage,
+    flags: Record<string, unknown>,
+  ): Promise<void> {
+    const jsonMode = shouldOutputJson(flags as { json?: boolean })
+    const maxParallel = (flags['max-parallel'] as number | undefined) || ticketIds.length
+
+    if (!jsonMode) {
+      this.log('')
+      this.log(styles.header(`Batch spawn: ${ticketIds.length} ticket(s)${maxParallel < ticketIds.length ? ` (max ${maxParallel} concurrent)` : ''}`))
+      this.log('')
+    }
+
+    // Resolve project ID (needed for ticket lookups)
+    let projectId = (flags as { project?: string }).project
+    projectId = projectId || await this.requireProject({
+      jsonMode: jsonMode ? { flags, commandName: 'work start', baseCommand: `prlt work start ${ticketIds.join(' ')}` } : undefined,
+    })
+
+    // Resolve all ticket IDs to tickets (handles external IDs like PRLT-xxx)
+    type TicketResult = Exclude<Awaited<ReturnType<typeof this.storage.getTicket>>, null>
+    const tickets: Array<{ ticket: TicketResult; originalId: string }> = []
+    for (const rawId of ticketIds) {
+      // Try direct lookup first
+      let ticket = await this.storage.getTicket(rawId)
+
+      // If not found, try resolving as external ticket ID
+      if (!ticket) {
+        const resolved = resolveExternalTicketId({ id: rawId, metadata: {} })
+        if (resolved !== rawId) {
+          ticket = await this.storage.getTicket(resolved)
+        }
+      }
+
+      // Still not found — try searching by external key in metadata
+      if (!ticket) {
+        const allTickets = await this.storage.listTickets(projectId)
+        ticket = allTickets.find(t => {
+          const ext = getTicketExternalMetadata(t)
+          return ext.key === rawId
+        }) ?? null
+      }
+
+      if (!ticket) {
+        if (jsonMode) {
+          outputErrorAsJson('TICKET_NOT_FOUND', `Ticket "${rawId}" not found.`, createMetadata('work start', flags))
+          db.close()
+          return
+        }
+        this.error(`Ticket "${rawId}" not found.`)
+        return // unreachable but helps TS narrowing
+      }
+
+      tickets.push({ ticket, originalId: rawId })
+    }
+
+    // Build start args that apply to all tickets (same flags for all)
+    const buildStartArgs = (ticketId: string, projId: string): string[] => {
+      const startArgs: string[] = [ticketId, '--project', projId, '--ephemeral']
+
+      if (flags.action) startArgs.push('--action', flags.action as string)
+      if (flags.prompt) startArgs.push('--prompt', flags.prompt as string)
+      if (flags.message) startArgs.push('--message', flags.message as string)
+      if (flags.display) startArgs.push('--display', flags.display as string)
+      if (flags['run-on-host']) startArgs.push('--run-on-host')
+      if (flags.executor) startArgs.push('--executor', flags.executor as string)
+      if (flags['permission-mode']) startArgs.push('--permission-mode', flags['permission-mode'] as string)
+      if (flags['skip-permissions']) startArgs.push('--skip-permissions')
+      if (flags['create-pr']) startArgs.push('--create-pr')
+      if (flags['no-pr']) startArgs.push('--no-pr')
+      if (flags.session) startArgs.push('--session', flags.session as string)
+      if (flags.force) startArgs.push('--force')
+      if (flags.focus) startArgs.push('--focus')
+      if (flags.clone) startArgs.push('--clone')
+      if (flags['review-gate']) startArgs.push('--review-gate', flags['review-gate'] as string)
+      if (flags['tool-policy']) startArgs.push('--tool-policy', flags['tool-policy'] as string)
+      if (flags['keep-alive']) startArgs.push('--keep-alive')
+      if (flags.cleanup) startArgs.push('--cleanup', flags.cleanup as string)
+      if (flags['allow-network']) startArgs.push('--allow-network', flags['allow-network'] as string)
+      if (flags['use-api-key']) startArgs.push('--use-api-key')
+      if (flags.yes) startArgs.push('--yes')
+
+      return startArgs
+    }
+
+    let successCount = 0
+    let failCount = 0
+    const executionResults: Array<{
+      workId: string
+      ticketId: string
+      agent: string
+      status: string
+    }> = []
+
+    // Spawn agents with concurrency control
+    const spawnOne = async (entry: typeof tickets[0]): Promise<void> => {
+      const { ticket, originalId } = entry
+      try {
+        if (!jsonMode) {
+          this.log(styles.muted(`Starting ${ticket.id}...`))
+        }
+
+        const startArgs = buildStartArgs(ticket.id, ticket.projectId || projectId)
+        await this.config.runCommand('work:start', startArgs)
+
+        successCount++
+        executionResults.push({
+          workId: `WORK-${ticket.id}`,
+          ticketId: ticket.id,
+          agent: 'ephemeral',
+          status: 'running',
+        })
+      } catch (error) {
+        failCount++
+        if (!jsonMode) {
+          this.log(styles.error(`Failed to start ${originalId}: ${error instanceof Error ? error.message : error}`))
+        }
+        executionResults.push({
+          workId: '',
+          ticketId: ticket.id,
+          agent: '',
+          status: 'failed',
+        })
+      }
+    }
+
+    // Run with concurrency limit
+    if (maxParallel >= tickets.length) {
+      // Unlimited: spawn all in parallel
+      await Promise.all(tickets.map(entry => spawnOne(entry)))
+    } else {
+      // Limited concurrency: process in batches
+      for (let i = 0; i < tickets.length; i += maxParallel) {
+        const batch = tickets.slice(i, i + maxParallel)
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.all(batch.map(entry => spawnOne(entry)))
+      }
+    }
+
+    await autoExportToBoard(this.pmoPath, this.storage, () => {})
+    db.close()
+
+    // Output results
+    if (jsonMode) {
+      const metadata = createMetadata('work start', flags)
+      outputExecutionResultAsJson(executionResults, successCount, failCount, metadata)
+    } else {
+      this.log('')
+      this.log(styles.success(`Batch complete: ${successCount} started, ${failCount} failed`))
     }
   }
 
