@@ -120,8 +120,13 @@ export default class TicketComplete extends PMOCommand {
     // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
     ticketId = ticket.id;
 
-    // Move to Done column
-    await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn.name);
+    // Move to Done column through provider (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId!);
+    const moveResult = await provider.moveTicket(ticketId!, doneColumn.name);
+
+    if (!moveResult.success) {
+      this.error(`Failed to complete ticket: ${moveResult.error}`);
+    }
 
     // Auto-export to board.md if configured
     await autoExportToBoard(this.pmoPath, this.storage);
@@ -129,6 +134,9 @@ export default class TicketComplete extends PMOCommand {
     this.log(styles.success(`✅ Completed ${ticketId}`));
     this.log(styles.muted(`   Title: ${ticket.title}`));
     this.log(styles.muted(`   Moved to: ${doneColumn.name}`));
+    if (moveResult.provider !== 'pmo') {
+      this.log(styles.muted(`   Provider: ${moveResult.provider}`));
+    }
   }
 
   private async executeBulk(
@@ -200,9 +208,16 @@ export default class TicketComplete extends PMOCommand {
           throw new Error('Ticket not found in incomplete tickets list');
         }
         // eslint-disable-next-line no-await-in-loop
-        await this.storage.moveTicket(ticket.projectId!, ticketId, doneColumnName);
-        this.log(styles.success(`Completed ${ticketId}`));
-        successCount++;
+        const provider = await this.resolveTicketProvider(ticketId, ticket.projectId!);
+        // eslint-disable-next-line no-await-in-loop
+        const result = await provider.moveTicket(ticketId, doneColumnName);
+        if (result.success) {
+          this.log(styles.success(`Completed ${ticketId}`));
+          successCount++;
+        } else {
+          this.log(styles.error(`Failed to complete ${ticketId}: ${result.error}`));
+          failCount++;
+        }
       } catch (error) {
         this.log(styles.error(`Failed to complete ${ticketId}: ${error instanceof Error ? error.message : String(error)}`));
         failCount++;
