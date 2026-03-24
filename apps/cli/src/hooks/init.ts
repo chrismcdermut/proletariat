@@ -107,7 +107,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
   try {
     const updateInfo = getCachedUpdateInfo(config.version)
     const updateResult = await handleUpdatePrompt(updateInfo)
-    triggerBackgroundCheck(updateInfo.packageManager)
+    triggerBackgroundCheck(updateInfo.packageManager, config.version)
     if (updateResult === 'stop') {
       // User chose to update — exitCode already set, let oclif lifecycle complete
       return
