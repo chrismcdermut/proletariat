@@ -880,3 +880,214 @@ describe('LinearTicketProvider', () => {
     expect(result.ticket!.id).to.equal('TKT-001')
   })
 })
+
+// =============================================================================
+// Regression Tests: Phase 2 Provider Routing (PRLT-1064)
+//
+// These tests verify that ticket operations previously called via direct
+// storage now route correctly through the provider adapter.
+// If the provider routing is reverted, these patterns would bypass
+// error handling and event emission.
+// =============================================================================
+
+describe('Phase 2 provider routing regressions', () => {
+  // -------------------------------------------------------------------------
+  // ticket reassign → provider.assignTicket / provider.updateTicket
+  // -------------------------------------------------------------------------
+  describe('reassign routes through provider.assignTicket', () => {
+    it('assignTicket propagates assignee to storage via updateTicket', async () => {
+      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
+      const storage = createMockStorage({ updateCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.assignTicket('TKT-010', 'agent-alice')
+
+      expect(result.success).to.be.true
+      expect(result.provider).to.equal('pmo')
+      expect(updateCalls).to.have.lengthOf(1)
+      expect(updateCalls[0].id).to.equal('TKT-010')
+      expect(updateCalls[0].changes.assignee).to.equal('agent-alice')
+    })
+
+    it('unassign routes through provider.updateTicket with undefined assignee', async () => {
+      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
+      const storage = createMockStorage({ updateCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.updateTicket('TKT-010', { assignee: undefined })
+
+      expect(result.success).to.be.true
+      expect(updateCalls).to.have.lengthOf(1)
+      expect(updateCalls[0].changes.assignee).to.be.undefined
+    })
+
+    it('returns structured error on assignTicket failure instead of throwing', async () => {
+      const storage = createMockStorage({
+        updateError: new Error('Agent not found'),
+      })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.assignTicket('TKT-010', 'nonexistent-agent')
+
+      expect(result.success).to.be.false
+      expect(result.error).to.equal('Agent not found')
+      expect(result.provider).to.equal('pmo')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // ticket complete → provider.moveTicket
+  // -------------------------------------------------------------------------
+  describe('complete routes through provider.moveTicket', () => {
+    it('moveTicket with Done state delegates to storage correctly', async () => {
+      const moveCalls: Array<{ projectId: string; ticketId: string; columnName: string }> = []
+      const storage = createMockStorage({ moveCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.moveTicket('TKT-020', 'Done')
+
+      expect(result.success).to.be.true
+      expect(result.provider).to.equal('pmo')
+      expect(moveCalls).to.have.lengthOf(1)
+      expect(moveCalls[0]).to.deep.equal({
+        projectId: 'test-project',
+        ticketId: 'TKT-020',
+        columnName: 'Done',
+      })
+    })
+
+    it('returns structured error on moveTicket failure instead of throwing', async () => {
+      const storage = createMockStorage({
+        moveError: new Error('Column "Done" not found'),
+      })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.moveTicket('TKT-020', 'Done')
+
+      expect(result.success).to.be.false
+      expect(result.error).to.equal('Column "Done" not found')
+      expect(result.provider).to.equal('pmo')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // ticket resolve → provider.updateTicket + provider.moveTicket
+  // -------------------------------------------------------------------------
+  describe('resolve routes through provider.updateTicket and moveTicket', () => {
+    it('updateTicket with description change delegates correctly', async () => {
+      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
+      const storage = createMockStorage({ updateCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.updateTicket('TKT-030', {
+        description: 'Updated description with **A1:** answer',
+      })
+
+      expect(result.success).to.be.true
+      expect(updateCalls).to.have.lengthOf(1)
+      expect(updateCalls[0].changes.description).to.include('A1:')
+    })
+
+    it('updateTicket with labels change delegates correctly', async () => {
+      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
+      const storage = createMockStorage({ updateCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.updateTicket('TKT-030', {
+        labels: ['ready'],
+      } as Partial<Ticket>)
+
+      expect(result.success).to.be.true
+      expect(updateCalls).to.have.lengthOf(1)
+      expect(updateCalls[0].changes.labels).to.deep.equal(['ready'])
+    })
+
+    it('moveTicket to Ready state after resolve delegates correctly', async () => {
+      const moveCalls: Array<{ projectId: string; ticketId: string; columnName: string }> = []
+      const storage = createMockStorage({ moveCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.moveTicket('TKT-030', 'Ready')
+
+      expect(result.success).to.be.true
+      expect(moveCalls).to.have.lengthOf(1)
+      expect(moveCalls[0].columnName).to.equal('Ready')
+    })
+
+    it('returns structured error on description update failure', async () => {
+      const storage = createMockStorage({
+        updateError: new Error('Ticket locked'),
+      })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.updateTicket('TKT-030', {
+        description: 'new desc',
+      })
+
+      expect(result.success).to.be.false
+      expect(result.error).to.equal('Ticket locked')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // ticket update (flag + interactive + bulk) → provider.updateTicket
+  // -------------------------------------------------------------------------
+  describe('update routes through provider.updateTicket for all modes', () => {
+    it('updateTicket with priority change delegates correctly', async () => {
+      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
+      const storage = createMockStorage({ updateCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.updateTicket('TKT-040', { priority: 'P0' })
+
+      expect(result.success).to.be.true
+      expect(updateCalls).to.have.lengthOf(1)
+      expect(updateCalls[0].changes.priority).to.equal('P0')
+    })
+
+    it('updateTicket with category change delegates correctly', async () => {
+      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
+      const storage = createMockStorage({ updateCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.updateTicket('TKT-040', { category: 'bug' })
+
+      expect(result.success).to.be.true
+      expect(updateCalls).to.have.lengthOf(1)
+      expect(updateCalls[0].changes.category).to.equal('bug')
+    })
+
+    it('updateTicket with multiple field changes delegates as single call', async () => {
+      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
+      const storage = createMockStorage({ updateCalls })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.updateTicket('TKT-040', {
+        title: 'New title',
+        description: 'New desc',
+        priority: 'P1',
+      })
+
+      expect(result.success).to.be.true
+      expect(updateCalls).to.have.lengthOf(1)
+      expect(updateCalls[0].changes).to.include({
+        title: 'New title',
+        description: 'New desc',
+        priority: 'P1',
+      })
+    })
+
+    it('returns structured error on bulk update failure instead of throwing', async () => {
+      const storage = createMockStorage({
+        updateError: new Error('Database locked'),
+      })
+      const provider = new PMOTicketProvider(storage, 'test-project')
+
+      const result = await provider.updateTicket('TKT-040', { priority: 'P0' })
+
+      expect(result.success).to.be.false
+      expect(result.error).to.equal('Database locked')
+      expect(result.provider).to.equal('pmo')
+    })
+  })
+})
