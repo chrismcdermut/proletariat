@@ -26,20 +26,9 @@ import { getWorkspaceInfo } from '../lib/agents/commands.js'
 import { ExecutionStorage } from '../lib/execution/storage.js'
 import {
   registerTicketTools,
-  registerProjectTools,
-  registerBoardTools,
-  registerEpicTools,
   registerWorkTools,
-  registerWorkflowTools,
-  registerStatusTools,
-  registerPhaseTools,
   registerActionTools,
-  registerRoadmapTools,
-  registerCategoryTools,
-  registerTemplateTools,
-  registerViewTools,
   registerDietTools,
-  registerLabelTools,
   registerTmuxTools,
   registerAgentTools,
   registerDockerTools,
@@ -124,20 +113,9 @@ export default class McpServerCommand extends Command {
 
     // Register all tool categories
     registerTicketTools(server, ctx)
-    registerProjectTools(server, ctx)
-    registerBoardTools(server, ctx)
-    registerEpicTools(server, ctx)
     registerWorkTools(server, ctx)
-    registerWorkflowTools(server, ctx)
-    registerStatusTools(server, ctx)
-    registerPhaseTools(server, ctx)
     registerActionTools(server, ctx)
-    registerRoadmapTools(server, ctx)
-    registerCategoryTools(server, ctx)
-    registerTemplateTools(server, ctx)
-    registerViewTools(server, ctx)
     registerDietTools(server, ctx)
-    registerLabelTools(server, ctx)
     registerTmuxTools(server, ctx)
     registerAgentTools(server, ctx)
     registerDockerTools(server, ctx)
