@@ -30,15 +30,28 @@ export function credentialsVolumeExists(): boolean {
  * Returns true if OAuth credentials are stored (even if access token is expired,
  * since Claude Code handles refresh internally using stored refresh tokens).
  *
+ * Uses `docker volume inspect` to check volume existence (lightweight, no image pull).
+ * Then attempts to read the credentials file with `--pull never` to avoid requiring
+ * Docker Hub auth (which fails on locked keychains / headless environments).
+ * Falls back to volume existence as a reasonable proxy — the volume is only created
+ * by `prlt agent auth` with valid credentials.
+ *
  * NOTE: This intentionally does NOT check for ANTHROPIC_API_KEY. If the user
  * has an API key but no OAuth credentials, we want to prompt them to set up
  * OAuth (which uses their Max subscription) rather than silently burning API credits.
  */
 export function dockerCredentialsExist(): boolean {
+  // First check: does the volume exist at all?
+  if (!credentialsVolumeExists()) {
+    return false
+  }
+
+  // Try to read the credentials file without pulling any image.
+  // --pull never ensures we never hit Docker Hub (fixes locked keychain / headless).
   try {
     const result = execSync(
-      `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
-      { stdio: 'pipe', encoding: 'utf-8' }
+      `docker run --rm --pull never -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
+      { stdio: 'pipe', encoding: 'utf-8', timeout: 10000 }
     )
 
     const creds = JSON.parse(result)
@@ -47,19 +60,24 @@ export function dockerCredentialsExist(): boolean {
     }
     return false
   } catch {
-    return false
+    // alpine image not cached locally — fall back to volume existence.
+    // The volume is created by `prlt agent auth` with valid credentials,
+    // so its presence is a reasonable proxy.
+    return true
   }
 }
 
 /**
  * Get Docker credential info for display.
  * Returns expiration date and subscription type if available.
+ *
+ * Uses --pull never to avoid requiring Docker Hub auth (fixes locked keychain / headless).
  */
 export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?: string } | null {
   try {
     const result = execSync(
-      `docker run --rm -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
-      { stdio: 'pipe', encoding: 'utf-8' }
+      `docker run --rm --pull never -v ${CLAUDE_CREDENTIALS_VOLUME}:/data alpine cat /data/.credentials.json 2>/dev/null`,
+      { stdio: 'pipe', encoding: 'utf-8', timeout: 10000 }
     )
 
     const creds = JSON.parse(result)

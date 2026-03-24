@@ -1716,9 +1716,12 @@ export default class WorkStart extends PMOCommand {
           this.log('')
 
           if (flags.yes || !process.stdout.isTTY) {
-            // Non-interactive mode: auto-switch to host
-            environment = 'host'
-            this.log(styles.muted('Switched to host environment (Docker not running).'))
+            // Non-interactive mode: error instead of silently falling back to host
+            db.close()
+            this.error(
+              'Cannot start in Docker — Docker daemon is not running.\n' +
+              'Start Docker Desktop, or use --run-on-host to explicitly run on host.'
+            )
           } else {
             const dockerChoices: Array<{ name: string; value: string }> = [
               { name: '💻 Switch to host environment', value: 'host' },
@@ -1775,10 +1778,12 @@ export default class WorkStart extends PMOCommand {
           const hasCredentials = dockerCredentialsExist()
           if (!hasCredentials) {
             if (flags.yes || !process.stdout.isTTY) {
-              // Non-interactive mode: auto-fallback to host
-              this.log(styles.warning('⚠️  Saved auth method is "oauth" but no OAuth credentials found.'))
-              environment = 'host'
-              this.log(styles.muted('Switched to host environment (OAuth credentials missing).'))
+              // Non-interactive mode: error instead of silently falling back to host
+              db.close()
+              this.error(
+                'Cannot start in Docker — OAuth credentials not found.\n' +
+                `Run \`${this.config.bin} agent auth\` to set up credentials, or use --run-on-host to explicitly run on host.`
+              )
             } else {
               this.log('')
               this.log(styles.warning('⚠️  Saved auth method is "oauth" but no OAuth credentials found.'))
@@ -1798,9 +1803,12 @@ export default class WorkStart extends PMOCommand {
           } else {
             // No saved preference and no OAuth credentials — prompt user
             if (flags.yes || !process.stdout.isTTY) {
-              // Non-interactive mode: auto-fallback to host
-              environment = 'host'
-              this.log(styles.warning('⚠️  No OAuth credentials found. Switched to host environment.'))
+              // Non-interactive mode: error instead of silently falling back to host
+              db.close()
+              this.error(
+                'Cannot start in Docker — OAuth credentials not found.\n' +
+                `Run \`${this.config.bin} agent auth\` to set up credentials, or use --run-on-host to explicitly run on host.`
+              )
             } else {
               this.log('')
               this.log(styles.warning('⚠️  No Claude Code OAuth credentials found for Docker containers'))
@@ -2907,9 +2915,12 @@ export default class WorkStart extends PMOCommand {
         this.log('')
 
         if (!process.stdout.isTTY) {
-          // Non-interactive mode: auto-switch to host
-          flags['run-on-host'] = true
-          this.log(styles.muted('All agents will run on host (Docker not running).'))
+          // Non-interactive mode: error instead of silently falling back to host
+          db.close()
+          this.error(
+            'Cannot start in Docker — Docker daemon is not running.\n' +
+            'Start Docker Desktop, or use --run-on-host to explicitly run on host.'
+          )
         } else {
           const { dockerAction } = await this.prompt<{ dockerAction: string }>([
             {
@@ -2938,9 +2949,12 @@ export default class WorkStart extends PMOCommand {
       const hasCredentials = dockerCredentialsExist()
       if (!hasCredentials) {
         if (!process.stdout.isTTY) {
-          // Non-interactive mode: auto-fallback to host
-          this.log(styles.warning('⚠️  No OAuth credentials found. Switched to host environment.'))
-          flags['run-on-host'] = true
+          // Non-interactive mode: error instead of silently falling back to host
+          db.close()
+          this.error(
+            'Cannot start in Docker — OAuth credentials not found.\n' +
+            `Run \`${this.config.bin} agent auth\` to set up credentials, or use --run-on-host to explicitly run on host.`
+          )
         } else {
           const hasApiKey = !!process.env.ANTHROPIC_API_KEY
 
