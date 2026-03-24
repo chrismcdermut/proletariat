@@ -12,7 +12,7 @@
  * Pattern: same decorator approach as EventEmittingRunner.
  */
 
-import type { StateCategory, TicketFilter, CreateTicketInput } from '../pmo/types.js'
+import type { StateCategory, TicketFilter, CreateTicketInput, UpdateTicketInput } from '../pmo/types.js'
 import { getEventBus } from '../events/event-bus.js'
 import { trackTicketOperation } from '../telemetry/analytics.js'
 import type {
@@ -23,6 +23,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderAssignResult,
 } from './types.js'
 
 /**
@@ -189,6 +191,20 @@ export class EventEmittingProvider implements TicketProvider {
     const startTime = Date.now()
     const result = await this.inner.getTicket(ticketId)
     trackTicketOperation({ operation: 'fetch', provider: this.name, durationMs: Date.now() - startTime, success: result.success })
+    return result
+  }
+
+  async updateTicket(ticketId: string, input: UpdateTicketInput): Promise<ProviderUpdateResult> {
+    const startTime = Date.now()
+    const result = await this.inner.updateTicket(ticketId, input)
+    trackTicketOperation({ operation: 'update', provider: this.name, durationMs: Date.now() - startTime, success: result.success })
+    return result
+  }
+
+  async assignTicket(ticketId: string, assignee: string): Promise<ProviderAssignResult> {
+    const startTime = Date.now()
+    const result = await this.inner.assignTicket(ticketId, assignee)
+    trackTicketOperation({ operation: 'assign', provider: this.name, durationMs: Date.now() - startTime, success: result.success })
     return result
   }
 }

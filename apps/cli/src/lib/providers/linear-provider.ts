@@ -15,7 +15,7 @@ import { getLinearApiKey, loadLinearConfig } from '../linear/config.js'
 import { findMatchingLinearState } from '../external-issues/outbound-sync.js'
 import { listLinearIssues } from '../external-issues/linear.js'
 import { PMO_PRIORITY_TO_LINEAR, LINEAR_PRIORITY_TO_PMO } from '../linear/types.js'
-import type { Ticket, TicketFilter, CreateTicketInput } from '../pmo/types.js'
+import type { Ticket, TicketFilter, CreateTicketInput, UpdateTicketInput } from '../pmo/types.js'
 import type {
   TicketProvider,
   ProviderMoveResult,
@@ -23,6 +23,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderAssignResult,
   ProviderStorage,
 } from './types.js'
 
@@ -340,6 +342,97 @@ export class LinearTicketProvider implements TicketProvider {
     try {
       const ticket = await this.storage.getTicket(ticketId)
       return { success: true, provider: 'linear', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'linear',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async updateTicket(ticketId: string, input: UpdateTicketInput): Promise<ProviderUpdateResult> {
+    let apiKey: string
+    try {
+      apiKey = this.getApiKeyOrFail()
+    } catch {
+      return { success: false, provider: 'linear', error: 'Linear API key not configured' }
+    }
+
+    // Look up Linear mapping for this PMO ticket
+    const mapper = new LinearMapper(this.db)
+    const mapping = mapper.getByTicketId(ticketId)
+
+    if (mapping) {
+      // Build Linear update payload from input fields
+      const linearInput: { title?: string; description?: string; priority?: number } = {}
+      if (input.title !== undefined) linearInput.title = input.title
+      if (input.description !== undefined) linearInput.description = input.description ?? undefined
+      if (input.priority !== undefined) {
+        linearInput.priority = input.priority ? PMO_PRIORITY_TO_LINEAR[input.priority] : undefined
+      }
+
+      // Only call Linear API if there are Linear-relevant fields
+      if (Object.keys(linearInput).length > 0) {
+        const client = new LinearClient(apiKey)
+        try {
+          await client.updateIssue(mapping.linearIssueId, linearInput)
+        } catch (error) {
+          return {
+            success: false,
+            provider: 'linear',
+            error: `Failed to update Linear issue: ${error instanceof Error ? error.message : String(error)}`,
+          }
+        }
+      }
+
+      // Update sync timestamp
+      try {
+        mapper.updateSyncTimestamp(ticketId)
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    // Also update local PMO mirror
+    try {
+      const ticket = await this.storage.updateTicket(ticketId, input as Partial<Ticket>)
+      return { success: true, provider: 'linear', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'linear',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async assignTicket(ticketId: string, assignee: string): Promise<ProviderAssignResult> {
+    let apiKey: string
+    try {
+      apiKey = this.getApiKeyOrFail()
+    } catch {
+      return { success: false, provider: 'linear', error: 'Linear API key not configured' }
+    }
+
+    // Look up Linear mapping
+    const mapper = new LinearMapper(this.db)
+    const mapping = mapper.getByTicketId(ticketId)
+
+    if (mapping) {
+      const client = new LinearClient(apiKey)
+      try {
+        // Try to assign by email in Linear (best-effort — assignee may be a local name)
+        await client.assignIssue(mapping.linearIssueId, assignee)
+      } catch {
+        // Non-fatal: assignee may not be a valid Linear email
+      }
+    }
+
+    // Update local PMO mirror
+    try {
+      await this.storage.updateTicket(ticketId, { assignee } as Partial<Ticket>)
+      return { success: true, provider: 'linear' }
     } catch (error) {
       return {
         success: false,

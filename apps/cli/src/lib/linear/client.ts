@@ -386,6 +386,53 @@ export class LinearClient {
   }
 
   /**
+   * Update an issue's fields (title, description, priority).
+   */
+  async updateIssue(issueId: string, input: {
+    title?: string
+    description?: string
+    priority?: number
+  }): Promise<void> {
+    await this.query<{ issueUpdate: { success: boolean } }>(`
+      mutation UpdateIssue($issueId: String!, $input: IssueUpdateInput!) {
+        issueUpdate(id: $issueId, input: $input) {
+          success
+        }
+      }
+    `, { issueId, input })
+  }
+
+  /**
+   * Assign an issue to a user by email.
+   * Returns true if the user was found and assigned.
+   */
+  async assignIssue(issueId: string, assigneeEmail: string): Promise<boolean> {
+    // Look up user by email
+    const userData = await this.query<{
+      users: { nodes: Array<{ id: string }> }
+    }>(`
+      query FindUser($email: String!) {
+        users(filter: { email: { eq: $email } }) {
+          nodes { id }
+        }
+      }
+    `, { email: assigneeEmail })
+
+    const userId = userData.users.nodes[0]?.id
+    if (!userId) return false
+
+    await this.query<{ issueUpdate: { success: boolean } }>(`
+      mutation AssignIssue($issueId: String!, $assigneeId: String!) {
+        issueUpdate(id: $issueId, input: { assigneeId: $assigneeId }) {
+          success
+        }
+      }
+    `, { issueId, assigneeId: userId })
+
+    return true
+  }
+
+  /**
    * Archive (soft-delete) an issue in Linear.
    */
   async archiveIssue(issueId: string): Promise<void> {
