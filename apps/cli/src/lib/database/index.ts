@@ -126,6 +126,18 @@ export {
   createSettingsStore,
 } from './settings-store.js'
 
+// Credential store (PRLT-1114: agent secret isolation)
+export {
+  isCredentialKey,
+  getCredentialDatabasePath,
+  getCredential,
+  setCredential,
+  deleteCredential,
+  hasCredential,
+  closeAllCredentialStores,
+  migrateCredentials,
+} from './credential-store.js'
+
 // Database safety (WAL, backup, integrity, repair)
 export {
   enableWALMode,

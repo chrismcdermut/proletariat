@@ -12,6 +12,7 @@ import { isReadOnlyHQMount } from '../container.js'
 import { throwIfNativeBindingError } from './native-validation.js'
 import { runDrizzleMigrations } from './migrator.js'
 import { ALL_MIGRATIONS } from './migrations/index.js'
+import { migrateCredentials } from './credential-store.js'
 import { createDrizzleConnection, type DrizzleDB } from './drizzle.js'
 import {
   workspace as workspaceTable,
@@ -170,6 +171,10 @@ export function openWorkspaceDatabase(workspacePath: string, options?: { readonl
 
     runDrizzleMigrations(db, ALL_MIGRATIONS)
     ensureEphemeralAgentTypes(db)
+
+    // PRLT-1114: Move credentials from workspace.db to separate credentials.db
+    // so they are not exposed when .proletariat/ is mounted into agent containers
+    migrateCredentials(db)
   }
 
   return db

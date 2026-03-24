@@ -7,6 +7,7 @@
 import type Database from 'better-sqlite3'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
+import { getCredential, setCredential, deleteCredential, hasCredential } from '../database/credential-store.js'
 
 const TRELLO_CONFIG_KEYS = {
   apiKey: 'trello.api_key',
@@ -26,9 +27,8 @@ export interface TrelloConfig {
  * Check if Trello is configured.
  */
 export function isTrelloConfigured(db: Database.Database): boolean {
-  const settings = new SettingsStore(db)
-  const hasDbConfig = settings.has(TRELLO_CONFIG_KEYS.apiKey)
-    && settings.has(TRELLO_CONFIG_KEYS.apiToken)
+  const hasDbConfig = hasCredential(db, TRELLO_CONFIG_KEYS.apiKey)
+    && hasCredential(db, TRELLO_CONFIG_KEYS.apiToken)
   if (hasDbConfig) return true
 
   const hasEnvKey = !!(process.env.PRLT_TRELLO_API_KEY || process.env.TRELLO_API_KEY)
@@ -41,11 +41,11 @@ export function isTrelloConfigured(db: Database.Database): boolean {
  */
 export function loadTrelloConfig(db: Database.Database): TrelloConfig | null {
   const settings = new SettingsStore(db)
-  const apiKey = settings.get(TRELLO_CONFIG_KEYS.apiKey)
+  const apiKey = getCredential(db, TRELLO_CONFIG_KEYS.apiKey)
     || process.env.PRLT_TRELLO_API_KEY
     || process.env.TRELLO_API_KEY
 
-  const apiToken = settings.get(TRELLO_CONFIG_KEYS.apiToken)
+  const apiToken = getCredential(db, TRELLO_CONFIG_KEYS.apiToken)
     || process.env.PRLT_TRELLO_API_TOKEN
     || process.env.TRELLO_API_TOKEN
 
@@ -66,8 +66,8 @@ export function loadTrelloConfig(db: Database.Database): TrelloConfig | null {
  */
 export function saveTrelloConfig(db: Database.Database, config: TrelloConfig): void {
   const settings = new SettingsStore(db)
-  settings.set(TRELLO_CONFIG_KEYS.apiKey, config.apiKey)
-  settings.set(TRELLO_CONFIG_KEYS.apiToken, config.apiToken)
+  setCredential(db, TRELLO_CONFIG_KEYS.apiKey, config.apiKey)
+  setCredential(db, TRELLO_CONFIG_KEYS.apiToken, config.apiToken)
   if (config.boardId) {
     settings.set(TRELLO_CONFIG_KEYS.boardId, config.boardId)
   }
@@ -77,11 +77,11 @@ export function saveTrelloConfig(db: Database.Database, config: TrelloConfig): v
 }
 
 export function saveTrelloApiKey(db: Database.Database, apiKey: string): void {
-  new SettingsStore(db).set(TRELLO_CONFIG_KEYS.apiKey, apiKey)
+  setCredential(db, TRELLO_CONFIG_KEYS.apiKey, apiKey)
 }
 
 export function saveTrelloApiToken(db: Database.Database, apiToken: string): void {
-  new SettingsStore(db).set(TRELLO_CONFIG_KEYS.apiToken, apiToken)
+  setCredential(db, TRELLO_CONFIG_KEYS.apiToken, apiToken)
 }
 
 export function saveTrelloBoard(db: Database.Database, boardId: string, boardName: string): void {
@@ -93,7 +93,11 @@ export function saveTrelloBoard(db: Database.Database, boardId: string, boardNam
 export function clearTrelloConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(TRELLO_CONFIG_KEYS)) {
-    settings.delete(key)
+    if (key === TRELLO_CONFIG_KEYS.apiKey || key === TRELLO_CONFIG_KEYS.apiToken) {
+      deleteCredential(db, key)
+    } else {
+      settings.delete(key)
+    }
   }
 }
 
@@ -113,12 +117,12 @@ export function getTrelloApiKey(db: Database.Database): string | null {
   const envKey = process.env.PRLT_TRELLO_API_KEY || process.env.TRELLO_API_KEY
   if (envKey) return envKey
 
-  return new SettingsStore(db).get(TRELLO_CONFIG_KEYS.apiKey)
+  return getCredential(db, TRELLO_CONFIG_KEYS.apiKey)
 }
 
 export function getTrelloApiToken(db: Database.Database): string | null {
   const envToken = process.env.PRLT_TRELLO_API_TOKEN || process.env.TRELLO_API_TOKEN
   if (envToken) return envToken
 
-  return new SettingsStore(db).get(TRELLO_CONFIG_KEYS.apiToken)
+  return getCredential(db, TRELLO_CONFIG_KEYS.apiToken)
 }

@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import type { MondayConfig } from './types.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
+import { getCredential, setCredential, deleteCredential, hasCredential } from '../database/credential-store.js'
 
 const MONDAY_CONFIG_KEYS = {
   apiToken: 'monday.api_token',
@@ -11,12 +12,12 @@ const MONDAY_CONFIG_KEYS = {
 } as const
 
 export function isMondayConfigured(db: Database.Database): boolean {
-  return new SettingsStore(db).has(MONDAY_CONFIG_KEYS.apiToken)
+  return hasCredential(db, MONDAY_CONFIG_KEYS.apiToken)
 }
 
 export function loadMondayConfig(db: Database.Database): MondayConfig | null {
   const settings = new SettingsStore(db)
-  const apiToken = settings.get(MONDAY_CONFIG_KEYS.apiToken)
+  const apiToken = getCredential(db, MONDAY_CONFIG_KEYS.apiToken)
   if (!apiToken) return null
 
   return {
@@ -28,7 +29,7 @@ export function loadMondayConfig(db: Database.Database): MondayConfig | null {
 }
 
 export function saveMondayApiToken(db: Database.Database, apiToken: string): void {
-  new SettingsStore(db).set(MONDAY_CONFIG_KEYS.apiToken, apiToken)
+  setCredential(db, MONDAY_CONFIG_KEYS.apiToken, apiToken)
 }
 
 export function saveMondayBoard(db: Database.Database, boardId: string, boardName: string): void {
@@ -44,7 +45,11 @@ export function saveMondayAccountName(db: Database.Database, accountName: string
 export function clearMondayConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(MONDAY_CONFIG_KEYS)) {
-    settings.delete(key)
+    if (key === MONDAY_CONFIG_KEYS.apiToken) {
+      deleteCredential(db, key)
+    } else {
+      settings.delete(key)
+    }
   }
 }
 
@@ -64,7 +69,7 @@ export function getMondayApiToken(db: Database.Database): string | null {
   const envToken = process.env.PRLT_MONDAY_API_TOKEN || process.env.MONDAY_API_TOKEN
   if (envToken) return envToken
 
-  return new SettingsStore(db).get(MONDAY_CONFIG_KEYS.apiToken)
+  return getCredential(db, MONDAY_CONFIG_KEYS.apiToken)
 }
 
 export function getMondayBoardId(db: Database.Database): string | null {

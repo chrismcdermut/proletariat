@@ -7,6 +7,7 @@
 import type Database from 'better-sqlite3'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
+import { getCredential, setCredential, deleteCredential, hasCredential } from '../database/credential-store.js'
 
 const JIRA_CONFIG_KEYS = {
   baseUrl: 'jira.base_url',
@@ -41,7 +42,7 @@ export function isJiraConfigured(db: Database.Database): boolean {
 
   const settings = new SettingsStore(db)
   const hasDbConfig = settings.has(JIRA_CONFIG_KEYS.baseUrl)
-    && settings.has(JIRA_CONFIG_KEYS.apiToken)
+    && hasCredential(db, JIRA_CONFIG_KEYS.apiToken)
 
   if (hasDbConfig) return true
 
@@ -67,7 +68,7 @@ export function loadJiraConfig(db: Database.Database): JiraConfig | null {
     || process.env.PRLT_JIRA_HOST
     || process.env.JIRA_HOST
 
-  const apiToken = settings.get(JIRA_CONFIG_KEYS.apiToken)
+  const apiToken = getCredential(db, JIRA_CONFIG_KEYS.apiToken)
     || process.env.PRLT_JIRA_API_TOKEN
     || process.env.JIRA_API_TOKEN
 
@@ -93,7 +94,7 @@ export function loadJiraConfig(db: Database.Database): JiraConfig | null {
 export function saveJiraConfig(db: Database.Database, config: JiraConfig): void {
   const settings = new SettingsStore(db)
   settings.set(JIRA_CONFIG_KEYS.baseUrl, config.baseUrl)
-  settings.set(JIRA_CONFIG_KEYS.apiToken, config.apiToken)
+  setCredential(db, JIRA_CONFIG_KEYS.apiToken, config.apiToken)
   if (config.email) {
     settings.set(JIRA_CONFIG_KEYS.email, config.email)
   }
@@ -108,6 +109,10 @@ export function saveJiraConfig(db: Database.Database, config: JiraConfig): void 
 export function clearJiraConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(JIRA_CONFIG_KEYS)) {
-    settings.delete(key)
+    if (key === JIRA_CONFIG_KEYS.apiToken) {
+      deleteCredential(db, key)
+    } else {
+      settings.delete(key)
+    }
   }
 }
