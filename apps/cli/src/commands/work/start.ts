@@ -103,7 +103,7 @@ function tryGitCommand(cmd: string, cwd: string): boolean {
     execSync(cmd, { cwd, stdio: 'pipe' })
     return true
   } catch {
-    return false
+    return false /* git command failed — caller uses boolean to branch logic */
   }
 }
 

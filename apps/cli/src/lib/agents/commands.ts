@@ -670,6 +670,7 @@ export async function createEphemeralAgent(
                 });
               }
             } catch {
+              // Clone failed (network issue, auth, etc.) — fall back to empty directory so agent can still start
               if (!fs.existsSync(targetPath)) {
                 fs.mkdirSync(targetPath, { recursive: true });
               }
@@ -682,6 +683,7 @@ export async function createEphemeralAgent(
                 stdio: 'pipe'
               });
             } catch {
+              // Worktree creation failed (source repo issues, path conflicts) — fall back to empty directory
               if (!fs.existsSync(targetPath)) {
                 fs.mkdirSync(targetPath, { recursive: true });
               }
@@ -791,7 +793,7 @@ export function tmuxSessionExists(sessionName: string): boolean {
     execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`, { stdio: 'pipe' });
     return true;
   } catch {
-    return false;
+    return false; /* session does not exist */
   }
 }
 
@@ -823,7 +825,7 @@ export function getActiveTmuxSessions(): Array<{ name: string; ticketId: string;
       })
       .filter(s => s.ticketId.startsWith('TKT-'));
   } catch {
-    return [];
+    return []; /* tmux not available or no server running */
   }
 }
 
@@ -847,7 +849,7 @@ export function killTmuxSession(sessionName: string): boolean {
     execSync(`tmux kill-session -t "${sessionName}"`, { stdio: 'pipe' });
     return true;
   } catch {
-    return false;
+    return false; /* session already dead or tmux not running */
   }
 }
 
@@ -974,7 +976,7 @@ export function findWorktreeForBranch(
         };
       }
     } catch {
-      continue;
+      continue; /* worktree list failed for this repo — try next one */
     }
   }
 
@@ -992,7 +994,7 @@ function getAgentContainers(agentDir: string): string[] {
     );
     return output.trim().split('\n').filter(Boolean);
   } catch {
-    return [];
+    return []; /* docker not available or not running */
   }
 }
 
