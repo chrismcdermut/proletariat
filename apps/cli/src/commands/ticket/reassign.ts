@@ -180,8 +180,21 @@ export default class TicketReassign extends PMOCommand {
       return;
     }
 
-    // Update ticket
-    await this.storage.updateTicket(ticketId!, { assignee: targetAssignee || undefined });
+    // Assign through provider (routes to Linear/Jira/PMO as appropriate)
+    const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId || '');
+
+    if (targetAssignee) {
+      const result = await provider.assignTicket(ticketId!, targetAssignee);
+      if (!result.success) {
+        this.error(`Failed to reassign ticket: ${result.error}`);
+      }
+    } else {
+      // Unassign: use updateTicket to clear assignee
+      const result = await provider.updateTicket(ticketId!, { assignee: undefined });
+      if (!result.success) {
+        this.error(`Failed to unassign ticket: ${result.error}`);
+      }
+    }
 
     // Auto-export
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -324,12 +337,27 @@ export default class TicketReassign extends PMOCommand {
     // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
+        const ticket = filteredTickets.find(t => t.id === ticketId);
         // eslint-disable-next-line no-await-in-loop
-        await this.storage.updateTicket(ticketId, { assignee: targetAssignee || undefined });
+        const provider = await this.resolveTicketProvider(ticketId, ticket?.projectId || '');
 
-        const action = targetAssignee ? `Reassigned to ${targetAssignee}` : 'Unassigned';
-        this.log(styles.success(`${ticketId}: ${action}`));
-        successCount++;
+        let result;
+        if (targetAssignee) {
+          // eslint-disable-next-line no-await-in-loop
+          result = await provider.assignTicket(ticketId, targetAssignee);
+        } else {
+          // eslint-disable-next-line no-await-in-loop
+          result = await provider.updateTicket(ticketId, { assignee: undefined });
+        }
+
+        if (result.success) {
+          const action = targetAssignee ? `Reassigned to ${targetAssignee}` : 'Unassigned';
+          this.log(styles.success(`${ticketId}: ${action}`));
+          successCount++;
+        } else {
+          this.log(styles.error(`Failed to reassign ${ticketId}: ${result.error}`));
+          failCount++;
+        }
       } catch (error) {
         this.log(styles.error(`Failed to reassign ${ticketId}: ${error instanceof Error ? error.message : String(error)}`));
         failCount++;

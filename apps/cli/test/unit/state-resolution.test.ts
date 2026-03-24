@@ -103,6 +103,17 @@ function createMockStorage(columns: string[]): ProviderStorage {
       createdAt: new Date(),
       updatedAt: new Date(),
     }) as Ticket,
+    updateTicket: async (id: string) => ({
+      id,
+      title: 'Test ticket',
+      statusId: 'backlog',
+      statusName: 'Backlog',
+      subtasks: [],
+      labels: [],
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }) as Ticket,
     getDatabase: () => new Database(':memory:') as any,
   }
 }
@@ -429,6 +440,8 @@ describe('PRLT-1087: State Resolution Engine', () => {
         listTickets: async () => ({ success: true, provider: 'pmo' as const, tickets: [] }),
         createTicket: async () => ({ success: true, provider: 'pmo' as const }),
         getTicket: async () => ({ success: true, provider: 'pmo' as const, ticket: null }),
+        updateTicket: async () => ({ success: true, provider: 'pmo' as const }),
+        assignTicket: async () => ({ success: true, provider: 'pmo' as const }),
       }
 
       const adapter = createPMProviderAdapter(mockProvider, storage, 'test-project')
@@ -450,6 +463,8 @@ describe('PRLT-1087: State Resolution Engine', () => {
         listTickets: async () => ({ success: true, provider: 'pmo' as const, tickets: [] }),
         createTicket: async () => ({ success: true, provider: 'pmo' as const }),
         getTicket: async () => ({ success: true, provider: 'pmo' as const, ticket: null }),
+        updateTicket: async () => ({ success: true, provider: 'pmo' as const }),
+        assignTicket: async () => ({ success: true, provider: 'pmo' as const }),
       }
 
       const adapter = createPMProviderAdapter(mockProvider, storage, 'test-project')
@@ -486,6 +501,8 @@ describe('PRLT-1087: State Resolution Engine', () => {
         listTickets: async () => ({ success: true, provider: 'pmo' as const, tickets: [] }),
         createTicket: async () => ({ success: true, provider: 'pmo' as const }),
         getTicket: async () => ({ success: true, provider: 'pmo' as const, ticket: null }),
+        updateTicket: async () => ({ success: true, provider: 'pmo' as const }),
+        assignTicket: async () => ({ success: true, provider: 'pmo' as const }),
       }
       const storage = createMockStorage(['Backlog', 'In Progress', 'Review', 'Done'])
 
@@ -519,6 +536,8 @@ describe('PRLT-1087: State Resolution Engine', () => {
         listTickets: async () => ({ success: true, provider: 'pmo' as const, tickets: [] }),
         createTicket: async () => ({ success: true, provider: 'pmo' as const }),
         getTicket: async () => ({ success: true, provider: 'pmo' as const, ticket: null }),
+        updateTicket: async () => ({ success: true, provider: 'pmo' as const }),
+        assignTicket: async () => ({ success: true, provider: 'pmo' as const }),
       }
       const storage = createMockStorage(['Backlog', 'In Progress', 'QA', 'Done'])
 

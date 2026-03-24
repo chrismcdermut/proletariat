@@ -9,7 +9,7 @@
  * not a cache layer.
  */
 
-import type { StateCategory, Ticket, TicketFilter, CreateTicketInput } from '../pmo/types.js'
+import type { StateCategory, Ticket, TicketFilter, CreateTicketInput, UpdateTicketInput } from '../pmo/types.js'
 
 /**
  * Supported provider names for ticket operations.
@@ -61,6 +61,19 @@ export interface ProviderGetResult extends ProviderResult {
   /** The retrieved ticket */
   ticket?: Ticket | null
 }
+
+/**
+ * Result of a provider updateTicket operation.
+ */
+export interface ProviderUpdateResult extends ProviderResult {
+  /** The updated ticket */
+  ticket?: Ticket
+}
+
+/**
+ * Result of a provider assignTicket operation.
+ */
+export interface ProviderAssignResult extends ProviderResult {}
 
 /**
  * Ticket provider interface — same contract for all backends.
@@ -115,6 +128,24 @@ export interface TicketProvider {
    * @returns Result with the ticket (or null if not found)
    */
   getTicket(ticketId: string): Promise<ProviderGetResult>
+
+  /**
+   * Update a ticket's fields.
+   *
+   * @param ticketId - The ticket ID
+   * @param input - Partial ticket fields to update
+   * @returns Result with the updated ticket
+   */
+  updateTicket(ticketId: string, input: UpdateTicketInput): Promise<ProviderUpdateResult>
+
+  /**
+   * Assign a ticket to a user or agent.
+   *
+   * @param ticketId - The ticket ID
+   * @param assignee - The assignee identifier
+   * @returns Result of the assign operation
+   */
+  assignTicket(ticketId: string, assignee: string): Promise<ProviderAssignResult>
 }
 
 /**
@@ -144,5 +175,6 @@ export interface ProviderStorage {
   deleteTicket: (id: string) => Promise<void>
   listTickets: (projectId: string | undefined, filter?: TicketFilter) => Promise<Ticket[]>
   createTicket: (projectId: string, input: CreateTicketInput) => Promise<Ticket>
+  updateTicket: (id: string, changes: Partial<Ticket>) => Promise<Ticket>
   getDatabase: () => import('better-sqlite3').Database
 }

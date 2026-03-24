@@ -6,7 +6,7 @@
  * Emits ticket:status_changed events via the storage layer.
  */
 
-import type { TicketFilter, CreateTicketInput } from '../pmo/types.js'
+import type { Ticket, TicketFilter, CreateTicketInput, UpdateTicketInput } from '../pmo/types.js'
 import type {
   TicketProvider,
   ProviderMoveResult,
@@ -14,6 +14,8 @@ import type {
   ProviderListResult,
   ProviderCreateResult,
   ProviderGetResult,
+  ProviderUpdateResult,
+  ProviderAssignResult,
   ProviderStorage,
 } from './types.js'
 
@@ -82,6 +84,32 @@ export class PMOTicketProvider implements TicketProvider {
     try {
       const ticket = await this.storage.getTicket(ticketId)
       return { success: true, provider: 'pmo', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'pmo',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async updateTicket(ticketId: string, input: UpdateTicketInput): Promise<ProviderUpdateResult> {
+    try {
+      const ticket = await this.storage.updateTicket(ticketId, input as Partial<Ticket>)
+      return { success: true, provider: 'pmo', ticket }
+    } catch (error) {
+      return {
+        success: false,
+        provider: 'pmo',
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
+  async assignTicket(ticketId: string, assignee: string): Promise<ProviderAssignResult> {
+    try {
+      await this.storage.updateTicket(ticketId, { assignee } as Partial<Ticket>)
+      return { success: true, provider: 'pmo' }
     } catch (error) {
       return {
         success: false,

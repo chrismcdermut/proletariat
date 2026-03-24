@@ -18,8 +18,6 @@ import {
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
 import { multiLineInput } from '../../lib/multiline-input.js';
-import { loadLinearConfig, getLinearApiKey, LinearClient } from '../../lib/linear/index.js';
-import { PMO_PRIORITY_TO_LINEAR } from '../../lib/linear/types.js';
 import { getRegisteredWorkSources, loadDefaultWorkSource } from '../../lib/work-source/config.js';
 
 export default class TicketCreate extends PMOCommand {
@@ -459,20 +457,22 @@ export default class TicketCreate extends PMOCommand {
       }));
       const message = 'Multiple ticket providers configured. Where should this ticket be created?';
 
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('list', 'source', message, choices),
-          createMetadata('ticket create', flags as Record<string, unknown>)
-        );
-        return 'pmo'
-      }
-
-      const { selectedSource } = await inquirer.prompt([{
-        type: 'list',
-        name: 'selectedSource',
+      const selectedSource = await this.selectFromList({
         message,
-        choices,
-      }]);
+        items: allProviders.map(p => ({
+          name: p === 'pmo' ? 'PMO (local)' : `${p.charAt(0).toUpperCase() + p.slice(1)}`,
+          value: p,
+        })),
+        getName: (item) => item.name,
+        getValue: (item) => item.value,
+        getCommand: (item) => `prlt ticket create --source ${item.value} --json`,
+        jsonMode: jsonMode
+          ? { flags: flags as Record<string, unknown> & { json?: boolean; machine?: boolean }, commandName: 'ticket create' }
+          : null,
+      });
+
+      // In JSON mode selectFromList returns null (prompt already emitted)
+      if (selectedSource === null) return 'pmo';
 
       // Only 'linear' gets the special path; everything else falls through to PMO
       return selectedSource === 'linear' ? 'linear' : 'pmo';
@@ -483,17 +483,14 @@ export default class TicketCreate extends PMOCommand {
   }
 
   /**
-   * Create an issue in Linear instead of the local PMO database.
-   * When a cloud provider is connected, the cloud provider is the
-   * source of truth — no local PMO mirror ticket is created.
-   * Local mirrors are created on demand by `work start --mirror-to-pmo`.
+   * Create a ticket through the Linear provider adapter.
+   * Collects inputs (title, description, priority, labels) and routes
+   * through the provider, which handles the Linear API and mirror creation.
    */
   private async createLinearIssue(
     flags: Record<string, unknown>,
     jsonMode: boolean
   ): Promise<void> {
-    const db = this.storage.getDatabase();
-
     const handleError = (code: string, message: string): void => {
       if (jsonMode) {
         outputErrorAsJson(code, message, createMetadata('ticket create', flags));
@@ -502,50 +499,19 @@ export default class TicketCreate extends PMOCommand {
       this.error(message);
     };
 
-    // Resolve Linear API key
-    const apiKey = getLinearApiKey(db);
-    if (!apiKey) {
-      return handleError(
-        'LINEAR_NOT_CONFIGURED',
-        'Linear is not configured. Run "prlt linear setup" first, or configure a Linear provider source.'
-      );
-    }
-
-    const client = new LinearClient(apiKey);
-
-    // Resolve team
-    const linearConfig = loadLinearConfig(db);
-    const teamKey = (flags.team as string) || linearConfig?.defaultTeamKey || process.env.PRLT_LINEAR_TEAM;
-    if (!teamKey) {
-      return handleError(
-        'LINEAR_TEAM_REQUIRED',
-        'Linear team key is required. Use --team flag or set PRLT_LINEAR_TEAM.'
-      );
-    }
-
-    const team = await client.getTeamByKey(teamKey);
-    if (!team) {
-      return handleError('LINEAR_TEAM_NOT_FOUND', `Linear team "${teamKey}" not found.`);
-    }
-
     // Collect title (required)
     let title = flags.title as string | undefined;
     if (!title) {
-      if (jsonMode) {
-        outputPromptAsJson(
-          buildPromptConfig('input', 'title', 'Enter ticket title:', undefined, undefined),
-          createMetadata('ticket create', flags)
-        );
-        return
-        // unreachable
-      }
-
-      const { inputTitle } = await inquirer.prompt([{
-        type: 'input',
-        name: 'inputTitle',
+      const inputTitle = await this.promptForInput({
         message: 'Enter ticket title:',
+        fieldName: 'title',
         validate: (input: string) => input.trim() ? true : 'Title cannot be empty',
-      }]);
+        jsonMode: jsonMode
+          ? { flags: flags as Record<string, unknown> & { json?: boolean; machine?: boolean }, commandName: 'ticket create', commandHint: 'Provide --title flag', example: 'prlt ticket create --source linear --title "My ticket"' }
+          : null,
+      });
+      // In JSON mode, promptForInput returns '' (prompt already emitted)
+      if (jsonMode && !inputTitle) return;
       title = inputTitle;
     }
 
@@ -568,40 +534,22 @@ export default class TicketCreate extends PMOCommand {
       }
     }
 
-    // Map PMO priority to Linear priority number
     const pmoPriority = flags.priority as string | undefined;
-    const linearPriority = pmoPriority ? PMO_PRIORITY_TO_LINEAR[pmoPriority] : undefined;
+    const category = flags.category as string | undefined;
 
-    // Resolve labels to Linear label IDs
+    // Parse labels from flag
     const labelsInput = flags.labels as string | undefined;
     const labelNames = labelsInput
       ? labelsInput.split(',').map(l => l.trim()).filter(Boolean)
       : [];
-    let resolvedLabelIds: string[] | undefined;
-    if (labelNames.length > 0) {
-      const availableLabels = await client.listLabels(team.id);
-      resolvedLabelIds = [];
-      for (const name of labelNames) {
-        const match = availableLabels.find(l => l.name.toLowerCase() === name.toLowerCase());
-        if (match) {
-          resolvedLabelIds.push(match.id);
-        } else if (!jsonMode) {
-          this.log(styles.warning(`   Warning: Label "${name}" not found in Linear — skipping.`));
-        }
-      }
-      if (resolvedLabelIds.length === 0) resolvedLabelIds = undefined;
-    }
-
-    const category = flags.category as string | undefined;
 
     // Handle dry-run
     if (flags['dry-run']) {
       const wouldCreate = {
         source: 'linear',
-        team: teamKey,
         title: title!,
         ...(description && { description }),
-        ...(pmoPriority && { priority: pmoPriority, linearPriority }),
+        ...(pmoPriority && { priority: pmoPriority }),
         ...(labelNames.length > 0 && { labels: labelNames }),
         ...(category && { category }),
       };
@@ -612,10 +560,9 @@ export default class TicketCreate extends PMOCommand {
       }
 
       this.log(styles.warning('\n[DRY RUN] Would create Linear issue:'));
-      this.log(styles.muted(`   Team: ${teamKey}`));
       this.log(styles.muted(`   Title: ${title}`));
       if (pmoPriority) {
-        this.log(styles.muted(`   Priority: ${pmoPriority} (Linear: ${linearPriority})`));
+        this.log(styles.muted(`   Priority: ${pmoPriority}`));
       }
       if (labelNames.length > 0) {
         this.log(styles.muted(`   Labels: ${labelNames.join(', ')}`));
@@ -631,42 +578,59 @@ export default class TicketCreate extends PMOCommand {
       return;
     }
 
-    // Create the issue in Linear
-    const issue = await client.createIssue({
-      teamId: team.id,
-      title: title!,
-      description,
-      priority: linearPriority,
-      labelIds: resolvedLabelIds,
+    // Get project for the provider (needed for PMO mirror)
+    const projectId = await this.requireProject({
+      jsonMode: {
+        flags: flags as Record<string, unknown> & { json?: boolean; machine?: boolean },
+        commandName: 'ticket create',
+        baseCommand: 'prlt ticket create --source linear',
+      },
     });
 
-    // Cloud provider is the source of truth — no local PMO mirror created.
-    // Mirrors are created on demand by `work start --mirror-to-pmo` (enabled by default).
+    // Route through provider adapter — Linear provider handles API call, mirror, and mapping
+    const provider = this.resolveProjectProvider(projectId, 'linear');
+    const createResult = await provider.createTicket(projectId, {
+      title: title!,
+      description,
+      priority: pmoPriority,
+      category,
+      labels: labelNames.length > 0 ? labelNames : undefined,
+    });
+
+    if (!createResult.success || !createResult.ticket) {
+      return handleError('CREATE_FAILED', `Failed to create ticket: ${createResult.error}`);
+    }
+
+    const ticket = createResult.ticket;
+    const externalKey = ticket.metadata?.external_key;
+    const externalUrl = ticket.metadata?.external_url;
 
     // JSON output
     if (jsonMode) {
       this.log(JSON.stringify({
         success: true,
         source: 'linear',
-        issue: {
-          id: issue.id,
-          identifier: issue.identifier,
-          title: issue.title,
-          url: issue.url,
-          state: issue.state.name,
-          team: issue.team.key,
-          priority: issue.priority,
+        ticket: {
+          id: ticket.id,
+          title: ticket.title,
+          priority: ticket.priority,
+          category: ticket.category,
+          statusName: ticket.statusName,
+          projectId: ticket.projectId,
+          ...(externalKey && { externalKey }),
+          ...(externalUrl && { externalUrl }),
         },
       }, null, 2));
       return;
     }
 
-    this.log(styles.success(`\n✅ Created Linear issue ${styles.emphasis(issue.identifier)}`));
-    this.log(styles.muted(`   Title: ${issue.title}`));
-    this.log(styles.muted(`   Team: ${issue.team.name} (${issue.team.key})`));
-    this.log(styles.muted(`   State: ${issue.state.name}`));
-    if (issue.url) {
-      this.log(styles.muted(`   URL: ${issue.url}`));
+    this.log(styles.success(`\n✅ Created ticket ${styles.emphasis(externalKey || ticket.id)} via Linear`));
+    this.log(styles.muted(`   Title: ${ticket.title}`));
+    if (ticket.priority) {
+      this.log(styles.muted(`   Priority: ${ticket.priority}`));
+    }
+    if (externalUrl) {
+      this.log(styles.muted(`   URL: ${externalUrl}`));
     }
   }
 
