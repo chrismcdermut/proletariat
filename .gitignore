@@ -35,8 +35,14 @@ Thumbs.db
 temp/
 tmp/
 
-# PMO
+# PMO & credentials
 .proletariat/
+.proletariat-credentials/
+
+# Secrets / credential files
+credentials.json
+*.key
+*.pem
 pmo/projects/*/board.md
 ROADMAP.md
 

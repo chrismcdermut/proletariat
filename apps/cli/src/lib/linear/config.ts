@@ -8,6 +8,7 @@ import type Database from 'better-sqlite3'
 import type { LinearConfig } from './types.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
+import { getCredential, setCredential, deleteCredential, hasCredential } from '../database/credential-store.js'
 
 const LINEAR_CONFIG_KEYS = {
   apiKey: 'linear.api_key',
@@ -24,8 +25,7 @@ const LINEAR_CONFIG_KEYS = {
  * Check if Linear is configured (API key is stored).
  */
 export function isLinearConfigured(db: Database.Database): boolean {
-  const settings = new SettingsStore(db)
-  return settings.has(LINEAR_CONFIG_KEYS.apiKey)
+  return hasCredential(db, LINEAR_CONFIG_KEYS.apiKey)
 }
 
 /**
@@ -33,10 +33,10 @@ export function isLinearConfigured(db: Database.Database): boolean {
  * Returns null if not configured.
  */
 export function loadLinearConfig(db: Database.Database): LinearConfig | null {
-  const settings = new SettingsStore(db)
-  const apiKey = settings.get(LINEAR_CONFIG_KEYS.apiKey)
+  const apiKey = getCredential(db, LINEAR_CONFIG_KEYS.apiKey)
   if (!apiKey) return null
 
+  const settings = new SettingsStore(db)
   return {
     apiKey,
     defaultTeamId: settings.get(LINEAR_CONFIG_KEYS.defaultTeamId) ?? undefined,
@@ -49,7 +49,7 @@ export function loadLinearConfig(db: Database.Database): LinearConfig | null {
  * Save Linear API key to the database.
  */
 export function saveLinearApiKey(db: Database.Database, apiKey: string): void {
-  new SettingsStore(db).set(LINEAR_CONFIG_KEYS.apiKey, apiKey)
+  setCredential(db, LINEAR_CONFIG_KEYS.apiKey, apiKey)
 }
 
 /**
@@ -74,7 +74,11 @@ export function saveLinearOrganization(db: Database.Database, name: string): voi
 export function clearLinearConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(LINEAR_CONFIG_KEYS)) {
-    settings.delete(key)
+    if (key === LINEAR_CONFIG_KEYS.apiKey) {
+      deleteCredential(db, key)
+    } else {
+      settings.delete(key)
+    }
   }
 }
 
@@ -105,6 +109,6 @@ export function getLinearApiKey(db: Database.Database): string | null {
   const envKey = process.env.PRLT_LINEAR_API_KEY || process.env.LINEAR_API_KEY
   if (envKey) return envKey
 
-  // 3. Legacy: stored workspace setting
-  return new SettingsStore(db).get(LINEAR_CONFIG_KEYS.apiKey)
+  // 3. Legacy: stored workspace setting (now in credentials.db)
+  return getCredential(db, LINEAR_CONFIG_KEYS.apiKey)
 }

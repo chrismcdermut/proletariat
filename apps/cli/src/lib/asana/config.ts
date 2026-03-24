@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import type { AsanaConfig } from './types.js'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
+import { getCredential, setCredential, deleteCredential, hasCredential } from '../database/credential-store.js'
 
 const ASANA_CONFIG_KEYS = {
   accessToken: 'asana.access_token',
@@ -12,14 +13,14 @@ const ASANA_CONFIG_KEYS = {
 } as const
 
 export function isAsanaConfigured(db: Database.Database): boolean {
-  return new SettingsStore(db).has(ASANA_CONFIG_KEYS.accessToken)
+  return hasCredential(db, ASANA_CONFIG_KEYS.accessToken)
 }
 
 export function loadAsanaConfig(db: Database.Database): AsanaConfig | null {
-  const settings = new SettingsStore(db)
-  const accessToken = settings.get(ASANA_CONFIG_KEYS.accessToken)
+  const accessToken = getCredential(db, ASANA_CONFIG_KEYS.accessToken)
   if (!accessToken) return null
 
+  const settings = new SettingsStore(db)
   return {
     accessToken,
     workspaceGid: settings.get(ASANA_CONFIG_KEYS.workspaceGid) ?? undefined,
@@ -30,7 +31,7 @@ export function loadAsanaConfig(db: Database.Database): AsanaConfig | null {
 }
 
 export function saveAsanaAccessToken(db: Database.Database, accessToken: string): void {
-  new SettingsStore(db).set(ASANA_CONFIG_KEYS.accessToken, accessToken)
+  setCredential(db, ASANA_CONFIG_KEYS.accessToken, accessToken)
 }
 
 export function saveAsanaWorkspace(db: Database.Database, workspaceGid: string, workspaceName: string): void {
@@ -48,7 +49,11 @@ export function saveAsanaProject(db: Database.Database, projectGid: string, proj
 export function clearAsanaConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(ASANA_CONFIG_KEYS)) {
-    settings.delete(key)
+    if (key === ASANA_CONFIG_KEYS.accessToken) {
+      deleteCredential(db, key)
+    } else {
+      settings.delete(key)
+    }
   }
 }
 
@@ -70,6 +75,6 @@ export function getAsanaAccessToken(db: Database.Database): string | null {
   const envToken = process.env.PRLT_ASANA_ACCESS_TOKEN || process.env.ASANA_ACCESS_TOKEN
   if (envToken) return envToken
 
-  // 3. Legacy: stored workspace setting
-  return new SettingsStore(db).get(ASANA_CONFIG_KEYS.accessToken)
+  // 3. Legacy: stored workspace setting (now in credentials.db)
+  return getCredential(db, ASANA_CONFIG_KEYS.accessToken)
 }

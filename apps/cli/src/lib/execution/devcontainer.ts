@@ -732,6 +732,37 @@ for repo_dir in /workspace/*/; do
     fi
 done
 
+# PRLT-1114: Install pre-commit hook to catch secrets before they are committed
+# Uses core.hooksPath so the hook applies to all repos the agent touches
+setup_secret_detection_hook() {
+    local hooks_dir="/home/node/.git-hooks"
+    mkdir -p "$hooks_dir"
+
+    cat > "$hooks_dir/pre-commit" << 'HOOKEOF'
+#!/bin/bash
+# Pre-commit hook: prevent committing secrets (PRLT-1114)
+# Scans staged changes for known API key / token patterns.
+
+SECRET_PATTERNS='lin_api_[A-Za-z0-9]|ghp_[A-Za-z0-9]|gho_[A-Za-z0-9]|ghs_[A-Za-z0-9]|xox[bprs]-[A-Za-z0-9]|sk-[A-Za-z0-9]{20,}'
+
+if git diff --cached --diff-filter=d -U0 | grep -qE "$SECRET_PATTERNS"; then
+    echo "ERROR: Possible secret detected in staged changes!" >&2
+    echo "" >&2
+    echo "Matched lines:" >&2
+    git diff --cached --diff-filter=d -U0 | grep -nE "$SECRET_PATTERNS" | head -5 >&2
+    echo "" >&2
+    echo "Remove the secret before committing." >&2
+    exit 1
+fi
+HOOKEOF
+
+    chmod +x "$hooks_dir/pre-commit"
+    /usr/bin/git config --global core.hooksPath "$hooks_dir"
+    echo "Secret detection pre-commit hook installed"
+}
+
+setup_secret_detection_hook
+
 echo "Workspace setup complete"
 `
 }

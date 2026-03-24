@@ -546,6 +546,18 @@ describe('Devcontainer', () => {
 
         expect(script).to.include('is up to date')
       })
+
+      it('should install pre-commit hook for secret detection (PRLT-1114)', () => {
+        const script = generatePrltSetupScript()
+
+        expect(script).to.include('setup_secret_detection_hook')
+        expect(script).to.include('core.hooksPath')
+        expect(script).to.include('lin_api_')
+        expect(script).to.include('ghp_')
+        expect(script).to.include('gho_')
+        expect(script).to.include('xox[bprs]-')
+        expect(script).to.include('Possible secret detected')
+      })
     })
 
     describe('createDevcontainerConfig with git identity', () => {

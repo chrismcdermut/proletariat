@@ -7,6 +7,7 @@
 import type Database from 'better-sqlite3'
 import { loadProviderSources, resolveApiKey } from '../work-source/provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
+import { getCredential, setCredential, deleteCredential, hasCredential } from '../database/credential-store.js'
 
 const SHORTCUT_CONFIG_KEYS = {
   apiToken: 'shortcut.api_token',
@@ -22,7 +23,7 @@ export interface ShortcutConfig {
  * Check if Shortcut is configured.
  */
 export function isShortcutConfigured(db: Database.Database): boolean {
-  const hasDbConfig = new SettingsStore(db).has(SHORTCUT_CONFIG_KEYS.apiToken)
+  const hasDbConfig = hasCredential(db, SHORTCUT_CONFIG_KEYS.apiToken)
   if (hasDbConfig) return true
 
   const hasEnvToken = !!(process.env.PRLT_SHORTCUT_API_TOKEN || process.env.SHORTCUT_API_TOKEN)
@@ -34,7 +35,7 @@ export function isShortcutConfigured(db: Database.Database): boolean {
  */
 export function loadShortcutConfig(db: Database.Database): ShortcutConfig | null {
   const settings = new SettingsStore(db)
-  const apiToken = settings.get(SHORTCUT_CONFIG_KEYS.apiToken)
+  const apiToken = getCredential(db, SHORTCUT_CONFIG_KEYS.apiToken)
     || process.env.PRLT_SHORTCUT_API_TOKEN
     || process.env.SHORTCUT_API_TOKEN
 
@@ -54,7 +55,7 @@ export function loadShortcutConfig(db: Database.Database): ShortcutConfig | null
  */
 export function saveShortcutConfig(db: Database.Database, config: ShortcutConfig): void {
   const settings = new SettingsStore(db)
-  settings.set(SHORTCUT_CONFIG_KEYS.apiToken, config.apiToken)
+  setCredential(db, SHORTCUT_CONFIG_KEYS.apiToken, config.apiToken)
   if (config.workspaceSlug) {
     settings.set(SHORTCUT_CONFIG_KEYS.workspaceSlug, config.workspaceSlug)
   }
@@ -64,7 +65,7 @@ export function saveShortcutConfig(db: Database.Database, config: ShortcutConfig
  * Save the Shortcut API token.
  */
 export function saveShortcutApiToken(db: Database.Database, apiToken: string): void {
-  new SettingsStore(db).set(SHORTCUT_CONFIG_KEYS.apiToken, apiToken)
+  setCredential(db, SHORTCUT_CONFIG_KEYS.apiToken, apiToken)
 }
 
 /**
@@ -80,7 +81,11 @@ export function saveShortcutWorkspaceSlug(db: Database.Database, slug: string): 
 export function clearShortcutConfig(db: Database.Database): void {
   const settings = new SettingsStore(db)
   for (const key of Object.values(SHORTCUT_CONFIG_KEYS)) {
-    settings.delete(key)
+    if (key === SHORTCUT_CONFIG_KEYS.apiToken) {
+      deleteCredential(db, key)
+    } else {
+      settings.delete(key)
+    }
   }
 }
 
@@ -105,6 +110,6 @@ export function getShortcutApiToken(db: Database.Database): string | null {
   const envKey = process.env.PRLT_SHORTCUT_API_TOKEN || process.env.SHORTCUT_API_TOKEN
   if (envKey) return envKey
 
-  // 3. Legacy: stored workspace setting
-  return new SettingsStore(db).get(SHORTCUT_CONFIG_KEYS.apiToken)
+  // 3. Legacy: stored workspace setting (now in credentials.db)
+  return getCredential(db, SHORTCUT_CONFIG_KEYS.apiToken)
 }

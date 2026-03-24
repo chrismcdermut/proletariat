@@ -15,6 +15,7 @@ import type Database from 'better-sqlite3'
 import type { WorkSourceProvider } from './config.js'
 import { WORK_SOURCE_PROVIDERS, isWorkSourceProvider } from './config.js'
 import { SettingsStore } from '../database/settings-store.js'
+import { isCredentialKey, getCredential } from '../database/credential-store.js'
 
 const PROVIDER_SOURCES_KEY = 'work.provider_sources'
 
@@ -363,7 +364,12 @@ export function resolveApiKey(
   const envValue = process.env[entry.apiKeyRef]
   if (envValue) return envValue
 
-  // Try workspace_settings key
+  // Try credential store for known credential keys (PRLT-1114)
+  if (isCredentialKey(entry.apiKeyRef)) {
+    return getCredential(db, entry.apiKeyRef)
+  }
+
+  // Try workspace_settings key for non-credential keys
   const dbValue = settingsFor(db).get(entry.apiKeyRef)
   if (dbValue) return dbValue
 
