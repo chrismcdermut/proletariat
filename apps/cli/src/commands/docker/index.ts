@@ -26,6 +26,7 @@ export default class Docker extends PromptCommand {
     '<%= config.bin %> docker shell WORK-001',
     '<%= config.bin %> docker restart abc123',
     '<%= config.bin %> docker sync',
+    '<%= config.bin %> docker rebuild-cache',
     '<%= config.bin %> docker clean',
     '<%= config.bin %> docker prune',
   ]
@@ -49,6 +50,7 @@ export default class Docker extends PromptCommand {
       { name: 'Shell into container', value: 'shell', command: 'prlt docker shell <target> --json' },
       { name: 'Restart a container', value: 'restart', command: 'prlt docker restart <target> --json' },
       { name: 'Sync containers from Docker', value: 'sync', command: 'prlt docker sync --json' },
+      { name: 'Rebuild pnpm store cache', value: 'rebuild-cache', command: 'prlt docker rebuild-cache --json' },
       { name: 'Clean orphaned containers', value: 'clean', command: 'prlt docker clean --json' },
       { name: 'Prune unused resources', value: 'prune', command: 'prlt docker prune --json' },
       { name: 'Exit', value: 'exit', command: 'prlt docker --exit' },

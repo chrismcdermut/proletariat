@@ -19,6 +19,9 @@ import { readDevcontainerJson } from '../devcontainer.js'
 import { isClaudeExecutor } from './executor.js'
 import { getMachineId } from '../../telemetry/analytics.js'
 
+/** Docker volume name for the shared pnpm store cache (PRLT-1130) */
+export const PNPM_STORE_CACHE_VOLUME = 'pnpm-store-cache'
+
 /**
  * Parse a Docker memory string (e.g., '4g', '512m', '2048m') into bytes.
  */
@@ -257,6 +260,9 @@ export function createDockerContainer(
       repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:cached"`
     ),
     ...(isClaudeExecutor(executor) ? [`-v "claude-credentials:/home/node/.claude"`] : []),
+    // PRLT-1130: Mount pnpm store cache read-only for fast installs.
+    // If the cache volume doesn't exist, Docker creates an empty one (harmless).
+    ...(pnpmStoreCacheExists() ? [`-v "${PNPM_STORE_CACHE_VOLUME}:/tmp/pnpm-store-cache:ro"`] : []),
   ]
 
   const hasWorktrees = context.repoWorktrees && context.repoWorktrees.length > 0
@@ -349,12 +355,8 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
     console.debug(`[runners:docker] Container setup scripts failed:`, error)
   }
 
-  try {
-    execSync(`docker exec ${containerId} pnpm config set store-dir /tmp/pnpm-store`, { stdio: 'pipe' })
-    console.debug(`[runners:docker] Configured pnpm store-dir to /tmp/pnpm-store`)
-  } catch (error) {
-    console.debug(`[runners:docker] Failed to configure pnpm store (pnpm may not be installed):`, error)
-  }
+  // NOTE: pnpm store-dir is now configured inside setup-prlt.sh (PRLT-1130)
+  // to ensure it's set BEFORE pnpm install runs during workspace setup.
 
   if (isClaudeExecutor(executor)) {
     try {
@@ -430,6 +432,100 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
 }
 
 /**
+ * Check if the pnpm store cache Docker volume exists.
+ */
+export function pnpmStoreCacheExists(): boolean {
+  try {
+    execSync(`docker volume inspect ${PNPM_STORE_CACHE_VOLUME}`, { stdio: 'pipe', timeout: 5000 })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Build the pnpm store cache volume by running pnpm install in a temporary container.
+ * The cache volume is populated with all workspace dependencies from pnpm-lock.yaml.
+ * Subsequent agent containers mount this read-only for fast installs (PRLT-1130).
+ */
+export function buildPnpmStoreCache(agentDir: string, imageName: string): boolean {
+  console.debug(`[runners:docker] Building pnpm store cache volume...`)
+
+  const builderName = 'prlt-pnpm-cache-builder'
+
+  // Remove any leftover builder container
+  try {
+    execSync(`docker rm -f ${builderName}`, { stdio: 'pipe', timeout: 10000 })
+  } catch {
+    // Ignore — container may not exist
+  }
+
+  try {
+    // Run a temporary container to populate the cache.
+    // Workspace is mounted read-only (only need lockfiles + package.json).
+    // Cache volume is mounted writable so pnpm can write to the store.
+    const installScript = [
+      'pnpm config set store-dir /tmp/pnpm-store',
+      'for dir in /workspace/*/; do',
+      '  if [ -f "$dir/pnpm-lock.yaml" ]; then',
+      '    echo "Caching deps from $dir..."',
+      '    cd "$dir" && pnpm install --frozen-lockfile 2>&1 || pnpm install 2>&1',
+      '  fi',
+      'done',
+      'echo "pnpm store cache built successfully"',
+    ].join(' && ')
+
+    const buildCmd = [
+      'docker run --rm',
+      `--name ${builderName}`,
+      '--user node',
+      `-v "${agentDir}:/workspace:ro"`,
+      `-v "${PNPM_STORE_CACHE_VOLUME}:/tmp/pnpm-store"`,
+      imageName,
+      'bash', '-c',
+      JSON.stringify(installScript),
+    ].join(' ')
+
+    console.debug(`[runners:docker] Running cache builder: ${buildCmd}`)
+    execSync(buildCmd, { stdio: 'pipe', timeout: 600000 }) // 10 min timeout
+    console.debug(`[runners:docker] pnpm store cache built successfully`)
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to build pnpm store cache:`, error)
+    // Don't remove the volume — partial data is still useful
+    return false
+  }
+}
+
+/**
+ * Ensure the pnpm store cache volume exists and is populated.
+ * If not, builds it from the agent's workspace lockfiles.
+ * This is a no-op if the cache already exists (PRLT-1130).
+ */
+export function ensurePnpmStoreCache(agentDir: string, imageName: string): void {
+  if (pnpmStoreCacheExists()) {
+    console.debug(`[runners:docker] pnpm store cache volume exists, reusing`)
+    return
+  }
+  console.debug(`[runners:docker] No pnpm store cache found, building...`)
+  buildPnpmStoreCache(agentDir, imageName)
+}
+
+/**
+ * Delete the pnpm store cache volume.
+ * Returns true if the volume was removed (or didn't exist).
+ */
+export function removePnpmStoreCache(): boolean {
+  try {
+    execSync(`docker volume rm ${PNPM_STORE_CACHE_VOLUME}`, { stdio: 'pipe', timeout: 10000 })
+    return true
+  } catch {
+    // Volume may not exist or may be in use
+    return !pnpmStoreCacheExists()
+  }
+}
+
+/**
  * Ensure a Docker container is running for the agent.
  * Reuses running containers to preserve in-progress work (TKT-1028).
  */
@@ -492,6 +588,10 @@ export function ensureDockerContainer(
     registry: buildArgs.PRLT_REGISTRY,
     version: buildArgs.PRLT_VERSION,
   }
+
+  // PRLT-1130: Ensure pnpm store cache is populated before creating the container.
+  // This builds the cache volume on first spawn; subsequent spawns reuse it.
+  ensurePnpmStoreCache(context.agentDir, imageName)
 
   console.debug(`[runners:docker] Creating container ${containerName}`)
   if (!createDockerContainer(context, containerName, imageName, config, executor, prltInfo)) {
