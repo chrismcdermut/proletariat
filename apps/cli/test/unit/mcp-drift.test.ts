@@ -4,10 +4,15 @@
  * Ensures every non-excluded oclif command has a corresponding MCP tool.
  * Fails CI if a CLI command exists without an MCP tool registration,
  * preventing drift between CLI and MCP capabilities.
+ *
+ * Command discovery: Uses Config.load when dist/ exists (full oclif metadata).
+ * Falls back to filesystem scanning of src/commands/ when dist/ is absent
+ * (e.g., CI unit-tests job runs in parallel with build, so dist/ may not exist).
  */
 
 import { expect } from 'chai';
 import { Config } from '@oclif/core';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commandIdToToolName } from '../../src/lib/mcp/generator.js';
@@ -16,6 +21,65 @@ import { overrideToolNames } from '../../src/lib/mcp/tools/overrides/index.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const cliRoot = path.resolve(__dirname, '../..');
+
+/**
+ * Minimal command info needed by drift tests.
+ */
+interface CommandInfo {
+  id: string;
+  hidden: boolean;
+}
+
+/**
+ * Discover commands by walking src/commands/ and deriving command IDs from file paths.
+ * Used when dist/ is not available (CI unit tests run without a build).
+ */
+function discoverCommandsFromSource(commandsDir: string): CommandInfo[] {
+  const commands: CommandInfo[] = [];
+
+  function walk(dir: string, prefix: string): void {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath, prefix ? `${prefix}:${entry.name}` : entry.name);
+      } else if (entry.name.endsWith('.ts') && !entry.name.startsWith('_')) {
+        const baseName = entry.name.replace('.ts', '');
+        let commandId: string;
+        if (baseName === 'index') {
+          if (!prefix) continue;
+          commandId = prefix;
+        } else {
+          commandId = prefix ? `${prefix}:${baseName}` : baseName;
+        }
+
+        // Check if hidden by scanning for `hidden = true` in the file
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const hidden = /static\s+hidden\s*=\s*true/.test(content);
+
+        commands.push({ id: commandId, hidden });
+      }
+    }
+  }
+
+  walk(commandsDir, '');
+  return commands;
+}
+
+/**
+ * Load commands from Config.load if dist/ exists, otherwise scan src/commands/.
+ */
+async function loadCommands(): Promise<CommandInfo[]> {
+  const distCommands = path.join(cliRoot, 'dist', 'commands');
+  if (fs.existsSync(distCommands)) {
+    const config = await Config.load({ root: cliRoot });
+    return config.commands.map((c) => ({ id: c.id, hidden: !!c.hidden }));
+  }
+
+  // Fallback: discover from source when dist/ isn't built
+  const srcCommands = path.join(cliRoot, 'src', 'commands');
+  return discoverCommandsFromSource(srcCommands);
+}
 
 /**
  * Commands excluded from MCP auto-generation (must match generator.ts).
@@ -42,16 +106,16 @@ const EXCLUDED_COMMANDS = new Set([
 ]);
 
 describe('@smoke MCP Drift Detection', () => {
-  let config: InstanceType<typeof Config>;
+  let commands: CommandInfo[];
 
   before(async () => {
-    config = await Config.load({ root: cliRoot });
+    commands = await loadCommands();
   });
 
   it('every non-excluded, non-hidden CLI command has a corresponding MCP tool name', () => {
     const missingTools: string[] = [];
 
-    for (const command of config.commands) {
+    for (const command of commands) {
       // Skip excluded commands
       if (EXCLUDED_COMMANDS.has(command.id)) continue;
       // Skip hidden commands
@@ -75,7 +139,7 @@ describe('@smoke MCP Drift Detection', () => {
 
   it('all override tool names correspond to real CLI commands', () => {
     const commandToolNames = new Set(
-      config.commands.map((c) => commandIdToToolName(c.id)),
+      commands.map((c) => commandIdToToolName(c.id)),
     );
 
     const orphanedOverrides: string[] = [];
@@ -109,7 +173,7 @@ describe('@smoke MCP Drift Detection', () => {
   it('excluded commands list in test matches generator excluded list', () => {
     // This test ensures the test exclusion list stays in sync with the generator.
     // We import the generator and verify they produce the same results.
-    const nonExcludedCommands = config.commands.filter(
+    const nonExcludedCommands = commands.filter(
       (c) => !EXCLUDED_COMMANDS.has(c.id) && !c.hidden,
     );
 
@@ -121,8 +185,8 @@ describe('@smoke MCP Drift Detection', () => {
   });
 
   it('auto-generated tool count covers the majority of CLI commands', () => {
-    const totalCommands = config.commands.length;
-    const excludedCount = config.commands.filter(
+    const totalCommands = commands.length;
+    const excludedCount = commands.filter(
       (c) => EXCLUDED_COMMANDS.has(c.id) || c.hidden,
     ).length;
     const coveredCount = totalCommands - excludedCount;
