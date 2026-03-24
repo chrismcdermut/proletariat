@@ -95,11 +95,13 @@ function readTelemetryConfig(): TelemetryConfig {
     }
   }
 
-  // Create new config with generated machine ID
+  // Use inherited machine ID from host (Docker containers), or generate a new one
+  const machineId = process.env.PRLT_TELEMETRY_MACHINE_ID || crypto.randomUUID()
+
   telemetryConfig = {
     enabled: true,
     noticeShown: false,
-    machineId: crypto.randomUUID(),
+    machineId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   }
@@ -374,14 +376,24 @@ export function trackEvent(eventName: string, value?: string | number | null, me
   if (!isTelemetryEnabled()) return
 
   try {
+    // Derive telemetry source context from environment
+    const telemetrySource = process.env.PRLT_AGENT_NAME ? 'agent' : 'host'
+    const runtimeEnvironment = process.env.PRLT_AGENT_NAME ? 'docker' : 'host'
+    const sourceContext: Record<string, unknown> = {
+      telemetry_source: telemetrySource,
+      runtime_environment: runtimeEnvironment,
+      ...(process.env.PRLT_AGENT_NAME ? { agent_name: process.env.PRLT_AGENT_NAME } : {}),
+    }
+
     // Convert metadata values to strings as required by the client SDK
+    // Source context merges first so caller metadata takes precedence on key collisions
     const stringMetadata: Record<string, string> | null = metadata
       ? Object.fromEntries(
-          Object.entries({ ...metadata, cli_version: cliVersion }).map(([k, v]) => [k, String(v)]),
+          Object.entries({ ...sourceContext, ...metadata, cli_version: cliVersion }).map(([k, v]) => [k, String(v)]),
         )
-      : cliVersion
-        ? { cli_version: cliVersion }
-        : null
+      : Object.fromEntries(
+          Object.entries({ ...sourceContext, ...(cliVersion ? { cli_version: cliVersion } : {}) }).map(([k, v]) => [k, String(v)]),
+        )
 
     writeEventToQueue({
       name: eventName,
