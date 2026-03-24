@@ -277,12 +277,27 @@ export class LinearTicketProvider implements TicketProvider {
       // Map PMO priority to Linear priority number
       const linearPriority = input.priority ? PMO_PRIORITY_TO_LINEAR[input.priority] : undefined
 
+      // Resolve label names to Linear label IDs
+      let labelIds: string[] | undefined
+      if (input.labels && input.labels.length > 0) {
+        try {
+          const availableLabels = await client.listLabels(team.id)
+          labelIds = input.labels
+            .map(name => availableLabels.find(l => l.name.toLowerCase() === name.toLowerCase())?.id)
+            .filter((id): id is string => !!id)
+          if (labelIds.length === 0) labelIds = undefined
+        } catch {
+          // Non-fatal: label resolution is best-effort
+        }
+      }
+
       // Create the issue in Linear
       const issue = await client.createIssue({
         teamId: team.id,
         title: input.title,
         description: input.description,
         priority: linearPriority,
+        labelIds,
       })
 
       // Create local PMO mirror ticket
