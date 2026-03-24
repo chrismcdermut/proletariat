@@ -288,4 +288,68 @@ describe('Work Start Command', () => {
       expect(source).to.include('PR mode:');
     });
   });
+
+  describe('Batch Spawn — Multiple Ticket IDs (PRLT-1094)', () => {
+    it('shows --max-parallel flag in help', () => {
+      expect(helpOutput).to.contain('--max-parallel');
+    });
+
+    it('--max-parallel is described as limiting concurrent spawns', () => {
+      expect(helpOutput).to.match(/--max-parallel.*concurrent/is);
+    });
+
+    it('shows batch spawn examples in help', () => {
+      expect(helpOutput).to.contain('Batch spawn in parallel');
+    });
+
+    it('accepts multiple ticket IDs (strict mode is disabled)', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      expect(source).to.include('static strict = false');
+    });
+
+    it('source code has runMultiTicketBatch method', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      expect(source).to.include('runMultiTicketBatch');
+    });
+
+    it('source code routes multiple argv IDs to batch mode', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // Should detect multiple ticket IDs from argv and route to batch
+      expect(source).to.include('ticketIdArgs.length > 1');
+      expect(source).to.include('runMultiTicketBatch');
+    });
+
+    it('source code spawns agents with Promise.all for parallelism', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      expect(source).to.include('Promise.all(tickets.map');
+    });
+
+    it('source code supports max-parallel concurrency batching', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // Should slice tickets into batches when max-parallel is set
+      expect(source).to.include('tickets.slice(i, i + maxParallel)');
+    });
+
+    it('source code outputs execution results in JSON mode', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // Should call outputExecutionResultAsJson with results
+      expect(source).to.include('outputExecutionResultAsJson(executionResults, successCount, failCount');
+    });
+
+    it('does not error on multiple positional args (strict=false works)', () => {
+      // With strict=false, oclif should not reject multiple positional args
+      // This test just verifies the help still works (parse isn't broken)
+      const result = runCliWithError([
+        'work', 'start', 'TKT-001', 'TKT-002', 'TKT-003', '--help',
+      ]);
+      // --help should succeed regardless of extra args
+      expect(result.stdout).to.contain('work start');
+    });
+  });
 });
