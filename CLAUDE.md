@@ -74,6 +74,10 @@ const result = await provider.listTickets(projectId, filter)
 
 Provider implementations live in `apps/cli/src/lib/providers/`.
 
+## Migrations
+
+**Every schema change MUST have a migration.** If you add a table, column, or index, create a numbered migration in `apps/cli/src/lib/database/migrations/`. Never modify the schema with raw SQL outside of migrations.
+
 ## Database Access
 
 **All database access MUST go through the DAL** (`src/lib/database/index.ts`). Never import `better-sqlite3` or the database driver directly.
