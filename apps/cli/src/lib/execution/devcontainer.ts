@@ -134,6 +134,10 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     mounts.push('source=${localEnv:PRLT_REPO_PATH},target=/opt/prlt,type=bind,readonly,consistency=cached')
   }
 
+  // PRLT-1130: Mount pnpm store cache read-only for fast installs.
+  // If the volume doesn't exist yet, Docker creates an empty one (setup script handles gracefully).
+  mounts.push('source=pnpm-store-cache,target=/tmp/pnpm-store-cache,type=volume,readonly')
+
   const devcontainerJson: DevcontainerJson = {
     name: `Agent: ${options.agentName}`,
     build: {
@@ -703,6 +707,23 @@ WRAPPER_EOF
     echo "prlt wrapper ready at $WRAPPER (also available as prltdev)"
 elif [ "$PRLT_CONFIGURED" = "false" ]; then
     echo "No mounted prlt found, skipping setup"
+fi
+
+# PRLT-1130: Configure pnpm store directory BEFORE installing workspace deps.
+# Must happen before pnpm install so packages go to the right store location.
+pnpm config set store-dir /tmp/pnpm-store 2>/dev/null || true
+
+# PRLT-1130: Populate pnpm store from read-only cache if available.
+# The cache volume is mounted at /tmp/pnpm-store-cache:ro by the Docker runner.
+# We copy its contents to the writable /tmp/pnpm-store so pnpm install can
+# find packages locally instead of downloading them (seconds vs minutes).
+if [ -d "/tmp/pnpm-store-cache" ] && [ "$(ls -A /tmp/pnpm-store-cache 2>/dev/null)" ]; then
+    echo "Loading pnpm store from cache..."
+    mkdir -p /tmp/pnpm-store
+    cp -a /tmp/pnpm-store-cache/. /tmp/pnpm-store/ 2>/dev/null || true
+    echo "pnpm store cache loaded"
+else
+    echo "No pnpm store cache found, will download packages from network"
 fi
 
 # Install workspace dependencies if package.json exists
