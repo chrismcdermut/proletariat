@@ -378,17 +378,18 @@ export function trackEvent(eventName: string, value?: string | number | null, me
   try {
     // Derive telemetry source context from environment
     const telemetrySource = process.env.PRLT_AGENT_NAME ? 'agent' : 'host'
-    const environment = process.env.PRLT_AGENT_NAME ? 'docker' : 'host'
+    const runtimeEnvironment = process.env.PRLT_AGENT_NAME ? 'docker' : 'host'
     const sourceContext: Record<string, unknown> = {
       telemetry_source: telemetrySource,
-      environment,
+      runtime_environment: runtimeEnvironment,
       ...(process.env.PRLT_AGENT_NAME ? { agent_name: process.env.PRLT_AGENT_NAME } : {}),
     }
 
     // Convert metadata values to strings as required by the client SDK
+    // Source context merges first so caller metadata takes precedence on key collisions
     const stringMetadata: Record<string, string> | null = metadata
       ? Object.fromEntries(
-          Object.entries({ ...metadata, ...sourceContext, cli_version: cliVersion }).map(([k, v]) => [k, String(v)]),
+          Object.entries({ ...sourceContext, ...metadata, cli_version: cliVersion }).map(([k, v]) => [k, String(v)]),
         )
       : Object.fromEntries(
           Object.entries({ ...sourceContext, ...(cliVersion ? { cli_version: cliVersion } : {}) }).map(([k, v]) => [k, String(v)]),
