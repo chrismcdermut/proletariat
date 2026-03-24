@@ -9,8 +9,6 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { multiLineInput } from '../../lib/multiline-input.js';
-import { trackTicketOperation } from '../../lib/telemetry/analytics.js';
-
 export default class TicketEdit extends PMOCommand {
   static description = 'Edit an existing ticket';
 
@@ -106,8 +104,10 @@ export default class TicketEdit extends PMOCommand {
     let ticketId = args.ticketId;
 
     if (!ticketId) {
-      // Get all tickets for selection
-      const allTickets = await this.storage.listTickets(projectId);
+      // Get all tickets for selection via provider
+      const listProvider = this.resolveProjectProvider(projectId || '');
+      const listResult = await listProvider.listTickets(projectId);
+      const allTickets = listResult.success ? listResult.tickets : [];
 
       if (allTickets.length === 0) {
         return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
@@ -129,11 +129,13 @@ export default class TicketEdit extends PMOCommand {
       ticketId = selected;
     }
 
-    // Get current ticket
-    const ticket = await this.storage.getTicket(ticketId!);
-    if (!ticket) {
+    // Get current ticket through provider
+    const ticketProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
+    const getResult = await ticketProvider.getTicket(ticketId!);
+    if (!getResult.success || !getResult.ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
+    const ticket = getResult.ticket;
     // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
     ticketId = ticket.id;
 
@@ -258,10 +260,12 @@ export default class TicketEdit extends PMOCommand {
       (updates as { labels?: string[] }).labels = currentLabels;
     }
 
-    // Update the ticket
-    const updateStart = Date.now();
-    const updatedTicket = await this.storage.updateTicket(ticketId!, updates);
-    trackTicketOperation({ operation: 'update', provider: 'pmo', durationMs: Date.now() - updateStart, success: true });
+    // Update the ticket through provider
+    const updateResult = await ticketProvider.updateTicket(ticketId!, updates);
+    if (!updateResult.success || !updateResult.ticket) {
+      return handleError('UPDATE_FAILED', `Failed to update ticket: ${updateResult.error}`);
+    }
+    const updatedTicket = updateResult.ticket;
 
     // Auto-export to board.md
     await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
@@ -269,9 +273,11 @@ export default class TicketEdit extends PMOCommand {
     // JSON output mode - match MCP tool response shape
     if (jsonMode) {
       // Re-fetch to get latest state including subtasks/AC changes
-      const finalTicket = (subtasksChanged || acChanged)
-        ? await this.storage.getTicket(ticketId!) ?? updatedTicket
-        : updatedTicket;
+      let finalTicket = updatedTicket;
+      if (subtasksChanged || acChanged) {
+        const refetch = await ticketProvider.getTicket(ticketId!);
+        finalTicket = (refetch.success && refetch.ticket) ? refetch.ticket : updatedTicket;
+      }
       this.log(JSON.stringify({
         success: true,
         ticket: {
@@ -304,7 +310,8 @@ export default class TicketEdit extends PMOCommand {
     if (updates.assignee !== undefined) changedFields.push(`Assignee: ${updatedTicket.assignee || 'none'}`);
     if (subtasksChanged || acChanged) {
       // Re-fetch ticket to get updated subtasks and AC
-      const refreshedTicket = await this.storage.getTicket(ticketId!);
+      const refreshResult = await ticketProvider.getTicket(ticketId!);
+      const refreshedTicket = refreshResult.success ? refreshResult.ticket : null;
       if (subtasksChanged) {
         changedFields.push(`Subtasks: ${refreshedTicket?.subtasks.length || 0} items`);
       }
