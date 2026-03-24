@@ -12,6 +12,7 @@
 import type Database from 'better-sqlite3'
 import { ClickUpClient } from '../clickup/client.js'
 import { getClickUpApiKey, loadClickUpConfig } from '../clickup/config.js'
+import type { ClickUpTask } from '../clickup/types.js'
 import { PMO_PRIORITY_TO_CLICKUP, CLICKUP_PRIORITY_TO_PMO, CLICKUP_STATUS_TYPE_TO_PMO_CATEGORY } from '../clickup/types.js'
 import type { Ticket, TicketFilter, CreateTicketInput, UpdateTicketInput } from '../pmo/types.js'
 import type {
@@ -328,7 +329,6 @@ export class ClickUpTicketProvider implements TicketProvider {
       // Otherwise, skip the ClickUp-side assignment (best-effort).
       if (assignee.includes('@')) {
         try {
-          const clickUpConfig = loadClickUpConfig(this.db)
           const teams = await client.listTeams()
           const teamId = teams[0]?.id
           if (teamId) {
