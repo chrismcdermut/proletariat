@@ -7,12 +7,12 @@
     "source": "github",
     "subfolder": "apps/cli"
   },
-  "version": "0.3.55",
+  "version": "0.3.92",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@proletariat/cli",
-      "version": "0.3.55",
+      "version": "0.3.92",
       "transport": {
         "type": "stdio"
       },
