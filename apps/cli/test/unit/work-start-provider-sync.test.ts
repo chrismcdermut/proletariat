@@ -91,6 +91,17 @@ function createMockStorage(overrides?: {
       createdAt: new Date(),
       updatedAt: new Date(),
     }) as Ticket,
+    updateTicket: async (id: string) => ({
+      id,
+      title: 'Test ticket',
+      statusId: 'backlog',
+      statusName: 'Backlog',
+      subtasks: [],
+      labels: [],
+      metadata: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }) as Ticket,
     getDatabase: () => ({
       prepare: () => ({ get: () => undefined, all: () => [], run: () => {} }),
       exec: () => {},
