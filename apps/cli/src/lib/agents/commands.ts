@@ -41,7 +41,7 @@ import { getPMOContext } from '../pmo/index.js';
 import { resolveRemoteUrl } from '../repos/git.js';
 import { getClaudeCodeVersion } from '../workspace-config.js';
 import { isContainerEnvironment, tryMkdir } from '../container.js';
-import { findHQRoot } from '../workspace.js';
+import { findHQRoot, isValidHQ } from '../workspace.js';
 
 /**
  * Resolve the directory for an agent, cascading through resolution strategies.
@@ -122,33 +122,50 @@ export interface WorkspaceInfo {
 /**
  * Find workspace root and return workspace information.
  *
- * Uses the unified HQ resolution from workspace.ts, which handles:
- * 1. PRLT_HQ_PATH env var (devcontainers/test only)
- * 2. Walk up directory tree for .proletariat/config.json with type='hq'
- * 3. Machine config activeHeadquarters / activeWorkspace fallback
- * 4. Machine config defaultHQ fallback
+ * Search priority (unified with findHQRoot from workspace.ts):
+ * 1. PRLT_HQ_PATH env var (ONLY when DEVCONTAINER=true or PRLT_TEST_ENV=true)
+ * 2. Walk up directory tree — checks config.json type='hq' AND workspace.db
+ *    (uses isValidHQ for HQ detection, same as findHQRoot)
+ * 3. Machine config fallback (activeHeadquarters / defaultHQ via findHQRoot)
  *
- * Falls back to workspace.db directory walk for non-HQ workspace types.
+ * Key fix (PRLT-1105): workspace DETECTION uses config.json (same as findHQRoot),
+ * not the database. If the workspace is detected but the DB can't be read,
+ * throws a descriptive error instead of the misleading "not in workspace".
  *
  * NOTE: PRLT_HQ_PATH is ignored on host machines to support multiple agents
  * working in different workspaces simultaneously.
  */
 export function getWorkspaceInfo(): WorkspaceInfo {
-  // 1. Use unified HQ resolution (same path as whoami, findHQRoot, etc.)
-  const hqPath = findHQRoot();
-  if (hqPath) {
-    return buildWorkspaceInfoFromPath(hqPath);
+  // 1. Check PRLT_HQ_PATH (devcontainer/test only) — same check as findHQRoot
+  const envHqPath = process.env.PRLT_HQ_PATH;
+  const allowEnvHqPath = process.env.DEVCONTAINER === 'true' || process.env.PRLT_TEST_ENV === 'true';
+  if (envHqPath && allowEnvHqPath) {
+    const resolvedPath = path.resolve(envHqPath);
+    if (isValidHQ(resolvedPath) || fs.existsSync(path.join(resolvedPath, '.proletariat', 'workspace.db'))) {
+      return buildWorkspaceInfoFromPath(resolvedPath);
+    }
   }
 
-  // 2. Fallback: walk up directory tree looking for workspace.db
-  //    This handles non-HQ workspace types that don't have config.json with type='hq'
+  // 2. Walk up directory tree — local workspace takes priority over machine config
+  //    Check config.json (HQ type, same detection as findHQRoot) AND workspace.db (non-HQ)
   let currentDir = process.cwd();
   while (currentDir !== '/' && currentDir !== path.dirname(currentDir)) {
-    const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
-    if (fs.existsSync(dbPath)) {
+    // Check for HQ via config.json — same detection as findHQRoot uses
+    if (isValidHQ(currentDir)) {
+      return buildWorkspaceInfoFromPath(currentDir);
+    }
+    // Check for non-HQ workspace via workspace.db
+    if (fs.existsSync(path.join(currentDir, '.proletariat', 'workspace.db'))) {
       return buildWorkspaceInfoFromPath(currentDir);
     }
     currentDir = path.dirname(currentDir);
+  }
+
+  // 3. Fall back to machine config (activeHeadquarters, defaultHQ)
+  //    This was missing before — findHQRoot includes it
+  const hqPath = findHQRoot();
+  if (hqPath) {
+    return buildWorkspaceInfoFromPath(hqPath);
   }
 
   throw new Error('Not in an HQ or workspace directory. Run "prlt new" first.');
