@@ -6,12 +6,35 @@ import {
 } from '../../src/lib/execution/session-utils.js'
 
 /**
+ * Check if tmux is available in the current environment.
+ * These tests require a real tmux server and are skipped in CI where tmux may not be available.
+ */
+function isTmuxAvailable(): boolean {
+  try {
+    execSync('tmux -V', { stdio: 'pipe' })
+    // Also check if we can actually create a session (some CI runners have tmux binary but no server)
+    execSync('tmux new-session -d -s prlt-tmux-check -x 80 -y 24', { stdio: 'pipe' })
+    execSync('tmux kill-session -t prlt-tmux-check', { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const tmuxAvailable = isTmuxAvailable()
+
+/**
  * Regression tests for PRLT-1134: session poke breaks on parentheses and newlines.
  *
  * These tests create real tmux sessions and verify that messages containing
  * shell metacharacters are delivered verbatim, without shell interpretation.
+ *
+ * Skipped when tmux is not available (e.g., GitHub Actions CI).
  */
-describe('sendTmuxMessage — shell escaping (PRLT-1134)', () => {
+describe('sendTmuxMessage — shell escaping (PRLT-1134)', function () {
+  if (!tmuxAvailable) {
+    before(function () { this.skip() })
+  }
   const TEST_SESSION = 'prlt-test-send-tmux-msg'
 
   beforeEach(() => {

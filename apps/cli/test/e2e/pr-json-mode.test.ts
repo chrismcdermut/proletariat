@@ -1042,7 +1042,7 @@ describe('PR Commands JSON Mode', () => {
 
         const createChoice = findChoice(choices, 'create');
         const linkChoice = findChoice(choices, 'link');
-        const statusChoice = findChoice(choices, 'status');
+        const statusChoice = findChoice(choices, 'PR status');
 
         expect(createChoice).to.exist;
         expect(linkChoice).to.exist;

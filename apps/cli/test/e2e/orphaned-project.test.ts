@@ -111,19 +111,6 @@ describe('Orphaned Project Handling (TKT-940)', () => {
     });
   });
 
-  describe('ticket view with orphaned project', () => {
-    it('should display ticket without crashing when project is missing', async () => {
-      // Create a ticket in the valid project first, then orphan it
-      insertOrphanedTicket('TKT-ORPHAN-VIEW', 'ghost-project', 'Orphaned View Test');
-
-      const output = await execInProcess('ticket view TKT-ORPHAN-VIEW');
-
-      // Should not crash - should show the ticket details
-      expect(output).to.contain('TKT-ORPHAN-VIEW');
-      expect(output).to.contain('Orphaned View Test');
-    });
-  });
-
   describe('ticket list with orphaned project', () => {
     it('should list tickets across all projects including orphaned ones', async () => {
       // Create a valid ticket

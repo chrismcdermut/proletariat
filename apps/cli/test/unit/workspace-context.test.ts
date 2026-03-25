@@ -79,6 +79,9 @@ describe('Workspace Context (PRLT-1088)', () => {
       const repoDir = path.join(tmpDir, 'my-repo')
       fs.mkdirSync(repoDir)
       execSync('git init', { cwd: repoDir, stdio: 'pipe' })
+      // Configure git identity (required in CI where global config may not exist)
+      execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: 'pipe' })
+      execSync('git config user.name "Test"', { cwd: repoDir, stdio: 'pipe' })
       // Make an initial commit so branch exists
       execSync('git commit --allow-empty -m "init"', { cwd: repoDir, stdio: 'pipe' })
 
