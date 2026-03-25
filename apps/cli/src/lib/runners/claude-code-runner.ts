@@ -7,7 +7,7 @@
  * compatibility with `prlt work start`.
  */
 
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import type { AgentRunner, AgentSession, SpawnConfig } from './agent-runner.js'
 import {
   runHost,
@@ -86,17 +86,20 @@ export class ClaudeCodeRunner implements AgentRunner {
       // Send Escape first to clear any buffered input in the prompt —
       // without this, text already typed by the agent concatenates with
       // our message, producing garbage.
-      execSync(
-        `tmux send-keys -t "${session.sessionName}" Escape`,
-        { stdio: 'pipe' },
-      )
+      execFileSync('tmux', ['send-keys', '-t', session.sessionName, 'Escape'], {
+        stdio: 'pipe',
+      })
       // Wait for Escape to take effect before sending new text
       await new Promise(resolve => setTimeout(resolve, 200))
-      // Send the message as keystrokes followed by Enter
-      execSync(
-        `tmux send-keys -t "${session.sessionName}" ${JSON.stringify(message)} Enter`,
-        { stdio: 'pipe' },
-      )
+      // Send the message as literal text — uses execFileSync (no shell) so
+      // parentheses, quotes, newlines, $, backticks, etc. are all safe.
+      execFileSync('tmux', ['send-keys', '-l', '-t', session.sessionName, message], {
+        stdio: 'pipe',
+      })
+      // Send Enter separately (Enter is a tmux key name, not literal text)
+      execFileSync('tmux', ['send-keys', '-t', session.sessionName, 'Enter'], {
+        stdio: 'pipe',
+      })
     } catch (error) {
       throw new Error(
         `Failed to send message to session "${session.sessionName}": ${
