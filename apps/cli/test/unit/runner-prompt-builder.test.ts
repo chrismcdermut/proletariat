@@ -136,9 +136,9 @@ describe('Prompt Builder (TKT-140)', () => {
       expect(prompt).to.include('Focus on security')
     })
 
-    it('should include completion instructions with prlt work ready', () => {
+    it('should include completion instructions with prlt work propose when createPR is true', () => {
       const prompt = buildPrompt(makeContext({ modifiesCode: true, createPR: true }))
-      expect(prompt).to.include('prlt work ready TKT-500 --pr')
+      expect(prompt).to.include('prlt work propose TKT-500')
       expect(prompt).to.include('prlt commit')
     })
 
