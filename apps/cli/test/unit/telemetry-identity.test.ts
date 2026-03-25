@@ -15,7 +15,9 @@ import { execFileSync } from 'node:child_process'
 
 describe('Telemetry Identity (PRLT-1111)', () => {
   let testDir: string
-  const analyticsPath = path.resolve(process.cwd(), 'dist/lib/telemetry/analytics.js')
+  // Use source path (not dist/) — tests must not depend on build artifacts
+  // .js extension for Node16 module resolution (ts-node/esm resolves .js → .ts)
+  const analyticsPath = path.resolve(process.cwd(), 'src/lib/telemetry/analytics.js')
   const analyticsUrl = `file://${analyticsPath}`
 
   beforeEach(() => {
@@ -51,7 +53,7 @@ ${script}
     let stdout = ''
     let stderr = ''
     try {
-      stdout = execFileSync('node', [scriptPath], {
+      stdout = execFileSync('node', ['--loader', 'ts-node/esm', scriptPath], {
         env: {
           ...process.env,
           HOME: testDir,
@@ -235,8 +237,8 @@ ${script}
 
   describe('Docker container PRLT_TELEMETRY_MACHINE_ID passthrough', () => {
     it('createDockerContainer imports getMachineId from analytics', async () => {
-      // Verify the import relationship exists by checking the built output
-      const dockerMgmtPath = path.resolve(process.cwd(), 'dist/lib/execution/runners/docker-management.js')
+      // Verify the import relationship exists by checking the source
+      const dockerMgmtPath = path.resolve(process.cwd(), 'src/lib/execution/runners/docker-management.ts')
       const content = fs.readFileSync(dockerMgmtPath, 'utf-8')
       expect(content).to.include('getMachineId')
       expect(content).to.include('PRLT_TELEMETRY_MACHINE_ID')

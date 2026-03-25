@@ -17,9 +17,9 @@ import { execFileSync } from 'node:child_process'
  */
 describe('Analytics queue persistence', () => {
   let testDir: string
-  // Absolute path to the built analytics module
-  // Tests run from apps/cli/ so dist/ is directly under cwd
-  const analyticsPath = path.resolve(process.cwd(), 'dist/lib/telemetry/analytics.js')
+  // Absolute path to the source analytics module (not dist/ — tests must not depend on build artifacts)
+  // Uses .js extension for Node16 module resolution (ts-node/esm resolves .js → .ts)
+  const analyticsPath = path.resolve(process.cwd(), 'src/lib/telemetry/analytics.js')
   // Convert to file:// URL for ESM imports in child scripts
   const analyticsUrl = `file://${analyticsPath}`
 
@@ -130,7 +130,7 @@ ${script}
     const scriptPath = path.join(testDir, 'test-script.mjs')
     fs.writeFileSync(scriptPath, fullScript, 'utf-8')
 
-    const nodeArgs: string[] = []
+    const nodeArgs: string[] = ['--loader', 'ts-node/esm']
     if (opts?.useMock) {
       const registerPath = path.join(testDir, 'mock', 'register-mock.mjs')
       nodeArgs.push('--import', registerPath)
