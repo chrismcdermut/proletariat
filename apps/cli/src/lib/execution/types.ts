@@ -480,7 +480,7 @@ export const DEFAULT_EXECUTION_CONFIG: ExecutionConfig = {
   },
   devcontainer: {
     defaultImage: 'mcr.microsoft.com/devcontainers/base:ubuntu',
-    memory: '4g',
+    memory: '8g',
     cpus: 2,
     autoStart: true,
   },

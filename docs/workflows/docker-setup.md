@@ -324,7 +324,7 @@ docker build -t my-prlt-image .
 Set container resource limits:
 
 ```bash
-docker run --memory=4g --cpus=2 ...
+docker run --memory=8g --cpus=2 ...
 ```
 
 ### Persistent Volumes

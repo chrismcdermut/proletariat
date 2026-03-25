@@ -11,7 +11,7 @@
   "retries": 1,
   "timeout": 60000,
   "parallel": true,
-  "jobs": 4,
+  "jobs": 2,
   "node-option": [
     "loader=ts-node/esm",
     "experimental-specifier-resolution=node"

@@ -381,9 +381,9 @@ export default class Config extends PromptCommand {
       case 'containers.memory': {
         const memoryChoices = [
           { name: '2g - Minimal (light tasks)', value: '2g', command: 'prlt config --set "containers.memory 2g" --json' },
-          { name: '4g - Default (recommended)', value: '4g', command: 'prlt config --set "containers.memory 4g" --json' },
+          { name: '4g - Minimal', value: '4g', command: 'prlt config --set "containers.memory 4g" --json' },
           { name: '6g - Large (complex builds)', value: '6g', command: 'prlt config --set "containers.memory 6g" --json' },
-          { name: '8g - Extra large', value: '8g', command: 'prlt config --set "containers.memory 8g" --json' },
+          { name: '8g - Default (recommended)', value: '8g', command: 'prlt config --set "containers.memory 8g" --json' },
         ]
         const { newMemory } = await this.prompt<{ newMemory: string }>([
           {

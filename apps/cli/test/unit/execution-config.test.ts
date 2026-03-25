@@ -71,8 +71,8 @@ describe('Execution Config', () => {
       expect(DEFAULT_EXECUTION_CONFIG.terminal.app).to.equal('Terminal');
     });
 
-    it('has devcontainer.memory defaulting to 4g (PRLT-1099)', () => {
-      expect(DEFAULT_EXECUTION_CONFIG.devcontainer.memory).to.equal('4g');
+    it('has devcontainer.memory defaulting to 8g (PRLT-1146)', () => {
+      expect(DEFAULT_EXECUTION_CONFIG.devcontainer.memory).to.equal('8g');
     });
 
     it('has devcontainer.cpus defaulting to 2 (PRLT-1099)', () => {
@@ -303,9 +303,9 @@ describe('Execution Config', () => {
       expect(config.devcontainer.cpus).to.equal(4);
     });
 
-    it('uses default devcontainer memory/cpus when not configured (PRLT-1099)', () => {
+    it('uses default devcontainer memory/cpus when not configured (PRLT-1146)', () => {
       const config = loadExecutionConfig(db);
-      expect(config.devcontainer.memory).to.equal('4g');
+      expect(config.devcontainer.memory).to.equal('8g');
       expect(config.devcontainer.cpus).to.equal(2);
     });
 
@@ -315,6 +315,15 @@ describe('Execution Config', () => {
       const config = loadExecutionConfig(db);
       // Should fall back to default since 'invalid' cannot be parsed
       expect(config.devcontainer.cpus).to.equal(2);
+    });
+
+    it('default memory is at least 8g to prevent OOM in agent containers (PRLT-1146)', () => {
+      // Regression: agents were OOM-killed at 4g when mocha spawned parallel workers.
+      // The default must be >= 8g so containers have headroom for test parallelism + Claude.
+      const memoryStr = DEFAULT_EXECUTION_CONFIG.devcontainer.memory;
+      const match = memoryStr.match(/^(\d+)g$/);
+      expect(match, `memory "${memoryStr}" should be in "<N>g" format`).to.not.be.null;
+      expect(Number(match![1])).to.be.at.least(8);
     });
 
     it('round-trips VM settings through load', () => {
