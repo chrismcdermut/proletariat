@@ -1,21 +1,21 @@
 /**
  * prlt web — launch the web dashboard
  *
- * Starts a lightweight HTTP server that serves a read-only dashboard
+ * Starts a Hono HTTP server that serves a read-only dashboard page
  * showing agent status, ticket board, PR status, and active sessions.
- * Uses SSE for live updates. Ctrl+C to stop.
+ * Data updates live via SSE. Ctrl+C to stop.
  */
 
 import { Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import { PMOCommand, pmoBaseFlags } from '../lib/pmo/base-command.js'
-import { createDashboardServer } from '../lib/dashboard/server.js'
+import { createWebServer } from '../lib/web/server.js'
 import { styles } from '../lib/styles.js'
 
 const DEFAULT_PORT = 3000
 
 export default class Web extends PMOCommand {
-  static description = 'Start the web dashboard (read-only status view)'
+  static description = 'Start the web dashboard (read-only agent/ticket/PR status view)'
 
   static examples = [
     '<%= config.bin %> web',
@@ -44,9 +44,9 @@ export default class Web extends PMOCommand {
     const projectName = await this.getProjectName(projectId)
 
     this.log('')
-    this.log(styles.muted('Starting dashboard server...'))
+    this.log(styles.muted('Starting web dashboard...'))
 
-    const dashboard = await createDashboardServer({
+    const server = await createWebServer({
       port,
       storage: this.storage,
       projectId,
@@ -54,7 +54,7 @@ export default class Web extends PMOCommand {
     })
 
     this.log('')
-    this.log(`  ${styles.success('Dashboard running at')} ${styles.code(dashboard.url)}`)
+    this.log(`  ${styles.success('Dashboard running at')} ${styles.code(server.url)}`)
     this.log(styles.muted('  Press Ctrl+C to stop'))
     this.log('')
 
@@ -63,11 +63,11 @@ export default class Web extends PMOCommand {
       try {
         const platform = process.platform
         if (platform === 'darwin') {
-          execSync(`open "${dashboard.url}"`, { stdio: 'ignore' })
+          execSync(`open "${server.url}"`, { stdio: 'ignore' })
         } else if (platform === 'linux') {
-          execSync(`xdg-open "${dashboard.url}"`, { stdio: 'ignore' })
+          execSync(`xdg-open "${server.url}"`, { stdio: 'ignore' })
         } else if (platform === 'win32') {
-          execSync(`start "${dashboard.url}"`, { stdio: 'ignore' })
+          execSync(`start "${server.url}"`, { stdio: 'ignore' })
         }
       } catch {
         // Browser open failed — not critical
@@ -79,7 +79,7 @@ export default class Web extends PMOCommand {
       const shutdown = async () => {
         this.log('')
         this.log(styles.muted('Shutting down dashboard...'))
-        await dashboard.close()
+        await server.close()
         resolve()
       }
 
