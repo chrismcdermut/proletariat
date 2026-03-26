@@ -1,6 +1,6 @@
 import { Hook } from '@oclif/core'
 import { validateBetterSqlite3NativeBinding } from '../lib/database/native-validation.js'
-import { readMachineConfig } from '../lib/machine-config.js'
+import { readMachineConfig, pruneStaleHeadquarters } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
 import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
 import { handleUpdatePrompt } from '../lib/update-prompt.js'
@@ -99,6 +99,16 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
 
   if (shouldValidateNativeModules(id)) {
     await validateBetterSqlite3NativeBinding({ context: `command "${id}"` })
+  }
+
+  // ── Prune stale HQ entries ──────────────────────────────────────────
+  // Remove registered headquarters whose paths no longer exist on disk.
+  // Runs synchronously (cheap fs.existsSync per entry) so dead /tmp test
+  // HQs and deleted directories are cleaned up automatically.
+  try {
+    pruneStaleHeadquarters()
+  } catch {
+    // Never let pruning errors break the CLI
   }
 
   // ── Update check ────────────────────────────────────────────────────

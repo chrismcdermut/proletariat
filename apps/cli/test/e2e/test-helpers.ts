@@ -20,6 +20,11 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { runCommand } from '@oclif/test';
 import { initializePMOTables } from '../../src/lib/pmo/storage/base.js';
+import {
+  getRegisteredHeadquarters,
+  unregisterHeadquarters,
+  type RegisteredHeadquarters,
+} from '../../src/lib/machine-config.js';
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js';
 import { CREATE_TABLES_SQL } from '../../src/lib/database/index.js';
 import { getOrCreatePMOTemplate, getOrCreateWorkspaceTemplate } from '../setup/template-db.js';
@@ -112,6 +117,45 @@ export function cleanupTestEnvironment(env: TestEnvironment): void {
   process.chdir(env.originalCwd);
   if (fs.existsSync(env.testDir)) {
     fs.rmSync(env.testDir, { recursive: true, force: true });
+  }
+}
+
+// =============================================================================
+// Machine Config Cleanup (HQ registration leaks)
+// =============================================================================
+
+/**
+ * Snapshot of registered HQ paths at the start of a test.
+ * Used by {@link snapshotRegisteredHQs} and {@link cleanupRegisteredHQs}
+ * to deregister any HQs that were added during the test.
+ */
+export type HQSnapshot = Set<string>;
+
+/**
+ * Captures the current set of registered HQ paths.
+ * Call in beforeEach, then pass the result to {@link cleanupRegisteredHQs}
+ * in afterEach.
+ *
+ * @example
+ *   let hqSnapshot: HQSnapshot;
+ *   beforeEach(() => { hqSnapshot = snapshotRegisteredHQs(); });
+ *   afterEach(() => { cleanupRegisteredHQs(hqSnapshot); });
+ */
+export function snapshotRegisteredHQs(): HQSnapshot {
+  return new Set(getRegisteredHeadquarters().map((hq) => hq.path));
+}
+
+/**
+ * Deregisters any HQs that were added since the snapshot was taken.
+ * This prevents E2E tests from polluting ~/.proletariat/config.json
+ * with stale /tmp paths.
+ */
+export function cleanupRegisteredHQs(snapshot: HQSnapshot): void {
+  const current = getRegisteredHeadquarters();
+  for (const hq of current) {
+    if (!snapshot.has(hq.path)) {
+      unregisterHeadquarters(hq.path);
+    }
   }
 }
 

@@ -10,7 +10,10 @@ import {
   createPMODirectories,
   execInProcess,
   extractJson,
+  snapshotRegisteredHQs,
+  cleanupRegisteredHQs,
   type AgentPromptResponse,
+  type HQSnapshot,
 } from './test-helpers.js';
 
 /**
@@ -439,6 +442,7 @@ describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', (
     let testDir: string;
     let originalCwd: string;
     let uniqueId: string;
+    let hqSnapshot: HQSnapshot;
 
     beforeEach(() => {
       originalCwd = process.cwd();
@@ -446,10 +450,14 @@ describe('@smoke Standalone Commands E2E - this.prompt() Migration (TKT-764)', (
       process.chdir(testDir);
       // Generate unique suffix to avoid conflicts with registered HQ names
       uniqueId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      // Snapshot HQ registrations so we can deregister any created during the test
+      hqSnapshot = snapshotRegisteredHQs();
     });
 
     afterEach(() => {
       process.chdir(originalCwd);
+      // Deregister any HQs registered during this test BEFORE removing temp dirs
+      cleanupRegisteredHQs(hqSnapshot);
       if (fs.existsSync(testDir)) {
         fs.rmSync(testDir, { recursive: true, force: true });
       }
