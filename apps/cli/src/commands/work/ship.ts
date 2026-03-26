@@ -15,10 +15,10 @@ import {
   mergePR,
   getGitHubRepo,
   getDefaultBaseBranch,
-  rebaseConflictingSiblingPRs,
   type PRInfo,
   type PRCheck,
 } from '../../lib/pr/index.js';
+import { rebaseSiblingPRs, type SiblingRebaseResult } from '../../lib/shipping/index.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -435,30 +435,39 @@ export default class WorkShip extends PMOCommand {
       if (flags['rebase-siblings']) {
         try {
           this.log(styles.muted('   Checking sibling PRs for conflicts...'));
-          const results = rebaseConflictingSiblingPRs(
-            prNumber,
+          const rebaseResult: SiblingRebaseResult = rebaseSiblingPRs({
+            excludePRNumber: prNumber,
             cwd,
-            (msg) => this.log(styles.muted(`   ${msg}`)),
-          );
+            onProgress: (msg) => this.log(styles.muted(`   ${msg}`)),
+            labelConflicts: true,
+            commentOnConflicts: true,
+          });
 
-          siblingRebaseResults = results.map(r => ({
-            prNumber: r.prNumber,
-            headBranch: r.headBranch,
-            success: r.success,
-            error: r.error,
-          }));
+          // Combine succeeded + failed for backward-compatible output
+          siblingRebaseResults = [
+            ...rebaseResult.succeeded.map(r => ({
+              prNumber: r.prNumber,
+              headBranch: r.headBranch,
+              success: true,
+              error: undefined,
+            })),
+            ...rebaseResult.failed.map(r => ({
+              prNumber: r.prNumber,
+              headBranch: r.headBranch,
+              success: false,
+              error: r.error,
+            })),
+          ];
 
-          const succeeded = results.filter(r => r.success);
-          const failed = results.filter(r => !r.success);
-
-          if (results.length === 0) {
+          if (rebaseResult.succeeded.length === 0 && rebaseResult.failed.length === 0) {
             this.log(styles.muted('   No conflicting sibling PRs found'));
           } else {
-            for (const r of succeeded) {
+            for (const r of rebaseResult.succeeded) {
               this.log(styles.success(`   Rebased sibling PR #${r.prNumber} (${r.headBranch})`));
             }
-            for (const r of failed) {
-              this.log(styles.warning(`   Failed to rebase PR #${r.prNumber}: ${r.error}`));
+            for (const r of rebaseResult.failed) {
+              const conflictNote = r.hasConflicts ? ' (labeled rebase-conflict)' : '';
+              this.log(styles.warning(`   Failed to rebase PR #${r.prNumber}: ${r.error}${conflictNote}`));
             }
           }
         } catch {

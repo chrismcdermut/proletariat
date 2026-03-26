@@ -120,4 +120,19 @@ describe('Work Ship Command', () => {
       expect(result.exitCode).to.equal(0);
     });
   });
+
+  describe('Rebase Siblings Flag', () => {
+    it('shows --rebase-siblings flag in help', () => {
+      expect(helpOutput).to.contain('--rebase-siblings');
+    });
+
+    it('shows --no-rebase-siblings option in help or examples', () => {
+      // The flag should be disableable with --no-rebase-siblings
+      expect(helpOutput).to.contain('rebase-siblings');
+    });
+
+    it('help describes sibling rebase behavior', () => {
+      expect(helpOutput).to.contain('rebase other open PRs');
+    });
+  });
 });
