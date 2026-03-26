@@ -159,7 +159,7 @@ describe('Prompt Delivery Integration (TKT-140)', () => {
       expect(prompt).to.include('Linear')
 
       // Completion instructions
-      expect(prompt).to.include('prlt work ready TKT-300 --pr')
+      expect(prompt).to.include('prlt work propose TKT-300')
       expect(prompt).to.include('prlt commit')
       expect(prompt).to.include('git push')
 
