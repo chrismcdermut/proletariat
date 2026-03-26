@@ -373,9 +373,9 @@ describe('Shipping: watchAndShip', () => {
         checkMergeConflicts: () => false,
         isPRMerged: () => {
           mergedCallCount++;
-          // First call (at start of loop): not merged
-          // Second call (after merge failure): merged
-          return mergedCallCount >= 2;
+          // Calls: 1 = start of loop (not merged), 2 = before merge (not merged),
+          // 3 = after merge failure (merged by external process)
+          return mergedCallCount >= 3;
         },
         rebaseOntoBase: () => ({ success: true }),
         sleep: () => Promise.resolve(),
