@@ -28,7 +28,7 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_pr_merged', action: 'move-ticket', config: { target: 'done' } },
   { event: 'on_pr_opened', action: 'move-ticket', config: { target: 'review' } },
   { event: 'on_pr_merged', action: 'rebase-conflicting-prs' },
-  { event: 'on_pr_conflicting', action: 'rebase-conflicting-prs' },
+  { event: 'on_pr_conflicting', action: 'resolve-conflict' },
   { event: 'on_ticket_ready', action: 'spawn-agent' },
   { event: 'on_agent_died', action: 'respawn', config: { max_retries: 2 } },
   { event: 'on_agent_died', action: 'notify' },
@@ -46,6 +46,7 @@ const SAFE_ACTIONS = new Set([
   'cleanup-container',
   'health-check',
   'rebase-conflicting-prs',
+  'resolve-conflict',
 ])
 
 export const PRESETS: Record<PresetName, PresetDefinition> = {
