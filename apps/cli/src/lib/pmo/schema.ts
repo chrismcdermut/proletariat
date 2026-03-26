@@ -30,6 +30,7 @@ export const PMO_TABLES = {
   cache_metadata: 'pmo_cache_metadata',
   settings: 'pmo_settings',
   agent_work: 'agent_work',
+  ticket_refs: 'ticket_refs',  // Runtime ticket cache (provider-agnostic)
   containers: 'containers',  // Docker containers per agent
   id_sequences: 'id_sequences',  // Sequence counters for ID generation
   // Workflow tables (consolidated - workflows are the single source of truth for board columns)
@@ -386,8 +387,25 @@ export const PMO_TABLE_SCHEMAS = {
       completed_at TIMESTAMP,
       exit_code INTEGER,
       error_message TEXT,
-      cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
-      FOREIGN KEY (ticket_id) REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE
+      cleanup_policy TEXT NOT NULL DEFAULT 'on-exit'
+    )`,
+
+  // Runtime ticket cache (provider-agnostic, replaces PMO dependency for agent_work)
+  ticket_refs: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.ticket_refs} (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'pmo',
+      external_id TEXT,
+      external_key TEXT,
+      external_url TEXT,
+      title TEXT NOT NULL,
+      status TEXT,
+      priority TEXT,
+      assignee TEXT,
+      project_id TEXT,
+      cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(provider, external_id)
     )`,
 
   // Docker containers (per-agent, reused across executions)
@@ -697,6 +715,10 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_agent_work_agent ON ${PMO_TABLES.agent_work}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_agent_work_status ON ${PMO_TABLES.agent_work}(status);
   CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON ${PMO_TABLES.agent_work}(ticket_id);
+  CREATE INDEX IF NOT EXISTS idx_ticket_refs_provider ON ${PMO_TABLES.ticket_refs}(provider);
+  CREATE INDEX IF NOT EXISTS idx_ticket_refs_external_key ON ${PMO_TABLES.ticket_refs}(provider, external_key);
+  CREATE INDEX IF NOT EXISTS idx_ticket_refs_status ON ${PMO_TABLES.ticket_refs}(status);
+  CREATE INDEX IF NOT EXISTS idx_ticket_refs_project ON ${PMO_TABLES.ticket_refs}(project_id);
   CREATE INDEX IF NOT EXISTS idx_containers_agent ON ${PMO_TABLES.containers}(agent_name);
   CREATE INDEX IF NOT EXISTS idx_containers_docker_id ON ${PMO_TABLES.containers}(docker_id);
   CREATE INDEX IF NOT EXISTS idx_containers_status ON ${PMO_TABLES.containers}(status);
@@ -777,6 +799,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.cache_metadata,
   PMO_TABLE_SCHEMAS.settings,
   PMO_TABLE_SCHEMAS.agent_work,  // Execution tracking
+  PMO_TABLE_SCHEMAS.ticket_refs,  // Runtime ticket cache
   PMO_TABLE_SCHEMAS.containers,  // Docker containers per agent
   PMO_TABLE_SCHEMAS.id_sequences,  // Sequence counters for ID generation
   PMO_TABLE_SCHEMAS.actions,  // Work actions (reusable agent prompts)

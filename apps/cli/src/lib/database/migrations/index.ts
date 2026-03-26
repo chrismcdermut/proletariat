@@ -22,6 +22,8 @@ import { agentLifecycleStates } from './0013_agent_lifecycle_states.js'
 import { agentWorkLifecycle } from './0014_agent_work_lifecycle.js'
 import { orchestrateHooks } from './0015_orchestrate_hooks.js'
 import { schemaCatchup } from './0016_schema_catchup.js'
+import { dropAgentWorkFk } from './0017_drop_agent_work_fk.js'
+import { createTicketRefs } from './0018_create_ticket_refs.js'
 
 /**
  * Ordered list of all migrations.
@@ -44,4 +46,6 @@ export const ALL_MIGRATIONS: Migration[] = [
   agentWorkLifecycle,
   orchestrateHooks,
   schemaCatchup,
+  dropAgentWorkFk,
+  createTicketRefs,
 ]
