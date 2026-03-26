@@ -25,6 +25,7 @@ import {
   createRotatingBackup,
   quickCheckIntegrity,
   repairDatabase,
+  migrateExistingBackups,
 } from './db-safety.js'
 
 export interface WorkspaceConfig {
@@ -120,6 +121,9 @@ export function openWorkspaceDatabase(workspacePath: string, options?: { readonl
   const readOnly = options?.readonly ?? isReadOnlyHQMount(workspacePath)
 
   if (!readOnly) {
+    // PRLT-1154: Migrate any legacy scattered backup files into backups/ directory
+    migrateExistingBackups(dbPath)
+
     // Auto-backup before opening (cheap insurance against corruption)
     createRotatingBackup(dbPath)
   }

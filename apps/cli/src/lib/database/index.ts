@@ -142,10 +142,14 @@ export {
 export {
   enableWALMode,
   createRotatingBackup,
+  createManualBackup,
   checkIntegrity,
   quickCheckIntegrity,
   repairDatabase,
   getBackupPath,
+  getBackupsDir,
+  listBackups,
+  migrateExistingBackups,
   type IntegrityCheckResult,
   type RepairResult,
 } from './db-safety.js'

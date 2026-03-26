@@ -3,11 +3,12 @@
  *
  * Provides:
  * - WAL journal mode configuration
- * - Rotating backup (keeps last 5 copies)
+ * - Timestamped backup in .proletariat/backups/ (keeps last 5)
  * - Integrity check on open with auto-recovery
  * - Manual repair via dump/reimport
+ * - Migration of legacy scattered backup files
  *
- * See: PRLT-1081
+ * See: PRLT-1081, PRLT-1154
  */
 
 import Database from 'better-sqlite3'
@@ -27,55 +28,342 @@ export function enableWALMode(db: Database.Database): void {
 }
 
 /**
- * Get the backup path for a given database path and backup number.
+ * Get the backups directory for a given database path.
+ * The backups directory is always a sibling `backups/` directory
+ * relative to the database file (e.g., `.proletariat/backups/`).
  */
-export function getBackupPath(dbPath: string, n: number): string {
-  return `${dbPath}.backup.${n}`
+export function getBackupsDir(dbPath: string): string {
+  return path.join(path.dirname(dbPath), 'backups')
 }
 
 /**
- * Create a rotating backup of the database file.
- * Keeps the last MAX_BACKUPS copies, numbered 1 (newest) through MAX_BACKUPS (oldest).
- * Rotates existing backups before copying the current database.
+ * Get the backup path for a given database path and backup number.
+ * Backups are stored in the backups/ directory with timestamps.
  *
- * Returns true if backup was created, false if source didn't exist.
+ * For numbered access (used by backup restore), returns a path
+ * based on sorted backup files in the directory.
+ * Returns null if the backup doesn't exist.
  */
-export function createRotatingBackup(dbPath: string): boolean {
+export function getBackupPath(dbPath: string, n: number): string | null {
+  const backupsDir = getBackupsDir(dbPath)
+  if (!fs.existsSync(backupsDir)) {
+    return null
+  }
+
+  const backups = listBackupFiles(backupsDir)
+  if (n < 1 || n > backups.length) {
+    return null
+  }
+
+  // backups are sorted newest-first, so n=1 is the most recent
+  return backups[n - 1]
+}
+
+/**
+ * List backup files in the backups directory, sorted newest-first.
+ * Only returns .db files (excludes -wal, -shm, and .corrupt files).
+ */
+function listBackupFiles(backupsDir: string): string[] {
+  if (!fs.existsSync(backupsDir)) {
+    return []
+  }
+
+  const files = fs.readdirSync(backupsDir)
+    .filter(f => f.endsWith('.db') && !f.endsWith('.corrupt.db'))
+    .map(f => path.join(backupsDir, f))
+    .sort((a, b) => {
+      // Sort by modification time, newest first
+      const statA = fs.statSync(a)
+      const statB = fs.statSync(b)
+      return statB.mtimeMs - statA.mtimeMs
+    })
+
+  return files
+}
+
+/**
+ * Generate a timestamped backup filename.
+ */
+function generateBackupName(): string {
+  const now = new Date()
+  const ts = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    '-',
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+  return `workspace-${ts}.db`
+}
+
+/**
+ * Create a timestamped backup of the database file in the backups/ directory.
+ * Keeps the last MAX_BACKUPS copies, deletes older ones.
+ *
+ * Returns the backup path if created, null if source didn't exist.
+ */
+export function createRotatingBackup(dbPath: string): string | null {
   if (!fs.existsSync(dbPath)) {
-    return false
+    return null
   }
 
-  // Rotate existing backups: delete oldest, shift others up
-  const oldest = getBackupPath(dbPath, MAX_BACKUPS)
-  if (fs.existsSync(oldest)) {
-    fs.unlinkSync(oldest)
-  }
+  const backupsDir = getBackupsDir(dbPath)
+  fs.mkdirSync(backupsDir, { recursive: true })
 
-  for (let i = MAX_BACKUPS - 1; i >= 1; i--) {
-    const src = getBackupPath(dbPath, i)
-    const dst = getBackupPath(dbPath, i + 1)
-    if (fs.existsSync(src)) {
-      fs.renameSync(src, dst)
-    }
-  }
+  const backupName = generateBackupName()
+  const backupPath = path.join(backupsDir, backupName)
 
-  // Copy current database as backup.1 (newest)
+  // Copy current database as timestamped backup
   try {
-    fs.copyFileSync(dbPath, getBackupPath(dbPath, 1))
+    fs.copyFileSync(dbPath, backupPath)
     // Also copy WAL and SHM files if they exist (for WAL-mode databases)
     const walPath = `${dbPath}-wal`
     const shmPath = `${dbPath}-shm`
     if (fs.existsSync(walPath)) {
-      fs.copyFileSync(walPath, `${getBackupPath(dbPath, 1)}-wal`)
+      fs.copyFileSync(walPath, `${backupPath}-wal`)
     }
     if (fs.existsSync(shmPath)) {
-      fs.copyFileSync(shmPath, `${getBackupPath(dbPath, 1)}-shm`)
+      fs.copyFileSync(shmPath, `${backupPath}-shm`)
     }
-    return true
   } catch {
     // Backup failure is not fatal — log and continue
-    return false
+    return null
   }
+
+  // Rotate: delete older backups beyond MAX_BACKUPS
+  rotateBackups(backupsDir)
+
+  return backupPath
+}
+
+/**
+ * Delete older backups beyond MAX_BACKUPS.
+ * Keeps the newest MAX_BACKUPS .db files, deletes the rest
+ * (along with their -wal and -shm companions).
+ */
+function rotateBackups(backupsDir: string): void {
+  const backups = listBackupFiles(backupsDir)
+
+  // Keep the first MAX_BACKUPS, delete the rest
+  for (let i = MAX_BACKUPS; i < backups.length; i++) {
+    const bp = backups[i]
+    try {
+      fs.unlinkSync(bp)
+      // Also clean up WAL and SHM companions
+      for (const suffix of ['-wal', '-shm']) {
+        const companion = `${bp}${suffix}`
+        if (fs.existsSync(companion)) {
+          fs.unlinkSync(companion)
+        }
+      }
+    } catch {
+      // Best-effort cleanup
+    }
+  }
+}
+
+/**
+ * Create a manual backup with an optional label.
+ * Unlike auto-backups, manual backups include a "manual" prefix.
+ * Returns the backup path.
+ */
+export function createManualBackup(dbPath: string, label?: string): string | null {
+  if (!fs.existsSync(dbPath)) {
+    return null
+  }
+
+  const backupsDir = getBackupsDir(dbPath)
+  fs.mkdirSync(backupsDir, { recursive: true })
+
+  const now = new Date()
+  const ts = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    '-',
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+
+  const suffix = label ? `-${label}` : ''
+  const backupName = `workspace-manual-${ts}${suffix}.db`
+  const backupPath = path.join(backupsDir, backupName)
+
+  try {
+    fs.copyFileSync(dbPath, backupPath)
+    const walPath = `${dbPath}-wal`
+    const shmPath = `${dbPath}-shm`
+    if (fs.existsSync(walPath)) {
+      fs.copyFileSync(walPath, `${backupPath}-wal`)
+    }
+    if (fs.existsSync(shmPath)) {
+      fs.copyFileSync(shmPath, `${backupPath}-shm`)
+    }
+    return backupPath
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Migrate legacy backup files from the .proletariat/ top level into backups/.
+ *
+ * Handles:
+ * - workspace.db.backup (plain backup)
+ * - workspace.db.backup-YYYYMMDD-HHMMSS (timestamped backups)
+ * - workspace.db.backup.N (numbered backups with -wal/-shm companions)
+ * - workspace.db.corrupt (corrupt file preservations)
+ *
+ * Called on first run after upgrade. Safe to call multiple times.
+ */
+export function migrateExistingBackups(dbPath: string): void {
+  const proletariatDir = path.dirname(dbPath)
+  const backupsDir = getBackupsDir(dbPath)
+  const dbBasename = path.basename(dbPath) // workspace.db
+
+  let files: string[]
+  try {
+    files = fs.readdirSync(proletariatDir)
+  } catch {
+    return
+  }
+
+  // Find legacy backup/corrupt files at the top level
+  const legacyFiles = files.filter(f => {
+    // Match workspace.db.backup*, workspace.db.corrupt*
+    if (f.startsWith(`${dbBasename}.backup`) || f.startsWith(`${dbBasename}.corrupt`)) {
+      return true
+    }
+    // Match workspace.db.repair-temp (leftover from failed repairs)
+    if (f === `${dbBasename}.repair-temp`) {
+      return true
+    }
+    return false
+  })
+
+  if (legacyFiles.length === 0) {
+    return
+  }
+
+  // Ensure backups directory exists
+  fs.mkdirSync(backupsDir, { recursive: true })
+
+  for (const file of legacyFiles) {
+    const srcPath = path.join(proletariatDir, file)
+    let destName: string
+
+    if (file.endsWith('.corrupt') || file.includes('.corrupt')) {
+      // Corrupt files → workspace-corrupt-TIMESTAMP.db or just move as-is
+      const stat = fs.statSync(srcPath)
+      const ts = formatTimestamp(stat.mtime)
+      destName = `workspace-corrupt-${ts}.db`
+    } else if (file === `${dbBasename}.backup`) {
+      // Plain backup → workspace-migrated-TIMESTAMP.db
+      const stat = fs.statSync(srcPath)
+      const ts = formatTimestamp(stat.mtime)
+      destName = `workspace-migrated-${ts}.db`
+    } else if (file.match(/\.backup-\d{8}-\d{6}$/)) {
+      // Timestamped backup (workspace.db.backup-20260106-112422)
+      const match = file.match(/\.backup-(\d{8}-\d{6})$/)
+      destName = `workspace-migrated-${match![1]}.db`
+    } else if (file.match(/\.backup\.\d+$/)) {
+      // Numbered backup (workspace.db.backup.1)
+      const stat = fs.statSync(srcPath)
+      const ts = formatTimestamp(stat.mtime)
+      destName = `workspace-migrated-${ts}.db`
+    } else if (file.match(/\.backup\.\d+-(wal|shm)$/)) {
+      // WAL/SHM companion for numbered backup — these follow their .db file
+      // Skip them here; they'll be handled when we move the main backup
+      continue
+    } else if (file === `${dbBasename}.repair-temp`) {
+      // Leftover repair temp file — just move it
+      destName = 'workspace-repair-temp.db'
+    } else {
+      // Fallback: use file modification time
+      const stat = fs.statSync(srcPath)
+      const ts = formatTimestamp(stat.mtime)
+      destName = `workspace-legacy-${ts}.db`
+    }
+
+    const destPath = path.join(backupsDir, destName)
+
+    // Don't overwrite existing files in backups/
+    if (fs.existsSync(destPath)) {
+      // Add a suffix to avoid collision
+      const ext = path.extname(destName)
+      const base = destName.slice(0, -ext.length)
+      const uniqueDest = path.join(backupsDir, `${base}-${Date.now()}${ext}`)
+      try {
+        fs.renameSync(srcPath, uniqueDest)
+      } catch {
+        // Best-effort migration
+      }
+    } else {
+      try {
+        fs.renameSync(srcPath, destPath)
+      } catch {
+        // Best-effort migration
+      }
+    }
+
+    // Also move WAL/SHM companions if they exist
+    for (const suffix of ['-wal', '-shm']) {
+      const companionSrc = `${srcPath}${suffix}`
+      if (fs.existsSync(companionSrc)) {
+        const companionDest = `${destPath}${suffix}`
+        try {
+          fs.renameSync(companionSrc, companionDest)
+        } catch {
+          // Best-effort
+        }
+      }
+    }
+  }
+
+  // After migration, rotate to keep only MAX_BACKUPS
+  rotateBackups(backupsDir)
+}
+
+/**
+ * Format a Date as YYYYMMDD-HHMMSS for backup filenames.
+ */
+function formatTimestamp(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+    '-',
+    String(date.getHours()).padStart(2, '0'),
+    String(date.getMinutes()).padStart(2, '0'),
+    String(date.getSeconds()).padStart(2, '0'),
+  ].join('')
+}
+
+/**
+ * List all backup entries with metadata, sorted newest-first.
+ * Used by the repair and backup commands to display backup info.
+ */
+export function listBackups(dbPath: string): Array<{
+  path: string
+  filename: string
+  size: number
+  mtime: Date
+}> {
+  const backupsDir = getBackupsDir(dbPath)
+  const backups = listBackupFiles(backupsDir)
+
+  return backups.map(bp => {
+    const stat = fs.statSync(bp)
+    return {
+      path: bp,
+      filename: path.basename(bp),
+      size: stat.size,
+      mtime: stat.mtime,
+    }
+  })
 }
 
 export interface IntegrityCheckResult {
@@ -136,7 +424,7 @@ export interface RepairResult {
  * 1. Try dump/reimport — opens the corrupt DB, dumps all SQL, creates a new DB
  * 2. If dump fails, fall back to the most recent backup
  *
- * The original corrupt file is preserved as dbPath.corrupt for forensics.
+ * The original corrupt file is preserved in backups/ for forensics.
  */
 export function repairDatabase(dbPath: string): RepairResult {
   // Try dump/reimport first
@@ -156,6 +444,22 @@ export function repairDatabase(dbPath: string): RepairResult {
     method: 'none',
     message: `Could not repair database. Dump failed: ${dumpResult.message}. No usable backups found.`,
   }
+}
+
+/**
+ * Move a corrupt database file to the backups/ directory with a .corrupt suffix.
+ * Returns the destination path.
+ */
+function moveCorruptToBackups(dbPath: string): string {
+  const backupsDir = getBackupsDir(dbPath)
+  fs.mkdirSync(backupsDir, { recursive: true })
+
+  const ts = formatTimestamp(new Date())
+  const corruptName = `workspace-corrupt-${ts}.db`
+  const corruptPath = path.join(backupsDir, corruptName)
+
+  fs.renameSync(dbPath, corruptPath)
+  return corruptPath
 }
 
 /**
@@ -227,12 +531,10 @@ function attemptDumpReimport(dbPath: string): RepairResult {
     newDb.close()
     newDb = null
 
-    // Swap files: corrupt → .corrupt, repaired → original
-    const corruptBackupPath = `${dbPath}.corrupt`
-    if (fs.existsSync(corruptBackupPath)) {
-      fs.unlinkSync(corruptBackupPath)
-    }
-    fs.renameSync(dbPath, corruptBackupPath)
+    // Move corrupt file to backups/ directory
+    const corruptBackupPath = moveCorruptToBackups(dbPath)
+
+    // Move repaired database into place
     fs.renameSync(tempPath, dbPath)
 
     // Clean up old WAL/SHM files from the corrupt database
@@ -270,14 +572,14 @@ function attemptDumpReimport(dbPath: string): RepairResult {
 
 /**
  * Attempt recovery by restoring from the most recent valid backup.
- * Tries backups 1 through MAX_BACKUPS, validates each with integrity_check.
+ * Tries backups from newest to oldest, validates each with integrity_check.
  */
 function attemptBackupRestore(dbPath: string): RepairResult {
-  for (let i = 1; i <= MAX_BACKUPS; i++) {
-    const backupPath = getBackupPath(dbPath, i)
-    if (!fs.existsSync(backupPath)) {
-      continue
-    }
+  const backupsDir = getBackupsDir(dbPath)
+  const backups = listBackupFiles(backupsDir)
+
+  for (let i = 0; i < backups.length; i++) {
+    const backupPath = backups[i]
 
     // Validate the backup
     let backupDb: Database.Database | null = null
@@ -292,11 +594,7 @@ function attemptBackupRestore(dbPath: string): RepairResult {
       }
 
       // Backup is valid — swap it in
-      const corruptBackupPath = `${dbPath}.corrupt`
-      if (fs.existsSync(corruptBackupPath)) {
-        fs.unlinkSync(corruptBackupPath)
-      }
-      fs.renameSync(dbPath, corruptBackupPath)
+      const corruptBackupPath = moveCorruptToBackups(dbPath)
       fs.copyFileSync(backupPath, dbPath)
 
       // Clean up old WAL/SHM files
@@ -310,7 +608,7 @@ function attemptBackupRestore(dbPath: string): RepairResult {
       return {
         success: true,
         method: 'backup-restore',
-        message: `Restored from backup.${i}. Corrupt file saved as ${path.basename(corruptBackupPath)}.`,
+        message: `Restored from ${path.basename(backupPath)}. Corrupt file saved as ${path.basename(corruptBackupPath)}.`,
       }
     } catch {
       if (backupDb) {
