@@ -1,15 +1,15 @@
 /**
- * Shipping Types — Git Provider Interface
+ * Shipping Types — Git Provider Interface & Auto-Merge
  *
  * Provider-agnostic interface for git hosting operations needed by the
- * shipping/rebase pipeline. Implementations exist for GitHub (via gh CLI)
- * and can be added for GitLab, Bitbucket, etc.
+ * shipping/rebase pipeline and auto-merge orchestration. Implementations
+ * exist for GitHub (via gh CLI) and can be added for GitLab, Bitbucket, etc.
  */
 
 import type { PRInfo, MergeableState, RebasePRResult } from '../pr/index.js'
 
 // =============================================================================
-// Git Provider Interface
+// Git Provider Interface (Sibling Rebase — PRLT-1143)
 // =============================================================================
 
 /**
@@ -110,4 +110,102 @@ export interface GitProvider {
    * Add a comment to a PR/MR.
    */
   addComment(prNumber: number, body: string, cwd?: string): boolean
+}
+
+// =============================================================================
+// Auto-Merge Types (PRLT-1144)
+// =============================================================================
+
+/**
+ * Result of enabling or disabling auto-merge on a PR.
+ */
+export interface AutoMergeResult {
+  success: boolean
+  prNumber: number
+  error?: string
+  /** Whether auto-merge was already enabled when we tried to enable it */
+  alreadyEnabled?: boolean
+}
+
+/**
+ * Configuration for the when-green watch loop.
+ */
+export interface WhenGreenOptions {
+  /** PR number to watch */
+  prNumber: number
+  /** Merge method (squash, merge, rebase) */
+  method: 'merge' | 'squash' | 'rebase'
+  /** Delete branch after merging */
+  deleteBranch: boolean
+  /** Use admin privileges to bypass branch protections */
+  admin: boolean
+  /** Fail on conflicts instead of auto-rebasing */
+  noRebase: boolean
+  /** Working directory for git operations */
+  cwd?: string
+  /** Head branch name */
+  headBranch: string
+  /** Base branch name */
+  baseBranch: string
+  /** Callback for progress messages */
+  onProgress?: (msg: string) => void
+  /** Callback for warning messages */
+  onWarning?: (msg: string) => void
+  /** Maximum time to wait in milliseconds (default: 60 minutes) */
+  timeoutMs?: number
+  /** Poll interval in milliseconds (default: 30 seconds) */
+  pollIntervalMs?: number
+}
+
+/**
+ * Result of the when-green watch loop.
+ */
+export interface WhenGreenResult {
+  /** Whether the PR was successfully merged */
+  merged: boolean
+  /** Whether native auto-merge was enabled as a safety net */
+  autoMergeEnabled: boolean
+  /** Number of poll cycles completed */
+  pollCycles: number
+  /** Whether a rebase was performed during the watch */
+  rebasePerformed: boolean
+  /** Error message if the operation failed */
+  error?: string
+  /** Error code for JSON output */
+  errorCode?: string
+}
+
+/**
+ * Provider-agnostic interface for auto-merge operations.
+ *
+ * Each provider (GitHub, GitLab, etc.) implements these methods to enable
+ * native auto-merge functionality.
+ */
+export interface AutoMergeProvider {
+  /** Which provider this is */
+  readonly name: 'github' | 'gitlab'
+
+  /**
+   * Enable native auto-merge on a PR.
+   *
+   * GitHub: `gh pr merge --auto --squash`
+   * GitLab: merge when pipeline succeeds API
+   */
+  enableAutoMerge(
+    prNumber: number,
+    method: 'merge' | 'squash' | 'rebase',
+    cwd?: string,
+  ): AutoMergeResult
+
+  /**
+   * Disable native auto-merge on a PR.
+   *
+   * GitHub: `gh pr merge --disable-auto`
+   */
+  disableAutoMerge(prNumber: number, cwd?: string): AutoMergeResult
+
+  /**
+   * Check if a PR has been merged (by auto-merge or manually).
+   */
+  isPRMerged(prNumber: number, cwd?: string): boolean
 }
