@@ -64,7 +64,7 @@ export default class WorkResolve extends PMOCommand {
       if (clarificationTickets.length === 0) {
         return handleError(
           'NO_TICKETS',
-          'No tickets need clarification. Run "prlt work start --action groom" to groom tickets first.'
+          'No tickets need clarification. Run "prlt work groom" to groom tickets first.'
         );
       }
 
