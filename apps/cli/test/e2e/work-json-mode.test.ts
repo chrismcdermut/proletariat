@@ -563,36 +563,18 @@ describe('Work Commands JSON Mode', () => {
       }
     });
 
-    it('should output action selection prompt when ticket ID provided', async () => {
-      // When ticket ID is provided and no staff agents exist, the command
-      // auto-creates an ephemeral agent and prompts for action selection
+    it('should skip action selection and proceed when ticket ID provided', async () => {
+      // work start always uses 'implement' action — no interactive action selection
       const output = await execInProcess('work start TKT-030 -P test-project --json');
       const json = extractJson<{
-        prompt: { type: string; name: string; message: string; choices: Array<{ name: string; value: string }> };
-        metadata: { command: string; flags: Record<string, unknown> };
+        prompt?: { type: string; name: string };
+        metadata?: { command: string };
       }>(output);
 
-      expect(json.prompt).to.exist;
-      expect(json.prompt.type).to.equal('list');
-      expect(json.prompt.name).to.equal('selectedActionId');
-      expect(json.metadata.command).to.equal('work start');
-
-      // Choices should include builtin actions
-      const choiceValues = json.prompt.choices.map(c => c.value);
-      expect(choiceValues).to.include('implement');
-    });
-
-    it('should include action choices in prompt', async () => {
-      const output = await execInProcess('work start TKT-030 -P test-project --json');
-      const json = extractJson<{
-        prompt: { choices: Array<{ name: string; value: string }> };
-      }>(output);
-
-      // Should have builtin actions and custom/adhoc options
-      const choiceValues = json.prompt.choices.map(c => c.value);
-      expect(choiceValues).to.include('implement');
-      expect(choiceValues).to.include('__custom__');
-      expect(choiceValues).to.include('__adhoc__');
+      // Should proceed past action selection (no selectedActionId prompt)
+      if (json.prompt) {
+        expect(json.prompt.name).to.not.equal('selectedActionId');
+      }
     });
 
     it('should include --json flag in ticket selection commands', async () => {
@@ -662,23 +644,27 @@ describe('Work Commands JSON Mode', () => {
 
         const output = await execInProcess('work start TKT-BLOCKED -P test-project --json');
         const json = extractJson<{
-          prompt: { type: string; name: string };
+          prompt?: { type: string; name: string };
         }>(output);
 
-        // Should skip to action selection (no staff agents → auto ephemeral → action prompt)
-        expect(json.prompt.name).to.not.equal('startAnyway');
-        expect(json.prompt.name).to.equal('selectedActionId');
+        // Should skip blocked prompt (blocker is done) — action is now auto-selected (implement)
+        if (json.prompt) {
+          expect(json.prompt.name).to.not.equal('startAnyway');
+          expect(json.prompt.name).to.not.equal('selectedActionId');
+        }
       });
 
       it('should skip blocked prompt with --force flag', async () => {
         const output = await execInProcess('work start TKT-BLOCKED -P test-project --force --json');
         const json = extractJson<{
-          prompt: { type: string; name: string };
+          prompt?: { type: string; name: string };
         }>(output);
 
-        // Should skip to action selection (no staff agents → auto ephemeral → action prompt)
-        expect(json.prompt.name).to.not.equal('startAnyway');
-        expect(json.prompt.name).to.equal('selectedActionId');
+        // Should skip blocked prompt — action is now auto-selected (implement)
+        if (json.prompt) {
+          expect(json.prompt.name).to.not.equal('startAnyway');
+          expect(json.prompt.name).to.not.equal('selectedActionId');
+        }
       });
     });
   });
