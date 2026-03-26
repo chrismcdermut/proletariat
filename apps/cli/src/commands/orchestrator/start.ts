@@ -1,9 +1,6 @@
 import { Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
-import type Database from 'better-sqlite3'
-import { PromptCommand } from '../../lib/prompt-command.js'
-import { machineOutputFlags } from '../../lib/pmo/index.js'
-import { findHQRoot } from '../../lib/workspace.js'
+import { RuntimeCommand, machineOutputFlags } from '../../lib/runtime-command.js'
 import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 import {
   shouldOutputJson,
@@ -38,7 +35,7 @@ import {
   detectTerminalApp,
 } from '../../lib/execution/config.js'
 import { ensureBuiltinThemes } from '../../lib/themes.js'
-import { getActiveTheme, getAvailableThemeNames, openWorkspaceDatabase } from '../../lib/database/index.js'
+import { getActiveTheme, getAvailableThemeNames } from '../../lib/database/index.js'
 import { getConnectedIntegrations } from '../../lib/work-source/index.js'
 
 /**
@@ -209,7 +206,7 @@ export function findGlobalOrchestratorNameConflict(name: string, reserved: Set<s
   return reserved.has(normalized) ? normalized : null
 }
 
-export default class OrchestratorStart extends PromptCommand {
+export default class OrchestratorStart extends RuntimeCommand {
   static description = 'Start the orchestrator agent in a tmux session'
 
   static examples = [
@@ -273,12 +270,12 @@ export default class OrchestratorStart extends PromptCommand {
     }),
   }
 
-  async run(): Promise<void> {
+  async execute(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStart)
     const jsonMode = shouldOutputJson(flags)
 
-    // Resolve HQ path first (needed for scoped session name)
-    const hqPath = findHQRoot(process.cwd())
+    // Use HQ path from RuntimeCommand (resolved in init())
+    const hqPath = this.hqPath
     if (!hqPath) {
       if (jsonMode) {
         outputErrorAsJson('NO_HQ', 'Not in an HQ workspace. Run "prlt new" first.', createMetadata('orchestrator start', flags))
@@ -542,23 +539,25 @@ export default class OrchestratorStart extends PromptCommand {
     let actionName = 'orchestrate'
 
     if (flags.action && !actionPrompt) {
-      // Load action from DB
-      let db: Database.Database | null = null
-      try {
-        db = openWorkspaceDatabase(hqPath)
-        const row = db.prepare('SELECT prompt, name FROM actions WHERE id = ? OR name = ?').get(flags.action, flags.action) as { prompt: string; name: string } | undefined
-        if (row) {
-          actionPrompt = row.prompt
-          actionName = row.name
-        } else {
-          if (jsonMode) {
-            outputErrorAsJson('ACTION_NOT_FOUND', `Action "${flags.action}" not found.`, createMetadata('orchestrator start', flags))
-            return
-          }
-          this.error(`Action "${flags.action}" not found.`)
+      // Load action from workspace.db (provided by RuntimeCommand)
+      const db = this.db
+      if (!db) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_DATABASE', 'Workspace database not available.', createMetadata('orchestrator start', flags))
+          return
         }
-      } finally {
-        db?.close()
+        this.error('Workspace database not available. Run "prlt new" first.')
+      }
+      const row = db.prepare('SELECT prompt, name FROM actions WHERE id = ? OR name = ?').get(flags.action, flags.action) as { prompt: string; name: string } | undefined
+      if (row) {
+        actionPrompt = row.prompt
+        actionName = row.name
+      } else {
+        if (jsonMode) {
+          outputErrorAsJson('ACTION_NOT_FOUND', `Action "${flags.action}" not found.`, createMetadata('orchestrator start', flags))
+          return
+        }
+        this.error(`Action "${flags.action}" not found.`)
       }
     }
 
@@ -586,19 +585,20 @@ export default class OrchestratorStart extends PromptCommand {
     executionConfig.outputMode = 'interactive' as OutputMode
     executionConfig.permissionMode = permissionMode
 
-    // Load saved preferences from workspace DB
-    let db: Database.Database | null = null
-    try {
-      db = openWorkspaceDatabase(hqPath)
-      const savedConfig = loadExecutionConfig(db)
-      executionConfig.terminal = savedConfig.terminal
-      executionConfig.shell = savedConfig.shell
-      executionConfig.tmux = savedConfig.tmux
-    } catch {
-      // Ignore config loading errors, use defaults
+    // Use workspace.db from RuntimeCommand for config loading
+    const db = this.db
+    if (db) {
+      try {
+        const savedConfig = loadExecutionConfig(db)
+        executionConfig.terminal = savedConfig.terminal
+        executionConfig.shell = savedConfig.shell
+        executionConfig.tmux = savedConfig.tmux
+      } catch {
+        // Ignore config loading errors, use defaults
+      }
     }
 
-    // Inject connected integrations into context (must happen after db is opened)
+    // Inject connected integrations into context
     if (db) {
       context.connectedIntegrations = getConnectedIntegrations(db)
     }
@@ -739,8 +739,6 @@ export default class OrchestratorStart extends PromptCommand {
       this.error(`Failed to start orchestrator: ${result.error}`)
     }
 
-    if (db) {
-      db.close()
-    }
+    // Note: db cleanup is handled by RuntimeCommand.cleanup()
   }
 }
