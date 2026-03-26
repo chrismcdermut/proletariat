@@ -75,7 +75,7 @@ describe('db-safety', () => {
 
       const files = fs.readdirSync(backupsDir)
       expect(files.length).to.be.greaterThan(0)
-      expect(files[0]).to.match(/^workspace-\d{8}-\d{6}\.db$/)
+      expect(files[0]).to.match(/^workspace-\d{8}-\d{6}-\d{3}(-\d+)?\.db$/)
     })
 
     it('should rotate backups keeping only the last 5', () => {
@@ -146,7 +146,7 @@ describe('db-safety', () => {
 
       const result = createManualBackup(dbPath, 'pre-migration')
       expect(result).to.not.be.null
-      expect(path.basename(result!)).to.match(/^workspace-manual-\d{8}-\d{6}-pre-migration\.db$/)
+      expect(path.basename(result!)).to.match(/^workspace-manual-pre-migration-\d{8}-\d{6}-\d{3}(-\d+)?\.db$/)
     })
 
     it('should create a manual backup without label', () => {
@@ -156,7 +156,7 @@ describe('db-safety', () => {
 
       const result = createManualBackup(dbPath)
       expect(result).to.not.be.null
-      expect(path.basename(result!)).to.match(/^workspace-manual-\d{8}-\d{6}\.db$/)
+      expect(path.basename(result!)).to.match(/^workspace-manual-\d{8}-\d{6}-\d{3}(-\d+)?\.db$/)
     })
   })
 

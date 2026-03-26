@@ -82,20 +82,28 @@ function listBackupFiles(backupsDir: string): string[] {
 }
 
 /**
- * Generate a timestamped backup filename.
+ * Generate a unique timestamped backup filename.
+ * Checks the backups directory to avoid filename collisions.
  */
-function generateBackupName(): string {
-  const now = new Date()
-  const ts = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-    '-',
-    String(now.getHours()).padStart(2, '0'),
-    String(now.getMinutes()).padStart(2, '0'),
-    String(now.getSeconds()).padStart(2, '0'),
-  ].join('')
-  return `workspace-${ts}.db`
+function generateUniqueBackupPath(backupsDir: string, prefix: string = 'workspace'): string {
+  const ts = formatTimestamp(new Date())
+  const baseName = `${prefix}-${ts}`
+  const candidate = path.join(backupsDir, `${baseName}.db`)
+
+  if (!fs.existsSync(candidate)) {
+    return candidate
+  }
+
+  // If collision, append a counter
+  for (let i = 1; i < 100; i++) {
+    const alt = path.join(backupsDir, `${baseName}-${i}.db`)
+    if (!fs.existsSync(alt)) {
+      return alt
+    }
+  }
+
+  // Extremely unlikely fallback
+  return path.join(backupsDir, `${baseName}-${Date.now()}.db`)
 }
 
 /**
@@ -112,8 +120,7 @@ export function createRotatingBackup(dbPath: string): string | null {
   const backupsDir = getBackupsDir(dbPath)
   fs.mkdirSync(backupsDir, { recursive: true })
 
-  const backupName = generateBackupName()
-  const backupPath = path.join(backupsDir, backupName)
+  const backupPath = generateUniqueBackupPath(backupsDir)
 
   // Copy current database as timestamped backup
   try {
@@ -177,20 +184,8 @@ export function createManualBackup(dbPath: string, label?: string): string | nul
   const backupsDir = getBackupsDir(dbPath)
   fs.mkdirSync(backupsDir, { recursive: true })
 
-  const now = new Date()
-  const ts = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-    '-',
-    String(now.getHours()).padStart(2, '0'),
-    String(now.getMinutes()).padStart(2, '0'),
-    String(now.getSeconds()).padStart(2, '0'),
-  ].join('')
-
   const suffix = label ? `-${label}` : ''
-  const backupName = `workspace-manual-${ts}${suffix}.db`
-  const backupPath = path.join(backupsDir, backupName)
+  const backupPath = generateUniqueBackupPath(backupsDir, `workspace-manual${suffix}`)
 
   try {
     fs.copyFileSync(dbPath, backupPath)
@@ -328,7 +323,8 @@ export function migrateExistingBackups(dbPath: string): void {
 }
 
 /**
- * Format a Date as YYYYMMDD-HHMMSS for backup filenames.
+ * Format a Date as YYYYMMDD-HHMMSS-mmm for backup filenames.
+ * Includes milliseconds to avoid collisions when called multiple times per second.
  */
 function formatTimestamp(date: Date): string {
   return [
@@ -339,6 +335,8 @@ function formatTimestamp(date: Date): string {
     String(date.getHours()).padStart(2, '0'),
     String(date.getMinutes()).padStart(2, '0'),
     String(date.getSeconds()).padStart(2, '0'),
+    '-',
+    String(date.getMilliseconds()).padStart(3, '0'),
   ].join('')
 }
 
@@ -447,17 +445,14 @@ export function repairDatabase(dbPath: string): RepairResult {
 }
 
 /**
- * Move a corrupt database file to the backups/ directory with a .corrupt suffix.
+ * Move a corrupt database file to the backups/ directory with a corrupt prefix.
  * Returns the destination path.
  */
 function moveCorruptToBackups(dbPath: string): string {
   const backupsDir = getBackupsDir(dbPath)
   fs.mkdirSync(backupsDir, { recursive: true })
 
-  const ts = formatTimestamp(new Date())
-  const corruptName = `workspace-corrupt-${ts}.db`
-  const corruptPath = path.join(backupsDir, corruptName)
-
+  const corruptPath = generateUniqueBackupPath(backupsDir, 'workspace-corrupt')
   fs.renameSync(dbPath, corruptPath)
   return corruptPath
 }

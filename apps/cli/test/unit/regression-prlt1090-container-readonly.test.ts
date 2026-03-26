@@ -85,11 +85,12 @@ describe('PRLT-1090: container read-only database access', () => {
     const db = openWorkspaceDatabase(tmpDir)
     db.close()
 
-    // Verify no backup files were created
-    const dbDir = path.join(tmpDir, '.proletariat')
-    const files = fs.readdirSync(dbDir)
-    const backupFiles = files.filter(f => f.includes('.backup.'))
-    expect(backupFiles).to.have.length(0)
+    // Verify no backup files were created in the backups/ directory
+    const backupsDir = path.join(tmpDir, '.proletariat', 'backups')
+    if (fs.existsSync(backupsDir)) {
+      const files = fs.readdirSync(backupsDir).filter(f => f.endsWith('.db'))
+      expect(files).to.have.length(0)
+    }
   })
 
   it('should reject writes in container mode (read-only db)', () => {
@@ -161,10 +162,10 @@ describe('PRLT-1090: container read-only database access', () => {
     const db = openWorkspaceDatabase(tmpDir)
     expect(db).to.exist
 
-    // Should create backup files
-    const dbDir = path.join(tmpDir, '.proletariat')
-    const files = fs.readdirSync(dbDir)
-    const backupFiles = files.filter(f => f.includes('.backup.'))
+    // Should create backup files in backups/ directory (PRLT-1154)
+    const backupsDir = path.join(tmpDir, '.proletariat', 'backups')
+    expect(fs.existsSync(backupsDir)).to.be.true
+    const backupFiles = fs.readdirSync(backupsDir).filter(f => f.endsWith('.db'))
     expect(backupFiles.length).to.be.greaterThan(0)
 
     db.close()
@@ -181,10 +182,10 @@ describe('PRLT-1090: container read-only database access', () => {
     const db = openWorkspaceDatabase(tmpDir)
     expect(db).to.exist
 
-    // Should create backup files since this is not the read-only HQ mount
-    const dbDir = path.join(tmpDir, '.proletariat')
-    const files = fs.readdirSync(dbDir)
-    const backupFiles = files.filter(f => f.includes('.backup.'))
+    // Should create backup files in backups/ directory since this is not the read-only HQ mount (PRLT-1154)
+    const backupsDir = path.join(tmpDir, '.proletariat', 'backups')
+    expect(fs.existsSync(backupsDir)).to.be.true
+    const backupFiles = fs.readdirSync(backupsDir).filter(f => f.endsWith('.db'))
     expect(backupFiles.length).to.be.greaterThan(0)
 
     db.close()
