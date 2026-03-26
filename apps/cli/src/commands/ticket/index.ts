@@ -1,6 +1,7 @@
 
 import inquirer from 'inquirer';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -8,7 +9,7 @@ import {
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
-export default class Ticket extends PMOCommand {
+export default class Ticket extends PromptCommand {
   static description = 'Interactive menu for ticket operations';
 
   static examples = [
@@ -16,14 +17,14 @@ export default class Ticket extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   };
 
   protected getPMOOptions() {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(Ticket);
 
     // Check if JSON output mode is active

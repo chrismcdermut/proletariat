@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { Args, Flags } from '@oclif/core';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { colors, format } from '../../lib/colors.js';
 import {
   findHQRoot,
@@ -16,7 +17,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 
-export default class Add extends PMOCommand {
+export default class Add extends PromptCommand {
   static description = 'Add a repository to the HQ';
 
   static examples = [
@@ -34,7 +35,7 @@ export default class Add extends PMOCommand {
   };
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     action: Flags.string({
       char: 'a',
       description: 'Action for local paths',
@@ -57,7 +58,7 @@ export default class Add extends PMOCommand {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(Add);
 
     // Check if JSON output mode is active

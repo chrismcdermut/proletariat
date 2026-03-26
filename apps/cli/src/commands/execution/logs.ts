@@ -5,7 +5,8 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   outputErrorAsJson,
   createMetadata,
@@ -13,7 +14,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { trackChildProcess } from '../../lib/signal-handler.js'
 
-export default class ExecutionLogs extends PMOCommand {
+export default class ExecutionLogs extends PromptCommand {
   static description = 'View execution logs'
 
   static examples = [
@@ -31,7 +32,7 @@ export default class ExecutionLogs extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     follow: Flags.boolean({
       char: 'f',
       description: 'Stream logs in real-time',
@@ -48,7 +49,7 @@ export default class ExecutionLogs extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(ExecutionLogs)
 
     // Get workspace info

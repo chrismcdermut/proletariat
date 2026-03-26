@@ -8,7 +8,8 @@ import {
   getAgentTmuxSessions,
   CleanupResult
 } from '../../lib/agents/commands.js';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -18,7 +19,7 @@ import {
   buildPromptConfig,
 } from '../../lib/prompt-json.js';
 
-export default class Cleanup extends PMOCommand {
+export default class Cleanup extends PromptCommand {
   static description = 'Clean up agent resources (containers, directories, tmux sessions)';
 
   static examples = [
@@ -38,7 +39,7 @@ export default class Cleanup extends PMOCommand {
   };
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     temp: Flags.boolean({
       description: 'Clean up all ephemeral agents with no running work',
       default: false,
@@ -79,7 +80,7 @@ export default class Cleanup extends PMOCommand {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(Cleanup);
 
     // Check if JSON output mode is active

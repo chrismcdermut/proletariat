@@ -1,12 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { colors, format } from '../../lib/colors.js';
 import { findHQRoot } from '../../lib/repos/index.js';
 import { getWorkspaceRepositories, getWorkspaceAgents, openWorkspaceDatabase } from '../../lib/database/index.js';
 import { isLocalPath, getOriginUrl, resolveRemoteUrl, setOriginUrl } from '../../lib/repos/git.js';
 
-export default class FixRemotes extends PMOCommand {
+export default class FixRemotes extends PromptCommand {
   static description = 'Fix agent clone origins that point to local paths instead of GitHub remotes';
 
   static examples = [
@@ -15,14 +16,14 @@ export default class FixRemotes extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   };
 
   protected getPMOOptions() {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const hqPath = findHQRoot();
     if (!hqPath) {
       this.error('Not in an HQ directory. Run "prlt new" first.');

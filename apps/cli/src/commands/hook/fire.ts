@@ -9,7 +9,8 @@
 
 import { Args, Flags } from '@oclif/core'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -24,7 +25,7 @@ import {
 } from '../../lib/orchestrate/index.js'
 import type { OrchestrateEventContext } from '../../lib/orchestrate/index.js'
 
-export default class HookFire extends PMOCommand {
+export default class HookFire extends PromptCommand {
   static description = 'Fire an orchestrate event to trigger configured hooks'
 
   static examples = [
@@ -43,7 +44,7 @@ export default class HookFire extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     ticket: Flags.string({
       description: 'Ticket ID',
       char: 't',
@@ -69,7 +70,7 @@ export default class HookFire extends PMOCommand {
     }),
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(HookFire)
     const jsonMode = shouldOutputJson(flags)
     const parsedFlags = flags as Record<string, unknown>

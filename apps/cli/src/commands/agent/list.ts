@@ -8,10 +8,11 @@ import {
   getAgentTmuxSessions,
   resolveAgentDir
 } from '../../lib/agents/commands.js';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js';
 
-export default class List extends PMOCommand {
+export default class List extends PromptCommand {
   static description = 'List all agents and their current status';
 
   static examples = [
@@ -21,7 +22,7 @@ export default class List extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     type: Flags.string({
       char: 't',
       description: 'Filter by agent type',
@@ -33,7 +34,7 @@ export default class List extends PMOCommand {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     try {
       const { flags } = await this.parse(List);
       const jsonMode = shouldOutputJson(flags);

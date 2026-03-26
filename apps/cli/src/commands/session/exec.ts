@@ -12,7 +12,8 @@ import {
   findContainerSessionsByPrefix,
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -24,7 +25,7 @@ import {
 // Command
 // =============================================================================
 
-export default class SessionExec extends PMOCommand {
+export default class SessionExec extends PromptCommand {
   static description = 'Run a command in an agent\'s worktree/container context'
 
   static examples = [
@@ -45,7 +46,7 @@ export default class SessionExec extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     timeout: Flags.integer({
       char: 't',
       description: 'Command timeout in seconds',
@@ -57,7 +58,7 @@ export default class SessionExec extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags, argv } = await this.parse(SessionExec)
     const jsonMode = shouldOutputJson(flags)
     const { target } = args

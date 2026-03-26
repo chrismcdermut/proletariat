@@ -1,7 +1,8 @@
 import { Flags } from '@oclif/core'
 import type Database from 'better-sqlite3'
 import inquirer from 'inquirer'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
@@ -28,7 +29,7 @@ import {
   type JsonFlags,
 } from '../../lib/prompt-json.js'
 
-export default class ExecutionConfig extends PMOCommand {
+export default class ExecutionConfig extends PromptCommand {
   static description = 'View and update execution preferences'
 
   static examples = [
@@ -42,7 +43,7 @@ export default class ExecutionConfig extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     set: Flags.string({
       char: 's',
       description: 'Set a config value (format: key value)',
@@ -62,7 +63,7 @@ export default class ExecutionConfig extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(ExecutionConfig)
     const jsonMode = shouldOutputJson(flags)
     const jsonModeConfig = jsonMode ? { flags, commandName: 'execution config' } : null

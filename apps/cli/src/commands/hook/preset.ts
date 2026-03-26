@@ -9,7 +9,8 @@
 
 import { Args } from '@oclif/core'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -21,7 +22,7 @@ import {
 import { applyPreset, PRESET_NAMES, PRESETS } from '../../lib/orchestrate/index.js'
 import type { PresetName } from '../../lib/orchestrate/index.js'
 
-export default class HookPreset extends PMOCommand {
+export default class HookPreset extends PromptCommand {
   static description = 'Apply a hook preset (aggressive, conservative, supervised)'
 
   static examples = [
@@ -39,10 +40,10 @@ export default class HookPreset extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(HookPreset)
     const jsonMode = shouldOutputJson(flags)
     const presetName = args.preset as PresetName

@@ -2,14 +2,15 @@ import { Args } from '@oclif/core';
 import * as path from 'node:path';
 import { colors } from '../../lib/colors.js';
 import { getWorkspaceInfo, formatAgentList, resolveAgentDir } from '../../lib/agents/commands.js';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
 
-export default class Visit extends PMOCommand {
+export default class Visit extends PromptCommand {
   static description = 'Navigate to agent directory';
 
   static examples = [
@@ -25,14 +26,14 @@ export default class Visit extends PMOCommand {
   };
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   };
 
   protected getPMOOptions() {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(Visit);
 
     // Check if JSON output mode is active

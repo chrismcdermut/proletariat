@@ -1,5 +1,6 @@
 import { Args, Flags } from '@oclif/core'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
   shouldOutputJson,
@@ -8,7 +9,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 
-export default class WorkPeek extends PMOCommand {
+export default class WorkPeek extends PromptCommand {
   static description = 'View what an agent is doing on a ticket (non-interactive)'
 
   static examples = [
@@ -26,7 +27,7 @@ export default class WorkPeek extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     lines: Flags.integer({
       char: 'l',
       description: 'Number of scrollback lines to capture',
@@ -52,7 +53,7 @@ export default class WorkPeek extends PMOCommand {
     }),
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkPeek)
     const startTime = Date.now()
 

@@ -1,6 +1,7 @@
 import { Args, Flags } from '@oclif/core'
 import type Database from 'better-sqlite3'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
   getWorkspaceInfo,
@@ -16,7 +17,7 @@ import {
 import { trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 
-export default class WorkStop extends PMOCommand {
+export default class WorkStop extends PromptCommand {
   static description = 'Stop a running agent working on a ticket'
 
   static examples = [
@@ -32,7 +33,7 @@ export default class WorkStop extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     json: Flags.boolean({
       char: 'm',
       aliases: ['machine'],
@@ -41,7 +42,7 @@ export default class WorkStop extends PMOCommand {
     }),
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkStop)
     const jsonMode = shouldOutputJson(flags)
     const startTime = Date.now()

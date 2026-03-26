@@ -1,7 +1,8 @@
 import { Args } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { isGitRepo, isTicketId } from '../../lib/branch/index.js'
@@ -15,7 +16,7 @@ interface WorktreeInfo {
   detached?: boolean
 }
 
-export default class BranchWhere extends PMOCommand {
+export default class BranchWhere extends PromptCommand {
   static description = 'Find which directory a branch is checked out in'
 
   static examples = [
@@ -25,7 +26,7 @@ export default class BranchWhere extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   }
 
   static args = {
@@ -39,7 +40,7 @@ export default class BranchWhere extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(BranchWhere)
     const search = args.search
 

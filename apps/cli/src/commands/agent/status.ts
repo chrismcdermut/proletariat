@@ -8,7 +8,8 @@ import {
   formatAgentList,
   resolveAgentDir
 } from '../../lib/agents/commands.js';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -16,7 +17,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 
-export default class Status extends PMOCommand {
+export default class Status extends PromptCommand {
   static description = 'Show detailed status for a specific agent';
 
   static examples = [
@@ -32,14 +33,14 @@ export default class Status extends PMOCommand {
   };
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   };
 
   protected getPMOOptions() {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(Status);
 
     // Check if JSON output mode is active

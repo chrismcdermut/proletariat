@@ -1,7 +1,8 @@
 import { Flags } from '@oclif/core';
 import { execSync, spawnSync } from 'node:child_process';
 import * as path from 'node:path';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { colors, format } from '../../lib/colors.js';
 import { findHQRoot, isInGitRepo } from '../../lib/repos/index.js';
 import { hasGitHubRemote } from '../../lib/repos/git.js';
@@ -108,7 +109,7 @@ export function createGHRepo(options: {
 // Command
 // =============================================================================
 
-export default class Create extends PMOCommand {
+export default class Create extends PromptCommand {
   static description = 'Create a GitHub repository and set up remote';
 
   static examples = [
@@ -119,7 +120,7 @@ export default class Create extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     name: Flags.string({
       char: 'n',
       description: 'Repository name (defaults to current directory name)',
@@ -145,7 +146,7 @@ export default class Create extends PMOCommand {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(Create);
 
     const jsonMode = shouldOutputJson(flags);

@@ -5,11 +5,12 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { isDockerRunning } from '../../lib/execution/runners.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import type { AgentWork } from '../../lib/execution/types.js'
 
-export default class ExecutionStop extends PMOCommand {
+export default class ExecutionStop extends PromptCommand {
   static description = 'Stop running execution(s)'
 
   static examples = [
@@ -29,7 +30,7 @@ export default class ExecutionStop extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Force kill (SIGKILL instead of SIGTERM)',
@@ -49,7 +50,7 @@ export default class ExecutionStop extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(ExecutionStop)
     const jsonMode = shouldOutputJson(flags)
 

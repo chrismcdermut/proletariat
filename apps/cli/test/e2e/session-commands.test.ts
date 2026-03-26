@@ -8,6 +8,8 @@ import {
   extractJson,
   agentExec,
   findChoiceByValue,
+  setupProductionSchema,
+  addWorkspaceTables,
 } from './test-helpers.js';
 
 /**
@@ -89,12 +91,7 @@ describe('@smoke Session Commands E2E Tests', () => {
     fs.mkdirSync(proletariatDir, { recursive: true });
     dbPath = path.join(proletariatDir, 'workspace.db');
 
-    // Create blank DB - let the CLI's ensurePMOTables() create all tables
-    // with the correct schema on first access
-    const db = new Database(dbPath);
-    db.close();
-
-    // Create HQ config file (required for findPMO)
+    // Create HQ config file (required for findPMO / getWorkspaceInfo)
     const configPath = path.join(proletariatDir, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({
       type: 'hq',
@@ -105,65 +102,13 @@ describe('@smoke Session Commands E2E Tests', () => {
     // Create PMO directory structure
     fs.mkdirSync(path.join(testDir, 'pmo', 'projects', 'default'), { recursive: true });
 
-    // Run a safe command to trigger PMO table initialization
-    // The CLI's PMOCommand.init() creates all PMO tables via ensurePMOTables()
-    execProduction('session --machine');
-
-    // Create workspace tables needed by getWorkspaceInfo() (used by session list/attach)
-    // These are separate from PMO tables and created by the workspace init flow
-    const initDb = new Database(dbPath);
-    initDb.exec(`
-      CREATE TABLE IF NOT EXISTS agent_themes (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL UNIQUE,
-        display_name TEXT NOT NULL,
-        description TEXT,
-        builtin BOOLEAN DEFAULT FALSE,
-        created_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS workspace (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        type TEXT NOT NULL CHECK (type IN ('hq', 'workspace')),
-        workspace_name TEXT NOT NULL,
-        has_pmo BOOLEAN DEFAULT FALSE,
-        active_theme_id TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (active_theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-      );
-      CREATE TABLE IF NOT EXISTS repositories (
-        name TEXT PRIMARY KEY,
-        path TEXT NOT NULL,
-        type TEXT DEFAULT 'main' CHECK (type IN ('main', 'dependency')),
-        source_url TEXT,
-        action TEXT CHECK (action IN ('clone', 'move', 'link')),
-        added_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS agents (
-        name TEXT PRIMARY KEY,
-        type TEXT NOT NULL DEFAULT 'persistent' CHECK (type IN ('persistent', 'ephemeral')),
-        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'cleaned')),
-        base_name TEXT,
-        theme_id TEXT,
-        worktree_path TEXT,
-        mount_mode TEXT NOT NULL DEFAULT 'worktree' CHECK (mount_mode IN ('worktree', 'clone')),
-        created_at TEXT NOT NULL,
-        cleaned_at TEXT,
-        FOREIGN KEY (theme_id) REFERENCES agent_themes(id) ON DELETE SET NULL
-      );
-      CREATE TABLE IF NOT EXISTS agent_worktrees (
-        agent_name TEXT NOT NULL,
-        repo_name TEXT NOT NULL,
-        worktree_path TEXT NOT NULL,
-        branch TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        PRIMARY KEY (agent_name, repo_name),
-        FOREIGN KEY (agent_name) REFERENCES agents(name) ON DELETE CASCADE,
-        FOREIGN KEY (repo_name) REFERENCES repositories(name) ON DELETE CASCADE
-      );
-      INSERT OR IGNORE INTO workspace (id, type, workspace_name, has_pmo, created_at)
-      VALUES (1, 'hq', 'test-hq', 1, datetime('now'));
-    `);
-    initDb.close();
+    // Initialize database with full production schema.
+    // Session commands no longer extend PMOCommand (PRLT-1151), so we can't
+    // rely on PMOCommand.init() to create tables as a side-effect. Instead,
+    // use the same helpers that other e2e tests use.
+    const db = setupProductionSchema(dbPath, path.join(testDir, 'pmo'));
+    addWorkspaceTables(db, { type: 'hq', workspaceName: 'test-hq', hasPmo: true });
+    db.close();
   });
 
   afterEach(() => {

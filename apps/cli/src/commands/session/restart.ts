@@ -13,7 +13,8 @@ import {
   findSessionForExecution,
   captureTmuxPane,
 } from '../../lib/execution/session-utils.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -122,7 +123,7 @@ async function waitForPrompt(
 // Command
 // =============================================================================
 
-export default class SessionRestart extends PMOCommand {
+export default class SessionRestart extends PromptCommand {
   static description = 'Gracefully restart a stuck or completed agent session'
 
   static examples = [
@@ -141,7 +142,7 @@ export default class SessionRestart extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     fresh: Flags.boolean({
       description: 'Reset worktree to branch HEAD before restarting',
       default: false,
@@ -162,7 +163,7 @@ export default class SessionRestart extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(SessionRestart)
     const jsonMode = shouldOutputJson(flags)
     const { target } = args

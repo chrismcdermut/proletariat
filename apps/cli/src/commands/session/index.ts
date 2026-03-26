@@ -1,8 +1,9 @@
 
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 
-export default class Session extends PMOCommand {
+export default class Session extends PromptCommand {
   static description = 'Manage agent tmux sessions (list, attach, create, detach)'
 
   static examples = [
@@ -13,14 +14,14 @@ export default class Session extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   }
 
   protected getPMOOptions() {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(Session)
 
     const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'session' } : null

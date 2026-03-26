@@ -1,9 +1,10 @@
 
 import { colors } from '../../lib/colors.js';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js';
 
-export default class Agent extends PMOCommand {
+export default class Agent extends PromptCommand {
   static description = 'Manage agents in the workspace';
 
   static examples = [
@@ -20,14 +21,14 @@ export default class Agent extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   };
 
   protected getPMOOptions() {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(Agent);
 
     // Check if JSON output mode is active
