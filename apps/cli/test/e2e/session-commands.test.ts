@@ -105,13 +105,49 @@ describe('@smoke Session Commands E2E Tests', () => {
     // Create PMO directory structure
     fs.mkdirSync(path.join(testDir, 'pmo', 'projects', 'default'), { recursive: true });
 
-    // Run a safe command to trigger PMO table initialization
-    // The CLI's PMOCommand.init() creates all PMO tables via ensurePMOTables()
-    execProduction('session --machine');
-
-    // Create workspace tables needed by getWorkspaceInfo() (used by session list/attach)
-    // These are separate from PMO tables and created by the workspace init flow
+    // Create workspace + PMO tables needed by session commands and seedExecutionRecords.
+    // Session commands no longer extend PMOCommand (PRLT-1151), so PMO tables
+    // are not auto-created. We create the minimal set directly.
     const initDb = new Database(dbPath);
+    initDb.exec(`
+      -- PMO tables needed by seedExecutionRecords (FK targets)
+      CREATE TABLE IF NOT EXISTS pmo_projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        template TEXT,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS pmo_tickets (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        title TEXT,
+        status TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES pmo_projects(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS agent_work (
+        id TEXT PRIMARY KEY,
+        ticket_id TEXT,
+        agent_name TEXT NOT NULL,
+        executor TEXT NOT NULL DEFAULT 'claude',
+        environment TEXT NOT NULL DEFAULT 'host',
+        status TEXT NOT NULL DEFAULT 'pending',
+        session_id TEXT,
+        container_id TEXT,
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        FOREIGN KEY (ticket_id) REFERENCES pmo_tickets(id) ON DELETE SET NULL
+      );
+      CREATE TABLE IF NOT EXISTS pmo_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+      INSERT OR IGNORE INTO pmo_settings (key, value) VALUES ('pmo_path', 'pmo');
+    `);
     initDb.exec(`
       CREATE TABLE IF NOT EXISTS agent_themes (
         id TEXT PRIMARY KEY,
