@@ -4,11 +4,12 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import { ExecutionStatus } from '../../lib/execution/types.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 
-export default class ExecutionList extends PMOCommand {
+export default class ExecutionList extends PromptCommand {
   static description = 'List running and recent executions'
 
   static examples = [
@@ -19,7 +20,7 @@ export default class ExecutionList extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     status: Flags.string({
       char: 's',
       description: 'Filter by status',
@@ -41,7 +42,7 @@ export default class ExecutionList extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(ExecutionList)
     const jsonMode = shouldOutputJson(flags)
 

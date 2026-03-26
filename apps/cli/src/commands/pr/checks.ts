@@ -1,8 +1,6 @@
 import { Args } from '@oclif/core';
-import {
-  PMOCommand,
-  pmoBaseFlags,
-} from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles, divider } from '../../lib/styles.js';
 import {
   isGHInstalled,
@@ -21,7 +19,7 @@ import {
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
 
-export default class PRChecks extends PMOCommand {
+export default class PRChecks extends PromptCommand {
   static description = 'Show CI check status for a pull request';
 
   static examples = [
@@ -38,7 +36,7 @@ export default class PRChecks extends PMOCommand {
   };
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   };
 
   // Flag to track if PMO is available
@@ -52,7 +50,7 @@ export default class PRChecks extends PMOCommand {
     }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(PRChecks);
 
     const jsonMode = shouldOutputJson(flags);

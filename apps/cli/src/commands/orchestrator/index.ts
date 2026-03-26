@@ -1,10 +1,11 @@
 
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { findRunningOrchestratorSessions } from './start.js'
 
-export default class Orchestrator extends PMOCommand {
+export default class Orchestrator extends PromptCommand {
   static description = 'Manage the orchestrator agent (start, attach, status, stop)'
 
   static examples = [
@@ -16,14 +17,14 @@ export default class Orchestrator extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   }
 
   protected getPMOOptions() {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(Orchestrator)
 
     const jsonModeConfig = shouldOutputJson(flags) ? { flags, commandName: 'orchestrator' } : null

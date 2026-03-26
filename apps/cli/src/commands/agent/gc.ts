@@ -1,7 +1,8 @@
 import { Flags } from '@oclif/core';
 import { colors, format } from '../../lib/colors.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   pruneAgentRecords,
   RECYCLABLE_STATUSES,
@@ -12,7 +13,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 
-export default class GC extends PMOCommand {
+export default class GC extends PromptCommand {
   static description = 'Garbage collect stale agent records from the database';
 
   static examples = [
@@ -23,7 +24,7 @@ export default class GC extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     days: Flags.integer({
       char: 'd',
       description: 'Only prune records older than this many days',
@@ -43,7 +44,7 @@ export default class GC extends PMOCommand {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(GC);
     const jsonMode = shouldOutputJson(flags);
 

@@ -1,9 +1,10 @@
 
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js';
 import { shouldOutputJson } from '../../lib/prompt-json.js';
 
-export default class Repo extends PMOCommand {
+export default class Repo extends PromptCommand {
   static description = 'Repository management operations';
 
   static examples = [
@@ -14,14 +15,14 @@ export default class Repo extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   };
 
   protected getPMOOptions() {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(Repo);
 
     // Check if JSON output mode is active

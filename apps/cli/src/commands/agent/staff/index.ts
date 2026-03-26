@@ -1,7 +1,8 @@
 import { Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { colors } from '../../../lib/colors.js';
-import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { PromptCommand } from '../../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -9,7 +10,7 @@ import {
   buildPromptConfig,
 } from '../../../lib/prompt-json.js';
 
-export default class AgentStaff extends PMOCommand {
+export default class AgentStaff extends PromptCommand {
   static description = 'Manage staff (persistent) agents';
 
   static examples = [
@@ -19,7 +20,7 @@ export default class AgentStaff extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     'no-interactive': Flags.boolean({
       description: 'Alias for --json flag',
       default: false,
@@ -30,7 +31,7 @@ export default class AgentStaff extends PMOCommand {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(AgentStaff);
 
     const jsonMode = shouldOutputJson(flags);

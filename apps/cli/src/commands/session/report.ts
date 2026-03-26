@@ -17,7 +17,8 @@ import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
 import { cleanupAgentContainer } from '../../lib/execution/container-cleanup.js'
 import { trackEvent } from '../../lib/telemetry/analytics.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -29,7 +30,7 @@ type ReportStatus = 'started' | 'completed' | 'errored' | 'exited'
 
 const VALID_STATUSES: ReadonlySet<string> = new Set(['started', 'completed', 'errored', 'exited'])
 
-export default class SessionReport extends PMOCommand {
+export default class SessionReport extends PromptCommand {
   static description = 'Report agent session lifecycle events and trigger cleanup'
 
   static examples = [
@@ -39,7 +40,7 @@ export default class SessionReport extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     agent: Flags.string({
       description: 'Agent name',
       required: true,
@@ -55,7 +56,7 @@ export default class SessionReport extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(SessionReport)
     const jsonMode = shouldOutputJson(flags)
     const agentName = flags.agent

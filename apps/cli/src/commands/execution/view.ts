@@ -4,7 +4,8 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   outputErrorAsJson,
   outputSuccessAsJson,
@@ -12,7 +13,7 @@ import {
   shouldOutputJson,
 } from '../../lib/prompt-json.js'
 
-export default class ExecutionView extends PMOCommand {
+export default class ExecutionView extends PromptCommand {
   static description = 'View details of a specific execution'
 
   static examples = [
@@ -28,14 +29,14 @@ export default class ExecutionView extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   }
 
   protected getPMOOptions() {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(ExecutionView)
 
     // Check if JSON output mode is active

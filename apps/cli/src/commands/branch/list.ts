@@ -1,5 +1,6 @@
 import { Flags } from '@oclif/core'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import {
   BranchInfo,
@@ -11,7 +12,7 @@ import { getWorkspaceRepoInfo } from '../../lib/repos/index.js'
 import { isNonTTY } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 
-export default class BranchList extends PMOCommand {
+export default class BranchList extends PromptCommand {
   static description = 'List branches with conventional naming information'
 
   static examples = [
@@ -22,7 +23,7 @@ export default class BranchList extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     all: Flags.boolean({
       char: 'a',
       description: 'Include remote branches',
@@ -45,7 +46,7 @@ export default class BranchList extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(BranchList)
 
     // Default format to 'json' in non-TTY environments (piped output, CI, agents)

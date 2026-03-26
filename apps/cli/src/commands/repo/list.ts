@@ -1,11 +1,12 @@
 import { Flags } from '@oclif/core';
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { colors, format } from '../../lib/colors.js';
 import { findHQRoot, getWorkspaceRepoInfo } from '../../lib/repos/index.js';
 import { isNonTTY } from '../../lib/prompt-json.js';
 import { visualPadEnd } from '../../lib/string-utils.js';
 
-export default class List extends PMOCommand {
+export default class List extends PromptCommand {
   static description = 'List all repositories in the HQ';
 
   static examples = [
@@ -15,7 +16,7 @@ export default class List extends PMOCommand {
   ];
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     format: Flags.string({
       char: 'f',
       description: 'Output format',
@@ -28,7 +29,7 @@ export default class List extends PMOCommand {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(List);
 
     // Default format to 'json' in non-TTY environments (piped output, CI, agents)

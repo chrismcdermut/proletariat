@@ -1,5 +1,6 @@
 import { Args, Flags } from '@oclif/core'
-import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
+import { PromptCommand } from '../../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { getWorkspaceInfo } from '../../../lib/agents/commands.js'
 import {
@@ -11,7 +12,7 @@ import {
 import { WorkHookStorage } from '../../../lib/work-lifecycle/hooks/index.js'
 import { openWorkspaceDatabase } from '../../../lib/database/index.js'
 
-export default class WorkHooksToggle extends PMOCommand {
+export default class WorkHooksToggle extends PromptCommand {
   static description = 'Enable or disable a work lifecycle hook'
 
   static examples = [
@@ -27,7 +28,7 @@ export default class WorkHooksToggle extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     enable: Flags.boolean({
       description: 'Enable the hook',
       exclusive: ['disable'],
@@ -38,7 +39,7 @@ export default class WorkHooksToggle extends PMOCommand {
     }),
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(WorkHooksToggle)
     const jsonMode = shouldOutputJson(flags)
     const parsedFlags = flags as { enable?: boolean; disable?: boolean }

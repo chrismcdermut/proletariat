@@ -7,7 +7,8 @@ import {
   listAgentContainers,
   cleanupCompletedContainers,
 } from '../../lib/execution/container-cleanup.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -16,7 +17,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 
-export default class SessionCleanup extends PMOCommand {
+export default class SessionCleanup extends PromptCommand {
   static description = 'Stop and remove Docker containers for completed agents'
 
   static examples = [
@@ -27,7 +28,7 @@ export default class SessionCleanup extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     'dry-run': Flags.boolean({
       char: 'd',
       description: 'Show what would be cleaned up without actually doing it',
@@ -49,7 +50,7 @@ export default class SessionCleanup extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(SessionCleanup)
     const jsonMode = shouldOutputJson(flags)
     const dryRun = flags['dry-run']

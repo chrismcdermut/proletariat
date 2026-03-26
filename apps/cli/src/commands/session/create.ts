@@ -1,7 +1,8 @@
 import { Args, Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
 import { styles } from '../../lib/styles.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -9,7 +10,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 
-export default class SessionCreate extends PMOCommand {
+export default class SessionCreate extends PromptCommand {
   static description = 'Create a new tmux session'
 
   static examples = [
@@ -26,7 +27,7 @@ export default class SessionCreate extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     command: Flags.string({
       char: 'c',
       description: 'Initial command to run in the session',
@@ -42,7 +43,7 @@ export default class SessionCreate extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(SessionCreate)
     const jsonMode = shouldOutputJson(flags)
     const sessionName = args.name

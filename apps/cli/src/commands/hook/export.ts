@@ -6,7 +6,8 @@
  */
 
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -17,7 +18,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { exportHooksToYaml } from '../../lib/orchestrate/index.js'
 
-export default class HookExport extends PMOCommand {
+export default class HookExport extends PromptCommand {
   static description = 'Export hook configuration as YAML'
 
   static examples = [
@@ -25,10 +26,10 @@ export default class HookExport extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(HookExport)
     const jsonMode = shouldOutputJson(flags)
 

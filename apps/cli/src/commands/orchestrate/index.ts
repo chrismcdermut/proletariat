@@ -13,7 +13,8 @@
 import { Flags } from '@oclif/core'
 import * as readline from 'node:readline'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -34,7 +35,7 @@ import {
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initHookManager } from '../../lib/work-lifecycle/hooks/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
-export default class Orchestrate extends PMOCommand {
+export default class Orchestrate extends PromptCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
 
   static examples = [
@@ -46,7 +47,7 @@ export default class Orchestrate extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     preset: Flags.string({
       description: 'Apply a preset before starting (aggressive, conservative, supervised)',
       options: PRESET_NAMES,
@@ -82,7 +83,7 @@ export default class Orchestrate extends PMOCommand {
     }),
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(Orchestrate)
     const jsonMode = shouldOutputJson(flags)
     const parsedFlags = flags as Record<string, unknown>

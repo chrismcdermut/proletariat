@@ -17,7 +17,8 @@ import {
   findContainerSessionsByPrefix,
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -32,7 +33,7 @@ interface PruneResult {
   errors: string[]
 }
 
-export default class SessionPrune extends PMOCommand {
+export default class SessionPrune extends PromptCommand {
   static description = 'Clean up stale sessions, orphan tmux sessions, and idle ephemeral agents'
 
   static examples = [
@@ -43,7 +44,7 @@ export default class SessionPrune extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     'dry-run': Flags.boolean({
       char: 'd',
       description: 'Show what would be pruned without actually doing it',
@@ -69,7 +70,7 @@ export default class SessionPrune extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(SessionPrune)
     const jsonMode = shouldOutputJson(flags)
     const dryRun = flags['dry-run']

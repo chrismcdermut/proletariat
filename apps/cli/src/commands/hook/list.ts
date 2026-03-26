@@ -6,7 +6,8 @@
 
 import { Flags } from '@oclif/core'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
@@ -32,7 +33,7 @@ interface HookRow {
   created_at: string
 }
 
-export default class HookList extends PMOCommand {
+export default class HookList extends PromptCommand {
   static description = 'List configured orchestrate hooks'
 
   static examples = [
@@ -42,7 +43,7 @@ export default class HookList extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     event: Flags.string({
       description: 'Filter by event name',
     }),
@@ -56,7 +57,7 @@ export default class HookList extends PMOCommand {
     }),
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(HookList)
     const jsonMode = shouldOutputJson(flags)
     const parsedFlags = flags as Record<string, unknown>

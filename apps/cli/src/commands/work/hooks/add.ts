@@ -1,6 +1,7 @@
 import { Flags } from '@oclif/core'
 import inquirer from 'inquirer'
-import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js'
+import { PromptCommand } from '../../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../../lib/pmo/index.js'
 import { styles } from '../../../lib/styles.js'
 import { getWorkspaceInfo } from '../../../lib/agents/commands.js'
 import {
@@ -16,7 +17,7 @@ import { WorkHookStorage, HOOKABLE_EVENTS } from '../../../lib/work-lifecycle/ho
 import type { HookableEvent, HookActionType } from '../../../lib/work-lifecycle/hooks/index.js'
 import { openWorkspaceDatabase } from '../../../lib/database/index.js'
 
-export default class WorkHooksAdd extends PMOCommand {
+export default class WorkHooksAdd extends PromptCommand {
   static description = 'Add a work lifecycle hook'
 
   static examples = [
@@ -26,7 +27,7 @@ export default class WorkHooksAdd extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     name: Flags.string({
       description: 'Hook name (unique identifier)',
     }),
@@ -46,7 +47,7 @@ export default class WorkHooksAdd extends PMOCommand {
     }),
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(WorkHooksAdd)
     const jsonMode = shouldOutputJson(flags)
 

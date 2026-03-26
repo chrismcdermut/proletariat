@@ -6,7 +6,8 @@ import {
   removeAgentsFromWorkspace,
   formatAgentList
 } from '../../../lib/agents/commands.js';
-import { PMOCommand, pmoBaseFlags } from '../../../lib/pmo/index.js';
+import { PromptCommand } from '../../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,
@@ -15,7 +16,7 @@ import {
   buildPromptConfig,
 } from '../../../lib/prompt-json.js';
 
-export default class Remove extends PMOCommand {
+export default class Remove extends PromptCommand {
   static description = 'Remove a specific agent from the workspace';
 
   static examples = [
@@ -31,7 +32,7 @@ export default class Remove extends PMOCommand {
   };
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     force: Flags.boolean({
       char: 'f',
       description: 'Skip confirmation prompt (for non-interactive use)',
@@ -43,7 +44,7 @@ export default class Remove extends PMOCommand {
     return { promptIfMultiple: false };
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(Remove);
 
     // Check if JSON output mode is active

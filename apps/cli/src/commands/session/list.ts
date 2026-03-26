@@ -12,7 +12,8 @@ import {
   findContainerSessionsByPrefix,
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 
@@ -27,7 +28,7 @@ interface VerifiedSession {
   source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
 }
 
-export default class SessionList extends PMOCommand {
+export default class SessionList extends PromptCommand {
   static description = 'List active tmux sessions (host and container)'
 
   static examples = [
@@ -36,7 +37,7 @@ export default class SessionList extends PMOCommand {
   ]
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     all: Flags.boolean({
       char: 'a',
       description: 'Show all sessions including stale DB records',
@@ -48,7 +49,7 @@ export default class SessionList extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { flags } = await this.parse(SessionList)
     const jsonMode = shouldOutputJson(flags)
 

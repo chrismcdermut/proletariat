@@ -13,7 +13,8 @@ import {
   findSessionForExecution,
   captureTmuxPane,
 } from '../../lib/execution/session-utils.js'
-import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
+import { PromptCommand } from '../../lib/prompt-command.js'
+import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
@@ -188,7 +189,7 @@ function checkProcessLiveness(sessionId: string, containerId?: string): boolean 
 // Command
 // =============================================================================
 
-export default class SessionInspect extends PMOCommand {
+export default class SessionInspect extends PromptCommand {
   static description = 'Comprehensive agent status inspection (git, PR, process, output) in one call'
 
   static examples = [
@@ -206,7 +207,7 @@ export default class SessionInspect extends PMOCommand {
   }
 
   static flags = {
-    ...pmoBaseFlags,
+    ...machineOutputFlags,
     lines: Flags.integer({
       char: 'l',
       description: 'Number of output lines to include',
@@ -218,7 +219,7 @@ export default class SessionInspect extends PMOCommand {
     return { promptIfMultiple: false }
   }
 
-  async execute(): Promise<void> {
+  async run(): Promise<void> {
     const { args, flags } = await this.parse(SessionInspect)
     const jsonMode = shouldOutputJson(flags)
     const { target } = args
