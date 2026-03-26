@@ -26,6 +26,8 @@ interface VerifiedSession {
   containerId?: string
   exists: boolean  // Whether the tmux session actually exists
   source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
+  lastHeartbeat?: Date  // Last heartbeat timestamp from DB
+  lifecycleState?: string  // Lifecycle state from DB (healthy, idle, died, completed)
 }
 
 export default class SessionList extends PromptCommand {
@@ -150,6 +152,8 @@ export default class SessionList extends PromptCommand {
             containerId,
             exists,
             source: 'db',
+            lastHeartbeat: exec.lastHeartbeat,
+            lifecycleState: exec.lifecycleState,
           })
         }
       }
@@ -267,7 +271,11 @@ export default class SessionList extends PromptCommand {
                              session.status === 'orphan' ? styles.warning : styles.muted
 
           // For orphan sessions, append source indicator
-          const statusText = session.source === 'discovered' ? `${session.status}*` : session.status
+          // For sessions with died lifecycle state, append warning
+          let statusText = session.source === 'discovered' ? `${session.status}*` : session.status
+          if (session.lifecycleState === 'died') {
+            statusText = 'died'
+          }
 
           // Truncate long session names to fit column
           const displaySession = session.sessionId.length > 32
@@ -300,6 +308,14 @@ export default class SessionList extends PromptCommand {
         if (staleSessions.length > 0) {
           this.log(styles.warning(`\n⚠️  ${staleSessions.length} stale session(s) in DB without tmux process.`))
           this.log(styles.muted('   Run `prlt work stop <work-id>` to clean up.'))
+          this.log('')
+        }
+
+        // Show died/unresponsive sessions warning
+        const diedSessions = sessions.filter(s => s.lifecycleState === 'died')
+        if (diedSessions.length > 0) {
+          this.log(styles.error(`\n💀 ${diedSessions.length} agent(s) detected as unresponsive (heartbeat timeout).`))
+          this.log(styles.muted('   These agents were auto-terminated. Run `prlt session watch --once` for details.'))
           this.log('')
         }
 

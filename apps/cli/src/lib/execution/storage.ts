@@ -17,6 +17,7 @@ import {
   DisplayMode,
   PermissionMode,
   CleanupPolicy,
+  LifecycleState,
 } from './types.js'
 
 // =============================================================================
@@ -66,6 +67,9 @@ interface AgentWorkRow {
   completed_at: number | null
   exit_code: number | null
   error_message: string | null
+  last_heartbeat: string | null
+  lifecycle_state: string | null
+  retries: number | null
 }
 
 // =============================================================================
@@ -97,6 +101,9 @@ function rowToAgentWork(row: AgentWorkRow): AgentWork {
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
     exitCode: row.exit_code ?? undefined,
     errorMessage: row.error_message || undefined,
+    lastHeartbeat: row.last_heartbeat ? new Date(row.last_heartbeat) : undefined,
+    lifecycleState: (row.lifecycle_state as LifecycleState) || undefined,
+    retries: row.retries ?? undefined,
   }
 }
 
@@ -519,6 +526,88 @@ export class ExecutionStorage {
     }
 
     return sessionMap
+  }
+
+  // ===========================================================================
+  // Heartbeat Methods
+  // ===========================================================================
+
+  /**
+   * Update the heartbeat timestamp for an execution.
+   * Called when the agent is observed to be alive and active.
+   */
+  updateHeartbeat(id: string): void {
+    const now = new Date().toISOString()
+    this.db.prepare(`
+      UPDATE ${T.agent_work}
+      SET last_heartbeat = ?
+      WHERE id = ?
+    `).run(now, id)
+  }
+
+  /**
+   * Update lifecycle state for an execution.
+   */
+  updateLifecycleState(id: string, state: LifecycleState): void {
+    this.db.prepare(`
+      UPDATE ${T.agent_work}
+      SET lifecycle_state = ?
+      WHERE id = ?
+    `).run(state, id)
+  }
+
+  /**
+   * Get executions that have not sent a heartbeat within the timeout period.
+   * These are likely hung or dead agents that need intervention.
+   *
+   * Returns executions where:
+   * - status is 'running' or 'starting'
+   * - last_heartbeat is older than timeoutMinutes (or null and started > timeout ago)
+   * - lifecycle_state is not already 'died' or 'completed'
+   */
+  getStaleExecutions(timeoutMinutes: number): AgentWork[] {
+    const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString()
+    const startedCutoff = Date.now() - timeoutMinutes * 60 * 1000
+
+    const rows = this.db.prepare(`
+      SELECT * FROM ${T.agent_work}
+      WHERE status IN ('running', 'starting')
+        AND (lifecycle_state IS NULL OR lifecycle_state NOT IN ('died', 'completed'))
+        AND (
+          (last_heartbeat IS NOT NULL AND last_heartbeat < ?)
+          OR (last_heartbeat IS NULL AND started_at < ?)
+        )
+      ORDER BY started_at ASC
+    `).all(cutoff, startedCutoff) as unknown as AgentWorkRow[]
+
+    return rows.map(rowToAgentWork)
+  }
+
+  /**
+   * Mark an execution as failed due to heartbeat timeout.
+   * Updates status to 'failed', lifecycle_state to 'died', and sets error message.
+   */
+  markHeartbeatTimeout(id: string): void {
+    const now = Date.now()
+    this.db.prepare(`
+      UPDATE ${T.agent_work}
+      SET status = 'failed',
+          lifecycle_state = 'died',
+          completed_at = ?,
+          error_message = 'Heartbeat timeout — agent unresponsive, auto-terminated'
+      WHERE id = ?
+    `).run(now, id)
+  }
+
+  /**
+   * Increment the retry counter for an execution.
+   */
+  incrementRetries(id: string): void {
+    this.db.prepare(`
+      UPDATE ${T.agent_work}
+      SET retries = COALESCE(retries, 0) + 1
+      WHERE id = ?
+    `).run(id)
   }
 
   /**

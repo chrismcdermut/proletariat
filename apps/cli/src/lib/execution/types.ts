@@ -166,7 +166,16 @@ export interface AgentWork {
   completedAt?: Date
   exitCode?: number
   errorMessage?: string
+  lastHeartbeat?: Date
+  lifecycleState?: LifecycleState
+  retries?: number
 }
+
+/**
+ * Lifecycle state for agent work execution.
+ * Tracked in the lifecycle_state column of agent_work.
+ */
+export type LifecycleState = 'healthy' | 'idle' | 'died' | 'completed'
 
 // =============================================================================
 // Workspace Repo Info (PRLT-1088)

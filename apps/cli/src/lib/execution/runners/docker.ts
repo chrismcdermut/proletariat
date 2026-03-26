@@ -60,6 +60,15 @@ export async function runDocker(
       dockerCmd += ` --cpus ${config.docker.cpus}`
     }
 
+    // Add Docker HEALTHCHECK for heartbeat-based stale detection.
+    // Checks if the main process (PID 1) is still running every 5 minutes.
+    // The session watcher uses `docker inspect` to read this health status.
+    dockerCmd += ` --health-cmd "kill -0 1 || exit 1"`
+    dockerCmd += ` --health-interval 5m`
+    dockerCmd += ` --health-timeout 10s`
+    dockerCmd += ` --health-retries 3`
+    dockerCmd += ` --health-start-period 30s`
+
     // Validate Codex mode: Docker runner is always non-tty (detached with -d)
     if (executor === 'codex') {
       const codexPermission: PermissionMode = config.permissionMode
