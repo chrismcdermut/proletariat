@@ -104,7 +104,7 @@ function wrapWithEvents(
  * Resolve the correct provider for a given ticket.
  *
  * Uses the ticket's metadata to determine the source of truth:
- * - external_source = 'linear' + configured + inbound/bidirectional → Linear
+ * - external_source = 'linear' + configured + outbound/bidirectional → Linear
  * - Otherwise → PMO
  *
  * The resolved provider is wrapped with EventEmittingProvider so that
@@ -132,11 +132,11 @@ export function resolveTicketProvider(
     const mapping = mapper.getByTicketId(ticketId)
 
     if (mapping) {
-      // Only use Linear provider when Linear is the source of truth:
-      // - 'inbound' = ticket was imported from Linear → Linear is source of truth
+      // Use Linear provider when we need to write back to Linear:
+      // - 'outbound' = ticket came from Linear (via work start) → write back status changes
       // - 'bidirectional' = both directions synced → write to Linear directly
-      // - 'outbound' = ticket was created in PMO and pushed to Linear → PMO is source of truth
-      if (mapping.syncDirection !== 'outbound') {
+      // - 'inbound' = bulk import from Linear → read-only, no write-back
+      if (mapping.syncDirection === 'outbound' || mapping.syncDirection === 'bidirectional') {
         const inner = new LinearTicketProvider(db, storage, projectId, null)
         return wrapWithEvents(inner, db, storage, projectId)
       }

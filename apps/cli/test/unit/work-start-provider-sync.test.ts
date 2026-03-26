@@ -112,10 +112,10 @@ function createMockStorage(overrides?: {
 
 describe('PRLT-1091: work start provider sync', () => {
   describe('resolveTicketProvider with external_source metadata', () => {
-    it('resolves to Linear provider when ticket has external_source=linear and Linear is configured with a mapping', () => {
-      const storage = createMockStorage()
-
-      // Use a real in-memory DB with required tables matching the actual schema
+    /**
+     * Helper: create an in-memory DB with all required tables for resolver tests.
+     */
+    function createResolverDb(): Database.Database {
       const realDb = new Database(':memory:')
       realDb.exec(`
         CREATE TABLE IF NOT EXISTS workspace_settings (
@@ -123,11 +123,7 @@ describe('PRLT-1091: work start provider sync', () => {
           value TEXT NOT NULL
         )
       `)
-      // Configure Linear API key
       realDb.prepare('INSERT INTO workspace_settings (key, value) VALUES (?, ?)').run('linear.api_key', 'test-api-key')
-
-      // Create the external_issue_map table matching the production schema
-      // (LinearMapper.ensureTable would create this, but it has FK refs to pmo_tickets)
       realDb.exec(`
         CREATE TABLE IF NOT EXISTS pmo_external_issue_map (
           pmo_ticket_id TEXT NOT NULL,
@@ -142,7 +138,6 @@ describe('PRLT-1091: work start provider sync', () => {
           UNIQUE (provider, external_id)
         )
       `)
-      // ExternalExecutionMappingStore also needs its tables
       realDb.exec(`
         CREATE TABLE IF NOT EXISTS pmo_external_execution_map (
           provider TEXT NOT NULL,
@@ -164,9 +159,19 @@ describe('PRLT-1091: work start provider sync', () => {
           linked_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
       `)
-      realDb.prepare(
+      return realDb
+    }
+
+    function insertMapping(db: Database.Database, syncDirection: string, ticketId = 'TKT-001'): void {
+      db.prepare(
         'INSERT INTO pmo_external_issue_map (pmo_ticket_id, provider, external_id, external_key, external_url, team_key, sync_direction) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run('TKT-001', 'linear', 'linear-issue-123', 'ENG-456', 'https://linear.app/test/issue/ENG-456', 'ENG', 'inbound')
+      ).run(ticketId, 'linear', `linear-issue-${ticketId}`, 'ENG-456', 'https://linear.app/test/issue/ENG-456', 'ENG', syncDirection)
+    }
+
+    it('resolves to Linear provider for outbound mapping (work start from Linear)', () => {
+      const storage = createMockStorage()
+      const realDb = createResolverDb()
+      insertMapping(realDb, 'outbound')
 
       const provider = resolveTicketProvider(
         'TKT-001',
@@ -176,8 +181,44 @@ describe('PRLT-1091: work start provider sync', () => {
         { external_source: 'linear' },
       )
 
-      // Should resolve to a non-PMO provider (Linear or event-emitting wrapper around Linear)
+      // outbound = ticket came from Linear via work start → must write back
       expect(provider.name).to.not.equal('pmo')
+      realDb.close()
+    })
+
+    it('resolves to Linear provider for bidirectional mapping', () => {
+      const storage = createMockStorage()
+      const realDb = createResolverDb()
+      insertMapping(realDb, 'bidirectional')
+
+      const provider = resolveTicketProvider(
+        'TKT-001',
+        'test-project',
+        realDb,
+        storage,
+        { external_source: 'linear' },
+      )
+
+      // bidirectional = sync both ways → must write back
+      expect(provider.name).to.not.equal('pmo')
+      realDb.close()
+    })
+
+    it('resolves to PMO provider for inbound mapping (bulk import, no write-back)', () => {
+      const storage = createMockStorage()
+      const realDb = createResolverDb()
+      insertMapping(realDb, 'inbound')
+
+      const provider = resolveTicketProvider(
+        'TKT-001',
+        'test-project',
+        realDb,
+        storage,
+        { external_source: 'linear' },
+      )
+
+      // inbound = bulk import from Linear → read-only, no write-back
+      expect(provider.name).to.equal('pmo')
       realDb.close()
     })
 
