@@ -227,7 +227,7 @@ export default class SessionRestart extends PromptCommand {
       }
 
       // Resolve tmux session
-      const isContainer = match.environment === 'devcontainer'
+      const isContainer = match.environment === 'devcontainer' || match.environment === 'docker'
       let actualSessionId = match.sessionId
       let containerId = isContainer ? match.containerId : undefined
 

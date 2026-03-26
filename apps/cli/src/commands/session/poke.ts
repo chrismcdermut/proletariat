@@ -452,7 +452,7 @@ export default class SessionPoke extends PromptCommand {
     if (!exec.sessionId) return false
 
     try {
-      if (exec.environment === 'devcontainer' && exec.containerId) {
+      if ((exec.environment === 'devcontainer' || exec.environment === 'docker') && exec.containerId) {
         execSync(
           `docker exec ${exec.containerId} tmux has-session -t "${exec.sessionId}"`,
           { stdio: 'pipe', timeout: 5000 },

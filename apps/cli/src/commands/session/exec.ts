@@ -144,7 +144,7 @@ export default class SessionExec extends PromptCommand {
       }
 
       // Determine execution context
-      const isContainer = match.environment === 'devcontainer'
+      const isContainer = match.environment === 'devcontainer' || match.environment === 'docker'
       let containerId = isContainer ? match.containerId : undefined
 
       // Verify the tmux session exists for this agent
