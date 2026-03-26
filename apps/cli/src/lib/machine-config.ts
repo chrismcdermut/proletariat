@@ -531,3 +531,49 @@ export function getOrganizationHeadquarters(orgName: string): RegisteredHeadquar
 
 /** @deprecated Use getOrganizationHeadquarters instead */
 export const getOrganizationWorkspaces = getOrganizationHeadquarters;
+
+// =============================================================================
+// Pruning
+// =============================================================================
+
+/**
+ * Remove registered headquarters whose paths no longer exist on disk.
+ *
+ * Returns the list of entries that were removed, or an empty array if
+ * nothing was stale. Safe to call frequently — reads and writes the
+ * machine config only when stale entries are found.
+ */
+export function pruneStaleHeadquarters(): RegisteredHeadquarters[] {
+  const config = readMachineConfig();
+
+  const stale: RegisteredHeadquarters[] = [];
+  const alive: RegisteredHeadquarters[] = [];
+
+  for (const hq of config.headquarters) {
+    if (fs.existsSync(hq.path)) {
+      alive.push(hq);
+    } else {
+      stale.push(hq);
+    }
+  }
+
+  if (stale.length === 0) {
+    return [];
+  }
+
+  config.headquarters = alive;
+
+  // Clear activeHeadquarters if it pointed to a pruned path
+  if (config.activeHeadquarters) {
+    const activeNorm = normalizePath(config.activeHeadquarters);
+    const stillRegistered = alive.some(
+      (hq) => normalizePath(hq.path) === activeNorm
+    );
+    if (!stillRegistered) {
+      config.activeHeadquarters = null;
+    }
+  }
+
+  writeMachineConfig(config);
+  return stale;
+}
