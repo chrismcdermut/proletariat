@@ -40,6 +40,7 @@ export default class Session extends PromptCommand {
         { name: 'Poke a running agent', value: 'poke', command: 'prlt session poke --json' },
         { name: 'Execute command in agent context', value: 'exec', command: 'prlt session exec --json' },
         { name: 'Restart an agent session', value: 'restart', command: 'prlt session restart --json' },
+        { name: 'Watch agent heartbeats', value: 'watch', command: 'prlt session watch --json' },
         { name: 'Prune stale sessions', value: 'prune', command: 'prlt session prune --json' },
         { name: 'Clean up completed containers', value: 'cleanup', command: 'prlt session cleanup --json' },
         { name: 'Report agent session event', value: 'report', command: 'prlt session report --json' },
@@ -79,6 +80,9 @@ export default class Session extends PromptCommand {
         break
       case 'restart':
         await this.config.runCommand('session:restart', [])
+        break
+      case 'watch':
+        await this.config.runCommand('session:watch', [])
         break
       case 'prune':
         await this.config.runCommand('session:prune', [])

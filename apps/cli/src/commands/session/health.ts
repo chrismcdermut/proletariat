@@ -40,6 +40,8 @@ interface AgentHealthInfo {
   containerId?: string
   elapsed: string
   paneContent?: string
+  lastHeartbeat?: Date
+  lifecycleState?: string
 }
 
 // =============================================================================
@@ -288,6 +290,8 @@ export default class SessionHealth extends PMOCommand {
           containerId,
           elapsed: formatElapsed(exec.startedAt),
           paneContent: paneContent || undefined,
+          lastHeartbeat: exec.lastHeartbeat,
+          lifecycleState: exec.lifecycleState,
         })
       }
 
@@ -374,6 +378,8 @@ export default class SessionHealth extends PMOCommand {
             containerId: a.containerId,
             sessionId: a.sessionId,
             elapsed: a.elapsed,
+            lastHeartbeat: a.lastHeartbeat?.toISOString() ?? null,
+            lifecycleState: a.lifecycleState ?? null,
           })),
           summary: {
             total: agents.length,
@@ -533,6 +539,22 @@ export default class SessionHealth extends PMOCommand {
     if (counts.IDLE > 0) {
       this.log(styles.warning(`  ${counts.IDLE} agent(s) appear idle. Run with --poke-idle to send their ticket description and resume work.`))
       this.log(styles.muted('  prlt session health --poke-idle'))
+      this.log('')
+    }
+
+    // Show heartbeat timeout hint
+    const diedAgents = agents.filter(a => a.lifecycleState === 'died')
+    if (diedAgents.length > 0) {
+      this.log(styles.error(`  ${diedAgents.length} agent(s) died (heartbeat timeout). Containers were auto-terminated.`))
+      this.log(styles.muted('  prlt session watch --once'))
+      this.log('')
+    }
+
+    // Show watcher hint if no heartbeats recorded
+    const noHeartbeat = agents.filter(a => !a.lastHeartbeat && (a.state === 'WORKING' || a.state === 'UNKNOWN'))
+    if (noHeartbeat.length > 0) {
+      this.log(styles.muted(`  ${noHeartbeat.length} agent(s) have no heartbeat recorded. Start the watcher for auto-detection:`))
+      this.log(styles.muted('  prlt session watch'))
       this.log('')
     }
   }
