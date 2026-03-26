@@ -435,9 +435,10 @@ export function buildPrompt(context: ExecutionContext): string {
         prompt += `   git push origin HEAD\n`
         prompt += `   \`\`\`\n`
         prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
-        prompt += `\n2. **Mark work as ready** by running:\n`
-        prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId} --pr\n   \`\`\`\n`
+        prompt += `\n2. **Propose your work for review** by running:\n`
+        prompt += `   \`\`\`bash\n   prlt work propose ${context.ticketId}\n   \`\`\`\n`
         prompt += `   This creates a pull request and moves the ticket to review. The PR will be auto-merged — a human will review post-merge.\n`
+        prompt += `\n**IMPORTANT:** Use \`prlt work propose\` — do NOT use \`gh pr create\` directly, as that skips ticket state transitions.`
         prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
       } else {
         // Required mode (default): agent creates PR, human approves before it lands
@@ -449,12 +450,14 @@ export function buildPrompt(context: ExecutionContext): string {
         prompt += `   git push origin HEAD\n`
         prompt += `   \`\`\`\n`
         prompt += `   This formats your commit as a conventional commit with the ticket ID.\n`
-        prompt += `\n2. **Mark work as ready** by running:\n`
-        const prFlag = context.createPR ? ' --pr' : ' --no-pr'
-        prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId}${prFlag}\n   \`\`\`\n`
         if (context.createPR) {
-          prompt += `   This moves the ticket to review and creates a pull request.\n`
+          prompt += `\n2. **Propose your work for review** by running:\n`
+          prompt += `   \`\`\`bash\n   prlt work propose ${context.ticketId}\n   \`\`\`\n`
+          prompt += `   This creates a pull request and moves the ticket to Review automatically.\n`
+          prompt += `\n**IMPORTANT:** Use \`prlt work propose\` — do NOT use \`gh pr create\` directly, as that skips ticket state transitions.`
         } else {
+          prompt += `\n2. **Mark work as ready** by running:\n`
+          prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId} --no-pr\n   \`\`\`\n`
           prompt += `   This moves the ticket to review.\n`
         }
         prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
