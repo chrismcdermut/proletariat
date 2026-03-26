@@ -351,6 +351,7 @@ export {
   getContainerId,
   buildDockerImage,
   imageExists,
+  buildContainerMounts,
   createDockerContainer,
   runContainerSetup,
   ensureDockerContainer,

@@ -244,17 +244,18 @@ export function imageExists(imageName: string): boolean {
 /**
  * Create and start a Docker container for an agent.
  */
-export function createDockerContainer(
+/**
+ * Build the Docker volume mount flags for an agent container.
+ * PRLT-1163: HQ .proletariat is mounted read-only to prevent SQLite corruption
+ * from concurrent container writes.
+ */
+export function buildContainerMounts(
   context: ExecutionContext,
-  containerName: string,
-  imageName: string,
-  config: ExecutionConfig,
   executor: ExecutorType = 'claude-code',
-  prltInfo?: { registry: string; version: string }
-): boolean {
-  const mounts: string[] = [
+): string[] {
+  return [
     `-v "${context.agentDir}:/workspace:cached"`,
-    ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat:cached"`] : []),
+    ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat:ro"`] : []),
     ...(context.pmoPath ? [`-v "${context.pmoPath}:/hq/pmo:cached"`] : []),
     ...(context.repoWorktrees || []).map(
       repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:cached"`
@@ -264,6 +265,20 @@ export function createDockerContainer(
     // If the cache volume doesn't exist, Docker creates an empty one (harmless).
     ...(pnpmStoreCacheExists() ? [`-v "${PNPM_STORE_CACHE_VOLUME}:/tmp/pnpm-store-cache:ro"`] : []),
   ]
+}
+
+/**
+ * Create and start a Docker container for an agent.
+ */
+export function createDockerContainer(
+  context: ExecutionContext,
+  containerName: string,
+  imageName: string,
+  config: ExecutionConfig,
+  executor: ExecutorType = 'claude-code',
+  prltInfo?: { registry: string; version: string }
+): boolean {
+  const mounts = buildContainerMounts(context, executor)
 
   const hasWorktrees = context.repoWorktrees && context.repoWorktrees.length > 0
   // Merge workspace-level and action-level network allowlists (PRLT-1079)

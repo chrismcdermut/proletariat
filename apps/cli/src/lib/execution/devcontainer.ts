@@ -109,7 +109,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     // to avoid corruption from concurrent writes by multiple containers
     // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
     // So we use HTTPS + token approach instead. The token is fetched fresh at spawn time.
-    'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind,consistency=cached',
+    'source=${localEnv:PRLT_HQ_PATH}/.proletariat,target=/hq/.proletariat,type=bind,readonly,consistency=cached',
     // PMO path can be anywhere (e.g., /hq/pmo or /hq/repos/myrepo/pmo)
     // Use PRLT_PMO_PATH env var to mount the actual location to /hq/pmo
     'source=${localEnv:PRLT_PMO_PATH},target=/hq/pmo,type=bind,consistency=cached',
