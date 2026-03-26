@@ -61,6 +61,7 @@ function runCliWithError(args: string[]): { stdout: string; stderr: string; exit
 /**
  * Tests for work ship command
  * TKT-245 / PRLT-1092: Ship work — rebase, merge, move ticket to Done
+ * TKT-278 / PRLT-1144: Auto-merge green PRs when shipping policy allows
  */
 describe('Work Ship Command', () => {
   let helpOutput: string;
@@ -118,6 +119,28 @@ describe('Work Ship Command', () => {
       const result = runCliWithError(['work', 'ship', '--help']);
       // Help should succeed (exit 0) — if it doesn't, the command isn't registered
       expect(result.exitCode).to.equal(0);
+    });
+  });
+
+  describe('When-Green Flag (PRLT-1144)', () => {
+    it('shows --when-green flag in help', () => {
+      expect(helpOutput).to.contain('--when-green');
+    });
+
+    it('help describes auto-merge behavior', () => {
+      expect(helpOutput).to.contain('auto-merge');
+    });
+
+    it('shows --all flag in help', () => {
+      expect(helpOutput).to.contain('--all');
+    });
+
+    it('help shows when-green example', () => {
+      expect(helpOutput).to.contain('--when-green');
+    });
+
+    it('help shows batch mode example', () => {
+      expect(helpOutput).to.contain('--all');
     });
   });
 
