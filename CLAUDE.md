@@ -98,9 +98,11 @@ The DAL provides safety features: WAL mode, backups, integrity checks, auto-repa
 
 Branch names use the **source ticket ID** (e.g., `PRLT-xxx`), not the internal PMO ID (`TKT-xxx`).
 
-Format: `{ticketId}/{type}/{owner}/{agent}/{description}`
+Format: `{ticketId}/{type}/{slug}`
 
-Example: `PRLT-123/feat/chris/altman/implement-auth`
+Example: `PRLT-123/feat/implement-auth`
+
+Owner and agent names are no longer included in branch names. They remain in the DB work record for debugging.
 
 ## Workflow & Actions
 

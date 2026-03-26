@@ -94,7 +94,7 @@ export default class BranchValidate extends PMOCommand {
       if (result.error) {
         this.log(styles.muted(`   ${result.error}`))
       }
-      this.log(styles.muted(`   Expected: {ticketId?}/{type}/{owner?}/{description}`))
+      this.log(styles.muted(`   Expected: {ticketId}/{type}/{description} or {type}/{description}`))
       this.log(styles.muted(`   Types: ${Object.keys(BRANCH_TYPES).join(', ')}`))
     }
 

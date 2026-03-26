@@ -97,8 +97,9 @@ export function isTicketId(str: string): boolean {
  * Parse and validate a branch name against conventional format.
  *
  * Supported formats:
- * - {ticketId}/{type}/{owner}/{agent}/{description} - full format with ticket
- * - {ticketId}/{type}/{owner}/{description} - ticket format without agent (manual)
+ * - {ticketId}/{type}/{description} - standard format (new)
+ * - {ticketId}/{type}/{owner}/{description} - legacy format with owner
+ * - {ticketId}/{type}/{owner}/{agent}/{description} - legacy format with owner+agent
  * - {type}/{owner}/{description} - legacy format without ticket
  * - {type}/{description} - minimal format
  */
