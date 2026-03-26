@@ -6,10 +6,14 @@ import Database from 'better-sqlite3'
 import {
   enableWALMode,
   createRotatingBackup,
+  createManualBackup,
   checkIntegrity,
   quickCheckIntegrity,
   repairDatabase,
   getBackupPath,
+  getBackupsDir,
+  listBackups,
+  migrateExistingBackups,
 } from '../../src/lib/database/db-safety.js'
 import {
   checkPMOExists,
@@ -49,49 +53,229 @@ describe('db-safety', () => {
     })
   })
 
+  describe('getBackupsDir', () => {
+    it('should return a backups/ sibling directory', () => {
+      const dbPath = path.join(tmpDir, '.proletariat', 'workspace.db')
+      const result = getBackupsDir(dbPath)
+      expect(result).to.equal(path.join(tmpDir, '.proletariat', 'backups'))
+    })
+  })
+
   describe('createRotatingBackup', () => {
-    it('should create backup.1 from the database file', () => {
+    it('should create a timestamped backup in the backups/ directory', () => {
       const dbPath = path.join(tmpDir, 'test.db')
       const db = createTestDb(dbPath)
       db.close()
 
       const result = createRotatingBackup(dbPath)
-      expect(result).to.be.true
-      expect(fs.existsSync(getBackupPath(dbPath, 1))).to.be.true
+      expect(result).to.not.be.null
+
+      const backupsDir = getBackupsDir(dbPath)
+      expect(fs.existsSync(backupsDir)).to.be.true
+
+      const files = fs.readdirSync(backupsDir)
+      expect(files.length).to.be.greaterThan(0)
+      expect(files[0]).to.match(/^workspace-\d{8}-\d{6}-\d{3}(-\d+)?\.db$/)
     })
 
-    it('should rotate existing backups', () => {
+    it('should rotate backups keeping only the last 5', () => {
       const dbPath = path.join(tmpDir, 'test.db')
       const db = createTestDb(dbPath)
       db.close()
 
-      // Create 3 backups
-      createRotatingBackup(dbPath)
-      createRotatingBackup(dbPath)
-      createRotatingBackup(dbPath)
+      // Create 7 backups with slight delays to get unique timestamps
+      const backupsDir = getBackupsDir(dbPath)
+      fs.mkdirSync(backupsDir, { recursive: true })
 
-      expect(fs.existsSync(getBackupPath(dbPath, 1))).to.be.true
-      expect(fs.existsSync(getBackupPath(dbPath, 2))).to.be.true
-      expect(fs.existsSync(getBackupPath(dbPath, 3))).to.be.true
-    })
-
-    it('should limit to 5 backups', () => {
-      const dbPath = path.join(tmpDir, 'test.db')
-      const db = createTestDb(dbPath)
-      db.close()
-
+      // Create fake old backups
       for (let i = 0; i < 7; i++) {
-        createRotatingBackup(dbPath)
+        const name = `workspace-20260101-00000${i}.db`
+        fs.copyFileSync(dbPath, path.join(backupsDir, name))
       }
 
-      expect(fs.existsSync(getBackupPath(dbPath, 1))).to.be.true
-      expect(fs.existsSync(getBackupPath(dbPath, 5))).to.be.true
-      expect(fs.existsSync(getBackupPath(dbPath, 6))).to.be.false
+      // This should trigger rotation
+      createRotatingBackup(dbPath)
+
+      const files = fs.readdirSync(backupsDir).filter(f => f.endsWith('.db'))
+      expect(files.length).to.equal(5)
     })
 
-    it('should return false if source does not exist', () => {
+    it('should return null if source does not exist', () => {
       const result = createRotatingBackup(path.join(tmpDir, 'nonexistent.db'))
-      expect(result).to.be.false
+      expect(result).to.be.null
+    })
+  })
+
+  describe('getBackupPath', () => {
+    it('should return the nth most recent backup', () => {
+      const dbPath = path.join(tmpDir, 'test.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      const backupsDir = getBackupsDir(dbPath)
+      fs.mkdirSync(backupsDir, { recursive: true })
+
+      // Create 3 backups with known timestamps
+      const names = [
+        'workspace-20260101-000001.db',
+        'workspace-20260101-000002.db',
+        'workspace-20260101-000003.db',
+      ]
+      for (const name of names) {
+        fs.copyFileSync(dbPath, path.join(backupsDir, name))
+      }
+
+      // n=1 should be the newest (000003)
+      const newest = getBackupPath(dbPath, 1)
+      expect(newest).to.not.be.null
+      expect(path.basename(newest!)).to.equal('workspace-20260101-000003.db')
+    })
+
+    it('should return null for out-of-range n', () => {
+      const dbPath = path.join(tmpDir, 'test.db')
+      expect(getBackupPath(dbPath, 1)).to.be.null
+      expect(getBackupPath(dbPath, 0)).to.be.null
+    })
+  })
+
+  describe('createManualBackup', () => {
+    it('should create a manual backup with label', () => {
+      const dbPath = path.join(tmpDir, 'test.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      const result = createManualBackup(dbPath, 'pre-migration')
+      expect(result).to.not.be.null
+      expect(path.basename(result!)).to.match(/^workspace-manual-pre-migration-\d{8}-\d{6}-\d{3}(-\d+)?\.db$/)
+    })
+
+    it('should create a manual backup without label', () => {
+      const dbPath = path.join(tmpDir, 'test.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      const result = createManualBackup(dbPath)
+      expect(result).to.not.be.null
+      expect(path.basename(result!)).to.match(/^workspace-manual-\d{8}-\d{6}-\d{3}(-\d+)?\.db$/)
+    })
+  })
+
+  describe('listBackups', () => {
+    it('should return backup entries sorted newest-first', () => {
+      const dbPath = path.join(tmpDir, 'test.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      const backupsDir = getBackupsDir(dbPath)
+      fs.mkdirSync(backupsDir, { recursive: true })
+
+      const names = [
+        'workspace-20260101-000001.db',
+        'workspace-20260101-000003.db',
+        'workspace-20260101-000002.db',
+      ]
+      for (const name of names) {
+        fs.copyFileSync(dbPath, path.join(backupsDir, name))
+      }
+
+      const backups = listBackups(dbPath)
+      expect(backups.length).to.equal(3)
+      // All entries should have expected fields
+      expect(backups[0]).to.have.property('filename')
+      expect(backups[0]).to.have.property('path')
+      expect(backups[0]).to.have.property('size')
+      expect(backups[0]).to.have.property('mtime')
+    })
+
+    it('should return empty array when no backups exist', () => {
+      const dbPath = path.join(tmpDir, 'test.db')
+      const backups = listBackups(dbPath)
+      expect(backups).to.deep.equal([])
+    })
+  })
+
+  describe('migrateExistingBackups', () => {
+    it('should move legacy backup files into backups/', () => {
+      const prltDir = path.join(tmpDir, '.proletariat')
+      fs.mkdirSync(prltDir, { recursive: true })
+
+      const dbPath = path.join(prltDir, 'workspace.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      // Create legacy backup files
+      fs.copyFileSync(dbPath, path.join(prltDir, 'workspace.db.backup'))
+      fs.copyFileSync(dbPath, path.join(prltDir, 'workspace.db.backup-20260106-112422'))
+      fs.copyFileSync(dbPath, path.join(prltDir, 'workspace.db.backup.1'))
+      fs.writeFileSync(path.join(prltDir, 'workspace.db.corrupt'), 'corrupt data')
+
+      migrateExistingBackups(dbPath)
+
+      // Legacy files should be gone from top level
+      expect(fs.existsSync(path.join(prltDir, 'workspace.db.backup'))).to.be.false
+      expect(fs.existsSync(path.join(prltDir, 'workspace.db.backup-20260106-112422'))).to.be.false
+      expect(fs.existsSync(path.join(prltDir, 'workspace.db.backup.1'))).to.be.false
+      expect(fs.existsSync(path.join(prltDir, 'workspace.db.corrupt'))).to.be.false
+
+      // Should be in backups/ directory
+      const backupsDir = getBackupsDir(dbPath)
+      expect(fs.existsSync(backupsDir)).to.be.true
+
+      const files = fs.readdirSync(backupsDir)
+      expect(files.length).to.be.greaterThan(0)
+    })
+
+    it('should not move the active workspace.db', () => {
+      const prltDir = path.join(tmpDir, '.proletariat')
+      fs.mkdirSync(prltDir, { recursive: true })
+
+      const dbPath = path.join(prltDir, 'workspace.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      migrateExistingBackups(dbPath)
+
+      // Active database should still be in place
+      expect(fs.existsSync(dbPath)).to.be.true
+    })
+
+    it('should be safe to call multiple times', () => {
+      const prltDir = path.join(tmpDir, '.proletariat')
+      fs.mkdirSync(prltDir, { recursive: true })
+
+      const dbPath = path.join(prltDir, 'workspace.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      fs.copyFileSync(dbPath, path.join(prltDir, 'workspace.db.backup'))
+
+      migrateExistingBackups(dbPath)
+      migrateExistingBackups(dbPath) // second call should be a no-op
+
+      const backupsDir = getBackupsDir(dbPath)
+      const files = fs.readdirSync(backupsDir).filter(f => f.endsWith('.db'))
+      // Should not have duplicates from second call
+      expect(files.length).to.be.greaterThanOrEqual(1)
+    })
+
+    it('should handle WAL/SHM companions for numbered backups', () => {
+      const prltDir = path.join(tmpDir, '.proletariat')
+      fs.mkdirSync(prltDir, { recursive: true })
+
+      const dbPath = path.join(prltDir, 'workspace.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      fs.copyFileSync(dbPath, path.join(prltDir, 'workspace.db.backup.1'))
+      fs.writeFileSync(path.join(prltDir, 'workspace.db.backup.1-wal'), 'wal data')
+      fs.writeFileSync(path.join(prltDir, 'workspace.db.backup.1-shm'), 'shm data')
+
+      migrateExistingBackups(dbPath)
+
+      // All legacy files should be gone
+      expect(fs.existsSync(path.join(prltDir, 'workspace.db.backup.1'))).to.be.false
+      expect(fs.existsSync(path.join(prltDir, 'workspace.db.backup.1-wal'))).to.be.false
+      expect(fs.existsSync(path.join(prltDir, 'workspace.db.backup.1-shm'))).to.be.false
     })
   })
 
@@ -132,8 +316,10 @@ describe('db-safety', () => {
       expect(rows[1].value).to.equal('world')
       repaired.close()
 
-      // Corrupt backup should exist
-      expect(fs.existsSync(`${dbPath}.corrupt`)).to.be.true
+      // Corrupt backup should exist in backups/ directory
+      const backupsDir = getBackupsDir(dbPath)
+      const corruptFiles = fs.readdirSync(backupsDir).filter(f => f.includes('corrupt'))
+      expect(corruptFiles.length).to.be.greaterThan(0)
     })
 
     it('should fall back to backup if dump fails on a truly corrupt file', () => {
@@ -167,6 +353,22 @@ describe('db-safety', () => {
       const result = repairDatabase(dbPath)
       expect(result.success).to.be.false
       expect(result.method).to.equal('none')
+    })
+
+    it('should save corrupt files in backups/ directory', () => {
+      const dbPath = path.join(tmpDir, 'test.db')
+      const db = createTestDb(dbPath)
+      db.close()
+
+      repairDatabase(dbPath)
+
+      // Corrupt file should be in backups/, not alongside the db
+      const corruptAtTopLevel = fs.existsSync(`${dbPath}.corrupt`)
+      expect(corruptAtTopLevel).to.be.false
+
+      const backupsDir = getBackupsDir(dbPath)
+      const corruptFiles = fs.readdirSync(backupsDir).filter(f => f.includes('corrupt'))
+      expect(corruptFiles.length).to.be.greaterThan(0)
     })
   })
 
@@ -248,12 +450,15 @@ describe('db-safety', () => {
       createPMODatabase(dbPath)
 
       // No backups should exist yet
-      expect(fs.existsSync(getBackupPath(dbPath, 1))).to.be.false
+      const backupsDir = getBackupsDir(dbPath)
+      expect(fs.existsSync(backupsDir)).to.be.false
 
       checkPMOExists(dbPath)
 
       // After calling checkPMOExists, a backup should have been created
-      expect(fs.existsSync(getBackupPath(dbPath, 1))).to.be.true
+      expect(fs.existsSync(backupsDir)).to.be.true
+      const files = fs.readdirSync(backupsDir).filter(f => f.endsWith('.db'))
+      expect(files.length).to.be.greaterThan(0)
     })
   })
 

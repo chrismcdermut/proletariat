@@ -6,7 +6,7 @@ import {
   getDatabasePath,
   checkIntegrity,
   repairDatabase,
-  getBackupPath,
+  listBackups,
 } from '../../lib/database/index.js'
 import {
   getRegisteredHeadquarters,
@@ -61,21 +61,17 @@ export default class DbRepair extends Command {
     }
 
     this.log(`\n${styles.header('Database Repair')}`)
-    this.log('─'.repeat(50))
+    this.log('\u2500'.repeat(50))
     this.log(styles.muted(`Database: ${dbPath}`))
 
-    // List available backups
+    // List available backups from backups/ directory
     this.log(styles.subheader('\nBackups:'))
-    let backupCount = 0
-    for (let i = 1; i <= 5; i++) {
-      const bp = getBackupPath(dbPath, i)
-      if (fs.existsSync(bp)) {
-        const stat = fs.statSync(bp)
-        this.log(`  ${styles.code(`backup.${i}`)} — ${styles.muted(stat.mtime.toISOString())} (${formatBytes(stat.size)})`)
-        backupCount++
+    const backups = listBackups(dbPath)
+    if (backups.length > 0) {
+      for (const backup of backups) {
+        this.log(`  ${styles.code(backup.filename)} \u2014 ${styles.muted(backup.mtime.toISOString())} (${formatBytes(backup.size)})`)
       }
-    }
-    if (backupCount === 0) {
+    } else {
       this.log(styles.muted('  No backups found'))
     }
 
