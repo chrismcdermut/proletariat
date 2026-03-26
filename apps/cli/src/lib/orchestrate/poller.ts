@@ -274,11 +274,9 @@ export class OrchestratePoller {
           // gh command failed
         }
 
-        if (
-          tracked &&
-          mergeable === 'CONFLICTING' &&
-          tracked.lastMergeable !== 'CONFLICTING'
-        ) {
+        // Fire on_pr_conflicting on first observation or when transitioning to CONFLICTING
+        const isNewConflict = mergeable === 'CONFLICTING' && (!tracked || tracked.lastMergeable !== 'CONFLICTING')
+        if (isNewConflict) {
           this.log(`[poll] PR conflicting: PR #${pr.number}`)
           await this.engine.fireEvent('on_pr_conflicting', {
             event: 'on_pr_conflicting',
