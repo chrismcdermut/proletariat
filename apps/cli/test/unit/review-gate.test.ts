@@ -8,7 +8,7 @@ import {
   resolveReviewGate,
   DEFAULT_REVIEW_GATE,
   REVIEW_GATE_MODES,
-} from '../../src/lib/pmo/utils.js'
+} from '../../src/lib/work-lifecycle/settings.js'
 import type { ReviewGateMode } from '../../src/lib/pmo/types.js'
 import { addReviewGate } from '../../src/lib/database/migrations/0011_add_review_gate.js'
 

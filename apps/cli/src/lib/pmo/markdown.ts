@@ -5,7 +5,7 @@
  */
 
 import { Board, Column, Ticket } from './types.js'
-import { slugify } from './utils.js'
+import { slugify } from '../utils/text.js'
 
 // =============================================================================
 // Parser

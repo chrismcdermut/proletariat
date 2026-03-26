@@ -1,7 +1,7 @@
 import { expect } from 'chai'
 import Database from 'better-sqlite3'
 import { PMO_TABLE_SCHEMAS } from '../../src/lib/pmo/schema.js'
-import { setReviewGateSetting } from '../../src/lib/pmo/utils.js'
+import { setReviewGateSetting } from '../../src/lib/work-lifecycle/settings.js'
 import {
   handlePostExecutionTransition,
   type PostExecutionContext,

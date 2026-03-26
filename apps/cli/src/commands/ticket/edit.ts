@@ -1,7 +1,7 @@
 import { Args, Flags } from '@oclif/core';
 import inquirer from 'inquirer';
 import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
-import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
+import { getWorkspacePriorities } from '../../lib/work-lifecycle/settings.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,

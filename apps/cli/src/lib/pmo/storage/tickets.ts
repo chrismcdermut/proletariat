@@ -17,7 +17,8 @@ import {
   pmoExternalIssueMap,
 } from '../../database/drizzle-schema.js'
 import { CreateTicketInput, PMOError, Ticket, TicketFilter } from '../types.js'
-import { slugify, generateEntityId } from '../utils.js'
+import { slugify } from '../../utils/text.js'
+import { generateEntityId } from '../utils.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'
 

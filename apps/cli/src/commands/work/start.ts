@@ -16,7 +16,8 @@ import {
   outputExecutionResultAsJson,
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
-import { getWorkColumnSetting, findColumnByName, getTicketExternalMetadata, resolveExternalTicketId, resolveReviewGate, isValidReviewGateMode } from '../../lib/pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName, resolveReviewGate, isValidReviewGateMode } from '../../lib/work-lifecycle/settings.js'
+import { getTicketExternalMetadata, resolveExternalTicketId } from '../../lib/external-issues/utils.js'
 import type { ReviewGateMode } from '../../lib/pmo/types.js'
 import { WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'

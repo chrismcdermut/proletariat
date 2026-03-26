@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import Database from 'better-sqlite3';
-import { slugify, formatDate, formatTimestamp, parseDate, deepClone, arraysEqual, DEFAULT_WORK_COLUMNS, getWorkColumnSetting } from '../../src/lib/pmo/utils.js';
+import { slugify, formatDate, formatTimestamp, parseDate, deepClone, arraysEqual } from '../../src/lib/utils/text.js';
+import { DEFAULT_WORK_COLUMNS, getWorkColumnSetting } from '../../src/lib/work-lifecycle/settings.js';
 import { createFastTestDb, type FastTestDb } from '../e2e/test-helpers.js';
 
 describe('@smoke PMO Utils', () => {

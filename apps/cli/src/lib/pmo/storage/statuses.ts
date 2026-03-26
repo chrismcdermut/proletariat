@@ -14,7 +14,7 @@ import {
   pmoTickets,
 } from '../../database/drizzle-schema.js'
 import { PMOError, StateCategory, STATE_CATEGORY_ORDER, Workflow, WorkflowStatus, WorkflowFilter } from '../types.js'
-import { slugify } from '../utils.js'
+import { slugify } from '../../utils/text.js'
 import { StorageContext } from './types.js'
 import { wrapSqliteError } from './helpers.js'
 

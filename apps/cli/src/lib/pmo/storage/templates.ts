@@ -12,7 +12,7 @@ import {
   TicketTemplate,
   TicketTemplateFilter,
 } from '../types.js'
-import { slugify } from '../utils.js'
+import { slugify } from '../../utils/text.js'
 import type { StorageContext, TicketTemplateRow } from './types.js'
 
 const T = PMO_TABLES

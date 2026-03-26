@@ -2,7 +2,7 @@ import { Args } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
-import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
+import { getWorkColumnSetting, findColumnByName } from '../../lib/work-lifecycle/settings.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';

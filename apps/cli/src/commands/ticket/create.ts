@@ -6,7 +6,7 @@ import { autoExportToBoard, PMOCommand, pmoBaseFlags } from '../../lib/pmo/index
 import { styles } from '../../lib/styles.js';
 import { updateEpicTicketsSection } from '../../lib/pmo/epic-files.js';
 import { TicketTemplate } from '../../lib/pmo/types.js';
-import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
+import { getWorkspacePriorities } from '../../lib/work-lifecycle/settings.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
