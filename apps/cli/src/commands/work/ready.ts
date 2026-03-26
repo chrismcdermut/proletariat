@@ -222,8 +222,8 @@ export default class WorkReady extends PMOCommand {
     const shouldCreatePR = flags.pr || flags['draft-pr'] || (!flags['no-pr'] && await this.shouldOfferPRCreation(jsonModeConfig));
 
       if (shouldCreatePR) {
-        // Get branch and worktree path from the execution record
-        const branch = runningExecution?.branch;
+        // Get branch from execution record, falling back to current HEAD branch
+        const branch = runningExecution?.branch || getCurrentBranch() || undefined;
         const agentName = runningExecution?.agentName;
         let worktreePath: string | undefined;
 

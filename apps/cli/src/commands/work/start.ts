@@ -46,7 +46,7 @@ import {
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo, isClaudeExecutor, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getOrPromptCoderName, getAuthMethod, saveAuthMethod, getCreatePrDefault, getMirrorToPmoDefault, getCleanupPolicy } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getAuthMethod, saveAuthMethod, getCreatePrDefault, getMirrorToPmoDefault, getCleanupPolicy } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath, buildWorkspaceRepos } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
@@ -1287,9 +1287,6 @@ export default class WorkStart extends PMOCommand {
         this.log(styles.muted(`   No git worktree found for agent, using current directory`))
       }
 
-      // Get coder name for branch naming (prompts on first use)
-      const coderName = await getOrPromptCoderName(db)
-
       // Use ticket's existing branch or generate a new one
       // When ticket was imported from an external source, use the external key
       // (e.g. PRLT-962) instead of the internal PMO ID (e.g. TKT-134) for branch naming
@@ -1298,8 +1295,6 @@ export default class WorkStart extends PMOCommand {
       const branch = ticket.branch || generateBranchName(
         branchTicketId,
         ticket.title,
-        coderName,
-        assignedAgent,
         ticket.category
       )
       const isExistingBranch = !!ticket.branch
@@ -3142,12 +3137,10 @@ export default class WorkStart extends PMOCommand {
     const worktreePath = resolveWorktreePath(agentDir, repoWorktrees)
 
     // Get coder name for branch naming (prompts on first use)
-    const coderName = await getOrPromptCoderName(db)
-
     // Use ticket's existing branch or generate a new one
     // Prefer external provider key (e.g. PRLT-1065) over internal TKT ID for branch naming
     const branchTicketId = resolveExternalTicketId(ticket)
-    const branch = ticket.branch || generateBranchName(branchTicketId, ticket.title, coderName, agentName, ticket.category)
+    const branch = ticket.branch || generateBranchName(branchTicketId, ticket.title, ticket.category)
     const isExistingBranch = !!ticket.branch
 
     // Get epic info

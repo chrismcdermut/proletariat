@@ -358,19 +358,20 @@ export function getBranchType(category?: string): string {
 
 /**
  * Generate branch name for agent work.
- * Format: {ticketId}/{type}/{owner}/{agent}/{slug}
+ * Format: {ticketId}/{type}/{slug}
  *
- * Example: TKT-054/feat/chris/altman/update-branch-naming
+ * Example: PRLT-1137/feat/fix-main-branch-ci
  *
- * - ticketId first for easy filtering: git branch | grep TKT-054
- * - owner: the human who owns the HQ/spawned the agent
- * - agent: the AI agent doing the work
+ * - ticketId first for easy filtering: git branch | grep PRLT-1137
+ * - type: derived from ticket category (feat, fix, rfct, etc.)
+ * - slug: kebab-case from ticket title, truncated to 20 chars
+ *
+ * Agent name and owner are dropped from the branch name entirely.
+ * They remain in the DB work record and session metadata for debugging.
  */
 export function generateBranchName(
   ticketId: string,
   ticketTitle: string,
-  ownerName: string,
-  agentName: string,
   category?: string
 ): string {
   const type = getBranchType(category)
@@ -381,7 +382,7 @@ export function generateBranchName(
     .substring(0, 20)
     .replace(/-+$/, '')
 
-  return `${ticketId}/${type}/${ownerName}/${agentName}/${slug}`
+  return `${ticketId}/${type}/${slug}`
 }
 
 // =============================================================================

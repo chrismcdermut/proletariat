@@ -18,7 +18,7 @@ import { hasGitHubRemote } from '../repos/git.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../branch/index.js'
 import { ExecutionStorage } from './storage.js'
 import { hasDevcontainerConfig } from './devcontainer.js'
-import { loadExecutionConfig, getOrPromptCoderName, getCleanupPolicy } from './config.js'
+import { loadExecutionConfig, getCleanupPolicy } from './config.js'
 import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName, isSrtInstalled, checkDockerMemoryCapacity } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
@@ -331,16 +331,11 @@ export async function spawnAgentForTicket(
   const repoWorktrees = detectRepoWorktrees(agentDir)
   const worktreePath = resolveWorktreePath(agentDir, repoWorktrees)
 
-  // Get coder name for branch naming (prompts on first use)
-  const coderName = await getOrPromptCoderName(db)
-
   // Generate branch name — prefer external provider key (e.g. PRLT-1065) over internal TKT ID
   const branchTicketId = resolveExternalTicketId(ticket)
   const branch = generateBranchName(
     branchTicketId,
     ticket.title,
-    coderName,
-    agentName,
     ticket.category
   )
 
