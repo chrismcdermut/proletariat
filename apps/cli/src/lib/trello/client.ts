@@ -143,4 +143,11 @@ export class TrelloClient {
       body: input,
     })
   }
+
+  async addComment(cardId: string, text: string): Promise<void> {
+    await this.request(`/cards/${cardId}/actions/comments`, {
+      method: 'POST',
+      body: { text },
+    })
+  }
 }

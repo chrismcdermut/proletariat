@@ -22,11 +22,14 @@ import type Database from 'better-sqlite3'
 import { isLinearConfigured } from '../linear/config.js'
 import { isClickUpConfigured } from '../clickup/config.js'
 import { LinearMapper } from '../linear/mapper.js'
+import { isTrelloConfigured } from '../trello/config.js'
+import { TrelloMapper } from '../trello/mapper.js'
 import type { StateCategory } from '../pmo/types.js'
 import type { TicketProvider, ProviderStorage } from './types.js'
 import { PMOTicketProvider } from './pmo-provider.js'
 import { LinearTicketProvider } from './linear-provider.js'
 import { ClickUpTicketProvider } from './clickup-provider.js'
+import { TrelloTicketProvider } from './trello-provider.js'
 import { EventEmittingProvider, type StatusResolver } from './event-emitting-provider.js'
 
 /**
@@ -149,6 +152,17 @@ export function resolveTicketProvider(
     return wrapWithEvents(inner, db, storage, projectId)
   }
 
+  // Check Trello
+  if (externalSource === 'trello' && isTrelloConfigured(db)) {
+    const mapper = new TrelloMapper(db)
+    const mapping = mapper.getByTicketId(ticketId)
+
+    if (mapping) {
+      const inner = new TrelloTicketProvider(db, storage, projectId, null)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  }
+
   // Default: local PMO
   const inner = new PMOTicketProvider(storage, projectId)
   return wrapWithEvents(inner, db, storage, projectId)
@@ -187,6 +201,11 @@ export function resolveProjectProvider(
 
   if (source === 'clickup') {
     const inner = new ClickUpTicketProvider(db, storage, projectId)
+    return wrapWithEvents(inner, db, storage, projectId)
+  }
+
+  if (source === 'trello') {
+    const inner = new TrelloTicketProvider(db, storage, projectId, null)
     return wrapWithEvents(inner, db, storage, projectId)
   }
 
