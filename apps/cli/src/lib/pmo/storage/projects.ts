@@ -20,7 +20,8 @@ import {
   Project,
   ProjectFilter,
 } from '../types.js'
-import { generateEntityId, slugify } from '../utils.js'
+import { slugify } from '../../utils/text.js'
+import { generateEntityId } from '../utils.js'
 import { generateBoardMarkdown } from '../markdown.js'
 import { StorageContext, TicketRow } from './types.js'
 import { rowToTicket, wrapSqliteError } from './helpers.js'

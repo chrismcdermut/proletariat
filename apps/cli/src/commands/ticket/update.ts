@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { Args, Flags } from '@oclif/core';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
-import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
+import { getWorkspacePriorities } from '../../lib/work-lifecycle/settings.js';
 import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,

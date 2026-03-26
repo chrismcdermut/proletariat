@@ -7,7 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
 import { formatTicket, formatTicketFull, errorResponse, strictTool } from '../helpers.js'
-import { getWorkspacePriorities, setWorkspacePriorities } from '../../pmo/utils.js'
+import { getWorkspacePriorities, setWorkspacePriorities } from '../../work-lifecycle/settings.js'
 
 export function registerTicketTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,

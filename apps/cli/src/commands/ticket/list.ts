@@ -1,6 +1,6 @@
 import { Command, Flags } from '@oclif/core';
 import { Ticket, pmoBaseFlags, TicketFilter } from '../../lib/pmo/index.js';
-import { getWorkspacePriorities } from '../../lib/pmo/utils.js';
+import { getWorkspacePriorities } from '../../lib/work-lifecycle/settings.js';
 import { getPMOContext } from '../../lib/pmo/pmo-context.js';
 import {
   styles,

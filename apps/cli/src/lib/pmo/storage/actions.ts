@@ -4,7 +4,7 @@
 
 import { PMO_TABLES } from '../schema.js'
 import { PMOError, WorkAction, WorkActionFilter, ActionExecutor, ActionEnvironment, ActionPermissionMode, ReviewGateMode } from '../types.js'
-import { slugify } from '../utils.js'
+import { slugify } from '../../utils/text.js'
 import { StorageContext, WorkActionRow } from './types.js'
 
 const T = PMO_TABLES

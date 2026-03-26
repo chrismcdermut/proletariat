@@ -30,6 +30,8 @@ const SCHEMA_SOURCE_FILES = [
   '../../src/lib/pmo/templates-builtin.ts',
   '../../src/lib/pmo/utils.ts',
   '../../src/lib/pmo/types.ts',
+  '../../src/lib/utils/text.ts',
+  '../../src/lib/work-lifecycle/settings.ts',
   '../../src/lib/database/index.ts',
   '../../src/lib/database/workspace-schema.ts',
   '../../src/lib/database/migrator.ts',

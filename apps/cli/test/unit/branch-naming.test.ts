@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { generateBranchName, getBranchType, CATEGORY_TO_BRANCH_TYPE } from '../../src/lib/execution/types.js';
 import { validateBranchName } from '../../src/lib/branch/index.js';
-import { getTicketExternalMetadata, resolveExternalTicketId } from '../../src/lib/pmo/utils.js';
+import { getTicketExternalMetadata, resolveExternalTicketId } from '../../src/lib/external-issues/utils.js';
 
 describe('@smoke Branch Naming', () => {
   describe('generateBranchName', () => {

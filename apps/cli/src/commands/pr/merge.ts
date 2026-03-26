@@ -3,7 +3,7 @@ import {
   PMOCommand,
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
-import { getWorkColumnSetting, findColumnByName } from '../../lib/pmo/utils.js';
+import { getWorkColumnSetting, findColumnByName } from '../../lib/work-lifecycle/settings.js';
 import { styles } from '../../lib/styles.js';
 import {
   isGHInstalled,

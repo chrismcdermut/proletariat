@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import { PMO_TABLES } from '../schema.js'
 import { PMOError, Subtask, AcceptanceCriterion } from '../types.js'
-import { slugify } from '../utils.js'
+import { slugify } from '../../utils/text.js'
 import { StorageContext } from './types.js'
 import { wrapSqliteError } from './helpers.js'
 

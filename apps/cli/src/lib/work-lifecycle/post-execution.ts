@@ -15,7 +15,7 @@
  */
 
 import type Database from 'better-sqlite3'
-import { getWorkColumnSetting, findColumnByName, getReviewGateSetting } from '../pmo/utils.js'
+import { getWorkColumnSetting, findColumnByName, getReviewGateSetting } from './settings.js'
 import type { StateCategory, ReviewGateMode } from '../pmo/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
 import type { TicketProvider, ProviderMoveResult, ProviderStorage } from '../providers/types.js'

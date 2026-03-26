@@ -4,7 +4,7 @@
 
 import { PMO_TABLES } from '../schema.js'
 import { PMOError, WorkflowRule, WorkflowRuleFilter, WorkflowRuleTrigger } from '../types.js'
-import { slugify } from '../utils.js'
+import { slugify } from '../../utils/text.js'
 import { StorageContext, WorkflowRuleRow } from './types.js'
 
 const T = PMO_TABLES

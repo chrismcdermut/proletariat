@@ -6,7 +6,7 @@
 import Database from 'better-sqlite3'
 import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
 import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
-import { setWorkspacePriorities, DEFAULT_PRIORITIES } from '../utils.js'
+import { setWorkspacePriorities, DEFAULT_PRIORITIES } from '../../work-lifecycle/settings.js'
 
 const T = PMO_TABLES
 
