@@ -589,7 +589,22 @@ Use these commands to interact with the ticket system. Always use the global \`p
 const PRLT_COMMANDS_CODE = `
 | \`prlt commit "message"\` | Create a commit with ticket ID from branch name |
 | \`prlt work propose <id>\` | Create a PR and move ticket to Review (preferred for agents) |
-| \`prlt work ready <id> --pr\` | Mark ticket ready for review and create a PR |`
+| \`prlt work ready <id> --pr\` | Mark ticket ready for review and create a PR |
+| \`prlt work ship <id>\` | Merge PR and move ticket to Done |
+| \`prlt work complete <id>\` | Mark ticket as complete (move to Done) |
+| \`prlt pr create\` | Create a PR with ticket context (use \`prlt work propose\` instead when possible) |
+
+### Forbidden Commands — NEVER Use These
+
+These raw commands bypass ticket state transitions and break board/Linear sync:
+
+| Forbidden Command | Use Instead |
+|-------------------|-------------|
+| \`gh pr create\` | \`prlt work propose <id>\` or \`prlt pr create\` |
+| \`gh pr merge\` | \`prlt work ship <id>\` |
+| \`git push origin HEAD && gh pr create\` | \`prlt work propose <id>\` (handles push + PR + state) |
+
+**Why:** \`prlt\` commands update ticket state (In Progress → Review → Done) and sync with Linear/Jira. Raw \`gh\` commands skip all of this, leaving the board stale.`
 
 const PRLT_COMMANDS_REVIEW = `
 | \`prlt ticket move <id>\` | Move ticket to a different column |
@@ -837,7 +852,12 @@ ${PRLT_COMMANDS_CODE}`,
    This creates a pull request and moves the ticket to Review automatically.
 
 **IMPORTANT:** Use \`prlt work propose\` — do NOT use \`gh pr create\` directly, as that skips ticket state transitions.
-**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`,
+**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.
+
+**NEVER use these commands:**
+- \`gh pr create\` → use \`prlt work propose {{TICKET_ID}}\` instead
+- \`gh pr merge\` → use \`prlt work ship {{TICKET_ID}}\` instead
+- These raw commands skip ticket lifecycle updates and break board sync.`,
       fromState: 'Todo',
       toState: 'In Progress',
       executor: 'claude',
@@ -976,7 +996,7 @@ Merge this ticket's pull request after verifying it is ready:
 
 1. **Check CI status** — ensure all checks are passing:
    \`\`\`bash
-   gh pr checks
+   prlt pr checks
    \`\`\`
 
 2. **Verify approval** — ensure the PR has been approved:
@@ -984,36 +1004,38 @@ Merge this ticket's pull request after verifying it is ready:
    gh pr view --json reviews
    \`\`\`
 
-3. **Merge the PR** — use squash merge by default:
+3. **Merge the PR** using prlt:
    \`\`\`bash
-   gh pr merge --squash --delete-branch
+   prlt work ship {{TICKET_ID}}
+   \`\`\`
+   This squash-merges the PR, deletes the branch, and moves the ticket to Done.
+
+   If CI is not yet green, use \`--when-green\` to auto-merge once checks pass:
+   \`\`\`bash
+   prlt work ship {{TICKET_ID}} --when-green
    \`\`\`
 
-4. **Clean up** — the \`--delete-branch\` flag handles remote branch deletion.
-   Locally, prune stale tracking branches:
-   \`\`\`bash
-   git fetch --prune
-   \`\`\`
+4. **Clean up** — \`prlt work ship\` handles branch deletion automatically.
 
 ## Important Rules
-- Do NOT merge if CI checks are failing — report the failures instead
+- Do NOT merge if CI checks are failing — report the failures or use \`--when-green\`
 - Do NOT merge if the PR has not been approved — report the status instead
 - Do NOT force-merge or bypass required checks
 - If merge conflicts exist, report them — do NOT attempt to resolve them in this action
+- **NEVER use \`gh pr merge\`** — always use \`prlt work ship\` (it updates ticket state and syncs with Linear/Jira)
 
 ${PRLT_COMMANDS_COMMON}
-${PRLT_COMMANDS_REVIEW}`,
+${PRLT_COMMANDS_CODE}`,
       endPrompt: `After merging:
 
-1. **If merge was successful**, mark the ticket as complete:
-   \`\`\`bash
-   prlt work complete {{TICKET_ID}}
-   \`\`\`
+1. **If merge was successful** via \`prlt work ship\`, the ticket is automatically moved to Done — no further action needed.
 
 2. **If merge failed** (CI failures, conflicts, missing approval), report the issue:
    \`\`\`bash
    prlt ticket edit {{TICKET_ID}} --add-subtask "Fix: <description of merge blocker>"
    \`\`\`
+
+**IMPORTANT:** NEVER use \`gh pr merge\` — always use \`prlt work ship {{TICKET_ID}}\`.
 
 **STOP:** After completing the above, your task is done. Do not take any further actions.`,
       fromState: 'Review',

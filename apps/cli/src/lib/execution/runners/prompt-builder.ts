@@ -138,10 +138,12 @@ const ORCHESTRATOR_COMMAND_REGISTRY: CommandCategory[] = [
   {
     title: 'PR Workflow',
     commands: [
+      { cmd: 'prlt work ship <ticket-id>', desc: 'Merge PR and move ticket to Done', checkPath: 'work/ship' },
+      { cmd: 'prlt work ship <ticket-id> --when-green', desc: 'Auto-merge when CI passes', checkPath: 'work/ship' },
+      { cmd: 'prlt pr checks', desc: 'Check CI status for current PR', checkPath: 'pr/checks' },
       { cmd: 'gh pr list', desc: 'List open PRs' },
       { cmd: 'gh pr view <num>', desc: 'View PR details' },
       { cmd: 'gh pr checks <num>', desc: 'Check CI status' },
-      { cmd: 'gh pr merge <num> --squash', desc: 'Merge PR (squash only)' },
     ],
   },
 ]
@@ -153,6 +155,8 @@ interface AntiPatternDef {
 }
 
 const ORCHESTRATOR_ANTI_PATTERNS: AntiPatternDef[] = [
+  { bad: 'gh pr merge', good: 'prlt work ship <ticket-id>', checkPath: 'work/ship' },
+  { bad: 'gh pr create', good: 'prlt pr create or prlt work propose <ticket-id>', checkPath: 'pr/create' },
   { bad: 'docker exec <container> ...', good: 'prlt session exec', checkPath: 'session/exec' },
   { bad: 'tmux send-keys ...', good: 'prlt session poke', checkPath: 'session/poke' },
   { bad: 'tmux capture-pane ...', good: 'prlt session peek', checkPath: 'session/peek' },
@@ -223,7 +227,7 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
   prompt += `- Plan and prioritize work — decide what to tackle next and in what order\n`
   prompt += `- Delegate implementation to agents via \`prlt work start\`\n`
   prompt += `- Monitor agent progress via sessions and review completed work\n`
-  prompt += `- Review and merge completed PRs via \`gh pr merge --squash\`\n`
+  prompt += `- Review and merge completed PRs via \`prlt work ship <ticket-id>\`\n`
   prompt += `- Coordinate parallel agents — handle rebases after merges\n`
   prompt += `- Never write code or make changes to source files yourself\n\n`
   prompt += `## Command Reference\n\n`
@@ -236,7 +240,9 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
   prompt += buildOrchestratorAntiPatterns()
   prompt += buildIntegrationCommandsSection(context.connectedIntegrations)
   prompt += `## Workflow\n`
-  prompt += `- Squash merge only: \`gh pr merge --squash\`\n`
+  prompt += `- Merge PRs: \`prlt work ship <ticket-id>\` (squash-merges and moves ticket to Done)\n`
+  prompt += `- Auto-merge when CI passes: \`prlt work ship <ticket-id> --when-green\`\n`
+  prompt += `- **NEVER use \`gh pr merge\`** — it skips ticket state transitions and breaks board/Linear sync\n`
   prompt += `- After merging: subsequent PRs from parallel agents will need rebase\n`
   prompt += `- Kill stale sessions after their PRs are merged\n\n`
 
@@ -411,6 +417,10 @@ export function buildPrompt(context: ExecutionContext): string {
     if (context.modifiesCode) {
       const reviewGate = context.reviewGate || 'required'
 
+      const forbiddenBlock = `\n\n**NEVER use these commands — they skip ticket lifecycle updates and break board sync:**\n` +
+        `- \`gh pr create\` → use \`prlt work propose ${context.ticketId}\` instead\n` +
+        `- \`gh pr merge\` → use \`prlt work ship ${context.ticketId}\` instead`
+
       if (reviewGate === 'auto') {
         // Auto mode: agent ships directly to main, no PR needed
         prompt += `1. **Commit your work** in each repository directory you modified:\n`
@@ -425,6 +435,7 @@ export function buildPrompt(context: ExecutionContext): string {
         prompt += `   \`\`\`bash\n   prlt work ready ${context.ticketId} --no-pr\n   \`\`\`\n`
         prompt += `   This moves the ticket to done. No PR is needed — your work ships directly.\n`
         prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
+        prompt += forbiddenBlock
       } else if (reviewGate === 'post') {
         // Post mode: agent creates and merges its own PR, human reviews after
         prompt += `1. **Commit your work** in each repository directory you modified:\n`
@@ -440,6 +451,7 @@ export function buildPrompt(context: ExecutionContext): string {
         prompt += `   This creates a pull request and moves the ticket to review. The PR will be auto-merged — a human will review post-merge.\n`
         prompt += `\n**IMPORTANT:** Use \`prlt work propose\` — do NOT use \`gh pr create\` directly, as that skips ticket state transitions.`
         prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
+        prompt += forbiddenBlock
       } else {
         // Required mode (default): agent creates PR, human approves before it lands
         prompt += `1. **Commit your work** in each repository directory you modified:\n`
@@ -461,6 +473,7 @@ export function buildPrompt(context: ExecutionContext): string {
           prompt += `   This moves the ticket to review.\n`
         }
         prompt += `\n**IMPORTANT:** Use the global \`prlt\` command (just type \`prlt\`). Do NOT use \`./bin/run.js\` or any local path.`
+        prompt += forbiddenBlock
       }
     } else {
       prompt += `When you have completed the task, provide a summary of what you did.`

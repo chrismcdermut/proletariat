@@ -65,7 +65,8 @@ describe('@smoke PRLT-1129: Agent prompt + stop hook routing', () => {
         reviewGate: 'required',
       }))
       expect(prompt).to.include('prlt work ready TKT-900 --no-pr')
-      expect(prompt).to.not.include('prlt work propose')
+      // Primary instruction should NOT be prlt work propose (it may appear in forbidden commands context)
+      expect(prompt).to.not.match(/```bash\n\s*prlt work propose/)
     })
 
     it('should use prlt work ready --no-pr in auto review gate mode', () => {
@@ -74,7 +75,8 @@ describe('@smoke PRLT-1129: Agent prompt + stop hook routing', () => {
         reviewGate: 'auto',
       }))
       expect(prompt).to.include('prlt work ready TKT-900 --no-pr')
-      expect(prompt).to.not.include('prlt work propose')
+      // Primary instruction should NOT be prlt work propose (it may appear in forbidden commands context)
+      expect(prompt).to.not.match(/```bash\n\s*prlt work propose/)
     })
 
     it('should warn against using gh pr create directly', () => {
@@ -103,6 +105,61 @@ describe('@smoke PRLT-1129: Agent prompt + stop hook routing', () => {
         createPR: true,
       }))
       expect(prompt).to.include('prlt work propose TKT-900')
+    })
+  })
+
+  // =========================================================================
+  // Layer 1b: PRLT-1162 — Forbidden commands enforcement
+  // =========================================================================
+  describe('Layer 1b: PRLT-1162 — Forbidden commands in all modes', () => {
+    it('should warn against gh pr merge in required mode', () => {
+      const prompt = buildPrompt(makeContext({
+        modifiesCode: true,
+        createPR: true,
+        reviewGate: 'required',
+      }))
+      expect(prompt).to.include('`gh pr merge`')
+      expect(prompt).to.include('prlt work ship')
+    })
+
+    it('should warn against gh pr create in required mode', () => {
+      const prompt = buildPrompt(makeContext({
+        modifiesCode: true,
+        createPR: true,
+        reviewGate: 'required',
+      }))
+      expect(prompt).to.include('`gh pr create`')
+      expect(prompt).to.include('prlt work propose')
+    })
+
+    it('should warn against gh pr merge in post mode', () => {
+      const prompt = buildPrompt(makeContext({
+        modifiesCode: true,
+        createPR: true,
+        reviewGate: 'post',
+      }))
+      expect(prompt).to.include('`gh pr merge`')
+      expect(prompt).to.include('prlt work ship')
+    })
+
+    it('should warn against gh pr merge in auto mode', () => {
+      const prompt = buildPrompt(makeContext({
+        modifiesCode: true,
+        reviewGate: 'auto',
+      }))
+      expect(prompt).to.include('`gh pr merge`')
+      expect(prompt).to.include('prlt work ship')
+    })
+
+    it('should include forbidden commands block when createPR=false', () => {
+      const prompt = buildPrompt(makeContext({
+        modifiesCode: true,
+        createPR: false,
+        reviewGate: 'required',
+      }))
+      expect(prompt).to.include('NEVER use these commands')
+      expect(prompt).to.include('`gh pr create`')
+      expect(prompt).to.include('`gh pr merge`')
     })
   })
 
