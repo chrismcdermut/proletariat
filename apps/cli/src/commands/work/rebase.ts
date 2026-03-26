@@ -13,10 +13,10 @@ import {
   listOpenPRs,
   getMergeableState,
   rebasePRBranch,
-  rebaseConflictingSiblingPRs,
   type PRInfo,
   type RebasePRResult,
 } from '../../lib/pr/index.js';
+import { rebaseSiblingPRs, type SiblingRebaseResult } from '../../lib/shipping/index.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -110,7 +110,7 @@ export default class WorkRebase extends PMOCommand {
   }
 
   /**
-   * Rebase all conflicting open PRs.
+   * Rebase all conflicting open PRs using provider-based API updates.
    */
   private async rebaseAll(
     flags: Record<string, unknown>,
@@ -131,29 +131,21 @@ export default class WorkRebase extends PMOCommand {
       return;
     }
 
-    // Check each PR for conflicts
-    const conflicting: PRInfo[] = [];
-    for (const pr of openPRs) {
-      const state = getMergeableState(pr.number, cwd);
-      if (state === 'CONFLICTING') {
-        conflicting.push(pr);
+    // Check each PR for conflicts (for dry-run display)
+    if (flags['dry-run']) {
+      const conflicting: PRInfo[] = [];
+      for (const pr of openPRs) {
+        const state = getMergeableState(pr.number, cwd);
+        if (state === 'CONFLICTING') {
+          conflicting.push(pr);
+        }
       }
-    }
 
-    if (conflicting.length === 0) {
-      if (jsonMode) {
-        outputSuccessAsJson(
-          { rebased: [], conflicting: 0, total: openPRs.length },
-          createMetadata('work rebase', flags),
-        );
+      if (conflicting.length === 0) {
+        this.log(styles.info(`No conflicting PRs found (${openPRs.length} open PRs checked).`));
         return;
       }
-      this.log(styles.info(`No conflicting PRs found (${openPRs.length} open PRs checked).`));
-      return;
-    }
 
-    // Dry run
-    if (flags['dry-run']) {
       this.log('');
       this.log(styles.info(`Dry run — ${conflicting.length} conflicting PR(s) would be rebased:`));
       this.log('');
@@ -163,53 +155,59 @@ export default class WorkRebase extends PMOCommand {
       return;
     }
 
-    // Rebase each conflicting PR
+    // Use provider-based rebase for all conflicting PRs
     this.log('');
-    this.log(styles.info(`Rebasing ${conflicting.length} conflicting PR(s)...`));
+    this.log(styles.info('Rebasing conflicting PRs...'));
 
-    const results: RebasePRResult[] = [];
-    for (const pr of conflicting) {
-      this.log(styles.muted(`   Rebasing #${pr.number} (${pr.headBranch})...`));
-      const result = rebasePRBranch(pr.headBranch, pr.baseBranch, cwd);
-      const rebaseResult: RebasePRResult = {
-        success: result.success,
-        prNumber: pr.number,
-        headBranch: pr.headBranch,
-        error: result.error,
-      };
-      results.push(rebaseResult);
+    const rebaseResult: SiblingRebaseResult = rebaseSiblingPRs({
+      excludePRNumber: null,
+      cwd,
+      onProgress: (msg) => this.log(styles.muted(`   ${msg}`)),
+      labelConflicts: true,
+      commentOnConflicts: true,
+    });
 
-      if (result.success) {
-        this.log(styles.success(`   #${pr.number} rebased and force-pushed`));
-      } else {
-        this.log(styles.warning(`   #${pr.number} rebase failed: ${result.error}`));
-      }
+    for (const r of rebaseResult.succeeded) {
+      this.log(styles.success(`   #${r.prNumber} rebased (${r.headBranch})`));
     }
-
-    const succeeded = results.filter(r => r.success);
-    const failed = results.filter(r => !r.success);
+    for (const r of rebaseResult.failed) {
+      const conflictNote = r.hasConflicts ? ' (labeled rebase-conflict)' : '';
+      this.log(styles.warning(`   #${r.prNumber} rebase failed: ${r.error}${conflictNote}`));
+    }
 
     if (jsonMode) {
       outputSuccessAsJson(
         {
-          rebased: results.map(r => ({
-            prNumber: r.prNumber,
-            headBranch: r.headBranch,
-            success: r.success,
-            error: r.error ?? null,
-          })),
-          conflicting: conflicting.length,
-          total: openPRs.length,
-          succeeded: succeeded.length,
-          failed: failed.length,
+          rebased: [
+            ...rebaseResult.succeeded.map(r => ({
+              prNumber: r.prNumber,
+              headBranch: r.headBranch,
+              success: true,
+              error: null,
+            })),
+            ...rebaseResult.failed.map(r => ({
+              prNumber: r.prNumber,
+              headBranch: r.headBranch,
+              success: false,
+              error: r.error ?? null,
+            })),
+          ],
+          conflicting: rebaseResult.succeeded.length + rebaseResult.failed.length,
+          total: rebaseResult.totalChecked,
+          succeeded: rebaseResult.succeeded.length,
+          failed: rebaseResult.failed.length,
         },
         createMetadata('work rebase', flags),
       );
       return;
     }
 
-    this.log('');
-    this.log(styles.success(`Rebase complete: ${succeeded.length} succeeded, ${failed.length} failed`));
+    if (rebaseResult.succeeded.length === 0 && rebaseResult.failed.length === 0) {
+      this.log(styles.info(`No conflicting PRs found (${openPRs.length} open PRs checked).`));
+    } else {
+      this.log('');
+      this.log(styles.success(`Rebase complete: ${rebaseResult.succeeded.length} succeeded, ${rebaseResult.failed.length} failed`));
+    }
   }
 
   /**
