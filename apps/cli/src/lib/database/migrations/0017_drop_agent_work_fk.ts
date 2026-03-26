@@ -23,6 +23,9 @@ export const dropAgentWorkFk: Migration = {
       .get()
     if (!tableExists) return
 
+    // Disable FK checks — containers table has FK to agent_work
+    db.pragma('foreign_keys = OFF')
+
     // 1. Create new table without the FK constraint to pmo_tickets
     // Includes all columns from the original schema + columns added by migrations 0014-0016
     db.exec(`
@@ -80,5 +83,8 @@ export const dropAgentWorkFk: Migration = {
       CREATE INDEX IF NOT EXISTS idx_agent_work_ticket ON agent_work(ticket_id);
       CREATE INDEX IF NOT EXISTS idx_agent_work_lifecycle ON agent_work(lifecycle_state, status);
     `)
+
+    // Re-enable FK checks
+    db.pragma('foreign_keys = ON')
   },
 }
