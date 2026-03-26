@@ -45,6 +45,10 @@ export {
 export { findPMO } from './find-pmo.js';
 export { getPMOContext, type PMOContext, type GetPMOContextOptions } from './pmo-context.js';
 export { PMOCommand, pmoBaseFlags, jsonModeFlags, machineOutputFlags } from './base-command.js';
+
+// Re-export RuntimeCommand and flags for convenience.
+// Canonical import path is '../runtime-command.js'.
+export { RuntimeCommand, runtimeBaseFlags } from '../runtime-command.js';
 export {
   PMO_TABLES,
   PMO_TABLE_SCHEMAS,
