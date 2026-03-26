@@ -15,10 +15,17 @@ import {
   mergePR,
   getGitHubRepo,
   getDefaultBaseBranch,
+  listOpenPRs,
   type PRInfo,
   type PRCheck,
 } from '../../lib/pr/index.js';
-import { rebaseSiblingPRs, type SiblingRebaseResult } from '../../lib/shipping/index.js';
+import {
+  rebaseSiblingPRs,
+  type SiblingRebaseResult,
+  watchAndShip,
+  GitHubAutoMergeProvider,
+  type WhenGreenResult,
+} from '../../lib/shipping/index.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -48,6 +55,9 @@ export default class WorkShip extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --pr 929',
     '<%= config.bin %> <%= command.id %> TKT-001 --dry-run',
     '<%= config.bin %> <%= command.id %> TKT-001 --wait',
+    '<%= config.bin %> <%= command.id %> TKT-001 --when-green',
+    '<%= config.bin %> <%= command.id %> --when-green --pr 990',
+    '<%= config.bin %> <%= command.id %> --when-green --all',
     '<%= config.bin %> <%= command.id %> TKT-001 --no-rebase',
     '<%= config.bin %> <%= command.id %> TKT-001 --no-rebase-siblings',
   ];
@@ -72,6 +82,14 @@ export default class WorkShip extends PMOCommand {
     }),
     wait: Flags.boolean({
       description: 'Wait for CI to go green before merging',
+      default: false,
+    }),
+    'when-green': Flags.boolean({
+      description: 'Watch CI and auto-merge when all checks pass. Rebases if behind main.',
+      default: false,
+    }),
+    all: Flags.boolean({
+      description: 'Ship all currently-green PRs (use with --when-green to watch all)',
       default: false,
     }),
     'no-rebase': Flags.boolean({
@@ -133,6 +151,12 @@ export default class WorkShip extends PMOCommand {
     const executionStorage = new ExecutionStorage(db);
 
     try {
+      // --- Handle --all flag: batch ship all green PRs ---
+      if (flags.all) {
+        await this.shipAll(flags, workspaceInfo, executionStorage, db, jsonMode);
+        return;
+      }
+
       // --- Step 1: Resolve ticket and PR ---
       let ticketId = args.ticketId;
       let prNumber = flags.pr;
@@ -254,6 +278,7 @@ export default class WorkShip extends PMOCommand {
         this.log(styles.muted(`   PR:      #${prNumber} — ${prInfo.title}`));
         this.log(styles.muted(`   Branch:  ${prInfo.headBranch} → ${prInfo.baseBranch}`));
         this.log(styles.muted(`   Method:  ${flags.method}`));
+        this.log(styles.muted(`   Mode:    ${flags['when-green'] ? 'when-green (watch + auto-merge)' : 'immediate'}`));
         if (ticketId) {
           this.log(styles.muted(`   Ticket:  ${ticketId}${ticket ? ` — ${ticket.title}` : ''}`));
         }
@@ -301,58 +326,90 @@ export default class WorkShip extends PMOCommand {
         return;
       }
 
-      // --- Step 2: Check CI status ---
+      // --- Step 2+3+4: CI check, rebase, and merge ---
+      const method = flags.method as 'merge' | 'squash' | 'rebase';
       this.log('');
       this.log(styles.info(`Shipping PR #${prNumber}: ${prInfo.title}`));
 
-      const ciResult = await this.waitForCI(prNumber, flags.wait, cwd);
-      if (!ciResult.passed) {
-        db.close();
-        return handleError('CI_FAILED', ciResult.message);
-      }
+      let whenGreenResult: WhenGreenResult | undefined;
 
-      // --- Step 3: Check for merge conflicts and rebase if needed ---
-      const hasConflicts = this.checkMergeConflicts(prNumber, cwd);
-      if (hasConflicts) {
-        if (flags['no-rebase']) {
+      if (flags['when-green']) {
+        // --- When-green mode: watch CI and auto-merge ---
+        whenGreenResult = await watchAndShip(
+          {
+            prNumber,
+            method,
+            deleteBranch: flags['delete-branch'],
+            admin: flags.admin,
+            noRebase: flags['no-rebase'],
+            cwd,
+            headBranch: prInfo.headBranch,
+            baseBranch: prInfo.baseBranch,
+            onProgress: (msg) => this.log(styles.muted(`   ${msg}`)),
+            onWarning: (msg) => this.warn(msg),
+          },
+          new GitHubAutoMergeProvider(),
+        );
+
+        if (!whenGreenResult.merged) {
           db.close();
-          return handleError('MERGE_CONFLICTS', `PR #${prNumber} has merge conflicts. Resolve them manually or run without --no-rebase to auto-rebase.`);
+          return handleError(
+            whenGreenResult.errorCode || 'WHEN_GREEN_FAILED',
+            whenGreenResult.error || 'Auto-merge failed for unknown reason.',
+          );
         }
 
-        this.log(styles.muted('   Merge conflicts detected, rebasing...'));
-        const rebaseResult = this.rebaseOntoBase(prInfo.headBranch, prInfo.baseBranch, cwd);
-        if (!rebaseResult.success) {
+        this.log(styles.success(`   PR #${prNumber} merged`));
+      } else {
+        // --- Standard mode: immediate CI check + merge ---
+        const ciResult = await this.waitForCI(prNumber, flags.wait, cwd);
+        if (!ciResult.passed) {
           db.close();
-          return handleError('REBASE_FAILED', `Rebase failed: ${rebaseResult.error}. Resolve conflicts manually.`);
+          return handleError('CI_FAILED', ciResult.message);
         }
 
-        this.log(styles.muted('   Rebased and force-pushed. Waiting for CI...'));
+        // Check for merge conflicts and rebase if needed
+        const hasConflicts = this.checkMergeConflicts(prNumber, cwd);
+        if (hasConflicts) {
+          if (flags['no-rebase']) {
+            db.close();
+            return handleError('MERGE_CONFLICTS', `PR #${prNumber} has merge conflicts. Resolve them manually or run without --no-rebase to auto-rebase.`);
+          }
 
-        // Wait for CI to rerun after rebase
-        const postRebaseCI = await this.waitForCI(prNumber, true, cwd);
-        if (!postRebaseCI.passed) {
-          db.close();
-          return handleError('CI_FAILED_AFTER_REBASE', postRebaseCI.message);
+          this.log(styles.muted('   Merge conflicts detected, rebasing...'));
+          const rebaseResult = this.rebaseOntoBase(prInfo.headBranch, prInfo.baseBranch, cwd);
+          if (!rebaseResult.success) {
+            db.close();
+            return handleError('REBASE_FAILED', `Rebase failed: ${rebaseResult.error}. Resolve conflicts manually.`);
+          }
+
+          this.log(styles.muted('   Rebased and force-pushed. Waiting for CI...'));
+
+          // Wait for CI to rerun after rebase
+          const postRebaseCI = await this.waitForCI(prNumber, true, cwd);
+          if (!postRebaseCI.passed) {
+            db.close();
+            return handleError('CI_FAILED_AFTER_REBASE', postRebaseCI.message);
+          }
         }
+
+        // Merge the PR
+        this.log(styles.muted(`   Merging PR #${prNumber} (${method})...`));
+
+        const mergeResult = mergePR(prNumber, {
+          method,
+          deleteBranch: flags['delete-branch'],
+          admin: flags.admin,
+          cwd,
+        });
+
+        if (!mergeResult.success) {
+          db.close();
+          return handleError('MERGE_FAILED', `Failed to merge PR #${prNumber}: ${mergeResult.error}`);
+        }
+
+        this.log(styles.success(`   PR #${prNumber} merged`));
       }
-
-      // --- Step 4: Merge the PR ---
-      const method = flags.method as 'merge' | 'squash' | 'rebase';
-      this.log(styles.muted(`   Merging PR #${prNumber} (${method})...`));
-
-      const mergeResult = mergePR(prNumber, {
-        method,
-        deleteBranch: flags['delete-branch'],
-        admin: flags.admin,
-        cwd,
-      });
-
-      if (!mergeResult.success) {
-        db.close();
-        return handleError('MERGE_FAILED', `Failed to merge PR #${prNumber}: ${mergeResult.error}`);
-      }
-
-      this.log(styles.success(`   PR #${prNumber} merged`));
 
       // --- Step 5: Move ticket to Done ---
       let ticketMovedToDone = false;
@@ -491,6 +548,11 @@ export default class WorkShip extends PMOCommand {
             ticketMovedToDone,
             ticketTransitionProvider: ticketTransitionProvider ?? null,
             siblingRebases: siblingRebaseResults,
+            whenGreen: whenGreenResult ? {
+              autoMergeEnabled: whenGreenResult.autoMergeEnabled,
+              pollCycles: whenGreenResult.pollCycles,
+              rebasePerformed: whenGreenResult.rebasePerformed,
+            } : null,
           },
           createMetadata('work ship', flags),
         );
@@ -514,6 +576,12 @@ export default class WorkShip extends PMOCommand {
         const succeeded = siblingRebaseResults.filter(r => r.success).length;
         const failed = siblingRebaseResults.filter(r => !r.success).length;
         this.log(styles.muted(`   Sibling rebases: ${succeeded} succeeded, ${failed} failed`));
+      }
+      if (whenGreenResult) {
+        if (whenGreenResult.rebasePerformed) {
+          this.log(styles.muted('   Rebase: performed during watch'));
+        }
+        this.log(styles.muted(`   Watch:  ${whenGreenResult.pollCycles} poll cycles`));
       }
     } catch (error) {
       db.close();
@@ -763,5 +831,135 @@ export default class WorkShip extends PMOCommand {
     }
 
     return undefined;
+  }
+
+  /**
+   * Ship all currently-green PRs, or watch all open PRs when --when-green is set.
+   */
+  private async shipAll(
+    flags: Record<string, unknown>,
+    workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
+    executionStorage: ExecutionStorage,
+    db: ReturnType<typeof openWorkspaceDatabase>,
+    jsonMode: boolean,
+  ): Promise<void> {
+    const handleError = (code: string, message: string): void => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('work ship', flags));
+        return;
+      }
+      this.error(message);
+    };
+
+    const cwd = this.resolveWorktreePath(workspaceInfo, executionStorage);
+
+    // Get all open PRs
+    const openPRs = listOpenPRs(cwd);
+    if (openPRs.length === 0) {
+      db.close();
+      if (jsonMode) {
+        outputSuccessAsJson(
+          { shipped: [], skipped: [], message: 'No open PRs found.' },
+          createMetadata('work ship', flags),
+        );
+        return;
+      }
+      this.log(styles.info('No open PRs found.'));
+      return;
+    }
+
+    const method = (flags.method as string) || 'squash';
+    const whenGreen = flags['when-green'] as boolean;
+    const shipped: Array<{ prNumber: number; title: string }> = [];
+    const skipped: Array<{ prNumber: number; title: string; reason: string }> = [];
+    const failed: Array<{ prNumber: number; title: string; error: string }> = [];
+
+    this.log('');
+    this.log(styles.info(`Processing ${openPRs.length} open PRs...`));
+
+    for (const pr of openPRs) {
+      // Check CI status
+      const checks = getPRChecks(pr.number, cwd);
+      const ciPending = checks.filter(c =>
+        !c.conclusion || c.status === 'IN_PROGRESS' || c.status === 'QUEUED'
+      );
+      const ciFailed = checks.filter(c => c.conclusion === 'FAILURE');
+      const ciPassed = checks.length === 0 || (ciPending.length === 0 && ciFailed.length === 0);
+
+      if (!ciPassed && !whenGreen) {
+        const reason = ciFailed.length > 0
+          ? `CI failed: ${ciFailed.map(c => c.name).join(', ')}`
+          : `CI pending: ${ciPending.map(c => c.name).join(', ')}`;
+        skipped.push({ prNumber: pr.number, title: pr.title, reason });
+        this.log(styles.muted(`   Skip #${pr.number}: ${reason}`));
+        continue;
+      }
+
+      if (whenGreen) {
+        // Enable auto-merge on each PR and move on (non-blocking)
+        const autoMergeProvider = new GitHubAutoMergeProvider();
+        const result = autoMergeProvider.enableAutoMerge(
+          pr.number,
+          method as 'merge' | 'squash' | 'rebase',
+          cwd,
+        );
+        if (result.success) {
+          shipped.push({ prNumber: pr.number, title: pr.title });
+          this.log(styles.success(`   #${pr.number}: auto-merge enabled (${pr.title})`));
+        } else {
+          failed.push({ prNumber: pr.number, title: pr.title, error: result.error || 'Unknown error' });
+          this.log(styles.warning(`   #${pr.number}: failed to enable auto-merge: ${result.error}`));
+        }
+      } else {
+        // Ship immediately — CI is green
+        this.log(styles.muted(`   Shipping #${pr.number}: ${pr.title}...`));
+
+        const mergeResult = mergePR(pr.number, {
+          method: method as 'merge' | 'squash' | 'rebase',
+          deleteBranch: flags['delete-branch'] as boolean ?? true,
+          admin: flags.admin as boolean ?? false,
+          cwd,
+        });
+
+        if (mergeResult.success) {
+          shipped.push({ prNumber: pr.number, title: pr.title });
+          this.log(styles.success(`   #${pr.number} merged`));
+
+          // Try to resolve and update the linked ticket
+          const ticket = await this.resolveLinkedTicket(pr.number, pr.headBranch, (flags as { project?: string }).project);
+          if (ticket) {
+            try {
+              const targetColumnName = getWorkColumnSetting(db, 'done');
+              const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
+              const columnNames = board ? board.columns.map(col => col.name) : [];
+              const doneColumn = findColumnByName(columnNames, targetColumnName);
+              if (doneColumn && ticket.projectId) {
+                await this.storage.moveTicket(ticket.projectId, ticket.id, doneColumn);
+                this.log(styles.muted(`   ${ticket.id} → ${doneColumn}`));
+              }
+            } catch {
+              // Non-fatal
+            }
+          }
+        } else {
+          failed.push({ prNumber: pr.number, title: pr.title, error: mergeResult.error || 'Unknown error' });
+          this.log(styles.warning(`   #${pr.number} merge failed: ${mergeResult.error}`));
+        }
+      }
+    }
+
+    db.close();
+
+    // Output
+    if (jsonMode) {
+      outputSuccessAsJson(
+        { shipped, skipped, failed, mode: whenGreen ? 'when-green' : 'immediate' },
+        createMetadata('work ship', flags),
+      );
+      return;
+    }
+
+    this.log('');
+    this.log(styles.success(`Done: ${shipped.length} shipped, ${skipped.length} skipped, ${failed.length} failed`));
   }
 }
