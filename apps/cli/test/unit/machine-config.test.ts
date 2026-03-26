@@ -18,6 +18,7 @@ import {
   isWorkspaceRegistered,
   getWorkspaceNameFromPath,
   hasDuplicateNames,
+  pruneStaleHeadquarters,
   MachineConfig,
 } from '../../src/lib/machine-config.js';
 
@@ -390,6 +391,84 @@ describe('Machine Config', () => {
       expect(duplicates).to.have.length(1);
       expect(duplicates[0].name).to.equal('duplicate');
       expect(duplicates[0].paths).to.have.length(2);
+    });
+  });
+
+  describe('pruneStaleHeadquarters', () => {
+    it('removes entries whose paths no longer exist', () => {
+      // Register two HQs
+      const ws2Dir = path.join(testDir, 'workspace2');
+      fs.mkdirSync(path.join(ws2Dir, '.proletariat'), { recursive: true });
+      fs.writeFileSync(
+        path.join(ws2Dir, '.proletariat', 'config.json'),
+        JSON.stringify({ version: '1.0.0', type: 'hq', name: 'workspace2' })
+      );
+
+      registerWorkspace(testWorkspaceDir, 'alive', false);
+      registerWorkspace(ws2Dir, 'dead', false);
+
+      // Delete the second workspace directory
+      fs.rmSync(ws2Dir, { recursive: true, force: true });
+
+      const pruned = pruneStaleHeadquarters();
+
+      expect(pruned).to.have.length(1);
+      expect(pruned[0].name).to.equal('dead');
+
+      // Only the alive workspace should remain
+      const remaining = getRegisteredWorkspaces();
+      expect(remaining).to.have.length(1);
+      expect(remaining[0].name).to.equal('alive');
+    });
+
+    it('returns empty array when all paths exist', () => {
+      registerWorkspace(testWorkspaceDir, 'alive', false);
+
+      const pruned = pruneStaleHeadquarters();
+      expect(pruned).to.deep.equal([]);
+
+      // Workspace should still be registered
+      expect(getRegisteredWorkspaces()).to.have.length(1);
+    });
+
+    it('clears activeHeadquarters when it points to a pruned path', () => {
+      registerWorkspace(testWorkspaceDir, 'test-ws');
+
+      // Verify it's the active one
+      expect(getActiveWorkspace()).to.equal(testWorkspaceDir);
+
+      // Delete the workspace directory
+      fs.rmSync(testWorkspaceDir, { recursive: true, force: true });
+
+      pruneStaleHeadquarters();
+
+      expect(getActiveWorkspace()).to.be.null;
+      expect(getRegisteredWorkspaces()).to.have.length(0);
+    });
+
+    it('preserves activeHeadquarters when it points to a surviving path', () => {
+      const ws2Dir = path.join(testDir, 'workspace2');
+      fs.mkdirSync(path.join(ws2Dir, '.proletariat'), { recursive: true });
+      fs.writeFileSync(
+        path.join(ws2Dir, '.proletariat', 'config.json'),
+        JSON.stringify({ version: '1.0.0', type: 'hq', name: 'workspace2' })
+      );
+
+      registerWorkspace(testWorkspaceDir, 'alive');
+      registerWorkspace(ws2Dir, 'dead', false);
+
+      // Delete only the second workspace
+      fs.rmSync(ws2Dir, { recursive: true, force: true });
+
+      pruneStaleHeadquarters();
+
+      // Active HQ should still be the alive workspace
+      expect(getActiveWorkspace()).to.equal(testWorkspaceDir);
+    });
+
+    it('handles empty registry gracefully', () => {
+      const pruned = pruneStaleHeadquarters();
+      expect(pruned).to.deep.equal([]);
     });
   });
 });
