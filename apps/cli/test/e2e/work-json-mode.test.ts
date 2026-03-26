@@ -577,6 +577,12 @@ describe('Work Commands JSON Mode', () => {
       }
     });
 
+    it('should not expose action CRUD commands (PRLT-1159 regression)', async () => {
+      // Action CRUD commands have been removed — verify they are not registered
+      const actionListOutput = await execInProcess('action list --json');
+      expect(actionListOutput).to.match(/not found|unknown|error|command .* not found/i);
+    });
+
     it('should include --json flag in ticket selection commands', async () => {
       const output = await execInProcess('work start -P test-project --json');
       const json = extractJson<{
