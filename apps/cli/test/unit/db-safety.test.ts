@@ -11,6 +11,11 @@ import {
   repairDatabase,
   getBackupPath,
 } from '../../src/lib/database/db-safety.js'
+import {
+  checkPMOExists,
+  getPMOSetting,
+  dropPMOTables,
+} from '../../src/lib/database/pmo-bootstrap.js'
 
 describe('db-safety', () => {
   let tmpDir: string
@@ -162,6 +167,93 @@ describe('db-safety', () => {
       const result = repairDatabase(dbPath)
       expect(result.success).to.be.false
       expect(result.method).to.equal('none')
+    })
+  })
+
+  // =========================================================================
+  // PRLT-1152: PMO bootstrap must use db-safety auto-repair layer
+  // =========================================================================
+  describe('PMO bootstrap auto-repair (PRLT-1152)', () => {
+    function createPMODatabase(dbPath: string): void {
+      const db = new Database(dbPath)
+      db.exec('CREATE TABLE pmo_projects (id TEXT PRIMARY KEY, name TEXT)')
+      db.exec('CREATE TABLE pmo_tickets (id TEXT PRIMARY KEY, title TEXT)')
+      db.exec('CREATE TABLE pmo_settings (key TEXT PRIMARY KEY, value TEXT)')
+      db.exec("INSERT INTO pmo_projects VALUES ('P1', 'Project 1')")
+      db.exec("INSERT INTO pmo_tickets VALUES ('T1', 'Ticket 1')")
+      db.exec("INSERT INTO pmo_settings VALUES ('version', '1.0')")
+      db.close()
+    }
+
+    it('checkPMOExists auto-repairs a corrupt database instead of failing', () => {
+      const dbPath = path.join(tmpDir, 'workspace.db')
+      createPMODatabase(dbPath)
+
+      // Create a backup before corruption so repair has something to restore from
+      createRotatingBackup(dbPath)
+
+      // Corrupt the database
+      fs.writeFileSync(dbPath, Buffer.from('this is not a sqlite database'))
+
+      // Before the fix (PRLT-1152), this would throw SQLITE_CORRUPT or
+      // report PMO not found. After the fix, it should auto-repair and succeed.
+      const result = checkPMOExists(dbPath)
+      expect(result.exists).to.be.true
+      expect(result.projectCount).to.equal(1)
+      expect(result.ticketCount).to.equal(1)
+    })
+
+    it('getPMOSetting auto-repairs a corrupt database instead of failing', () => {
+      const dbPath = path.join(tmpDir, 'workspace.db')
+      createPMODatabase(dbPath)
+      createRotatingBackup(dbPath)
+
+      // Corrupt the database
+      fs.writeFileSync(dbPath, Buffer.from('this is not a sqlite database'))
+
+      const value = getPMOSetting(dbPath, 'version')
+      expect(value).to.equal('1.0')
+    })
+
+    it('dropPMOTables auto-repairs a corrupt database instead of failing', () => {
+      const dbPath = path.join(tmpDir, 'workspace.db')
+      createPMODatabase(dbPath)
+      createRotatingBackup(dbPath)
+
+      // Corrupt the database
+      fs.writeFileSync(dbPath, Buffer.from('this is not a sqlite database'))
+
+      // Should auto-repair and then drop tables without throwing
+      dropPMOTables(dbPath, ['pmo_projects', 'pmo_tickets'])
+
+      // Verify tables were dropped from the repaired database
+      const db = new Database(dbPath)
+      const tables = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('pmo_projects', 'pmo_tickets')"
+      ).all()
+      expect(tables).to.have.length(0)
+      db.close()
+    })
+
+    it('checkPMOExists throws descriptive error when repair is impossible', () => {
+      const dbPath = path.join(tmpDir, 'workspace.db')
+      // Write garbage with no backups available
+      fs.writeFileSync(dbPath, Buffer.from('corrupted beyond repair'))
+
+      expect(() => checkPMOExists(dbPath)).to.throw('Database corruption detected')
+    })
+
+    it('checkPMOExists creates a backup before opening', () => {
+      const dbPath = path.join(tmpDir, 'workspace.db')
+      createPMODatabase(dbPath)
+
+      // No backups should exist yet
+      expect(fs.existsSync(getBackupPath(dbPath, 1))).to.be.false
+
+      checkPMOExists(dbPath)
+
+      // After calling checkPMOExists, a backup should have been created
+      expect(fs.existsSync(getBackupPath(dbPath, 1))).to.be.true
     })
   })
 
