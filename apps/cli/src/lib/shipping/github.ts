@@ -1,19 +1,25 @@
 /**
- * GitHub Git Provider
+ * GitHub Git Provider & Auto-Merge Provider
  *
- * Implements the GitProvider interface using the GitHub API (via `gh` CLI).
- * Uses the update-branch API endpoint for rebasing instead of local git operations.
+ * Implements the GitProvider interface for sibling rebase (PRLT-1143)
+ * and the AutoMergeProvider interface for auto-merge (PRLT-1144),
+ * both using the GitHub API via `gh` CLI.
  */
 
-import { execSync } from 'node:child_process'
+import { execSync, spawnSync } from 'node:child_process'
 import type { PRInfo, MergeableState } from '../pr/index.js'
 import {
   listOpenPRs,
   getMergeableState,
   getGitHubRepo,
   rebasePRBranch,
+  getPRByNumber,
 } from '../pr/index.js'
-import type { GitProvider, UpdateBranchResult } from './types.js'
+import type { GitProvider, UpdateBranchResult, AutoMergeProvider, AutoMergeResult } from './types.js'
+
+// =============================================================================
+// GitHubProvider — Sibling Rebase (PRLT-1143)
+// =============================================================================
 
 /**
  * GitHub implementation of GitProvider.
@@ -154,5 +160,100 @@ export class GitHubProvider implements GitProvider {
     } catch {
       return false
     }
+  }
+}
+
+// =============================================================================
+// GitHubAutoMergeProvider — Auto-Merge (PRLT-1144)
+// =============================================================================
+
+/**
+ * GitHub implementation of AutoMergeProvider.
+ *
+ * Uses GitHub's native auto-merge feature when available, which
+ * automatically merges a PR once all required status checks pass.
+ */
+export class GitHubAutoMergeProvider implements AutoMergeProvider {
+  readonly name = 'github' as const
+
+  /**
+   * Enable GitHub's native auto-merge on a PR.
+   *
+   * Uses `gh pr merge --auto` which sets the PR to auto-merge once
+   * all required status checks pass and branch protections are satisfied.
+   *
+   * Requires: auto-merge must be enabled in the repository settings.
+   */
+  enableAutoMerge(
+    prNumber: number,
+    method: 'merge' | 'squash' | 'rebase',
+    cwd?: string,
+  ): AutoMergeResult {
+    const args = ['pr', 'merge', String(prNumber), '--auto', `--${method}`]
+
+    const result = spawnSync('gh', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    if (result.status !== 0) {
+      const stderr = result.stderr?.trim() || ''
+
+      // Check if auto-merge is already enabled
+      if (stderr.includes('already set to auto-merge') || stderr.includes('auto-merge is already enabled')) {
+        return {
+          success: true,
+          prNumber,
+          alreadyEnabled: true,
+        }
+      }
+
+      return {
+        success: false,
+        prNumber,
+        error: stderr || 'Failed to enable auto-merge',
+      }
+    }
+
+    return { success: true, prNumber }
+  }
+
+  /**
+   * Disable GitHub's native auto-merge on a PR.
+   *
+   * Uses `gh pr merge --disable-auto` to cancel auto-merge.
+   */
+  disableAutoMerge(prNumber: number, cwd?: string): AutoMergeResult {
+    const result = spawnSync('gh', ['pr', 'merge', String(prNumber), '--disable-auto'], {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+
+    if (result.status !== 0) {
+      const stderr = result.stderr?.trim() || ''
+
+      // Not an error if auto-merge wasn't enabled
+      if (stderr.includes('not set to auto-merge') || stderr.includes('auto-merge is not enabled')) {
+        return { success: true, prNumber }
+      }
+
+      return {
+        success: false,
+        prNumber,
+        error: stderr || 'Failed to disable auto-merge',
+      }
+    }
+
+    return { success: true, prNumber }
+  }
+
+  /**
+   * Check if a PR has been merged.
+   */
+  isPRMerged(prNumber: number, cwd?: string): boolean {
+    const prInfo = getPRByNumber(prNumber, cwd)
+    return prInfo?.state === 'MERGED'
   }
 }
