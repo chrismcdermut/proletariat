@@ -10,12 +10,12 @@ import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage, loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
 import { detectTerminalApp } from '../orchestrator/attach.js'
 import {
-  parseSessionName,
-  getHostTmuxSessionNames,
-  getContainerTmuxSessionMap,
-  flattenContainerSessions,
   findContainerSessionsByPrefix,
   findSessionForExecution,
+  isContainerEnvironment,
+  checkContainerLiveness,
+  getHostTmuxSessionNames,
+  getContainerTmuxSessionMap,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
@@ -31,11 +31,11 @@ interface SessionChoice {
   containerId?: string
   ticketId: string
   agentName: string
-  source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
+  source: 'db'  // Sessions always come from DB now
 }
 
 export default class SessionAttach extends PMOCommand {
-  static description = 'Attach to an active tmux session'
+  static description = 'Attach to an active agent session (DB-first: only attaches to tracked executions)'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -88,7 +88,7 @@ export default class SessionAttach extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
-    // Get all available sessions (DB-driven)
+    // Get all available sessions (DB-driven only — no orphan discovery)
     const sessions = this.getVerifiedSessions()
 
     if (sessions.length === 0) {
@@ -176,9 +176,9 @@ export default class SessionAttach extends PMOCommand {
   }
 
   /**
-   * Get verified sessions from DB that have actual tmux processes
-   * DB-driven approach: Start with executions, verify tmux sessions exist
-   * Also discovers orphan sessions matching prlt naming pattern but not in DB
+   * Get verified sessions from DB that have live runtimes.
+   * DB-driven approach: Start with executions, verify liveness against runtime.
+   * Does NOT discover orphan tmux sessions — only returns DB-tracked sessions.
    */
   private getVerifiedSessions(): SessionChoice[] {
     const sessions: SessionChoice[] = []
@@ -191,74 +191,65 @@ export default class SessionAttach extends PMOCommand {
       db = openWorkspaceDatabase(workspaceInfo.path)
       executionStorage = new ExecutionStorage(db)
     } catch {
-      // Not in workspace, but we can still discover tmux sessions
+      // Not in workspace
+      return sessions
     }
 
     try {
-      // Get actual tmux sessions for verification
+      // Get tmux sessions for verification
       const hostTmuxSessions = getHostTmuxSessionNames()
       const containerTmuxSessions = getContainerTmuxSessionMap()
 
-      // Flatten all container sessions for orphan detection
-      const allContainerSessions = flattenContainerSessions(containerTmuxSessions)
-
-      // Track which tmux sessions we've matched to DB records
-      const matchedHostSessions = new Set<string>()
-      const matchedContainerSessions = new Set<string>()
-
-      // Get active executions from DB (if available)
-      const activeExecutions = executionStorage ? [
+      // Get active executions from DB
+      const activeExecutions = [
         ...(executionStorage.listExecutions({ status: 'running' }) || []),
         ...(executionStorage.listExecutions({ status: 'starting' }) || []),
-      ] : []
+      ]
 
       for (const exec of activeExecutions) {
-        const isContainer = exec.environment === 'devcontainer'
+        const isContainer = isContainerEnvironment(exec.environment)
         let exists = false
         let containerId: string | undefined
         let actualSessionId = exec.sessionId
 
-        // If sessionId is NULL, try to find session by naming convention
-        if (!exec.sessionId) {
-          if (isContainer && exec.containerId) {
-            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-            const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
-            if (match) {
-              actualSessionId = match
-              exists = true
-              containerId = exec.containerId
+        if (isContainer && exec.containerId) {
+          // Container execution: check Docker liveness, then tmux inside
+          containerId = exec.containerId
+          const containerStatus = checkContainerLiveness(exec.containerId)
+
+          if (containerStatus === 'running') {
+            if (!exec.sessionId) {
+              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+              const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
+              if (match) {
+                actualSessionId = match
+                exists = true
+              }
+            } else {
+              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
+              exists = containerSessions.includes(exec.sessionId)
             }
-          } else {
+
+            // Container running but no tmux session — still attachable via docker exec
+            if (!exists && containerStatus === 'running') {
+              exists = true
+              actualSessionId = actualSessionId || `container:${exec.containerId.substring(0, 12)}`
+            }
+          }
+        } else {
+          // Host/sandbox execution: verify tmux session exists
+          if (!exec.sessionId) {
             const match = findSessionForExecution(exec.ticketId, exec.agentName, hostTmuxSessions)
             if (match) {
               actualSessionId = match
               exists = true
             }
-          }
-
-          // If still no match, skip this execution
-          if (!actualSessionId) {
-            continue
-          }
-        } else {
-          // sessionId is set, verify it exists
-          if (isContainer && exec.containerId) {
-            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-            exists = containerSessions.includes(exec.sessionId)
-            containerId = exec.containerId
           } else {
             exists = hostTmuxSessions.includes(exec.sessionId)
           }
         }
 
-        // Track matched sessions
         if (exists && actualSessionId) {
-          if (isContainer && containerId) {
-            matchedContainerSessions.add(`${containerId}:${actualSessionId}`)
-          } else {
-            matchedHostSessions.add(actualSessionId)
-          }
-
           sessions.push({
             name: actualSessionId,
             sessionId: actualSessionId,
@@ -267,42 +258,6 @@ export default class SessionAttach extends PMOCommand {
             ticketId: exec.ticketId,
             agentName: exec.agentName,
             source: 'db',
-          })
-        }
-      }
-
-      // Discover orphan sessions: tmux sessions matching prlt pattern but not in DB
-      // Host sessions
-      for (const sessionName of hostTmuxSessions) {
-        if (matchedHostSessions.has(sessionName)) continue
-
-        const parsed = parseSessionName(sessionName)
-        if (parsed) {
-          sessions.push({
-            name: sessionName,
-            sessionId: sessionName,
-            type: 'host',
-            ticketId: parsed.ticketId,
-            agentName: parsed.agentName,
-            source: 'discovered',
-          })
-        }
-      }
-
-      // Container sessions
-      for (const { sessionName, containerId } of allContainerSessions) {
-        if (matchedContainerSessions.has(`${containerId}:${sessionName}`)) continue
-
-        const parsed = parseSessionName(sessionName)
-        if (parsed) {
-          sessions.push({
-            name: sessionName,
-            sessionId: sessionName,
-            type: 'container',
-            containerId,
-            ticketId: parsed.ticketId,
-            agentName: parsed.agentName,
-            source: 'discovered',
           })
         }
       }
