@@ -269,6 +269,87 @@ export function findSessionForExecution(
 }
 
 /**
+ * Check if a Docker container is alive using docker inspect.
+ * Returns true if the container exists and is running.
+ */
+export function checkDockerContainerAlive(containerId: string): boolean {
+  try {
+    const output = execSync(
+      `docker inspect --format='{{.State.Running}}' ${containerId}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 }
+    ).trim()
+    return output === 'true'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if a host tmux session is alive using tmux has-session.
+ * Returns true if the session exists.
+ */
+export function checkHostTmuxSessionAlive(sessionId: string): boolean {
+  try {
+    execSync(`tmux has-session -t "${sessionId}"`, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check if a tmux session inside a Docker container is alive.
+ * Returns true if the session exists in the container.
+ */
+export function checkContainerTmuxSessionAlive(containerId: string, sessionId: string): boolean {
+  try {
+    execSync(`docker exec ${containerId} tmux has-session -t "${sessionId}"`, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10000,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Probe liveness for an execution based on its runtime environment.
+ * Uses docker inspect for containers and tmux has-session for host sessions.
+ * Returns whether the runtime is alive.
+ */
+export function probeExecutionLiveness(
+  environment: string,
+  containerId?: string,
+  sessionId?: string,
+): boolean {
+  if (environment === 'devcontainer' || environment === 'docker') {
+    if (containerId) {
+      // First check if the container itself is running
+      if (!checkDockerContainerAlive(containerId)) {
+        return false
+      }
+      // If we have a session ID, also verify the tmux session inside the container
+      if (sessionId) {
+        return checkContainerTmuxSessionAlive(containerId, sessionId)
+      }
+      // Container is running but no session ID to check — treat as alive
+      return true
+    }
+    return false
+  }
+
+  // Host environment: check tmux session
+  if (sessionId) {
+    return checkHostTmuxSessionAlive(sessionId)
+  }
+  return false
+}
+
+/**
  * Send a text message to a tmux session via send-keys.
  * Sends the text first, then Enter separately with a small delay
  * to avoid race conditions where Enter arrives before text is rendered.

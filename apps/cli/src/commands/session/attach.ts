@@ -10,12 +10,11 @@ import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage, loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
 import { detectTerminalApp } from '../orchestrator/attach.js'
 import {
-  parseSessionName,
+  findSessionForExecution,
   getHostTmuxSessionNames,
   getContainerTmuxSessionMap,
-  flattenContainerSessions,
   findContainerSessionsByPrefix,
-  findSessionForExecution,
+  probeExecutionLiveness,
 } from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
@@ -31,11 +30,10 @@ interface SessionChoice {
   containerId?: string
   ticketId: string
   agentName: string
-  source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
 }
 
 export default class SessionAttach extends PMOCommand {
-  static description = 'Attach to an active tmux session'
+  static description = 'Attach to an active agent session (DB-tracked only)'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
@@ -88,7 +86,7 @@ export default class SessionAttach extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
-    // Get all available sessions (DB-driven)
+    // Get all available sessions (DB-driven only — no orphan discovery)
     const sessions = this.getVerifiedSessions()
 
     if (sessions.length === 0) {
@@ -176,9 +174,9 @@ export default class SessionAttach extends PMOCommand {
   }
 
   /**
-   * Get verified sessions from DB that have actual tmux processes
-   * DB-driven approach: Start with executions, verify tmux sessions exist
-   * Also discovers orphan sessions matching prlt naming pattern but not in DB
+   * Get verified sessions from DB that have alive runtimes.
+   * DB-first: query executions, then probe liveness per runtime environment.
+   * No orphan discovery — only DB-tracked sessions are attachable.
    */
   private getVerifiedSessions(): SessionChoice[] {
     const sessions: SessionChoice[] = []
@@ -191,120 +189,48 @@ export default class SessionAttach extends PMOCommand {
       db = openWorkspaceDatabase(workspaceInfo.path)
       executionStorage = new ExecutionStorage(db)
     } catch {
-      // Not in workspace, but we can still discover tmux sessions
+      return sessions
     }
 
     try {
-      // Get actual tmux sessions for verification
+      // Get active executions from DB
+      const activeExecutions = [
+        ...executionStorage.listExecutions({ status: 'running' }),
+        ...executionStorage.listExecutions({ status: 'starting' }),
+      ]
+
+      // For session ID discovery when DB has NULL session_id
       const hostTmuxSessions = getHostTmuxSessionNames()
       const containerTmuxSessions = getContainerTmuxSessionMap()
 
-      // Flatten all container sessions for orphan detection
-      const allContainerSessions = flattenContainerSessions(containerTmuxSessions)
-
-      // Track which tmux sessions we've matched to DB records
-      const matchedHostSessions = new Set<string>()
-      const matchedContainerSessions = new Set<string>()
-
-      // Get active executions from DB (if available)
-      const activeExecutions = executionStorage ? [
-        ...(executionStorage.listExecutions({ status: 'running' }) || []),
-        ...(executionStorage.listExecutions({ status: 'starting' }) || []),
-      ] : []
-
       for (const exec of activeExecutions) {
-        const isContainer = exec.environment === 'devcontainer'
-        let exists = false
-        let containerId: string | undefined
+        const isContainer = exec.environment === 'devcontainer' || exec.environment === 'docker'
         let actualSessionId = exec.sessionId
 
-        // If sessionId is NULL, try to find session by naming convention
-        if (!exec.sessionId) {
+        // If sessionId is NULL, try to find by naming convention
+        if (!actualSessionId) {
           if (isContainer && exec.containerId) {
             const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
             const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
-            if (match) {
-              actualSessionId = match
-              exists = true
-              containerId = exec.containerId
-            }
+            if (match) actualSessionId = match
           } else {
             const match = findSessionForExecution(exec.ticketId, exec.agentName, hostTmuxSessions)
-            if (match) {
-              actualSessionId = match
-              exists = true
-            }
-          }
-
-          // If still no match, skip this execution
-          if (!actualSessionId) {
-            continue
-          }
-        } else {
-          // sessionId is set, verify it exists
-          if (isContainer && exec.containerId) {
-            const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-            exists = containerSessions.includes(exec.sessionId)
-            containerId = exec.containerId
-          } else {
-            exists = hostTmuxSessions.includes(exec.sessionId)
+            if (match) actualSessionId = match
           }
         }
 
-        // Track matched sessions
-        if (exists && actualSessionId) {
-          if (isContainer && containerId) {
-            matchedContainerSessions.add(`${containerId}:${actualSessionId}`)
-          } else {
-            matchedHostSessions.add(actualSessionId)
-          }
+        // Probe runtime liveness
+        const alive = probeExecutionLiveness(exec.environment, exec.containerId, actualSessionId)
+        if (!alive || !actualSessionId) continue
 
-          sessions.push({
-            name: actualSessionId,
-            sessionId: actualSessionId,
-            type: isContainer ? 'container' : 'host',
-            containerId,
-            ticketId: exec.ticketId,
-            agentName: exec.agentName,
-            source: 'db',
-          })
-        }
-      }
-
-      // Discover orphan sessions: tmux sessions matching prlt pattern but not in DB
-      // Host sessions
-      for (const sessionName of hostTmuxSessions) {
-        if (matchedHostSessions.has(sessionName)) continue
-
-        const parsed = parseSessionName(sessionName)
-        if (parsed) {
-          sessions.push({
-            name: sessionName,
-            sessionId: sessionName,
-            type: 'host',
-            ticketId: parsed.ticketId,
-            agentName: parsed.agentName,
-            source: 'discovered',
-          })
-        }
-      }
-
-      // Container sessions
-      for (const { sessionName, containerId } of allContainerSessions) {
-        if (matchedContainerSessions.has(`${containerId}:${sessionName}`)) continue
-
-        const parsed = parseSessionName(sessionName)
-        if (parsed) {
-          sessions.push({
-            name: sessionName,
-            sessionId: sessionName,
-            type: 'container',
-            containerId,
-            ticketId: parsed.ticketId,
-            agentName: parsed.agentName,
-            source: 'discovered',
-          })
-        }
+        sessions.push({
+          name: actualSessionId,
+          sessionId: actualSessionId,
+          type: isContainer ? 'container' : 'host',
+          containerId: exec.containerId,
+          ticketId: exec.ticketId,
+          agentName: exec.agentName,
+        })
       }
     } finally {
       db?.close()

@@ -208,8 +208,8 @@ describe('@smoke Session Commands E2E Tests', () => {
       expect(sessions).to.be.an('array');
     });
 
-    it('should return DB-tracked sessions even without tmux verification (default mode)', () => {
-      // Seed a running execution - no tmux session exists to verify it
+    it('should show stale DB-tracked sessions with --all when runtime is dead', () => {
+      // Seed a running execution - no tmux/docker runtime exists to verify it
       seedExecutionRecords([{
         id: 'exec-001',
         ticketId: 'TKT-100',
@@ -218,16 +218,17 @@ describe('@smoke Session Commands E2E Tests', () => {
         sessionId: 'TKT-100-implement-bold-turing',
       }]);
 
-      // Sessions are always shown from DB, even without tmux verification
-      const output = execProduction('session list --json');
-      const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string; exists: boolean; source: string; ticketId: string }>;
+      // DB-first approach: without --all, dead-runtime sessions are hidden.
+      // With --all, they appear as stale.
+      const output = execProduction('session list --all --json');
+      const sessions = JSON.parse(output) as Array<{ sessionId: string; status: string; alive: boolean; source: string; ticketId: string }>;
       expect(sessions).to.be.an('array');
-      // Filter to DB-sourced sessions for our seeded ticket (host may have real orphan tmux sessions)
       const dbSessions = sessions.filter(s => s.source === 'db' && s.ticketId === 'TKT-100');
-      // DB-tracked sessions may be cleaned up by cleanupStaleExecutions() if tmux doesn't verify them
-      // In test environments without tmux, cleanup removes stale records, so the count may be 0
+      // In test environments without tmux, sessions appear as stale (alive=false)
       if (dbSessions.length > 0) {
         expect(dbSessions[0].sessionId).to.equal('TKT-100-implement-bold-turing');
+        expect(dbSessions[0].alive).to.be.false;
+        expect(dbSessions[0].status).to.equal('stale');
       }
     });
 
@@ -312,6 +313,56 @@ describe('@smoke Session Commands E2E Tests', () => {
       const sessions = JSON.parse(output) as Array<{ sessionId: string }>;
       const session = sessions.find(s => s.sessionId === 'TKT-100-implement-bold-turing');
       expect(session).to.not.be.undefined;
+    });
+
+    it('PRLT-1139: should NOT show orphan sessions by default (DB-first)', () => {
+      // DB-first: session list without --orphans should ONLY show DB-tracked sessions.
+      // Orphan tmux sessions (those matching prlt pattern but not in DB) must be hidden.
+      const output = execProduction('session list --json');
+      const sessions = JSON.parse(output) as Array<{ source: string }>;
+      const orphans = sessions.filter(s => s.source === 'orphan');
+      // No orphan sessions should appear without --orphans flag
+      expect(orphans.length).to.equal(0);
+    });
+
+    it('PRLT-1139: default list should not include dead-runtime sessions', () => {
+      // Seed a running execution with no real tmux session behind it
+      seedExecutionRecords([{
+        id: 'exec-ghost-001',
+        ticketId: 'TKT-999',
+        ticketTitle: 'Ghost session',
+        agentName: 'ghost-agent',
+        sessionId: 'TKT-999-implement-ghost-agent',
+      }]);
+
+      // Without --all, dead-runtime sessions should be hidden
+      const output = execProduction('session list --json');
+      const sessions = JSON.parse(output) as Array<{ ticketId: string }>;
+      const ghost = sessions.find(s => s.ticketId === 'TKT-999');
+      // In test env (no tmux), the session has dead runtime and should be hidden by default
+      expect(ghost).to.be.undefined;
+    });
+
+    it('PRLT-1139: session JSON output should have alive field instead of exists', () => {
+      seedExecutionRecords([{
+        id: 'exec-field-001',
+        ticketId: 'TKT-888',
+        ticketTitle: 'Field check',
+        agentName: 'field-agent',
+        sessionId: 'TKT-888-implement-field-agent',
+      }]);
+
+      const output = execProduction('session list --all --json');
+      const sessions = JSON.parse(output) as Array<Record<string, unknown>>;
+      const session = sessions.find(s => (s as { ticketId: string }).ticketId === 'TKT-888');
+      if (session) {
+        // Must have 'alive' field (DB-first liveness probing)
+        expect(session).to.have.property('alive');
+        // Must have 'source' field with value 'db' (not 'discovered')
+        expect(session).to.have.property('source', 'db');
+        // Must NOT have the old 'exists' field
+        expect(session).to.not.have.property('exists');
+      }
     });
 
     it('should show host type indicator for host sessions', () => {
