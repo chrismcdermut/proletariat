@@ -5,56 +5,53 @@ import { getTicketExternalMetadata, resolveExternalTicketId } from '../../src/li
 
 describe('@smoke Branch Naming', () => {
   describe('generateBranchName', () => {
-    it('generates branch with ticket ID first, then type/owner/agent/slug', () => {
-      const branch = generateBranchName('TKT-001', 'Implement authentication', 'chris', 'altman');
-      expect(branch).to.equal('TKT-001/feat/chris/altman/implement-authentica');
+    it('generates branch with ticket ID, type, and slug only', () => {
+      const branch = generateBranchName('TKT-001', 'Implement authentication');
+      expect(branch).to.equal('TKT-001/feat/implement-authentica');
     });
 
     it('includes category-based branch type', () => {
-      const branch = generateBranchName('TKT-002', 'Fix login bug', 'chris', 'altman', 'bug');
-      expect(branch).to.equal('TKT-002/fix/chris/altman/fix-login-bug');
+      const branch = generateBranchName('TKT-002', 'Fix login bug', 'bug');
+      expect(branch).to.equal('TKT-002/fix/fix-login-bug');
     });
 
     it('truncates long titles to 20 characters', () => {
       const longTitle = 'This is a very long ticket title that should be truncated';
-      const branch = generateBranchName('TKT-003', longTitle, 'chris', 'altman');
+      const branch = generateBranchName('TKT-003', longTitle);
       // Slug should be max 20 chars
       const parts = branch.split('/');
-      const slug = parts[4]; // TKT-003/feat/chris/altman/slug
+      const slug = parts[2]; // TKT-003/feat/slug
       expect(slug.length).to.be.at.most(20);
     });
 
     it('removes special characters from title', () => {
-      const branch = generateBranchName('TKT-004', 'Fix bug #123 (urgent!)', 'chris', 'altman');
-      expect(branch).to.equal('TKT-004/feat/chris/altman/fix-bug-123-urgent');
+      const branch = generateBranchName('TKT-004', 'Fix bug #123 (urgent!)');
+      expect(branch).to.equal('TKT-004/feat/fix-bug-123-urgent');
     });
 
-    it('handles various owner name formats', () => {
-      expect(generateBranchName('TKT-001', 'Test', 'chris', 'altman')).to.include('/chris/');
-      expect(generateBranchName('TKT-001', 'Test', 'chris-m', 'altman')).to.include('/chris-m/');
-      expect(generateBranchName('TKT-001', 'Test', 'team-alpha', 'altman')).to.include('/team-alpha/');
-    });
-
-    it('handles various agent name formats', () => {
-      expect(generateBranchName('TKT-001', 'Test', 'chris', 'altman')).to.include('/altman/');
-      expect(generateBranchName('TKT-001', 'Test', 'chris', 'claude-agent')).to.include('/claude-agent/');
-      expect(generateBranchName('TKT-001', 'Test', 'chris', 'codex')).to.include('/codex/');
+    it('does not include owner or agent in branch name', () => {
+      const branch = generateBranchName('TKT-001', 'Test');
+      const parts = branch.split('/');
+      expect(parts).to.have.length(3);
+      expect(parts[0]).to.equal('TKT-001');
+      expect(parts[1]).to.equal('feat');
+      expect(parts[2]).to.equal('test');
     });
 
     it('defaults to feat branch type when no category', () => {
-      const branch = generateBranchName('TKT-001', 'New feature', 'chris', 'altman');
+      const branch = generateBranchName('TKT-001', 'New feature');
       expect(branch).to.match(/^TKT-001\/feat\//);
     });
 
     it('removes trailing hyphens from slug', () => {
-      const branch = generateBranchName('TKT-001', 'Test - title', 'chris', 'altman');
+      const branch = generateBranchName('TKT-001', 'Test - title');
       expect(branch).not.to.match(/-$/);
     });
 
     it('places ticket ID first for easy filtering', () => {
-      const branch = generateBranchName('TKT-054', 'Update branch naming', 'chris', 'altman', 'chore');
+      const branch = generateBranchName('TKT-054', 'Update branch naming', 'chore');
       expect(branch).to.match(/^TKT-054\//);
-      expect(branch).to.equal('TKT-054/chore/chris/altman/update-branch-naming');
+      expect(branch).to.equal('TKT-054/chore/update-branch-naming');
     });
   });
 
@@ -120,9 +117,33 @@ describe('@smoke Branch Naming', () => {
     });
   });
 
-  describe('validateBranchName - ticket ID position error messages', () => {
+  describe('validateBranchName', () => {
+    it('validates new 3-part ticket format: ticketId/type/description', () => {
+      const result = validateBranchName('PRLT-1137/feat/fix-main-branch-ci');
+      expect(result.valid).to.be.true;
+      expect(result.parts?.ticketId).to.equal('PRLT-1137');
+      expect(result.parts?.type).to.equal('feat');
+      expect(result.parts?.description).to.equal('fix-main-branch-ci');
+    });
+
+    it('still accepts old 5-part format for backward compat', () => {
+      const result = validateBranchName('TKT-001/feat/chris/altman/add-feature');
+      expect(result.valid).to.be.true;
+      expect(result.parts?.ticketId).to.equal('TKT-001');
+      expect(result.parts?.type).to.equal('feat');
+      expect(result.parts?.owner).to.equal('chris');
+      expect(result.parts?.agent).to.equal('altman');
+      expect(result.parts?.description).to.equal('add-feature');
+    });
+
+    it('still accepts old 4-part format for backward compat', () => {
+      const result = validateBranchName('TKT-001/feat/chris/add-feature');
+      expect(result.valid).to.be.true;
+      expect(result.parts?.ticketId).to.equal('TKT-001');
+      expect(result.parts?.owner).to.equal('chris');
+    });
+
     it('should detect ticket ID in owner position and give helpful error', () => {
-      // feat/TKT-001/test - TKT-001 looks like ticket ID but is in owner position
       const result = validateBranchName('feat/TKT-001/test');
       expect(result.valid).to.be.false;
       expect(result.error).to.include('looks like a ticket ID');
@@ -131,7 +152,6 @@ describe('@smoke Branch Naming', () => {
     });
 
     it('should detect ticket ID in description position (2-part branch)', () => {
-      // feat/PROJ-123 - PROJ-123 looks like ticket ID but is in description position
       const result = validateBranchName('feat/PROJ-123');
       expect(result.valid).to.be.false;
       expect(result.error).to.include('looks like a ticket ID');
@@ -139,7 +159,6 @@ describe('@smoke Branch Naming', () => {
     });
 
     it('should detect ticket ID in description position (3-part branch)', () => {
-      // feat/chris/TKT-456 - TKT-456 looks like ticket ID but is in description position
       const result = validateBranchName('feat/chris/TKT-456');
       expect(result.valid).to.be.false;
       expect(result.error).to.include('looks like a ticket ID');
@@ -148,7 +167,6 @@ describe('@smoke Branch Naming', () => {
     });
 
     it('should still show kebab-case error for non-ticket-ID values', () => {
-      // feat/chris/AddLogin - AddLogin is not kebab-case but not a ticket ID
       const result = validateBranchName('feat/chris/AddLogin');
       expect(result.valid).to.be.false;
       expect(result.error).to.include('kebab-case');
@@ -156,7 +174,6 @@ describe('@smoke Branch Naming', () => {
     });
 
     it('should still show kebab-case error for owner when not ticket ID', () => {
-      // feat/ChrisDoe/test - ChrisDoe is not kebab-case but not a ticket ID
       const result = validateBranchName('feat/ChrisDoe/test');
       expect(result.valid).to.be.false;
       expect(result.error).to.include('Owner name must be kebab-case');
@@ -169,13 +186,6 @@ describe('@smoke Branch Naming', () => {
       expect(result.parts?.ticketId).to.equal('TKT-001');
       expect(result.parts?.type).to.equal('feat');
       expect(result.parts?.description).to.equal('test');
-    });
-
-    it('should validate correct ticket-first format with owner', () => {
-      const result = validateBranchName('TKT-001/feat/chris/add-feature');
-      expect(result.valid).to.be.true;
-      expect(result.parts?.ticketId).to.equal('TKT-001');
-      expect(result.parts?.owner).to.equal('chris');
     });
 
     it('should validate correct legacy format', () => {
@@ -218,9 +228,10 @@ describe('@smoke Branch Naming', () => {
         metadata: { external_key: 'PRLT-1062', external_source: 'linear' },
       };
       const branchTicketId = resolveExternalTicketId(ticket);
-      const branch = generateBranchName(branchTicketId, 'Fix login bug', 'chris', 'altman', 'bug');
+      const branch = generateBranchName(branchTicketId, 'Fix login bug', 'bug');
       expect(branch).to.match(/^PRLT-1062\//);
       expect(branch).to.not.include('TKT-226');
+      expect(branch).to.equal('PRLT-1062/fix/fix-login-bug');
     });
   });
 

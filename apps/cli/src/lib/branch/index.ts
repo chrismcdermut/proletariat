@@ -97,8 +97,9 @@ export function isTicketId(str: string): boolean {
  * Parse and validate a branch name against conventional format.
  *
  * Supported formats:
- * - {ticketId}/{type}/{owner}/{agent}/{description} - full format with ticket
- * - {ticketId}/{type}/{owner}/{description} - ticket format without agent (manual)
+ * - {ticketId}/{type}/{description} - standard format (new)
+ * - {ticketId}/{type}/{owner}/{description} - legacy format with owner
+ * - {ticketId}/{type}/{owner}/{agent}/{description} - legacy format with owner+agent
  * - {type}/{owner}/{description} - legacy format without ticket
  * - {type}/{description} - minimal format
  */
@@ -153,7 +154,7 @@ export function validateBranchName(name: string): ValidationResult {
 
     return {
       valid: false,
-      error: 'Invalid ticket branch format. Expected: {ticketId}/{type}/{owner}/{description} or {ticketId}/{type}/{owner}/{agent}/{description}',
+      error: 'Invalid ticket branch format. Expected: {ticketId}/{type}/{description}',
     }
   }
 
@@ -237,10 +238,11 @@ export function validateBranchName(name: string): ValidationResult {
  * Build a branch name from parts.
  *
  * Formats:
- * - With ticket + agent: {ticketId}/{type}/{owner}/{agent}/{description}
- * - With ticket (manual): {ticketId}/{type}/{owner}/{description}
+ * - With ticket: {ticketId}/{type}/{description}
  * - Without ticket: {type}/{owner}/{description}
  * - Minimal: {type}/{description}
+ *
+ * Owner and agent are no longer included in ticket-based branch names.
  */
 export function buildBranchName(
   type: BranchType,
@@ -248,19 +250,11 @@ export function buildBranchName(
   options?: {
     ticketId?: string
     owner?: string
-    agent?: string
   }
 ): string {
-  const { ticketId, owner, agent } = options || {}
+  const { ticketId, owner } = options || {}
 
   if (ticketId) {
-    // Ticket-first format
-    if (agent && owner) {
-      return `${ticketId}/${type}/${owner}/${agent}/${description}`
-    }
-    if (owner) {
-      return `${ticketId}/${type}/${owner}/${description}`
-    }
     return `${ticketId}/${type}/${description}`
   }
 

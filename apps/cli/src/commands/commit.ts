@@ -267,7 +267,7 @@ export default class Commit extends PromptCommand {
     // Parse branch name
     const validation = validateBranchName(branch)
     if (!validation.valid || !validation.parts) {
-      return handleError('INVALID_BRANCH_NAME', `Could not parse branch name: ${branch}. Expected format: {ticketId}/{type}/{owner}/{agent}/{description}. Example: TKT-053/feat/chris/bezos/add-login. Use -t to specify commit type manually.`)
+      return handleError('INVALID_BRANCH_NAME', `Could not parse branch name: ${branch}. Expected format: {ticketId}/{type}/{description}. Example: PRLT-1137/feat/fix-main-branch-ci. Use -t to specify commit type manually.`)
     }
 
     const { type: branchType, ticketId: branchTicketId, agent } = validation.parts

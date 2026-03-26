@@ -30,7 +30,6 @@ import {
 } from '../../lib/branch/index.js'
 import { getCoderName, getGitUserName, getGitHubUsername } from '../../lib/execution/config.js'
 import { getBranchType } from '../../lib/execution/types.js'
-import { detectAgentName } from '../../lib/agents/index.js'
 
 interface WizardResult {
   branchName: string
@@ -190,7 +189,7 @@ export default class BranchCreate extends PMOCommand {
 
       branchName = buildBranchName(type, description, {
         ticketId: flags.ticket,
-        owner: ownerName,
+        owner: flags.ticket ? undefined : ownerName,
       })
     } else {
       // Interactive wizard
@@ -364,13 +363,9 @@ export default class BranchCreate extends PMOCommand {
       // Auto-generate branch name with defaults
       const type = getBranchType(foundTicket.category) as BranchType
       const slug = toKebabCase(foundTicket.title).substring(0, 20).replace(/-+$/, '')
-      const ownerName = ownerOverride || this.getDefaultOwnerName()
-      const agentName = detectAgentName()
 
       const branchName = buildBranchName(type, slug, {
         ticketId: foundTicket.id,
-        owner: ownerName,
-        agent: agentName || undefined,
       })
 
       this.log(styles.muted(`Ticket: ${foundTicket.title}`))
@@ -478,12 +473,9 @@ export default class BranchCreate extends PMOCommand {
     // Auto-generate branch name with defaults
     const type = getBranchType(ticket.category) as BranchType
     const slug = toKebabCase(ticket.title).substring(0, 20).replace(/-+$/, '')
-    const agentName = detectAgentName()
 
     const branchName = buildBranchName(type, slug, {
       ticketId: ticket.id,
-      owner: defaultOwnerName,
-      agent: agentName || undefined,
     })
 
     // Quick mode: always branch from origin/main
@@ -537,12 +529,8 @@ export default class BranchCreate extends PMOCommand {
     // Auto-generate branch name from ticket
     const type = getBranchType(ticket.category) as BranchType
     const slug = toKebabCase(ticket.title).substring(0, 20).replace(/-+$/, '')
-    const agentName = detectAgentName()
-
     const branchName = buildBranchName(type, slug, {
       ticketId: ticket.id,
-      owner: owner || undefined,
-      agent: agentName || undefined,
     })
 
     this.log('')

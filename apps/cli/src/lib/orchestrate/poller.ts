@@ -327,7 +327,7 @@ export class OrchestratePoller {
 
   /**
    * Extract ticket ID from branch name.
-   * Branch format: {ticketId}/{type}/{owner}/{agent}/{description}
+   * Branch format: {ticketId}/{type}/{description}
    */
   private extractTicketFromBranch(branch: string): string | undefined {
     // Match patterns like PRLT-123/... or TKT-456/...
