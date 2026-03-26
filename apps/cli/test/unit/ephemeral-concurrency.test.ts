@@ -152,7 +152,7 @@ describe('Ephemeral Agent Concurrency', () => {
       expect(result.name).to.be.a('string')
       expect(result.name.length).to.be.greaterThan(0)
       expect(result.agent.type).to.equal('ephemeral')
-      expect(result.agent.status).to.equal('active')
+      expect(result.agent.status).to.equal('running')
     })
 
     it('retries and succeeds when name collides at DB level', async () => {

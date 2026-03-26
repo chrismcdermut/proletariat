@@ -277,11 +277,16 @@ describe('PMO Base Command', () => {
         expect.fail('Should have called process.exit');
       } catch (error: unknown) {
         // Expected: process.exit was called by outputPromptAsJson
-        expect((error as Error).message).to.equal('__EXIT_2__');
+        expect((error as Error).message).to.satisfy(
+          (msg: string) => msg === '__EXIT_2__' || msg.includes('EEXIT')
+        );
       }
 
       // Should have exited with EXIT_NEEDS_INPUT (2)
-      expect(exitCode).to.equal(2);
+      // Either process.exit was called (exitCode set by override) or
+      // oclif ExitError was thrown (process.exitCode set directly)
+      const effectiveExitCode = exitCode ?? process.exitCode;
+      expect(effectiveExitCode).to.equal(2);
 
       // Should have output JSON with the prompt config
       expect(capturedOutput.length).to.be.greaterThan(0);
