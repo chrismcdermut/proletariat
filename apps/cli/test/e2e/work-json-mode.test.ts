@@ -827,7 +827,7 @@ describe('Work Commands JSON Mode', () => {
     });
 
     it('should include --executor codex in spawn confirmation command (smoke)', async () => {
-      const output = await execInProcess('work spawn TKT-020 -P test-project --action implement --display terminal --skip-permissions --executor codex --json');
+      const output = await execInProcess('work spawn TKT-020 -P test-project --display terminal --skip-permissions --executor codex --json');
       const json = extractJson<{
         type: string;
         confirm_command: string;

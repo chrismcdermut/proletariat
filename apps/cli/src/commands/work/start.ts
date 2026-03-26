@@ -236,7 +236,7 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --from-issue                       # Uses workspace default source',
     '<%= config.bin %> <%= command.id %> TKT-001 --review-gate auto        # Ship directly, no approval needed',
     '<%= config.bin %> <%= command.id %> TKT-001 --review-gate post        # Ship then human reviews after',
-    '<%= config.bin %> <%= command.id %> PRLT-1085 PRLT-1086 PRLT-1087 --action implement --create-pr  # Batch spawn in parallel',
+    '<%= config.bin %> <%= command.id %> PRLT-1085 PRLT-1086 PRLT-1087 --create-pr  # Batch spawn in parallel',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 TKT-003 --max-parallel 2  # Limit concurrent spawns',
   ]
 
@@ -260,8 +260,8 @@ export default class WorkStart extends PMOCommand {
       options: ['claude-code', 'codex', 'custom'],
     }),
     action: Flags.string({
-      char: 'A',
-      description: 'Action to perform (e.g., implement, groom, review)',
+      description: 'Action to perform (internal — use work groom/implement/review/resolve instead)',
+      hidden: true,
     }),
     prompt: Flags.string({
       char: 'p',
@@ -865,7 +865,7 @@ export default class WorkStart extends PMOCommand {
               title: ticket.title,
               status: ticket.statusName,
             },
-            action: flags.action || 'custom',
+            action: flags.action || 'implement',
             display: flags.display || (flags['run-on-host'] ? 'host' : 'devcontainer'),
             permissions: (flags['permission-mode'] || (flags['skip-permissions'] ? 'danger' : 'safe')),
             agent: flags.agent || 'ephemeral',
@@ -1307,100 +1307,21 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Determine action for this work session
+      // The --action flag is hidden/internal — used by dedicated commands (work groom, work review, etc.)
+      // When called directly, work start always uses 'implement'
       let selectedAction: WorkAction | null = null
       let customPrompt: string | undefined
 
       if (flags.prompt) {
         // Custom prompt overrides everything
         customPrompt = flags.prompt
-      } else if (flags.action) {
-        // Handle special "custom" action - requires --prompt flag
-        if (flags.action === 'custom') {
-          db.close()
-          return handleError('CUSTOM_ACTION_REQUIRES_PROMPT', '--action custom requires --prompt flag. Usage: prlt work start TKT-001 --action custom --prompt "your custom instructions"')
-        }
-        // Specific action requested
-        selectedAction = await this.storage.getAction(flags.action)
+      } else {
+        // Use specified action (internal routing) or default to 'implement'
+        const actionId = flags.action || 'implement'
+        selectedAction = await this.storage.getAction(actionId)
         if (!selectedAction) {
           db.close()
-          return handleError('ACTION_NOT_FOUND', `Action not found: ${flags.action}. Use "prlt action list" to see available actions.`)
-        }
-      } else {
-        // Interactive action selection
-        // Get ticket's current status to determine suggested action
-        const ticketStatus = await this.storage.getStatus(ticket.statusId || '')
-        const currentStateName = ticketStatus?.name || ticket.statusName || 'Todo'
-
-        // Get suggested action for this state
-        const suggestedAction = await this.storage.getSuggestedAction(currentStateName)
-
-        // Get all actions for selection
-        const allActions = await this.storage.listActions()
-
-        // Build choices with suggested action at top
-        const actionChoiceList: Array<{ name: string; value: string }> = []
-
-        if (suggestedAction) {
-          actionChoiceList.push({
-            name: `${suggestedAction.name} - ${suggestedAction.description || 'Suggested for ' + currentStateName} (Recommended)`,
-            value: suggestedAction.id,
-          })
-        }
-
-        for (const action of allActions) {
-          if (suggestedAction && action.id === suggestedAction.id) continue
-          actionChoiceList.push({
-            name: `${action.name}${action.description ? ' - ' + action.description : ''}`,
-            value: action.id,
-          })
-        }
-
-        actionChoiceList.push({ name: 'Custom prompt...', value: '__custom__' })
-        actionChoiceList.push({ name: 'Ad-hoc session - unstructured exploration/debugging', value: '__adhoc__' })
-
-        // Use FlagResolver for action selection
-        const actionResolver = new FlagResolver<{ selectedActionId?: string; customInput?: string }>({
-          commandName: 'work start',
-          baseCommand: `prlt work start ${ticketId}`,
-          jsonMode,
-          flags: {},
-        })
-
-        actionResolver.addPrompt({
-          flagName: 'selectedActionId',
-          type: 'list',
-          message: `What should the agent do with ${ticket.id}?`,
-          default: suggestedAction?.id,
-          choices: () => actionChoiceList,
-        })
-
-        actionResolver.addPrompt({
-          flagName: 'customInput',
-          type: 'input',
-          message: 'Enter custom prompt:',
-          when: (ctx) => ctx.flags.selectedActionId === '__custom__',
-          validate: (value) => (value as string).trim() ? true : 'Prompt cannot be empty',
-        })
-
-        const actionResult = await actionResolver.resolve()
-        const selectedActionId = actionResult.selectedActionId
-
-        if (selectedActionId === '__custom__') {
-          customPrompt = (actionResult.customInput as string).trim()
-        } else if (selectedActionId === '__adhoc__') {
-          // Ad-hoc session - no specific action, just launch Claude for exploration
-          selectedAction = {
-            id: 'adhoc',
-            name: 'Ad-hoc',
-            description: 'Unstructured exploration and debugging',
-            prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
-            modifiesCode: false,
-            toState: 'In Progress',
-            isBuiltin: false,
-            createdAt: new Date(),
-          }
-        } else if (selectedActionId) {
-          selectedAction = await this.storage.getAction(selectedActionId)
+          return handleError('ACTION_NOT_FOUND', `Action not found: ${actionId}`)
         }
       }
 
