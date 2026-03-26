@@ -168,6 +168,36 @@ const healthCheck: ActionHandler = (ctx) => {
   }
 }
 
+/**
+ * Resolve a merge conflict on a PR by poking the running agent or respawning a stopped one.
+ * If the agent is running, it gets poked with a rebase instruction.
+ * If the agent is stopped, it gets respawned with --action resolve.
+ * No action is taken on PRs with no associated ticket.
+ */
+const resolveConflict: ActionHandler = (ctx) => {
+  const start = Date.now()
+  try {
+    if (!ctx.ticket) {
+      return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start, skipped: true }
+    }
+
+    // Try poking the running agent first
+    try {
+      const pokeMsg = 'Your PR has merge conflicts. Please rebase on main and resolve the conflicts.'
+      execSync(`prlt session poke ${ctx.ticket} "${pokeMsg}"`, { timeout: 30_000, stdio: 'pipe' })
+      return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start }
+    } catch {
+      // Poke failed — agent is likely not running, respawn it
+    }
+
+    // Respawn the agent with resolve action
+    execSync(`prlt work start ${ctx.ticket} --action resolve --yes --display background`, { timeout: 60_000, stdio: 'pipe' })
+    return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start }
+  } catch (err) {
+    return { action: 'resolve-conflict', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  }
+}
+
 // =============================================================================
 // Action Registry
 // =============================================================================
@@ -185,6 +215,7 @@ export const ACTION_HANDLERS: Record<string, ActionHandler> = {
   'cleanup-container': cleanupContainer,
   'spawn-fix-agent': spawnFixAgent,
   'health-check': healthCheck,
+  'resolve-conflict': resolveConflict,
 }
 
 /**

@@ -95,6 +95,7 @@ export type BuiltinAction =
   | 'cleanup-container'
   | 'spawn-fix-agent'
   | 'health-check'
+  | 'resolve-conflict'
 
 /** All valid built-in action names. */
 export const BUILTIN_ACTIONS: BuiltinAction[] = [
@@ -107,6 +108,7 @@ export const BUILTIN_ACTIONS: BuiltinAction[] = [
   'cleanup-container',
   'spawn-fix-agent',
   'health-check',
+  'resolve-conflict',
 ]
 
 // =============================================================================

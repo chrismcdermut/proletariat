@@ -28,6 +28,7 @@ describe('Orchestrate Built-in Actions', () => {
       'cleanup-container',
       'spawn-fix-agent',
       'health-check',
+      'resolve-conflict',
     ]
 
     it('should have all expected actions registered', () => {
@@ -111,6 +112,33 @@ describe('Orchestrate Built-in Actions', () => {
       const result = executeBuiltinAction('cleanup-container', { event: 'on_agent_completed' })
       expect(result.success).to.be.false
       expect(result.error).to.include('No agent or container')
+    })
+  })
+
+  // ===========================================================================
+  // Resolve Conflict Action
+  // ===========================================================================
+
+  describe('resolve-conflict action', () => {
+    it('should skip (with success) when no ticket in context', () => {
+      const result = executeBuiltinAction('resolve-conflict', { event: 'on_pr_conflicting', pr: 42 })
+      expect(result.action).to.equal('resolve-conflict')
+      expect(result.success).to.be.true
+      expect(result.skipped).to.be.true
+    })
+
+    it('should attempt resolution when ticket is present', () => {
+      // With a ticket, it will try to poke/respawn — both will fail in test env
+      // but the action should not throw
+      const result = executeBuiltinAction('resolve-conflict', {
+        event: 'on_pr_conflicting',
+        ticket: 'TKT-999',
+        pr: 42,
+      })
+      expect(result.action).to.equal('resolve-conflict')
+      // Will fail because prlt commands aren't available in test, but should not throw
+      expect(result).to.have.property('success')
+      expect(result).to.have.property('durationMs')
     })
   })
 
