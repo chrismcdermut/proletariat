@@ -145,11 +145,13 @@ export {
   createManualBackup,
   checkIntegrity,
   quickCheckIntegrity,
+  checkSchemaCompleteness,
   repairDatabase,
   getBackupPath,
   getBackupsDir,
   listBackups,
   migrateExistingBackups,
   type IntegrityCheckResult,
+  type SchemaCheckResult,
   type RepairResult,
 } from './db-safety.js'

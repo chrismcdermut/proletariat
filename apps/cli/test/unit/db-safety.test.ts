@@ -9,6 +9,7 @@ import {
   createManualBackup,
   checkIntegrity,
   quickCheckIntegrity,
+  checkSchemaCompleteness,
   repairDatabase,
   getBackupPath,
   getBackupsDir,
@@ -459,6 +460,335 @@ describe('db-safety', () => {
       expect(fs.existsSync(backupsDir)).to.be.true
       const files = fs.readdirSync(backupsDir).filter(f => f.endsWith('.db'))
       expect(files.length).to.be.greaterThan(0)
+    })
+  })
+
+  // =========================================================================
+  // PRLT-1131: db repair must detect missing columns (schema completeness)
+  // =========================================================================
+  describe('checkSchemaCompleteness (PRLT-1131)', () => {
+    it('should report ok for a database with all expected columns', () => {
+      const dbPath = path.join(tmpDir, 'schema-ok.db')
+      const db = new Database(dbPath)
+
+      // Create workspace tables with all expected columns
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE repositories (
+          name TEXT PRIMARY KEY,
+          path TEXT NOT NULL,
+          type TEXT DEFAULT 'main',
+          source_url TEXT,
+          action TEXT,
+          added_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agent_themes (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          display_name TEXT NOT NULL,
+          description TEXT,
+          builtin BOOLEAN DEFAULT FALSE,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agent_theme_names (
+          theme_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          PRIMARY KEY (theme_id, name)
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agents (
+          name TEXT PRIMARY KEY,
+          type TEXT NOT NULL DEFAULT 'persistent',
+          status TEXT NOT NULL DEFAULT 'active',
+          base_name TEXT,
+          theme_id TEXT,
+          worktree_path TEXT,
+          mount_mode TEXT NOT NULL DEFAULT 'worktree',
+          created_at TEXT NOT NULL,
+          cleaned_at TEXT
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agent_worktrees (
+          agent_name TEXT NOT NULL,
+          repo_name TEXT NOT NULL,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          last_commit_hash TEXT,
+          commits_ahead INTEGER NOT NULL DEFAULT 0,
+          is_clean INTEGER NOT NULL DEFAULT 1,
+          last_checked TEXT,
+          PRIMARY KEY (agent_name, repo_name)
+        )
+      `)
+      db.exec(`
+        CREATE TABLE workspace_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE media_items (
+          name TEXT PRIMARY KEY,
+          path TEXT NOT NULL,
+          source_path TEXT,
+          media_type TEXT NOT NULL DEFAULT 'video',
+          duration_seconds REAL,
+          resolution TEXT,
+          frame_count INTEGER NOT NULL DEFAULT 0,
+          has_transcript INTEGER NOT NULL DEFAULT 0,
+          frame_interval INTEGER NOT NULL DEFAULT 30,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error_message TEXT,
+          added_at TEXT NOT NULL,
+          processed_at TEXT
+        )
+      `)
+
+      const result = checkSchemaCompleteness(db)
+      db.close()
+
+      expect(result.ok).to.be.true
+      expect(result.missingTables).to.have.length(0)
+      expect(result.missingColumns).to.have.length(0)
+    })
+
+    it('should detect missing columns on existing tables', () => {
+      const dbPath = path.join(tmpDir, 'schema-missing-cols.db')
+      const db = new Database(dbPath)
+
+      // Create agents table WITHOUT mount_mode, base_name, cleaned_at
+      // (simulates a database from an older version)
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY,
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agents (
+          name TEXT PRIMARY KEY,
+          type TEXT NOT NULL DEFAULT 'persistent',
+          status TEXT NOT NULL DEFAULT 'active',
+          theme_id TEXT,
+          worktree_path TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agent_worktrees (
+          agent_name TEXT NOT NULL,
+          repo_name TEXT NOT NULL,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          PRIMARY KEY (agent_name, repo_name)
+        )
+      `)
+
+      const result = checkSchemaCompleteness(db)
+      db.close()
+
+      expect(result.ok).to.be.false
+
+      // agents should be missing: base_name, mount_mode, cleaned_at
+      const agentMissing = result.missingColumns
+        .filter(c => c.table === 'agents')
+        .map(c => c.column)
+      expect(agentMissing).to.include('base_name')
+      expect(agentMissing).to.include('mount_mode')
+      expect(agentMissing).to.include('cleaned_at')
+
+      // agent_worktrees should be missing: last_commit_hash, commits_ahead, is_clean, last_checked
+      const worktreeMissing = result.missingColumns
+        .filter(c => c.table === 'agent_worktrees')
+        .map(c => c.column)
+      expect(worktreeMissing).to.include('last_commit_hash')
+      expect(worktreeMissing).to.include('commits_ahead')
+      expect(worktreeMissing).to.include('is_clean')
+      expect(worktreeMissing).to.include('last_checked')
+    })
+
+    it('should report missing core workspace tables', () => {
+      const dbPath = path.join(tmpDir, 'schema-missing-table.db')
+      const db = new Database(dbPath)
+
+      // Only create workspace — skip agents, repositories, etc.
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY,
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+
+      const result = checkSchemaCompleteness(db)
+      db.close()
+
+      expect(result.ok).to.be.false
+      expect(result.missingTables).to.include('agents')
+      expect(result.missingTables).to.include('repositories')
+    })
+
+    it('should NOT report healthy when PRAGMA integrity_check passes but columns are missing', () => {
+      // This is the core regression test for PRLT-1131 / GitHub #957
+      const dbPath = path.join(tmpDir, 'schema-false-neg.db')
+      const db = new Database(dbPath)
+
+      // Create an old-style agents table (missing columns from later migrations)
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY,
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agents (
+          name TEXT PRIMARY KEY,
+          type TEXT NOT NULL DEFAULT 'persistent',
+          status TEXT NOT NULL DEFAULT 'active',
+          theme_id TEXT,
+          worktree_path TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+
+      // PRAGMA integrity_check says OK — this is the false negative
+      const integrity = checkIntegrity(db)
+      expect(integrity.ok).to.be.true
+
+      // But schema completeness catches the missing columns
+      const schema = checkSchemaCompleteness(db)
+      expect(schema.ok).to.be.false
+      expect(schema.missingColumns.length).to.be.greaterThan(0)
+
+      db.close()
+    })
+
+    it('should skip PMO tables when PMO is not initialized', () => {
+      const dbPath = path.join(tmpDir, 'schema-no-pmo.db')
+      const db = new Database(dbPath)
+
+      // Create only core workspace tables — no PMO tables
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY,
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE repositories (
+          name TEXT PRIMARY KEY,
+          path TEXT NOT NULL,
+          type TEXT DEFAULT 'main',
+          source_url TEXT,
+          action TEXT,
+          added_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agent_themes (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          display_name TEXT NOT NULL,
+          description TEXT,
+          builtin BOOLEAN DEFAULT FALSE,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agent_theme_names (
+          theme_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          PRIMARY KEY (theme_id, name)
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agents (
+          name TEXT PRIMARY KEY,
+          type TEXT NOT NULL DEFAULT 'persistent',
+          status TEXT NOT NULL DEFAULT 'active',
+          base_name TEXT,
+          theme_id TEXT,
+          worktree_path TEXT,
+          mount_mode TEXT NOT NULL DEFAULT 'worktree',
+          created_at TEXT NOT NULL,
+          cleaned_at TEXT
+        )
+      `)
+      db.exec(`
+        CREATE TABLE agent_worktrees (
+          agent_name TEXT NOT NULL,
+          repo_name TEXT NOT NULL,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          last_commit_hash TEXT,
+          commits_ahead INTEGER NOT NULL DEFAULT 0,
+          is_clean INTEGER NOT NULL DEFAULT 1,
+          last_checked TEXT,
+          PRIMARY KEY (agent_name, repo_name)
+        )
+      `)
+      db.exec(`
+        CREATE TABLE workspace_settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `)
+      db.exec(`
+        CREATE TABLE media_items (
+          name TEXT PRIMARY KEY,
+          path TEXT NOT NULL,
+          source_path TEXT,
+          media_type TEXT NOT NULL DEFAULT 'video',
+          duration_seconds REAL,
+          resolution TEXT,
+          frame_count INTEGER NOT NULL DEFAULT 0,
+          has_transcript INTEGER NOT NULL DEFAULT 0,
+          frame_interval INTEGER NOT NULL DEFAULT 30,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error_message TEXT,
+          added_at TEXT NOT NULL,
+          processed_at TEXT
+        )
+      `)
+
+      const result = checkSchemaCompleteness(db)
+      db.close()
+
+      // Should be healthy since PMO is not initialized — PMO tables not expected
+      expect(result.ok).to.be.true
     })
   })
 

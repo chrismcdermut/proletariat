@@ -15,6 +15,8 @@ import Database from 'better-sqlite3'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { throwIfNativeBindingError } from './native-validation.js'
+import { CREATE_TABLES_SQL } from './workspace-schema.js'
+import { PMO_TABLE_SCHEMAS } from '../../lib/pmo/schema.js'
 
 const MAX_BACKUPS = 5
 
@@ -405,6 +407,109 @@ export function quickCheckIntegrity(db: Database.Database): IntegrityCheckResult
     return {
       ok: false,
       errors: [error instanceof Error ? error.message : String(error)],
+    }
+  }
+}
+
+export interface SchemaCheckResult {
+  ok: boolean
+  missingTables: string[]
+  missingColumns: Array<{ table: string; column: string }>
+}
+
+/**
+ * Check schema completeness — verify all expected columns exist in all tables.
+ *
+ * Builds the expected schema in a temporary in-memory database from the
+ * canonical CREATE TABLE definitions, then compares actual columns via
+ * PRAGMA table_info(). Only checks tables that already exist in the target
+ * database (PMO tables are skipped if PMO is not initialized).
+ *
+ * This catches the case where PRAGMA integrity_check returns "ok" but
+ * the schema is missing columns added in later migrations.
+ *
+ * See: PRLT-1131
+ */
+export function checkSchemaCompleteness(db: Database.Database): SchemaCheckResult {
+  let expected: Database.Database | null = null
+  try {
+    // Build expected schema in a temporary in-memory database
+    expected = new Database(':memory:')
+    expected.exec(CREATE_TABLES_SQL)
+
+    // Only check PMO tables if PMO is initialized in the actual database
+    const hasPMO = !!db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+    ).get()
+
+    if (hasPMO) {
+      for (const sql of Object.values(PMO_TABLE_SCHEMAS)) {
+        try {
+          expected.exec(sql)
+        } catch {
+          // Some PMO tables may have FK references that fail in the
+          // isolated in-memory DB — skip those; the column check on
+          // tables that DO exist is still valuable.
+        }
+      }
+    }
+
+    // Get all expected tables from the reference database
+    const expectedTables = expected.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    ).all() as { name: string }[]
+
+    const missingTables: string[] = []
+    const missingColumns: Array<{ table: string; column: string }> = []
+
+    for (const { name: table } of expectedTables) {
+      // Check if table exists in actual database
+      const actualTable = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
+      ).get(table) as { name: string } | undefined
+
+      if (!actualTable) {
+        // Only report core workspace tables as missing.
+        // PMO tables may legitimately not exist if PMO was partially initialized.
+        const coreWorkspaceTables = new Set([
+          'workspace', 'repositories', 'agents', 'agent_themes',
+          'agent_theme_names', 'agent_worktrees', 'workspace_settings', 'media_items',
+        ])
+        if (coreWorkspaceTables.has(table)) {
+          missingTables.push(table)
+        }
+        continue
+      }
+
+      // Compare columns
+      const expectedCols = expected.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>
+      const actualCols = db.prepare(`PRAGMA table_info('${table}')`).all() as Array<{ name: string }>
+      const actualColSet = new Set(actualCols.map(c => c.name))
+
+      for (const { name: col } of expectedCols) {
+        if (!actualColSet.has(col)) {
+          missingColumns.push({ table, column: col })
+        }
+      }
+    }
+
+    expected.close()
+    expected = null
+
+    return {
+      ok: missingTables.length === 0 && missingColumns.length === 0,
+      missingTables,
+      missingColumns,
+    }
+  } catch (error) {
+    if (expected) {
+      try { expected.close() } catch { /* cleanup — safe to ignore */ }
+    }
+    // If schema check itself fails, report as a single error
+    return {
+      ok: false,
+      missingTables: [],
+      missingColumns: [{ table: '(unknown)', column: error instanceof Error ? error.message : String(error) }],
     }
   }
 }
