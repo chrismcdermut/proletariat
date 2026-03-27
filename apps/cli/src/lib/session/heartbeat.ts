@@ -39,7 +39,7 @@ export function recordHeartbeatFromSession(
   storage: ExecutionStorage,
   execution: AgentWork,
 ): string | null {
-  const isContainer = execution.environment === 'devcontainer'
+  const isContainer = execution.environment === 'devcontainer' || execution.environment === 'docker'
   let sessionId = execution.sessionId
 
   // Try to find the tmux session

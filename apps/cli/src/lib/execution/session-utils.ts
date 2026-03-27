@@ -6,6 +6,7 @@
  */
 
 import { execSync, execFileSync } from 'node:child_process'
+import type { ExecutionEnvironment } from './types.js'
 
 /**
  * Capture the last N lines from a tmux pane.
@@ -322,5 +323,55 @@ export function sendTmuxMessage(sessionId: string, message: string, containerId?
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 5000,
     })
+  }
+}
+
+/**
+ * Check if an execution environment is container-based.
+ * Both 'devcontainer' and 'docker' environments run inside Docker containers.
+ */
+export function isContainerEnvironment(env: ExecutionEnvironment): boolean {
+  return env === 'devcontainer' || env === 'docker'
+}
+
+/**
+ * Check if a Docker container is alive using `docker inspect`.
+ * Returns 'running', 'exited', 'paused', or null if the container doesn't exist.
+ */
+export function checkContainerLiveness(containerId: string): 'running' | 'exited' | 'paused' | null {
+  try {
+    const status = execSync(
+      `docker inspect --format '{{.State.Status}}' ${containerId}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
+    ).trim()
+
+    if (status === 'running' || status === 'exited' || status === 'paused') {
+      return status
+    }
+    return null
+  } catch {
+    // Container doesn't exist or docker not available
+    return null
+  }
+}
+
+/**
+ * Check Docker container health status via `docker inspect`.
+ * Returns 'healthy', 'unhealthy', 'starting', or null if no healthcheck configured.
+ */
+export function checkContainerHealth(containerId: string): 'healthy' | 'unhealthy' | 'starting' | null {
+  try {
+    const health = execSync(
+      `docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' ${containerId}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
+    ).trim()
+
+    if (health === 'none') return null
+    if (health === 'healthy' || health === 'unhealthy' || health === 'starting') {
+      return health
+    }
+    return null
+  } catch {
+    return null
   }
 }

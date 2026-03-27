@@ -451,7 +451,7 @@ export default class SessionPeek extends PMOCommand {
       ] : []
 
       for (const exec of activeExecutions) {
-        const isContainer = exec.environment === 'devcontainer'
+        const isContainer = exec.environment === 'devcontainer' || exec.environment === 'docker'
         let exists = false
         let containerId: string | undefined
         let actualSessionId = exec.sessionId

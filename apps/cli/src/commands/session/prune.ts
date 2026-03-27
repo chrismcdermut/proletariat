@@ -1,4 +1,5 @@
 import { Flags } from '@oclif/core'
+import { execSync } from 'node:child_process'
 import { styles } from '../../lib/styles.js'
 import {
   getWorkspaceInfo,
@@ -16,6 +17,8 @@ import {
   flattenContainerSessions,
   findContainerSessionsByPrefix,
   findSessionForExecution,
+  isContainerEnvironment,
+  checkContainerLiveness,
 } from '../../lib/execution/session-utils.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
@@ -29,12 +32,13 @@ import {
 interface PruneResult {
   staleExecutionsCleaned: number
   orphanSessionsKilled: string[]
+  deadContainersKilled: string[]
   ephemeralAgentsCleaned: CleanupResult[]
   errors: string[]
 }
 
 export default class SessionPrune extends PromptCommand {
-  static description = 'Clean up stale sessions, orphan tmux sessions, and idle ephemeral agents'
+  static description = 'Clean up stale sessions, orphan tmux sessions, dead Docker containers, and idle ephemeral agents'
 
   static examples = [
     '<%= config.bin %> session prune',
@@ -99,6 +103,7 @@ export default class SessionPrune extends PromptCommand {
       const result: PruneResult = {
         staleExecutionsCleaned: 0,
         orphanSessionsKilled: [],
+        deadContainersKilled: [],
         ephemeralAgentsCleaned: [],
         errors: [],
       }
@@ -110,7 +115,37 @@ export default class SessionPrune extends PromptCommand {
       result.staleExecutionsCleaned = staleCount
 
       // =====================================================================
-      // Step 2: Find and kill orphan tmux sessions
+      // Step 2: Kill Docker containers for completed/failed executions
+      // =====================================================================
+      const completedExecutions = [
+        ...executionStorage.listExecutions({ status: 'completed' }),
+        ...executionStorage.listExecutions({ status: 'failed' }),
+        ...executionStorage.listExecutions({ status: 'stopped' }),
+      ]
+
+      for (const exec of completedExecutions) {
+        if (!isContainerEnvironment(exec.environment) || !exec.containerId) continue
+
+        const containerStatus = checkContainerLiveness(exec.containerId)
+        if (containerStatus === 'running' || containerStatus === 'paused') {
+          if (dryRun) {
+            result.deadContainersKilled.push(exec.containerId)
+          } else {
+            try {
+              execSync(
+                `docker rm -f ${exec.containerId}`,
+                { stdio: 'pipe', timeout: 30000 },
+              )
+              result.deadContainersKilled.push(exec.containerId)
+            } catch {
+              result.errors.push(`Failed to kill container: ${exec.containerId}`)
+            }
+          }
+        }
+      }
+
+      // =====================================================================
+      // Step 3: Find and kill orphan tmux sessions (not tracked in DB)
       // =====================================================================
       const hostTmuxSessions = getHostTmuxSessionNames()
       const containerTmuxSessions = getContainerTmuxSessionMap()
@@ -125,7 +160,7 @@ export default class SessionPrune extends PromptCommand {
       const matchedContainerSessions = new Set<string>()
 
       for (const exec of activeExecutions) {
-        const isContainer = exec.environment === 'devcontainer'
+        const isContainer = isContainerEnvironment(exec.environment)
         let actualSessionId = exec.sessionId
 
         if (!exec.sessionId) {
@@ -186,7 +221,6 @@ export default class SessionPrune extends PromptCommand {
           result.orphanSessionsKilled.push(`${containerId}:${sessionName}`)
         } else {
           try {
-            const { execSync } = await import('node:child_process')
             execSync(
               `docker exec ${containerId} tmux kill-session -t "${sessionName}"`,
               { stdio: 'pipe', timeout: 10000 },
@@ -199,7 +233,7 @@ export default class SessionPrune extends PromptCommand {
       }
 
       // =====================================================================
-      // Step 3: Clean up idle ephemeral agents
+      // Step 4: Clean up idle ephemeral agents
       // =====================================================================
       // Refresh workspace info after stale cleanup
       const freshWorkspaceInfo = getWorkspaceInfo()
@@ -216,7 +250,7 @@ export default class SessionPrune extends PromptCommand {
 
       // Determine total work to be done
       const totalOrphans = orphanHostSessions.length + orphanContainerSessions.length
-      const totalWork = staleCount + totalOrphans + cleanableAgents.length
+      const totalWork = staleCount + totalOrphans + cleanableAgents.length + result.deadContainersKilled.length
 
       if (totalWork === 0) {
         if (jsonMode) {
@@ -236,10 +270,16 @@ export default class SessionPrune extends PromptCommand {
       if (!jsonMode) {
         this.log('')
         this.log(styles.header(`${dryRun ? '[DRY RUN] ' : ''}Session Prune`))
-        this.log('═'.repeat(60))
+        this.log('='.repeat(60))
 
         if (staleCount > 0) {
           this.log(styles.info(`  ${staleCount} stale execution record(s) ${dryRun ? 'would be ' : ''}cleaned`))
+        }
+        if (result.deadContainersKilled.length > 0) {
+          this.log(styles.info(`  ${result.deadContainersKilled.length} dead Docker container(s) ${dryRun ? 'would be ' : ''}removed:`))
+          for (const cid of result.deadContainersKilled) {
+            this.log(styles.muted(`    - ${cid.substring(0, 12)}`))
+          }
         }
         if (totalOrphans > 0) {
           this.log(styles.info(`  ${totalOrphans} orphan tmux session(s) ${dryRun ? 'would be ' : ''}killed:`))
@@ -260,13 +300,14 @@ export default class SessionPrune extends PromptCommand {
       }
 
       // Confirm unless --yes or --dry-run
-      if (!skipConfirm && !dryRun && cleanableAgents.length > 0) {
+      if (!skipConfirm && !dryRun && (cleanableAgents.length > 0 || result.deadContainersKilled.length > 0)) {
         if (jsonMode) {
           outputSuccessAsJson({
             message: 'Confirmation required',
             preview: {
               staleExecutions: staleCount,
               orphanSessions: totalOrphans,
+              deadContainers: result.deadContainersKilled.length,
               ephemeralAgents: cleanableAgents.map(a => a.name),
             },
           }, createMetadata('session prune', flags))
@@ -277,7 +318,7 @@ export default class SessionPrune extends PromptCommand {
           {
             type: 'list',
             name: 'confirm',
-            message: `Prune ${cleanableAgents.length} ephemeral agent(s) and ${totalOrphans} orphan session(s)?`,
+            message: `Prune ${totalWork} item(s)?`,
             choices: [
               { name: 'No, cancel', value: false },
               { name: 'Yes, prune', value: true },
@@ -336,6 +377,7 @@ export default class SessionPrune extends PromptCommand {
           summary: {
             staleExecutionsCleaned: result.staleExecutionsCleaned,
             orphanSessionsKilled: result.orphanSessionsKilled.length,
+            deadContainersKilled: result.deadContainersKilled.length,
             ephemeralAgentsCleaned: result.ephemeralAgentsCleaned.filter(r => r.success).length,
             ephemeralAgentsFailed: result.ephemeralAgentsCleaned.filter(r => !r.success).length,
           },
@@ -346,10 +388,13 @@ export default class SessionPrune extends PromptCommand {
       // Summary
       this.log('')
       this.log(styles.header(`${dryRun ? '[DRY RUN] ' : ''}Prune Summary`))
-      this.log('─'.repeat(40))
+      this.log('-'.repeat(40))
 
       if (result.staleExecutionsCleaned > 0) {
         this.log(styles.success(`  ${result.staleExecutionsCleaned} stale execution(s) ${dryRun ? 'would be ' : ''}cleaned`))
+      }
+      if (result.deadContainersKilled.length > 0) {
+        this.log(styles.success(`  ${result.deadContainersKilled.length} dead container(s) ${dryRun ? 'would be ' : ''}removed`))
       }
       if (result.orphanSessionsKilled.length > 0) {
         this.log(styles.success(`  ${result.orphanSessionsKilled.length} orphan session(s) ${dryRun ? 'would be ' : ''}killed`))

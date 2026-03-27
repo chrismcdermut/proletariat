@@ -415,7 +415,8 @@ export class ExecutionStorage {
 
       let sessionExists = false
 
-      if (exec.environment === 'devcontainer' && exec.containerId) {
+      const isContainer = exec.environment === 'devcontainer' || exec.environment === 'docker'
+      if (isContainer && exec.containerId) {
         // Check if session exists in container (use prefix matching for ID format differences)
         const containerSessions = this.findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
 
