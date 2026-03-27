@@ -108,6 +108,8 @@ export interface MergeQueueDeps {
   mergePR: typeof mergePR
   rebaseSiblingPRs: typeof rebaseSiblingPRs
   updatePRBranch: (prNumber: number, cwd?: string) => import('../shipping/types.js').UpdateBranchResult
+  addLabel: (prNumber: number, label: string, cwd?: string) => boolean
+  addComment: (prNumber: number, body: string, cwd?: string) => boolean
 }
 
 // =============================================================================
@@ -226,13 +228,17 @@ export function buildMergeQueue(
 // Main Cycle
 // =============================================================================
 
+const _defaultProvider = new GitHubProvider()
+
 const defaultDeps: MergeQueueDeps = {
   listOpenPRs,
   getPRChecks,
   getPRByNumber,
   mergePR,
   rebaseSiblingPRs,
-  updatePRBranch: (prNumber, cwd) => new GitHubProvider().updatePRBranch(prNumber, cwd),
+  updatePRBranch: (prNumber, cwd) => _defaultProvider.updatePRBranch(prNumber, cwd),
+  addLabel: (prNumber, label, cwd) => _defaultProvider.addLabel(prNumber, label, cwd),
+  addComment: (prNumber, body, cwd) => _defaultProvider.addComment(prNumber, body, cwd),
 }
 
 /**
@@ -459,11 +465,10 @@ function ejectPR(
     state.ejectedPRs = state.ejectedPRs.slice(0, MAX_EJECTED_HISTORY)
   }
 
-  // Label and comment on the PR
+  // Label and comment on the PR (best effort)
   try {
-    const provider = new GitHubProvider()
-    provider.addLabel(prNumber, EJECTED_LABEL, cwd)
-    provider.addComment(prNumber, `${EJECTED_COMMENT_PREFIX} ${reason}`, cwd)
+    deps.addLabel(prNumber, EJECTED_LABEL, cwd)
+    deps.addComment(prNumber, `${EJECTED_COMMENT_PREFIX} ${reason}`, cwd)
   } catch {
     // Best effort — don't fail the cycle
   }
