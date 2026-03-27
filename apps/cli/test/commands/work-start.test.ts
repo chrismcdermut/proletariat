@@ -352,4 +352,84 @@ describe('Work Start Command', () => {
       expect(result.stdout).to.contain('work start');
     });
   });
+
+  describe('Dry-Run Flag (PRLT-1132)', () => {
+    it('shows --dry-run flag in help', () => {
+      expect(helpOutput).to.contain('--dry-run');
+    });
+
+    it('--dry-run is described as validating environment', () => {
+      expect(helpOutput).to.match(/--dry-run.*[Vv]alidate.*environment/is);
+    });
+
+    it('shows --dry-run example in help', () => {
+      expect(helpOutput).to.contain('--dry-run');
+      // The example line references --dry-run
+      expect(helpOutput).to.match(/--dry-run.*[Vv]alidat/is);
+    });
+
+    it('source code implements dry-run preflight validation', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // Should run preflight checks when dry-run is active
+      expect(source).to.include("flags['dry-run']");
+      expect(source).to.include('runPreflightChecks');
+      expect(source).to.include('formatPreflightReport');
+    });
+
+    it('source code returns early during dry-run without spawning', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // The dry-run block should return before runExecution
+      // Verify dry-run block exists and returns
+      const dryRunMatch = source.match(/if \(flags\['dry-run'\]\) \{[\s\S]*?db\.close\(\)\s*\n\s*return/);
+      expect(dryRunMatch).to.not.be.null;
+    });
+
+    it('source code outputs JSON preflight results in JSON mode', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // Should output preflight results as JSON metadata
+      expect(source).to.include('metadata.dryRun = true');
+      expect(source).to.include('preflight');
+    });
+  });
+
+  describe('Better Error Messages (PRLT-1132)', () => {
+    it('source code runs diagnostics on spawn failure', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // After a failed runExecution, should run preflight checks for diagnostics
+      expect(source).to.include('failureDiag');
+      expect(source).to.include('Diagnostics found these issues');
+    });
+
+    it('source code includes --dry-run tip in failure messages', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      expect(source).to.include('Run with --dry-run to validate your environment');
+    });
+
+    it('source code includes error field in JSON failure output', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // The failure JSON should include spawnError in metadata
+      expect(source).to.include('spawnError');
+      expect(source).to.include('diagnostics');
+    });
+
+    it('source code includes error in batch failure results', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // Batch spawn failures should include error message
+      expect(source).to.include("error: error instanceof Error ? error.message : String(error)");
+    });
+
+    it('spawnSingleTicket includes diagnostics in error message', () => {
+      const startTsPath = path.resolve(__dirname, '../../src/commands/work/start.ts');
+      const source = fs.readFileSync(startTsPath, 'utf-8');
+      // The spawnSingleTicket method should include diagnostic info in errors
+      expect(source).to.include('diagIssues');
+    });
+  });
 });
