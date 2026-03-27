@@ -21,6 +21,7 @@ import {
   getLinearApiKey,
 } from '../../lib/linear/index.js'
 import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { autoMapAndPersist, type ProviderStatus } from '../../lib/providers/auto-mapping.js'
 
 export default class LinearConnect extends PMOCommand {
   static description = 'Connect to Linear workspace and configure authentication'
@@ -323,6 +324,10 @@ export default class LinearConnect extends PMOCommand {
         prefix: `${matched!.key}-`,
         label: matched!.name,
       })
+
+      // Auto-map workflow states to prlt canonical statuses
+      const mappingCount = await this.autoMapLinearStates(client, matched!.id, db)
+
       if (jsonMode) {
         outputSuccessAsJson({
           authenticated: true,
@@ -330,10 +335,14 @@ export default class LinearConnect extends PMOCommand {
           user: info.userName,
           email: info.email,
           defaultTeam: matched!.key,
+          statusMappings: mappingCount,
         }, createMetadata('linear connect', flags))
         return
       }
       this.log(colors.textMuted(`  Default team set to: ${matched!.name} (${matched!.key})`))
+      if (mappingCount > 0) {
+        this.log(colors.textMuted(`  Auto-mapped ${mappingCount} workflow states`))
+      }
       this.log('')
       this.log(colors.success('Linear integration configured!'))
       this.log(colors.textMuted('  Run "prlt linear import" to pull issues into PMO'))
@@ -394,9 +403,41 @@ export default class LinearConnect extends PMOCommand {
       label: selectedTeamName,
     })
 
+    // Auto-map workflow states to prlt canonical statuses
+    const selectedTeamId = teams.find(t => t.key === selectedTeamKey)?.id
+    if (selectedTeamId) {
+      const mappingCount = await this.autoMapLinearStates(client, selectedTeamId, db)
+      if (mappingCount > 0) {
+        this.log(colors.textMuted(`  Auto-mapped ${mappingCount} workflow states`))
+      }
+    }
+
     this.log('')
     this.log(colors.success('Linear integration configured!'))
     this.log(colors.textMuted('  Run "prlt linear import" to pull issues into PMO'))
     this.log(colors.textMuted('  Run "prlt work spawn --from-linear" to pull and spawn agents'))
+  }
+
+  /**
+   * Fetch Linear workflow states for a team and auto-map them to prlt canonical statuses.
+   * Returns the number of mappings created.
+   */
+  private async autoMapLinearStates(
+    client: LinearClient,
+    teamId: string,
+    db: import('better-sqlite3').Database,
+  ): Promise<number> {
+    try {
+      const states = await client.listStates(teamId)
+      const providerStatuses: ProviderStatus[] = states.map(s => ({
+        name: s.name,
+        type: s.type,
+      }))
+      const mappings = autoMapAndPersist(db, 'linear', providerStatuses)
+      return mappings.length
+    } catch {
+      // Non-fatal: auto-mapping is best-effort
+      return 0
+    }
   }
 }

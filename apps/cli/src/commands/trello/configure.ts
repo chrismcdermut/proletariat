@@ -20,6 +20,7 @@ import {
   saveTrelloBoard,
 } from '../../lib/trello/index.js'
 import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { autoMapAndPersist, type ProviderStatus } from '../../lib/providers/auto-mapping.js'
 
 export default class TrelloConfigure extends PMOCommand {
   static description = 'Connect to Trello and configure authentication'
@@ -232,6 +233,21 @@ export default class TrelloConfigure extends PMOCommand {
         saveTrelloBoard(db, boardId, boardName)
       }
 
+      // Auto-map board lists to prlt canonical statuses
+      let mappingCount = 0
+      if (boardId) {
+        try {
+          const boardLists = await client.getBoardLists(boardId)
+          const providerStatuses: ProviderStatus[] = boardLists.map(l => ({
+            name: l.name,
+          }))
+          const mappings = autoMapAndPersist(db, 'trello', providerStatuses)
+          mappingCount = mappings.length
+        } catch {
+          // Non-fatal: auto-mapping is best-effort
+        }
+      }
+
       // Register as provider source
       upsertProviderSource(db, {
         id: 'trello',
@@ -248,12 +264,16 @@ export default class TrelloConfigure extends PMOCommand {
           user: member.fullName,
           username: member.username,
           board: boardName ?? null,
+          statusMappings: mappingCount,
         }, createMetadata('trello configure', flags))
         return
       }
 
       if (boardName) {
         this.log(colors.textMuted(`  Board: ${boardName}`))
+      }
+      if (mappingCount > 0) {
+        this.log(colors.textMuted(`  Auto-mapped ${mappingCount} board statuses`))
       }
 
       this.log('')
