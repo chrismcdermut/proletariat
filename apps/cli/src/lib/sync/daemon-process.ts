@@ -2,7 +2,7 @@
  * Daemon Process
  *
  * This is the background process spawned by `prlt sync start`.
- * It runs a sync cycle on a configurable interval.
+ * It runs a sync cycle and merge queue cycle on a configurable interval.
  *
  * Args: [hqPath, intervalSeconds]
  */
@@ -14,6 +14,7 @@ import { getPMOContext } from '../pmo/pmo-context.js'
 import type { ProviderStorage } from '../providers/types.js'
 import type { PMOStorage } from '../pmo/types.js'
 import { runSyncCycle } from './engine.js'
+import { runMergeQueueCycle } from './merge-queue.js'
 import { removeDaemonPid, getDaemonLogPath } from './daemon.js'
 
 const args = process.argv.slice(2)
@@ -44,6 +45,17 @@ async function getProjectId(): Promise<string> {
   return projects[0].id
 }
 
+/** Map ticket priority strings to numeric values (lower = higher priority). */
+function priorityToNumber(priority: string | undefined | null): number {
+  switch (priority) {
+    case 'P0': return 0
+    case 'P1': return 1
+    case 'P2': return 2
+    case 'P3': return 3
+    default: return 3
+  }
+}
+
 async function cycle(): Promise<void> {
   let db
 
@@ -51,10 +63,12 @@ async function cycle(): Promise<void> {
     db = openWorkspaceDatabase(hqPath)
     const context = await getPMOContext()
     const projectId = await getProjectId()
+    const storage = context.storage as unknown as PMOStorage & ProviderStorage
 
+    // Phase 1: Reconciliation — sync ticket state with PR state
     const report = await runSyncCycle(
       db,
-      context.storage as unknown as PMOStorage & ProviderStorage,
+      storage,
       projectId,
       {
         cwd: hqPath,
@@ -67,6 +81,32 @@ async function cycle(): Promise<void> {
     }
     if (report.failed.length > 0) {
       log(`Failed ${report.failed.length} correction(s)`)
+    }
+
+    // Phase 2: Merge Queue — sequential rebase-test-merge pipeline
+    try {
+      // Build priority map from tickets for queue ordering
+      const branchPriorities = new Map<string, number>()
+      const startedTickets = await storage.listTickets(projectId, { statusCategory: 'started' })
+      for (const ticket of startedTickets) {
+        if (ticket.branch) {
+          branchPriorities.set(ticket.branch, priorityToNumber(ticket.priority))
+        }
+      }
+
+      const mqResult = runMergeQueueCycle({
+        hqPath,
+        cwd: hqPath,
+        log,
+        branchPriorities,
+      })
+
+      if (mqResult.action !== 'none' && mqResult.action !== 'paused') {
+        log(`Merge queue: ${mqResult.action}${mqResult.prNumber ? ` PR #${mqResult.prNumber}` : ''}${mqResult.reason ? ` — ${mqResult.reason}` : ''}`)
+      }
+    } catch (mqErr) {
+      const mqMsg = mqErr instanceof Error ? mqErr.message : String(mqErr)
+      log(`Merge queue error: ${mqMsg}`)
     }
 
     await context.storage.close()
