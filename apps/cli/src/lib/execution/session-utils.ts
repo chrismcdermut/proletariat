@@ -326,6 +326,94 @@ export function sendTmuxMessage(sessionId: string, message: string, containerId?
   }
 }
 
+// =============================================================================
+// Tmux Server Health
+// =============================================================================
+
+/**
+ * Result of checking tmux server status.
+ * Distinguishes "server running" from "server not running" from "server crashed".
+ */
+export type TmuxServerStatus = 'running' | 'not_running' | 'error'
+
+/**
+ * Check if the host tmux server is running.
+ *
+ * Distinguishes between:
+ * - 'running': tmux server is alive (may or may not have sessions)
+ * - 'not_running': tmux server is not running (no server process)
+ * - 'error': unexpected error checking tmux status
+ *
+ * This is critical for crash detection: getHostTmuxSessionNames() returns []
+ * for both "no sessions" and "no server", making it impossible to tell if
+ * a tmux server crash occurred.
+ */
+export function getHostTmuxServerStatus(): TmuxServerStatus {
+  try {
+    execSync('which tmux', { stdio: 'pipe', timeout: 3000 })
+  } catch {
+    return 'error' // tmux not installed
+  }
+
+  try {
+    execSync('tmux list-sessions 2>&1', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    })
+    // Succeeded — server is running with sessions
+    return 'running'
+  } catch (error: unknown) {
+    const stderr = (error as { stderr?: string })?.stderr || ''
+    const stdout = (error as { stdout?: string })?.stdout || ''
+    const output = stderr + stdout
+
+    // "no server running" or "error connecting" = server is down
+    if (output.includes('no server running') || output.includes('error connecting')) {
+      return 'not_running'
+    }
+
+    // "no sessions" = server is running, just no sessions
+    // tmux exits non-zero for this case
+    if (output.includes('no sessions') || output.includes('no current sessions')) {
+      return 'running'
+    }
+
+    // Unknown error
+    return 'error'
+  }
+}
+
+/**
+ * Check if a container's tmux server is running.
+ * Returns status of the tmux server inside a Docker container.
+ */
+export function getContainerTmuxServerStatus(containerId: string): TmuxServerStatus {
+  try {
+    const result = execSync(
+      `docker exec ${containerId} tmux list-sessions 2>&1`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 },
+    )
+    // If we get output with sessions, server is running
+    return 'running'
+  } catch (error: unknown) {
+    const stderr = (error as { stderr?: string })?.stderr || ''
+    const stdout = (error as { stdout?: string })?.stdout || ''
+    const output = stderr + stdout
+
+    if (output.includes('no server running') || output.includes('error connecting')) {
+      return 'not_running'
+    }
+
+    if (output.includes('no sessions') || output.includes('no current sessions')) {
+      return 'running'
+    }
+
+    // Container unreachable or other error
+    return 'error'
+  }
+}
+
 /**
  * Check if an execution environment is container-based.
  * Both 'devcontainer' and 'docker' environments run inside Docker containers.
