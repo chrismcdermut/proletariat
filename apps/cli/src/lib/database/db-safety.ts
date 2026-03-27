@@ -72,10 +72,10 @@ function listBackupFiles(backupsDir: string): string[] {
     .filter(f => f.endsWith('.db') && !f.endsWith('.corrupt.db'))
     .map(f => path.join(backupsDir, f))
     .sort((a, b) => {
-      // Sort by modification time, newest first
-      const statA = fs.statSync(a)
-      const statB = fs.statSync(b)
-      return statB.mtimeMs - statA.mtimeMs
+      // Sort by filename descending (newest first).
+      // Filenames encode timestamps (workspace-YYYYMMDD-HHMMSS-mmm.db)
+      // so lexicographic order matches chronological order.
+      return path.basename(b).localeCompare(path.basename(a))
     })
 
   return files
