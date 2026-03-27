@@ -20,6 +20,8 @@ import type { TicketProvider } from './types.js'
 import type { ProviderStorage } from './types.js'
 import { SettingsStore } from '../database/settings-store.js'
 import { DEFAULT_INTENTS, matchIntentByAliases, getDefaultIntent } from './state-intents.js'
+import { ProviderStatusMappingStore } from './status-mapping.js'
+import { INTENT_TO_CANONICAL } from './auto-mapping.js'
 import type Database from 'better-sqlite3'
 
 // ---------------------------------------------------------------------------
@@ -54,7 +56,7 @@ export interface StateResolutionResult {
   /** Whether the move succeeded */
   success: boolean
   /** How the state was resolved */
-  resolvedVia?: 'config' | 'alias' | 'llm' | 'skipped'
+  resolvedVia?: 'config' | 'mapping' | 'alias' | 'llm' | 'skipped'
   /** The resolved state name */
   stateName?: string
   /** The resolved state ID */
@@ -253,6 +255,8 @@ export interface MoveOptions {
   db?: Database.Database
   /** Current state name — if provided, skip move when already in the resolved state */
   currentState?: string
+  /** Provider name — if provided, check DB status mappings before alias matching */
+  providerName?: string
 }
 
 /**
@@ -280,6 +284,7 @@ export async function move(
   // Normalize arguments: support both `move(p, id, intent, db)` and `move(p, id, intent, { db, currentState })`
   let db: Database.Database | undefined
   let currentState: string | undefined
+  let providerName: string | undefined
   if (dbOrOptions && typeof dbOrOptions === 'object' && 'prepare' in dbOrOptions) {
     // It's a Database instance (has .prepare method)
     db = dbOrOptions as Database.Database
@@ -287,6 +292,7 @@ export async function move(
     const opts = dbOrOptions as MoveOptions
     db = opts.db
     currentState = opts.currentState
+    providerName = opts.providerName
   }
   // 1. Always fetch fresh states
   let states: PMState[]
@@ -331,6 +337,35 @@ export async function move(
         }
       }
       // Config is set but no matching state — fall through to alias/LLM
+    }
+  }
+
+  // 2.5. Check DB status mapping for this provider + intent
+  if (db && providerName) {
+    try {
+      const mappingStore = new ProviderStatusMappingStore(db)
+      const canonicalStatus = INTENT_TO_CANONICAL[intent]
+      if (canonicalStatus) {
+        const mapping = mappingStore.getProviderStatus(providerName, canonicalStatus)
+        if (mapping) {
+          const match = states.find(s => s.name.toLowerCase() === mapping.providerStatus.toLowerCase())
+          if (match) {
+            if (isAlreadyInState(match.name)) {
+              return { success: false, resolvedVia: 'mapping' as const, stateName: match.name, stateId: match.id }
+            }
+            const result = await pmProvider.moveTicket(ticketId, match.id)
+            return {
+              success: result.success,
+              resolvedVia: 'mapping' as const,
+              stateName: match.name,
+              stateId: match.id,
+              error: result.error,
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-fatal: DB mapping check is best-effort, fall through to alias matching
     }
   }
 
@@ -400,5 +435,5 @@ export async function moveWithProvider(
   currentState?: string,
 ): Promise<StateResolutionResult> {
   const pmProvider = createPMProviderAdapter(provider, storage, projectId)
-  return move(pmProvider, ticketId, intent, { db, currentState })
+  return move(pmProvider, ticketId, intent, { db, currentState, providerName: provider.name })
 }

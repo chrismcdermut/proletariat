@@ -25,6 +25,7 @@ import type {
   ProviderAssignResult,
   ProviderStorage,
 } from './types.js'
+import { ProviderStatusMappingStore } from './status-mapping.js'
 
 export class TrelloTicketProvider implements TicketProvider {
   readonly name = 'trello' as const
@@ -80,7 +81,19 @@ export class TrelloTicketProvider implements TicketProvider {
       }
     }
 
-    const targetList = findMatchingTrelloList(lists, newState)
+    // Check DB mapping for a configured provider-specific status
+    let resolvedState = newState
+    try {
+      const mappingStore = new ProviderStatusMappingStore(this.db)
+      const mapping = mappingStore.getProviderStatus('trello', newState)
+      if (mapping) {
+        resolvedState = mapping.providerStatus
+      }
+    } catch {
+      // Non-fatal: fall through to heuristic matching
+    }
+
+    const targetList = findMatchingTrelloList(lists, resolvedState)
     if (!targetList) {
       return {
         success: false,

@@ -27,6 +27,7 @@ import type {
   ProviderAssignResult,
   ProviderStorage,
 } from './types.js'
+import { ProviderStatusMappingStore } from './status-mapping.js'
 
 export class ClickUpTicketProvider implements TicketProvider {
   readonly name: TicketProviderName = 'clickup'
@@ -62,9 +63,21 @@ export class ClickUpTicketProvider implements TicketProvider {
 
     const client = new ClickUpClient(apiKey)
 
+    // Check DB mapping for a configured provider-specific status
+    let resolvedState = newState
+    try {
+      const mappingStore = new ProviderStatusMappingStore(this.db)
+      const mapping = mappingStore.getProviderStatus('clickup', newState)
+      if (mapping) {
+        resolvedState = mapping.providerStatus
+      }
+    } catch {
+      // Non-fatal: fall through to using the original state name
+    }
+
     // Update the task status on ClickUp
     try {
-      await client.updateTaskStatus(clickUpTaskId, newState)
+      await client.updateTaskStatus(clickUpTaskId, resolvedState)
     } catch (error) {
       return {
         success: false,

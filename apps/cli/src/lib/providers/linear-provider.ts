@@ -27,6 +27,7 @@ import type {
   ProviderAssignResult,
   ProviderStorage,
 } from './types.js'
+import { ProviderStatusMappingStore } from './status-mapping.js'
 
 export class LinearTicketProvider implements TicketProvider {
   readonly name = 'linear' as const
@@ -88,9 +89,21 @@ export class LinearTicketProvider implements TicketProvider {
     }
 
     // 4. Find the matching Linear state for the target PMO state
+    // First, check DB mapping for a configured provider-specific status
+    let resolvedStateName = newState
+    try {
+      const mappingStore = new ProviderStatusMappingStore(this.db)
+      const mapping = mappingStore.getProviderStatus('linear', newState)
+      if (mapping) {
+        resolvedStateName = mapping.providerStatus
+      }
+    } catch {
+      // Non-fatal: fall through to heuristic matching
+    }
+
     // Map PMO status category to Linear state type for category matching
-    const categoryType = mapPMOStateToLinearType(newState)
-    const matchingState = findMatchingLinearState(states, newState, categoryType)
+    const categoryType = mapPMOStateToLinearType(resolvedStateName)
+    const matchingState = findMatchingLinearState(states, resolvedStateName, categoryType)
 
     if (!matchingState) {
       return {
