@@ -28,6 +28,8 @@ import {
 } from '../../src/lib/providers/state-intents.js'
 import type { ProviderStorage } from '../../src/lib/providers/types.js'
 import type { Ticket, CreateTicketInput } from '../../src/lib/pmo/types.js'
+import { ProviderStatusMappingStore } from '../../src/lib/providers/status-mapping.js'
+import { autoMapAndPersist, type ProviderStatus } from '../../src/lib/providers/auto-mapping.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,6 +41,17 @@ function createTestDb(): Database.Database {
     CREATE TABLE workspace_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    )
+  `)
+  db.exec(`
+    CREATE TABLE pmo_provider_status_map (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      provider_status TEXT NOT NULL,
+      canonical_status TEXT NOT NULL,
+      canonical_category TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(provider, provider_status)
     )
   `)
   return db
@@ -643,6 +656,183 @@ describe('PRLT-1087: State Resolution Engine', () => {
       result = await move(provider, 'TKT-1', 'done', db)
       expect(result.success).to.be.true
       expect(result.stateName).to.equal('Complete')
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Tests: DB Mapping Resolution (PRLT-1160)
+  // ---------------------------------------------------------------------------
+
+  describe('DB mapping resolution (PRLT-1160)', () => {
+    let db: Database.Database
+
+    beforeEach(() => {
+      db = createTestDb()
+    })
+
+    afterEach(() => {
+      db.close()
+    })
+
+    it('should resolve via DB mapping when provider name is specified', async () => {
+      // Set up DB mapping: provider "trello" maps "Needs Review" as its "Review" state
+      const store = new ProviderStatusMappingStore(db)
+      store.upsertMapping({
+        provider: 'trello',
+        providerStatus: 'Needs Review',
+        canonicalStatus: 'Review',
+        canonicalCategory: 'started',
+      })
+
+      const moveCalls: Array<{ ticketId: string; stateId: string }> = []
+      // States include "Needs Review" but NOT "Review" or "In Review"
+      const provider = createMockPMProvider([
+        { id: 'tr-1', name: 'To Do' },
+        { id: 'tr-2', name: 'Working On' },
+        { id: 'tr-3', name: 'Needs Review' },
+        { id: 'tr-4', name: 'Done' },
+      ], moveCalls)
+
+      const result = await move(provider, 'TKT-1', 'review', {
+        db,
+        providerName: 'trello',
+      })
+      expect(result.success).to.be.true
+      expect(result.resolvedVia).to.equal('mapping')
+      expect(result.stateName).to.equal('Needs Review')
+      expect(moveCalls[0].stateId).to.equal('tr-3')
+    })
+
+    it('should fall through to alias when DB mapping target not in states', async () => {
+      // DB mapping says "Custom QA" is the Review state, but it's not in available states
+      const store = new ProviderStatusMappingStore(db)
+      store.upsertMapping({
+        provider: 'test',
+        providerStatus: 'Custom QA',
+        canonicalStatus: 'Review',
+        canonicalCategory: 'started',
+      })
+
+      const moveCalls: Array<{ ticketId: string; stateId: string }> = []
+      const provider = createMockPMProvider([
+        { id: 'st-1', name: 'In Progress' },
+        { id: 'st-2', name: 'Review' },   // Alias match fallback
+        { id: 'st-3', name: 'Done' },
+      ], moveCalls)
+
+      const result = await move(provider, 'TKT-1', 'review', {
+        db,
+        providerName: 'test',
+      })
+      expect(result.success).to.be.true
+      expect(result.resolvedVia).to.equal('alias')
+      expect(result.stateName).to.equal('Review')
+    })
+
+    it('should prefer DB mapping over alias matching', async () => {
+      // DB mapping says "QA Queue" is the Review state
+      const store = new ProviderStatusMappingStore(db)
+      store.upsertMapping({
+        provider: 'jira',
+        providerStatus: 'QA Queue',
+        canonicalStatus: 'Review',
+        canonicalCategory: 'started',
+      })
+
+      const moveCalls: Array<{ ticketId: string; stateId: string }> = []
+      const provider = createMockPMProvider([
+        { id: 'st-1', name: 'In Progress' },
+        { id: 'st-2', name: 'Review' },     // Would match alias
+        { id: 'st-3', name: 'QA Queue' },   // DB mapping maps to this
+        { id: 'st-4', name: 'Done' },
+      ], moveCalls)
+
+      const result = await move(provider, 'TKT-1', 'review', {
+        db,
+        providerName: 'jira',
+      })
+      expect(result.success).to.be.true
+      expect(result.resolvedVia).to.equal('mapping')
+      expect(result.stateName).to.equal('QA Queue')
+    })
+
+    it('should skip DB mapping when providerName is not set', async () => {
+      const store = new ProviderStatusMappingStore(db)
+      store.upsertMapping({
+        provider: 'trello',
+        providerStatus: 'Needs Review',
+        canonicalStatus: 'Review',
+        canonicalCategory: 'started',
+      })
+
+      const moveCalls: Array<{ ticketId: string; stateId: string }> = []
+      const provider = createMockPMProvider([
+        { id: 'st-1', name: 'Review' },
+        { id: 'st-2', name: 'Needs Review' },
+      ], moveCalls)
+
+      // No providerName → DB mapping not checked
+      const result = await move(provider, 'TKT-1', 'review', { db })
+      expect(result.success).to.be.true
+      expect(result.resolvedVia).to.equal('alias')
+      // Falls through to alias: "Review" matches first
+      expect(result.stateName).to.equal('Review')
+    })
+
+    it('should prefer config over DB mapping', async () => {
+      // Config override set
+      setStateMapConfig(db, 'review', 'Custom Review')
+
+      // DB mapping also set
+      const store = new ProviderStatusMappingStore(db)
+      store.upsertMapping({
+        provider: 'test',
+        providerStatus: 'DB Review',
+        canonicalStatus: 'Review',
+        canonicalCategory: 'started',
+      })
+
+      const moveCalls: Array<{ ticketId: string; stateId: string }> = []
+      const provider = createMockPMProvider([
+        { id: 'st-1', name: 'Custom Review' },
+        { id: 'st-2', name: 'DB Review' },
+      ], moveCalls)
+
+      const result = await move(provider, 'TKT-1', 'review', {
+        db,
+        providerName: 'test',
+      })
+      expect(result.success).to.be.true
+      expect(result.resolvedVia).to.equal('config')
+      expect(result.stateName).to.equal('Custom Review')
+    })
+
+    it('should work with auto-mapped statuses end-to-end', async () => {
+      // Auto-map a Trello-like board
+      const providerStatuses: ProviderStatus[] = [
+        { name: 'New Issues' },
+        { name: 'Working On' },
+        { name: 'Needs Review' },
+        { name: 'Done' },
+      ]
+      autoMapAndPersist(db, 'trello', providerStatuses)
+
+      const moveCalls: Array<{ ticketId: string; stateId: string }> = []
+      const provider = createMockPMProvider([
+        { id: 'tr-1', name: 'New Issues' },
+        { id: 'tr-2', name: 'Working On' },
+        { id: 'tr-3', name: 'Needs Review' },
+        { id: 'tr-4', name: 'Done' },
+      ], moveCalls)
+
+      // Test 'review' resolves via DB mapping to 'Needs Review'
+      const result = await move(provider, 'TKT-1', 'review', {
+        db,
+        providerName: 'trello',
+      })
+      expect(result.success).to.be.true
+      expect(result.resolvedVia).to.equal('mapping')
+      expect(result.stateName).to.equal('Needs Review')
     })
   })
 })

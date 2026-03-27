@@ -56,3 +56,13 @@ export {
   matchIntentByAliases,
   type SemanticIntent,
 } from './state-intents.js'
+export {
+  generateAutoMappings,
+  autoMapAndPersist,
+  findCanonicalMatch,
+  CANONICAL_STATUSES,
+  INTENT_TO_CANONICAL,
+  type ProviderStatus,
+  type CanonicalStatusDef,
+  type StatusCategory,
+} from './auto-mapping.js'
