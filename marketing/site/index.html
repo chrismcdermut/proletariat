@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" class="antialiased">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proletariat — Agent orchestration for shipping 100x</title>
+  <meta name="description" content="Spawn, manage, and coordinate AI coding agents to ship 100x.">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Proletariat — Agent orchestration for shipping 100x" />
+  <meta property="og:description" content="Spawn, manage, and coordinate AI coding agents to ship 100x." />
+  <meta property="og:image" content="https://proletariat.ai/og-image.png" />
+  <meta property="og:url" content="https://proletariat.ai" />
+  <meta property="og:type" content="website" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Proletariat — Agent orchestration for shipping 100x" />
+  <meta name="twitter:description" content="Spawn, manage, and coordinate AI coding agents to ship 100x." />
+  <meta name="twitter:image" content="https://proletariat.ai/og-image.png" />
+
+  <!-- Fonts -->
+  <link rel="stylesheet" href="https://api.fontshare.com/css?f[]=switzer@400,500,600,700&display=swap">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Switzer', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            pink: {
+              600: '#D15052',
+            },
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans min-h-screen">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-50 bg-gray-950/80 backdrop-blur-md border-b border-gray-800">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="font-mono text-xl font-bold text-pink-600">&gt;_</span>
+        <span class="text-lg font-semibold tracking-tight">proletariat</span>
+      </div>
+      <nav class="flex items-center gap-6 text-sm text-gray-400">
+        <a href="#features" class="hover:text-white transition-colors">Features</a>
+        <a href="#how-it-works" class="hover:text-white transition-colors">How it works</a>
+        <a href="https://github.com/chrismcdermut/proletariat" class="hover:text-white transition-colors">GitHub</a>
+        <a href="https://www.npmjs.com/package/@proletariat/cli" class="bg-pink-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-pink-600/90 transition-colors">Install</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="max-w-6xl mx-auto px-6 pt-24 pb-20">
+    <div class="max-w-3xl">
+      <h1 class="text-5xl sm:text-6xl font-bold tracking-tight leading-tight">
+        Agent orchestration for
+        <span class="text-pink-600">shipping 100x</span>
+      </h1>
+      <p class="mt-6 text-xl text-gray-400 leading-relaxed">
+        Spawn, manage, and coordinate AI coding agents to ship 100x. One CLI to rule your entire engineering workflow.
+      </p>
+      <div class="mt-10 flex items-center gap-4">
+        <div class="bg-gray-900 border border-gray-800 rounded-xl px-6 py-3 font-mono text-sm flex items-center gap-3">
+          <span class="text-gray-500">$</span>
+          <span>npm install -g @proletariat/cli</span>
+          <button onclick="navigator.clipboard.writeText('npm install -g @proletariat/cli')" class="text-gray-500 hover:text-white transition-colors ml-2" title="Copy">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" class="max-w-6xl mx-auto px-6 py-20 border-t border-gray-800">
+    <h2 class="font-mono text-xs uppercase tracking-widest text-gray-500 mb-10">Features</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+        <div class="text-pink-600 font-mono text-2xl mb-3">01</div>
+        <h3 class="text-lg font-semibold mb-2">Spawn agents</h3>
+        <p class="text-gray-400 text-sm leading-relaxed">Spin up AI coding agents in Docker containers with full repo access. Each agent gets its own isolated worktree and environment.</p>
+      </div>
+      <div class="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+        <div class="text-pink-600 font-mono text-2xl mb-3">02</div>
+        <h3 class="text-lg font-semibold mb-2">Manage work</h3>
+        <p class="text-gray-400 text-sm leading-relaxed">Track tickets, assign agents, and monitor progress through a unified board. Integrates with Linear, GitHub, and more.</p>
+      </div>
+      <div class="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+        <div class="text-pink-600 font-mono text-2xl mb-3">03</div>
+        <h3 class="text-lg font-semibold mb-2">Ship faster</h3>
+        <p class="text-gray-400 text-sm leading-relaxed">Orchestrate multiple agents working in parallel. Auto-merge PRs, resolve conflicts, and keep your pipeline flowing.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section id="how-it-works" class="max-w-6xl mx-auto px-6 py-20 border-t border-gray-800">
+    <h2 class="font-mono text-xs uppercase tracking-widest text-gray-500 mb-10">How it works</h2>
+    <div class="space-y-6 max-w-2xl">
+      <div class="flex items-start gap-4">
+        <div class="font-mono text-pink-600 text-sm font-bold mt-1 w-8 flex-shrink-0">1.</div>
+        <div>
+          <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 font-mono text-sm inline-block mb-2">prlt init</div>
+          <p class="text-gray-400 text-sm">Initialize your project with a board, workflow, and agent configuration.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="font-mono text-pink-600 text-sm font-bold mt-1 w-8 flex-shrink-0">2.</div>
+        <div>
+          <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 font-mono text-sm inline-block mb-2">prlt work start</div>
+          <p class="text-gray-400 text-sm">Pick a ticket, spawn an agent, and let it work autonomously in a container.</p>
+        </div>
+      </div>
+      <div class="flex items-start gap-4">
+        <div class="font-mono text-pink-600 text-sm font-bold mt-1 w-8 flex-shrink-0">3.</div>
+        <div>
+          <div class="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 font-mono text-sm inline-block mb-2">prlt work propose</div>
+          <p class="text-gray-400 text-sm">Agent creates a PR, runs tests, and moves the ticket to review automatically.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="max-w-6xl mx-auto px-6 py-10 border-t border-gray-800 text-center">
+    <p class="text-gray-500 text-sm">
+      <span class="text-pink-600 font-mono font-bold">&gt;_</span> proletariat &mdash; agent orchestration for shipping 100x
+    </p>
+  </footer>
+
+</body>
+</html>
