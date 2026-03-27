@@ -91,7 +91,7 @@ interface WorktreeEntry {
 /**
  * Parse `git worktree list --porcelain` output into structured entries.
  */
-function parseWorktreeList(output: string): WorktreeEntry[] {
+export function parseWorktreeList(output: string): WorktreeEntry[] {
   const blocks = output.split('\n\n').filter(Boolean)
   const entries: WorktreeEntry[] = []
 
@@ -133,7 +133,7 @@ function listWorktrees(repoPath: string): WorktreeEntry[] {
  * Extract agent name from a worktree path.
  * Worktrees are at: {hqPath}/agents/{subdir}/{agentName}/{repoName}
  */
-function extractAgentName(worktreePath: string, hqPath: string): string | null {
+export function extractAgentName(worktreePath: string, hqPath: string): string | null {
   const relative = path.relative(hqPath, worktreePath)
   if (!relative.startsWith('agents/')) return null
 
@@ -152,7 +152,7 @@ function extractAgentName(worktreePath: string, hqPath: string): string | null {
 /**
  * Determine the GC status for a worktree based on its PR state.
  */
-function classifyArtifact(pr: PRInfo | null, staleDays: number): GCArtifactStatus {
+export function classifyArtifact(pr: PRInfo | null, staleDays: number): GCArtifactStatus {
   if (!pr) {
     // No PR found — branch exists but no PR was ever created or it's been deleted.
     // Treat as closed (safe to clean up).
