@@ -35,6 +35,7 @@ import {
   ExecutionConfig,
   PermissionMode,
   CleanupPolicy,
+  OutputMode,
   generateBranchName,
   DEFAULT_EXECUTION_CONFIG,
   normalizeEnvironment,
@@ -660,15 +661,10 @@ export async function spawnAgentForTicket(
   // Default to tmux for session persistence (enables peek/poke/attach)
   const sessionManager = options.sessionManager || 'tmux'
 
-  // Determine output mode:
-  // - Devcontainer with tmux: always interactive (no -p flag) so Claude runs with TUI
-  //   inside tmux, enabling session peek/poke/attach for Docker agents
-  // - Otherwise: print mode for background (logs only), interactive for terminal/tmux
-  if (environment === 'devcontainer' && sessionManager === 'tmux') {
-    executionConfig.outputMode = 'interactive'
-  } else {
-    executionConfig.outputMode = displayMode === 'background' ? 'print' : 'interactive'
-  }
+  // Determine output mode (PRLT-1119):
+  // Background → print mode (-p) so Claude doesn't hang without TTY interaction.
+  // Terminal/foreground → interactive mode for streaming TUI.
+  executionConfig.outputMode = resolveOutputMode(displayMode)
   const result = await runExecution(environment, context, executor, executionConfig, {
     displayMode,
     sessionManager: environment === 'devcontainer' ? sessionManager : undefined,
@@ -941,6 +937,23 @@ export async function spawnForColumn(
   }
 
   return result
+}
+
+// =============================================================================
+// Output Mode Resolution (PRLT-1119)
+// =============================================================================
+
+/**
+ * Resolve the output mode for an agent execution.
+ *
+ * Background display always uses print mode (-p flag) so Claude doesn't hang
+ * waiting for TTY input. Terminal/foreground use interactive mode for streaming TUI.
+ *
+ * Previously, devcontainer+tmux forced interactive mode even for background display,
+ * which caused Claude to hang when the tmux session had no attached client.
+ */
+export function resolveOutputMode(displayMode: DisplayMode): OutputMode {
+  return displayMode === 'background' ? 'print' : 'interactive'
 }
 
 // =============================================================================
