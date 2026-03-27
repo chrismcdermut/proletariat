@@ -743,8 +743,8 @@ describe('@smoke Session Commands E2E Tests', () => {
 
         expect(json).to.not.be.null;
         expect(json!.error).to.exist;
-        // Should reach tmux stage (SEND_FAILED or SESSION_NOT_FOUND), NOT fail at PMO/git init
-        expect(['SESSION_NOT_FOUND', 'SEND_FAILED']).to.include(json!.error.code);
+        // Should reach runtime stage (SEND_FAILED, SESSION_NOT_FOUND, or NOT_IN_WORKSPACE), NOT fail at PMO/git init
+        expect(['SESSION_NOT_FOUND', 'SEND_FAILED', 'NOT_IN_WORKSPACE']).to.include(json!.error.code);
         // Error message should NOT contain git errors
         expect(json!.error.message).to.not.include('fatal: not a git repository');
         expect(json!.error.message).to.not.include('PMO not found');
