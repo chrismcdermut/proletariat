@@ -4,6 +4,7 @@ import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { SessionWatcher } from '../../lib/session/watcher.js'
+import type { TmuxCrashEvent } from '../../lib/session/tmux-watchdog.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
@@ -15,12 +16,13 @@ import {
 import { onShutdown } from '../../lib/signal-handler.js'
 
 export default class SessionWatch extends PromptCommand {
-  static description = 'Watch agent sessions for heartbeat timeouts and auto-terminate stale agents'
+  static description = 'Watch agent sessions for heartbeat timeouts, tmux server crashes, and auto-recover'
 
   static examples = [
     '<%= config.bin %> session watch',
     '<%= config.bin %> session watch --interval 3 --timeout 10',
     '<%= config.bin %> session watch --no-kill',
+    '<%= config.bin %> session watch --no-recover',
     '<%= config.bin %> session watch --once',
   ]
 
@@ -36,6 +38,11 @@ export default class SessionWatch extends PromptCommand {
     }),
     kill: Flags.boolean({
       description: 'Auto-kill containers for stale agents',
+      default: true,
+      allowNo: true,
+    }),
+    recover: Flags.boolean({
+      description: 'Auto-recover agent sessions after tmux server crash',
       default: true,
       allowNo: true,
     }),
@@ -83,12 +90,32 @@ export default class SessionWatch extends PromptCommand {
       intervalMinutes: flags.interval,
       timeoutMinutes: flags.timeout,
       autoKill: flags.kill,
+      autoRecover: flags.recover,
       log,
       onStaleDetected: async (exec, reason) => {
         if (!jsonMode) {
           this.log(
             styles.error(`  STALE: ${exec.agentName} (${exec.ticketId}) — ${reason}`)
           )
+        }
+      },
+      onCrashDetected: async (event: TmuxCrashEvent) => {
+        if (!jsonMode) {
+          const envLabel = event.environment === 'host'
+            ? 'host'
+            : `container ${event.containerId?.slice(0, 12)}`
+          this.log('')
+          this.log(styles.error(`  ⚠ TMUX CRASH: ${envLabel} — ${event.affectedExecutions.length} agent(s) affected`))
+          for (const exec of event.affectedExecutions) {
+            this.log(styles.warning(`    ${exec.agentName} (${exec.ticketId})`))
+          }
+          if (event.recoveredSessions.length > 0) {
+            this.log(styles.success(`    Recovered: ${event.recoveredSessions.join(', ')}`))
+          }
+          if (event.failedRecoveries.length > 0) {
+            this.log(styles.error(`    Failed: ${event.failedRecoveries.join(', ')}`))
+          }
+          this.log('')
         }
       },
     })
@@ -110,6 +137,19 @@ export default class SessionWatch extends PromptCommand {
             reason: s.reason,
           })),
           containersKilled: result.containersKilled,
+          crashEvents: result.crashEvents.map(e => ({
+            timestamp: e.timestamp.toISOString(),
+            environment: e.environment,
+            containerId: e.containerId,
+            affectedAgents: e.affectedExecutions.map(a => ({
+              agentName: a.agentName,
+              ticketId: a.ticketId,
+            })),
+            recoveryAttempted: e.recoveryAttempted,
+            recoveredSessions: e.recoveredSessions,
+            failedRecoveries: e.failedRecoveries,
+          })),
+          crashRecoveries: result.crashRecoveries,
         }, createMetadata('session watch', flags))
       } else {
         this.log('')
@@ -120,6 +160,11 @@ export default class SessionWatch extends PromptCommand {
         this.log(`  Stale agents detected: ${result.staleExecutions.length}`)
         this.log(`  Containers killed:     ${result.containersKilled}`)
 
+        if (result.crashEvents.length > 0) {
+          this.log(`  Tmux crashes detected: ${result.crashEvents.length}`)
+          this.log(`  Sessions recovered:    ${result.crashRecoveries}`)
+        }
+
         if (result.staleExecutions.length > 0) {
           this.log('')
           this.log(styles.warning('  Stale Agents:'))
@@ -128,7 +173,7 @@ export default class SessionWatch extends PromptCommand {
               `    ${stale.execution.agentName} (${stale.execution.ticketId}) — ${stale.reason}`
             ))
           }
-        } else {
+        } else if (result.crashEvents.length === 0) {
           this.log('')
           this.log(styles.success('  All agents healthy.'))
         }
@@ -147,6 +192,7 @@ export default class SessionWatch extends PromptCommand {
       this.log(`  Poll interval:      ${flags.interval} minute(s)`)
       this.log(`  Heartbeat timeout:  ${flags.timeout} minute(s)`)
       this.log(`  Auto-kill:          ${flags.kill ? 'enabled' : 'disabled'}`)
+      this.log(`  Auto-recover:       ${flags.recover ? 'enabled' : 'disabled'}`)
       this.log(styles.muted('  Press Ctrl+C to stop'))
       this.log('')
     }
