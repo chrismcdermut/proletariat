@@ -121,13 +121,14 @@ async function cycle(): Promise<void> {
     try {
       // Schedule GC for any tickets that just moved to Done (PR merged)
       const mergedActions = report.applied.filter(a => a.type === 'move_to_done')
-      for (const action of mergedActions) {
-        // Find the branch for this ticket from the started tickets list
+      if (mergedActions.length > 0) {
         const completedTickets = await storage.listTickets(projectId, { statusCategory: 'completed' })
-        const ticket = completedTickets.find(t => t.id === action.ticketId)
-        if (ticket?.branch) {
-          gcScheduler.schedule(ticket.branch)
-          log(`GC: Scheduled cleanup for branch ${ticket.branch} (1hr grace period)`)
+        for (const action of mergedActions) {
+          const ticket = completedTickets.find(t => t.id === action.ticketId)
+          if (ticket?.branch) {
+            gcScheduler.schedule(ticket.branch)
+            log(`GC: Scheduled cleanup for branch ${ticket.branch} (1hr grace period)`)
+          }
         }
       }
 

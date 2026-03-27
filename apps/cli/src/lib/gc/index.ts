@@ -357,8 +357,6 @@ export function executeGC(
   const processedContainers = new Set<string>()
 
   for (const candidate of actionable) {
-    const label = `${candidate.branch} (${candidate.status})`
-
     // 1. Close stale PRs
     if (candidate.status === 'stale' && candidate.pr) {
       if (execute) {
