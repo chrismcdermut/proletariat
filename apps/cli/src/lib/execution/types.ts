@@ -227,6 +227,7 @@ export interface ExecutionContext {
   repoWorktrees?: string[] // Names of repo worktrees to mount for git worktree resolution
   workspaceRepos?: WorkspaceRepo[] // Structured workspace repo info (PRLT-1088)
   createPR?: boolean // Whether to create a PR when work is ready (chosen at work start)
+  verifyCi?: boolean // Whether agent should poll CI and fix failures before exiting (PRLT-1126)
   reviewGate?: 'required' | 'auto' | 'post' // Review gate mode (resolved at work start)
   // Action context (what the agent should do)
   actionId?: string       // Action ID (e.g., 'implement', 'groom')
@@ -413,6 +414,7 @@ export interface ExecutionConfig {
   permissionMode: PermissionMode  // Permission mode for agent execution
   authMethod?: AuthMethod // Saved auth method preference (oauth or apikey). null/undefined = ask each time
   createPrDefault?: boolean // Workspace default for PR creation (true=create PRs, false=no PRs, undefined=prompt)
+  verifyCiDefault?: boolean // Workspace default for CI verification (true=verify CI before exiting, undefined=prompt)
   tmux: {
     session: string
     layout: 'split' | 'window'

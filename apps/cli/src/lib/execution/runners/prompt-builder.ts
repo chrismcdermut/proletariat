@@ -114,7 +114,7 @@ const ORCHESTRATOR_COMMAND_REGISTRY: CommandCategory[] = [
   {
     title: 'Agent Lifecycle',
     commands: [
-      { cmd: 'prlt work start <ticket> --ephemeral --skip-permissions --create-pr --display background --action implement --run-on-host --yes', desc: 'Spawn an agent for a ticket', checkPath: 'work/start' },
+      { cmd: 'prlt work start <ticket> --ephemeral --skip-permissions --create-pr --verify-ci --display background --action implement --run-on-host --yes', desc: 'Spawn an agent for a ticket', checkPath: 'work/start' },
       { cmd: 'prlt session list', desc: 'List running sessions', checkPath: 'session/list' },
       { cmd: 'prlt session inspect <agent>', desc: 'Inspect session details', checkPath: 'session/inspect' },
       { cmd: 'prlt session poke <agent> \'message\'', desc: 'Send message to agent', checkPath: 'session/poke' },
@@ -234,7 +234,7 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
   prompt += buildOrchestratorCommandReference()
   prompt += `## Spawning Agents\n`
   prompt += `\`\`\`\n`
-  prompt += `script -q /dev/null prlt work start TKT-XXXX --ephemeral --skip-permissions --create-pr --display background --action implement --run-on-host --yes\n`
+  prompt += `script -q /dev/null prlt work start TKT-XXXX --ephemeral --skip-permissions --create-pr --verify-ci --display background --action implement --run-on-host --yes\n`
   prompt += `\`\`\`\n`
   prompt += `- Review: \`--action review\` (model decides whether to comment, fix, or both)\n\n`
   prompt += buildOrchestratorAntiPatterns()
@@ -328,6 +328,37 @@ function buildWorkspaceSection(context: ExecutionContext): string {
   }
 
   section += `\nWork in the primary repo. Do not look for other repos.\n\n`
+
+  return section
+}
+
+// =============================================================================
+// CI Verification Instructions (PRLT-1126)
+// =============================================================================
+
+const MAX_CI_RETRIES = 3
+
+/**
+ * Build CI verification instructions for agent prompts.
+ * When enabled, tells the agent to poll CI after pushing, read failures,
+ * fix issues, and retry — up to MAX_CI_RETRIES times.
+ */
+export function buildCiVerificationSection(): string {
+  let section = `\n## CI Verification (REQUIRED)\n\n`
+  section += `**Do NOT declare done until CI is green on your PR.** After pushing and creating/updating your PR, you MUST verify CI passes.\n\n`
+  section += `### CI verification loop\n\n`
+  section += `After each push:\n`
+  section += `1. **Wait for CI** — run \`gh pr checks <pr-number> --watch\` to poll until all checks complete\n`
+  section += `2. **If CI passes** — you are done, proceed to your final summary\n`
+  section += `3. **If CI fails** — read the failure logs:\n`
+  section += `   \`\`\`bash\n`
+  section += `   gh run view <run-id> --log-failed\n`
+  section += `   \`\`\`\n`
+  section += `4. **Fix the failures** — analyze the logs, fix the code, commit and push again\n`
+  section += `5. **Repeat** from step 1\n\n`
+  section += `### Limits\n\n`
+  section += `- Maximum ${MAX_CI_RETRIES} fix-and-retry cycles. If CI still fails after ${MAX_CI_RETRIES} attempts, stop and report the remaining failures in your summary.\n`
+  section += `- If a failure is clearly unrelated to your changes (e.g. flaky infrastructure test), note it in your summary and proceed.\n`
 
   return section
 }
@@ -478,6 +509,11 @@ export function buildPrompt(context: ExecutionContext): string {
     } else {
       prompt += `When you have completed the task, provide a summary of what you did.`
     }
+  }
+
+  // Inject CI verification instructions when enabled (PRLT-1126)
+  if (context.verifyCi && context.createPR) {
+    prompt += buildCiVerificationSection()
   }
 
   prompt += `\n\n---\n\n**STOP:** After providing your final summary, your task is complete. Do not take any further actions, do not verify your work again, and do not continue the conversation. Simply output your summary and stop.`

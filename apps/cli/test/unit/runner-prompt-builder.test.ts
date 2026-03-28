@@ -3,6 +3,7 @@ import {
   buildIntegrationCommandsSection,
   buildOrchestratorSystemPrompt,
   buildPrompt,
+  buildCiVerificationSection,
 } from '../../src/lib/execution/runners/prompt-builder.js'
 import type { ExecutionContext } from '../../src/lib/execution/types.js'
 
@@ -369,6 +370,125 @@ describe('Prompt Builder (TKT-140)', () => {
       const systemPrompt = buildOrchestratorSystemPrompt(makeContext({ isOrchestrator: true }))
       expect(systemPrompt).to.include('Workflow')
       expect(systemPrompt).to.include('squash')
+    })
+  })
+
+  // =========================================================================
+  // CI Verification (PRLT-1126)
+  // =========================================================================
+  describe('CI Verification (PRLT-1126)', () => {
+    describe('buildCiVerificationSection', () => {
+      it('should include CI verification heading', () => {
+        const section = buildCiVerificationSection()
+        expect(section).to.include('CI Verification')
+      })
+
+      it('should include gh pr checks command', () => {
+        const section = buildCiVerificationSection()
+        expect(section).to.include('gh pr checks')
+      })
+
+      it('should include gh run view --log-failed command', () => {
+        const section = buildCiVerificationSection()
+        expect(section).to.include('gh run view')
+        expect(section).to.include('--log-failed')
+      })
+
+      it('should include max retries limit', () => {
+        const section = buildCiVerificationSection()
+        expect(section).to.include('Maximum 3')
+      })
+
+      it('should mention flaky test handling', () => {
+        const section = buildCiVerificationSection()
+        expect(section).to.include('unrelated to your changes')
+      })
+    })
+
+    describe('buildPrompt with verifyCi', () => {
+      it('should include CI verification section when verifyCi and createPR are true', () => {
+        const prompt = buildPrompt(makeContext({
+          modifiesCode: true,
+          createPR: true,
+          verifyCi: true,
+        }))
+        expect(prompt).to.include('CI Verification')
+        expect(prompt).to.include('gh pr checks')
+        expect(prompt).to.include('gh run view')
+      })
+
+      it('should NOT include CI verification when verifyCi is false', () => {
+        const prompt = buildPrompt(makeContext({
+          modifiesCode: true,
+          createPR: true,
+          verifyCi: false,
+        }))
+        expect(prompt).to.not.include('CI Verification')
+      })
+
+      it('should NOT include CI verification when verifyCi is undefined', () => {
+        const prompt = buildPrompt(makeContext({
+          modifiesCode: true,
+          createPR: true,
+        }))
+        expect(prompt).to.not.include('CI Verification')
+      })
+
+      it('should NOT include CI verification when createPR is false even if verifyCi is true', () => {
+        const prompt = buildPrompt(makeContext({
+          modifiesCode: true,
+          createPR: false,
+          verifyCi: true,
+        }))
+        expect(prompt).to.not.include('CI Verification')
+      })
+
+      it('should place CI verification section before STOP instruction', () => {
+        const prompt = buildPrompt(makeContext({
+          modifiesCode: true,
+          createPR: true,
+          verifyCi: true,
+        }))
+        const ciIdx = prompt.indexOf('CI Verification')
+        const stopIdx = prompt.indexOf('**STOP:**')
+        expect(ciIdx).to.be.greaterThan(-1)
+        expect(stopIdx).to.be.greaterThan(-1)
+        expect(ciIdx).to.be.lessThan(stopIdx)
+      })
+
+      it('should place CI verification section after When Complete section', () => {
+        const prompt = buildPrompt(makeContext({
+          modifiesCode: true,
+          createPR: true,
+          verifyCi: true,
+        }))
+        const whenCompleteIdx = prompt.indexOf('## When Complete')
+        const ciIdx = prompt.indexOf('## CI Verification')
+        expect(whenCompleteIdx).to.be.greaterThan(-1)
+        expect(ciIdx).to.be.greaterThan(-1)
+        expect(whenCompleteIdx).to.be.lessThan(ciIdx)
+      })
+
+      it('should include CI verification for revision mode when verifyCi is true', () => {
+        const prompt = buildPrompt(makeContext({
+          isRevision: true,
+          prFeedback: 'Fix the bug.',
+          createPR: true,
+          verifyCi: true,
+        }))
+        expect(prompt).to.include('CI Verification')
+      })
+
+      it('should include CI verification with post review gate', () => {
+        const prompt = buildPrompt(makeContext({
+          modifiesCode: true,
+          createPR: true,
+          verifyCi: true,
+          reviewGate: 'post',
+        }))
+        expect(prompt).to.include('CI Verification')
+        expect(prompt).to.include('prlt work propose')
+      })
     })
   })
 })

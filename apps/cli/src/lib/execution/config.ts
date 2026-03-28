@@ -55,6 +55,7 @@ const CONFIG_KEYS = {
   coderName: 'coder.name',
   authMethod: 'execution.auth_method',
   createPrDefault: 'execution.create_pr_default',
+  verifyCiDefault: 'execution.verify_ci_default',
   mirrorToPmoDefault: 'execution.mirror_to_pmo_default',
 }
 
@@ -140,6 +141,12 @@ export function loadExecutionConfig(db: Database.Database): ExecutionConfig {
   const createPrDefault = getSetting(db, CONFIG_KEYS.createPrDefault)
   if (createPrDefault !== null) {
     config.createPrDefault = createPrDefault === 'true'
+  }
+
+  // Load verify CI default preference
+  const verifyCiDefault = getSetting(db, CONFIG_KEYS.verifyCiDefault)
+  if (verifyCiDefault !== null) {
+    config.verifyCiDefault = verifyCiDefault === 'true'
   }
 
   // Load tmux settings
@@ -499,6 +506,24 @@ export function getCreatePrDefault(db: Database.Database): boolean | null {
  */
 export function saveCreatePrDefault(db: Database.Database, createPr: boolean): void {
   setSetting(db, CONFIG_KEYS.createPrDefault, createPr.toString())
+}
+
+/**
+ * Get saved CI verification default preference.
+ * Returns null if no preference has been saved (user should be prompted).
+ */
+export function getVerifyCiDefault(db: Database.Database): boolean | null {
+  const value = getSetting(db, CONFIG_KEYS.verifyCiDefault)
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return null
+}
+
+/**
+ * Save CI verification default preference.
+ */
+export function saveVerifyCiDefault(db: Database.Database, verifyCi: boolean): void {
+  setSetting(db, CONFIG_KEYS.verifyCiDefault, verifyCi.toString())
 }
 
 /**
