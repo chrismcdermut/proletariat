@@ -179,8 +179,12 @@ export default class WorkReady extends PMOCommand {
       // Mark any running executions for this ticket as completed
       const runningExecution = executionStorage.getRunningExecution(ticketId!);
       if (runningExecution) {
-        executionStorage.updateStatus(runningExecution.id, 'completed');
-        this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+        const updated = executionStorage.tryUpdateStatus(runningExecution.id, 'completed');
+        if (updated) {
+          this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+        } else {
+          this.log(styles.muted(`   Execution ${runningExecution.id} status update skipped (read-only database)`));
+        }
       }
 
       // PRLT-984: Commit validation — warn if no meaningful code was committed
@@ -272,9 +276,17 @@ export default class WorkReady extends PMOCommand {
           if (prResult.number) {
             prMetadata.pr_number = String(prResult.number);
           }
-          await this.storage.updateTicket(ticketId!, {
-            metadata: prMetadata,
-          });
+          try {
+            await this.storage.updateTicket(ticketId!, {
+              metadata: prMetadata,
+            });
+          } catch (err) {
+            if ((err as { code?: string }).code === 'SQLITE_READONLY') {
+              this.log(styles.muted('   PR metadata update skipped (read-only database)'));
+            } else {
+              throw err;
+            }
+          }
         }
       }
 

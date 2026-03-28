@@ -423,13 +423,21 @@ export default class WorkShip extends PMOCommand {
 
       if (ticket && ticketId) {
         // Update PR metadata
-        await this.storage.updateTicket(ticketId, {
-          metadata: {
-            ...ticket.metadata,
-            pr_state: 'MERGED',
-            merged_at: new Date().toISOString(),
-          },
-        });
+        try {
+          await this.storage.updateTicket(ticketId, {
+            metadata: {
+              ...ticket.metadata,
+              pr_state: 'MERGED',
+              merged_at: new Date().toISOString(),
+            },
+          });
+        } catch (err) {
+          if ((err as { code?: string }).code === 'SQLITE_READONLY') {
+            this.log(styles.muted('   PR metadata update skipped (read-only database)'));
+          } else {
+            throw err;
+          }
+        }
 
         if (!flags['no-transition']) {
           try {
@@ -459,8 +467,12 @@ export default class WorkShip extends PMOCommand {
         // Mark execution as completed
         const runningExecution = executionStorage.getRunningExecution(ticketId);
         if (runningExecution) {
-          executionStorage.updateStatus(runningExecution.id, 'completed');
-          this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+          const updated = executionStorage.tryUpdateStatus(runningExecution.id, 'completed');
+          if (updated) {
+            this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+          } else {
+            this.log(styles.muted(`   Execution ${runningExecution.id} status update skipped (read-only database)`));
+          }
         }
       }
 

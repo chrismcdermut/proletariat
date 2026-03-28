@@ -197,6 +197,24 @@ export class ExecutionStorage {
   }
 
   /**
+   * Try to update execution status, gracefully handling read-only databases.
+   * Returns true if the update succeeded, false if skipped due to read-only DB.
+   * Use this in container environments where the HQ database is mounted read-only.
+   */
+  tryUpdateStatus(id: string, status: ExecutionStatus, exitCode?: number, errorMessage?: string): boolean {
+    try {
+      this.updateStatus(id, status, exitCode, errorMessage)
+      return true
+    } catch (error: unknown) {
+      const code = (error as { code?: string }).code
+      if (code === 'SQLITE_READONLY') {
+        return false
+      }
+      throw error
+    }
+  }
+
+  /**
    * Update execution status
    */
   updateStatus(id: string, status: ExecutionStatus, exitCode?: number, errorMessage?: string): void {
