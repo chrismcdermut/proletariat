@@ -382,23 +382,17 @@ export function killTmuxInContainer(containerId: string): boolean {
 export function cleanClaudeSessionData(containerId: string): boolean {
   try {
     // Remove session-specific directories and files, preserve auth
-    // Uses find to selectively remove session data while keeping credentials
-    const cleanupCmd = [
-      'sh', '-c',
-      // Remove projects directory (per-session state)
-      'rm -rf /home/node/.claude/projects 2>/dev/null;' +
-      // Remove statsig cache
-      'rm -rf /home/node/.claude/statsig 2>/dev/null;' +
-      // Remove session-specific dot files (but not .credentials.json or .oauthtoken)
-      'rm -f /home/node/.claude/.claude-session 2>/dev/null;' +
-      'rm -f /home/node/.claude/.claude-conversation 2>/dev/null;' +
-      'rm -f /home/node/.claude/.claude-history 2>/dev/null;' +
-      // Clean up CLAUDE.md memory files that accumulate per session
-      'rm -rf /home/node/.claude/memory 2>/dev/null;' +
-      'true',
-    ].join(' ')
+    // The cleanup script removes session state but keeps credentials
+    const script =
+      'rm -rf /home/node/.claude/projects 2>/dev/null; ' +
+      'rm -rf /home/node/.claude/statsig 2>/dev/null; ' +
+      'rm -f /home/node/.claude/.claude-session 2>/dev/null; ' +
+      'rm -f /home/node/.claude/.claude-conversation 2>/dev/null; ' +
+      'rm -f /home/node/.claude/.claude-history 2>/dev/null; ' +
+      'rm -rf /home/node/.claude/memory 2>/dev/null; ' +
+      'true'
 
-    execSync(`docker exec ${containerId} ${cleanupCmd}`, {
+    execSync(`docker exec ${containerId} sh -c '${script}'`, {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 10000,
     })
