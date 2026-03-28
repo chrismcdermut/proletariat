@@ -57,10 +57,10 @@ describe('no local PMO mirror on cloud ticket create (PRLT-1051)', () => {
     })
   })
 
-  describe('mirror-to-pmo defaults to enabled for work start', () => {
-    it('defaults to enabled when no flag, env, or config is set', () => {
+  describe('mirror-to-pmo defaults to disabled for work start (PRLT-1167)', () => {
+    it('defaults to disabled when no flag, env, or config is set', () => {
       const result = resolveMirrorToPmo({})
-      expect(result.enabled).to.be.true
+      expect(result.enabled).to.be.false
       expect(result.source).to.equal('default')
     })
 

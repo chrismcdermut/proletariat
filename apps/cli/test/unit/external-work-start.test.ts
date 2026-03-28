@@ -23,9 +23,9 @@ describe('resolveMirrorToPmo', () => {
     })
   })
 
-  it('defaults to enabled when nothing is set', () => {
+  it('defaults to disabled when nothing is set (PRLT-1167)', () => {
     expect(resolveMirrorToPmo({})).to.deep.equal({
-      enabled: true,
+      enabled: false,
       source: 'default',
     })
   })

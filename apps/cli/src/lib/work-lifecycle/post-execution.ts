@@ -21,6 +21,7 @@ import { resolveTicketProvider } from '../providers/resolver.js'
 import type { TicketProvider, ProviderMoveResult, ProviderStorage } from '../providers/types.js'
 import { tryValidateCommits, type CommitValidationResult } from '../execution/commit-validation.js'
 import { moveWithProvider } from '../providers/state-resolution.js'
+import { TicketRefStore } from '../execution/ticket-refs.js'
 
 export interface PostExecutionContext {
   ticketId: string
@@ -98,7 +99,30 @@ export async function handlePostExecutionTransition(
   db: Database.Database,
 ): Promise<PostExecutionResult> {
   // Get the ticket to check current state and PR status
-  const ticket = await storage.getTicket(context.ticketId)
+  // PRLT-1167: Fall back to ticket_refs when ticket not in PMO (external-only)
+  let ticket = await storage.getTicket(context.ticketId)
+  if (!ticket) {
+    try {
+      const ticketRefStore = new TicketRefStore(db)
+      const ref = ticketRefStore.get(context.ticketId)
+      if (ref) {
+        ticket = {
+          id: ref.id,
+          projectId: ref.projectId ?? undefined,
+          statusName: ref.status ?? undefined,
+          statusCategory: 'started' as StateCategory,
+          metadata: {
+            external_source: ref.provider,
+            ...(ref.externalId ? { external_id: ref.externalId } : {}),
+            ...(ref.externalKey ? { external_key: ref.externalKey } : {}),
+            ...(ref.externalUrl ? { external_url: ref.externalUrl } : {}),
+          },
+        }
+      }
+    } catch {
+      // ticket_refs table may not exist in older databases
+    }
+  }
   if (!ticket || !ticket.projectId) {
     return { transitioned: false }
   }

@@ -19,5 +19,5 @@ export function resolveMirrorToPmo(input: MirrorResolutionInput): MirrorResoluti
   if (input.configValue !== null && input.configValue !== undefined) {
     return { enabled: input.configValue, source: 'config' }
   }
-  return { enabled: true, source: 'default' }
+  return { enabled: false, source: 'default' }
 }
