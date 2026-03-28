@@ -500,6 +500,7 @@ export const pmoAgentWork = sqliteTable('agent_work', {
   startedAt: text('started_at').default(sql`CURRENT_TIMESTAMP`),
   completedAt: text('completed_at'),
   exitCode: integer('exit_code'),
+  gcCleanedAt: text('gc_cleaned_at'),
 }, (table) => ({
   idxAgent: index('idx_agent_work_agent').on(table.agentName),
   idxStatus: index('idx_agent_work_status').on(table.status),

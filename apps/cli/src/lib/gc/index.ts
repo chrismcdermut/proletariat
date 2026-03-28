@@ -2,7 +2,9 @@
  * Garbage Collection Module
  *
  * Core logic for cleaning up agent artifacts after PR merge/close.
- * Handles: worktree removal, container removal, branch pruning, stale PR closure.
+ * Handles: worktree removal, container removal, branch pruning (local + remote),
+ * tmux session cleanup, Claude session cleanup, DB record marking, agent name recycling,
+ * and stale PR closure.
  *
  * Used by both the `prlt gc` command and the daemon's post-merge phase.
  */
@@ -55,8 +57,20 @@ export interface GCResult {
   worktreesRemoved: string[]
   /** Containers removed */
   containersRemoved: string[]
-  /** Branches pruned */
+  /** Local branches pruned */
   branchesPruned: string[]
+  /** Remote branches deleted */
+  remoteBranchesDeleted: string[]
+  /** tmux sessions killed */
+  tmuxSessionsCleaned: string[]
+  /** Claude sessions cleaned */
+  claudeSessionsCleaned: string[]
+  /** DB execution records marked as gc_cleaned */
+  dbRecordsMarked: number
+  /** DB execution records purged (deleted) */
+  dbRecordsPurged: number
+  /** Agent names marked as recyclable */
+  agentNamesRecycled: string[]
   /** Stale PRs closed */
   stalePRsClosed: number[]
   /** Errors encountered */
@@ -74,6 +88,8 @@ export interface GCOptions {
   filterStatus?: GCArtifactStatus[]
   /** Actually execute cleanup (default: false = dry run) */
   execute?: boolean
+  /** Purge (DELETE) old DB execution records instead of just marking them */
+  purgeDb?: boolean
   /** Log callback */
   log?: (msg: string) => void
 }
@@ -318,25 +334,207 @@ function removeAgentDir(agentDir: string): boolean {
 }
 
 /**
+ * Delete a remote git branch. Non-fatal if branch doesn't exist on remote.
+ */
+export function deleteRemoteBranch(branch: string, cwd: string): boolean {
+  try {
+    execSync(`git push origin --delete "${branch}"`, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30000,
+    })
+    return true
+  } catch (error) {
+    // If the remote branch is already gone, that's fine
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('remote ref does not exist') || msg.includes('unable to delete')) {
+      return false
+    }
+    return false
+  }
+}
+
+/**
+ * Kill tmux sessions inside a Docker container.
+ * Non-fatal if tmux is not running or container is not accessible.
+ */
+export function killTmuxInContainer(containerId: string): boolean {
+  try {
+    execSync(`docker exec ${containerId} tmux kill-server`, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10000,
+    })
+    return true
+  } catch {
+    // Non-fatal — tmux may not be running in the container
+    return false
+  }
+}
+
+/**
+ * Clean up Claude session data from a Docker container's claude-credentials volume.
+ * Only removes session-specific files, preserving auth credentials.
+ *
+ * Session files to clean: projects/, .claude-*, statsig/
+ * Files to preserve: .credentials.json, credentials.json, .oauthtoken, settings.json
+ */
+export function cleanClaudeSessionData(containerId: string): boolean {
+  try {
+    // Remove session-specific directories and files, preserve auth
+    // The cleanup script removes session state but keeps credentials
+    const script =
+      'rm -rf /home/node/.claude/projects 2>/dev/null; ' +
+      'rm -rf /home/node/.claude/statsig 2>/dev/null; ' +
+      'rm -f /home/node/.claude/.claude-session 2>/dev/null; ' +
+      'rm -f /home/node/.claude/.claude-conversation 2>/dev/null; ' +
+      'rm -f /home/node/.claude/.claude-history 2>/dev/null; ' +
+      'rm -rf /home/node/.claude/memory 2>/dev/null; ' +
+      'true'
+
+    execSync(`docker exec ${containerId} sh -c '${script}'`, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10000,
+    })
+    return true
+  } catch {
+    // Non-fatal — container may not be accessible
+    return false
+  }
+}
+
+/**
+ * Mark execution records as GC-cleaned for the given agent names.
+ * Sets gc_cleaned_at timestamp on agent_work rows that are completed/failed.
+ */
+export function markExecutionRecordsCleaned(
+  hqPath: string,
+  agentNames: string[],
+): number {
+  if (agentNames.length === 0) return 0
+
+  try {
+    const { openWorkspaceDatabase } = require('../database/workspace.js')
+    const db = openWorkspaceDatabase(hqPath)
+    try {
+      // Check if agent_work table exists
+      const tableExists = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_work'"
+      ).get()
+      if (!tableExists) return 0
+
+      // Check if gc_cleaned_at column exists
+      const cols = db.prepare("PRAGMA table_info(agent_work)").all() as { name: string }[]
+      if (!cols.some(c => c.name === 'gc_cleaned_at')) return 0
+
+      const placeholders = agentNames.map(() => '?').join(',')
+      const now = new Date().toISOString()
+
+      const stmt = db.prepare(
+        `UPDATE agent_work SET gc_cleaned_at = ? WHERE agent_name IN (${placeholders}) AND gc_cleaned_at IS NULL`
+      )
+      const result = stmt.run(now, ...agentNames)
+      return result.changes
+    } finally {
+      db.close()
+    }
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Purge (DELETE) execution records for the given agent names.
+ * Only deletes records that have already been marked as gc_cleaned.
+ */
+export function purgeExecutionRecords(
+  hqPath: string,
+  agentNames: string[],
+): number {
+  if (agentNames.length === 0) return 0
+
+  try {
+    const { openWorkspaceDatabase } = require('../database/workspace.js')
+    const db = openWorkspaceDatabase(hqPath)
+    try {
+      const tableExists = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_work'"
+      ).get()
+      if (!tableExists) return 0
+
+      const placeholders = agentNames.map(() => '?').join(',')
+
+      const stmt = db.prepare(
+        `DELETE FROM agent_work WHERE agent_name IN (${placeholders}) AND gc_cleaned_at IS NOT NULL`
+      )
+      const result = stmt.run(...agentNames)
+      return result.changes
+    } finally {
+      db.close()
+    }
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Mark agent names as recyclable (status='cleaned') in the database.
+ * Preserves the record for history but allows name reuse.
+ */
+export function recycleAgentNames(
+  hqPath: string,
+  agentNames: string[],
+): string[] {
+  if (agentNames.length === 0) return []
+
+  const recycled: string[] = []
+  try {
+    const { markAgentCleaned } = require('../database/agents.js')
+    for (const name of agentNames) {
+      try {
+        markAgentCleaned(hqPath, name)
+        recycled.push(name)
+      } catch {
+        // Agent may not exist in DB — non-fatal
+      }
+    }
+  } catch {
+    // DB access may fail — non-fatal
+  }
+  return recycled
+}
+
+/**
  * Execute garbage collection on the provided candidates.
  *
  * Processes candidates in order:
  * 1. Close stale PRs
- * 2. Remove worktrees
- * 3. Remove containers
- * 4. Prune local branches
- * 5. Clean up empty agent directories
+ * 2. Kill tmux sessions in containers
+ * 3. Clean Claude session data in containers
+ * 4. Remove worktrees
+ * 5. Remove containers
+ * 6. Prune local branches
+ * 7. Delete remote branches
+ * 8. Clean up empty agent directories
+ * 9. Mark/purge DB execution records
+ * 10. Recycle agent names
  */
 export function executeGC(
   candidates: GCCandidate[],
   options: GCOptions,
 ): GCResult {
-  const { execute = false, log } = options
+  const { execute = false, purgeDb = false, log, hqPath } = options
 
   const result: GCResult = {
     worktreesRemoved: [],
     containersRemoved: [],
     branchesPruned: [],
+    remoteBranchesDeleted: [],
+    tmuxSessionsCleaned: [],
+    claudeSessionsCleaned: [],
+    dbRecordsMarked: 0,
+    dbRecordsPurged: 0,
+    agentNamesRecycled: [],
     stalePRsClosed: [],
     errors: [],
     skipped: [],
@@ -355,6 +553,8 @@ export function executeGC(
   const reposToProcess = new Set<string>()
   const agentDirs = new Set<string>()
   const processedContainers = new Set<string>()
+  const processedAgentNames = new Set<string>()
+  const processedBranches = new Set<string>()
 
   for (const candidate of actionable) {
     // 1. Close stale PRs
@@ -376,7 +576,31 @@ export function executeGC(
       }
     }
 
-    // 2. Remove worktree
+    // 2. Kill tmux sessions + 3. Clean Claude session data (before container removal)
+    if (candidate.container && !processedContainers.has(candidate.container.containerId)) {
+      if (execute) {
+        // Kill tmux sessions inside the container
+        log?.(`Killing tmux sessions in container: ${candidate.container.containerName}`)
+        if (killTmuxInContainer(candidate.container.containerId)) {
+          result.tmuxSessionsCleaned.push(candidate.container.containerName)
+        }
+        // tmux cleanup failure is non-fatal
+
+        // Clean Claude session data
+        log?.(`Cleaning Claude session data in container: ${candidate.container.containerName}`)
+        if (cleanClaudeSessionData(candidate.container.containerId)) {
+          result.claudeSessionsCleaned.push(candidate.container.containerName)
+        }
+        // Claude session cleanup failure is non-fatal
+      } else {
+        log?.(`[dry-run] Would kill tmux sessions in container: ${candidate.container.containerName}`)
+        result.tmuxSessionsCleaned.push(candidate.container.containerName)
+        log?.(`[dry-run] Would clean Claude session data in container: ${candidate.container.containerName}`)
+        result.claudeSessionsCleaned.push(candidate.container.containerName)
+      }
+    }
+
+    // 4. Remove worktree
     if (execute) {
       log?.(`Removing worktree: ${candidate.worktreePath}`)
       if (removeWorktree(candidate.worktreePath, candidate.sourceRepoPath)) {
@@ -389,7 +613,7 @@ export function executeGC(
       result.worktreesRemoved.push(candidate.worktreePath)
     }
 
-    // 3. Remove container (deduplicate by agent)
+    // 5. Remove container (deduplicate by agent)
     if (candidate.container && !processedContainers.has(candidate.container.containerId)) {
       processedContainers.add(candidate.container.containerId)
       if (execute) {
@@ -406,30 +630,46 @@ export function executeGC(
       }
     }
 
-    // 4. Prune local branch
+    // 6. Prune local branch
     if (candidate.branch) {
       if (execute) {
         if (deleteLocalBranch(candidate.branch, candidate.sourceRepoPath)) {
           result.branchesPruned.push(candidate.branch)
-          log?.(`Pruned branch: ${candidate.branch}`)
+          log?.(`Pruned local branch: ${candidate.branch}`)
         }
         // Branch deletion failure is non-fatal (may already be deleted)
       } else {
-        log?.(`[dry-run] Would prune branch: ${candidate.branch}`)
+        log?.(`[dry-run] Would prune local branch: ${candidate.branch}`)
         result.branchesPruned.push(candidate.branch)
+      }
+
+      // 7. Delete remote branch (deduplicate across repos for same branch)
+      if (!processedBranches.has(candidate.branch)) {
+        processedBranches.add(candidate.branch)
+        if (execute) {
+          log?.(`Deleting remote branch: ${candidate.branch}`)
+          if (deleteRemoteBranch(candidate.branch, candidate.sourceRepoPath)) {
+            result.remoteBranchesDeleted.push(candidate.branch)
+          }
+          // Remote branch deletion failure is non-fatal (may already be deleted)
+        } else {
+          log?.(`[dry-run] Would delete remote branch: ${candidate.branch}`)
+          result.remoteBranchesDeleted.push(candidate.branch)
+        }
       }
     }
 
     reposToProcess.add(candidate.sourceRepoPath)
 
-    // Track agent directory for cleanup
+    // Track agent directory and name for cleanup
     if (candidate.agentName) {
       const agentDir = path.dirname(candidate.worktreePath)
       agentDirs.add(agentDir)
+      processedAgentNames.add(candidate.agentName)
     }
   }
 
-  // 5. Prune worktree refs and clean up empty agent directories
+  // 8. Prune worktree refs and clean up empty agent directories
   if (execute) {
     for (const repoPath of reposToProcess) {
       pruneWorktreeRefs(repoPath)
@@ -448,6 +688,45 @@ export function executeGC(
           // Ignore
         }
       }
+    }
+  }
+
+  // 9. Mark/purge DB execution records
+  const agentNameList = [...processedAgentNames]
+  if (agentNameList.length > 0) {
+    if (execute) {
+      // Always mark records as gc_cleaned
+      const marked = markExecutionRecordsCleaned(hqPath, agentNameList)
+      result.dbRecordsMarked = marked
+      if (marked > 0) {
+        log?.(`Marked ${marked} execution record(s) as gc_cleaned`)
+      }
+
+      // Optionally purge (DELETE) if --purge-db was passed
+      if (purgeDb) {
+        const purged = purgeExecutionRecords(hqPath, agentNameList)
+        result.dbRecordsPurged = purged
+        if (purged > 0) {
+          log?.(`Purged ${purged} execution record(s)`)
+        }
+      }
+    } else {
+      log?.(`[dry-run] Would mark execution records as gc_cleaned for ${agentNameList.length} agent(s)`)
+      if (purgeDb) {
+        log?.(`[dry-run] Would purge execution records for ${agentNameList.length} agent(s)`)
+      }
+    }
+  }
+
+  // 10. Recycle agent names
+  if (agentNameList.length > 0) {
+    if (execute) {
+      log?.(`Recycling ${agentNameList.length} agent name(s)`)
+      const recycled = recycleAgentNames(hqPath, agentNameList)
+      result.agentNamesRecycled = recycled
+    } else {
+      log?.(`[dry-run] Would recycle ${agentNameList.length} agent name(s)`)
+      result.agentNamesRecycled = agentNameList
     }
   }
 

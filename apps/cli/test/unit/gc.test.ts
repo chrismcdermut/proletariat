@@ -1,4 +1,5 @@
 import { expect } from 'chai'
+import Database from 'better-sqlite3'
 import type { PRInfo } from '../../src/lib/pr/index.js'
 import type { ContainerInfo } from '../../src/lib/execution/container-cleanup.js'
 import {
@@ -6,6 +7,15 @@ import {
   classifyArtifact,
   parseWorktreeList,
   extractAgentName,
+  executeGC,
+  deleteRemoteBranch,
+  killTmuxInContainer,
+  cleanClaudeSessionData,
+  markExecutionRecordsCleaned,
+  purgeExecutionRecords,
+  recycleAgentNames,
+  type GCCandidate,
+  type GCResult,
 } from '../../src/lib/gc/index.js'
 
 /**
@@ -16,6 +26,8 @@ import {
  * - parseWorktreeList: git worktree list parsing
  * - extractAgentName: worktree path → agent name extraction
  * - GCScheduler: grace period scheduling
+ * - executeGC: new artifact cleanup fields (remote branches, tmux, claude, DB, agent names)
+ * - Helper functions: deleteRemoteBranch, killTmuxInContainer, etc.
  */
 
 // =============================================================================
@@ -392,5 +404,307 @@ describe('@smoke GC Scheduler', () => {
       expect(ready).to.include('PRLT-101/feat/second')
       expect(ready).to.include('PRLT-102/feat/third')
     })
+  })
+})
+
+// =============================================================================
+// GCResult Structure Tests (PRLT-1176)
+// =============================================================================
+
+describe('@smoke GC Result structure', () => {
+  function makeCandidate(overrides: Partial<GCCandidate> = {}): GCCandidate {
+    return {
+      worktreePath: '/workspace/agents/temp/bold-turing/proletariat',
+      branch: 'PRLT-100/feat/test',
+      agentName: 'bold-turing',
+      repoName: 'proletariat',
+      sourceRepoPath: '/workspace/repos/proletariat',
+      pr: makePR({ state: 'MERGED' }),
+      status: 'merged',
+      container: null,
+      ...overrides,
+    }
+  }
+
+  it('should include remoteBranchesDeleted in dry-run result', () => {
+    const candidate = makeCandidate()
+    const result = executeGC([candidate], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    expect(result).to.have.property('remoteBranchesDeleted')
+    expect(result.remoteBranchesDeleted).to.be.an('array')
+    expect(result.remoteBranchesDeleted).to.include('PRLT-100/feat/test')
+  })
+
+  it('should include tmuxSessionsCleaned in result', () => {
+    const candidate = makeCandidate({
+      container: {
+        containerId: 'abc123',
+        containerName: 'prlt-agent-bold-turing',
+        agentName: 'bold-turing',
+        running: true,
+        status: 'running',
+      },
+    })
+    const result = executeGC([candidate], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    expect(result).to.have.property('tmuxSessionsCleaned')
+    expect(result.tmuxSessionsCleaned).to.be.an('array')
+    expect(result.tmuxSessionsCleaned).to.include('prlt-agent-bold-turing')
+  })
+
+  it('should include claudeSessionsCleaned in result', () => {
+    const candidate = makeCandidate({
+      container: {
+        containerId: 'abc123',
+        containerName: 'prlt-agent-bold-turing',
+        agentName: 'bold-turing',
+        running: true,
+        status: 'running',
+      },
+    })
+    const result = executeGC([candidate], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    expect(result).to.have.property('claudeSessionsCleaned')
+    expect(result.claudeSessionsCleaned).to.be.an('array')
+    expect(result.claudeSessionsCleaned).to.include('prlt-agent-bold-turing')
+  })
+
+  it('should include dbRecordsMarked in result', () => {
+    const result = executeGC([], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    expect(result).to.have.property('dbRecordsMarked')
+    expect(result.dbRecordsMarked).to.equal(0)
+  })
+
+  it('should include dbRecordsPurged in result', () => {
+    const result = executeGC([], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    expect(result).to.have.property('dbRecordsPurged')
+    expect(result.dbRecordsPurged).to.equal(0)
+  })
+
+  it('should include agentNamesRecycled in result', () => {
+    const candidate = makeCandidate()
+    const result = executeGC([candidate], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    expect(result).to.have.property('agentNamesRecycled')
+    expect(result.agentNamesRecycled).to.be.an('array')
+    expect(result.agentNamesRecycled).to.include('bold-turing')
+  })
+
+  it('should deduplicate remote branch deletions across multiple candidates with same branch', () => {
+    const candidate1 = makeCandidate({ branch: 'PRLT-100/feat/shared' })
+    const candidate2 = makeCandidate({
+      branch: 'PRLT-100/feat/shared',
+      worktreePath: '/workspace/agents/temp/bold-turing/other-repo',
+      repoName: 'other-repo',
+    })
+    const result = executeGC([candidate1, candidate2], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    // Remote branch deletion should only appear once despite two candidates with same branch
+    expect(result.remoteBranchesDeleted).to.have.length(1)
+    expect(result.remoteBranchesDeleted[0]).to.equal('PRLT-100/feat/shared')
+  })
+
+  it('should deduplicate tmux/claude cleanup for same container across multiple candidates', () => {
+    const container: ContainerInfo = {
+      containerId: 'abc123',
+      containerName: 'prlt-agent-bold-turing',
+      agentName: 'bold-turing',
+      running: true,
+      status: 'running',
+    }
+    const candidate1 = makeCandidate({ container, branch: 'PRLT-100/feat/a' })
+    const candidate2 = makeCandidate({ container, branch: 'PRLT-101/feat/b' })
+    const result = executeGC([candidate1, candidate2], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    // tmux and claude cleanup should deduplicate by container ID
+    expect(result.tmuxSessionsCleaned).to.have.length(1)
+    expect(result.claudeSessionsCleaned).to.have.length(1)
+  })
+
+  it('should skip active candidates and not include them in new cleanup fields', () => {
+    const activeCandidate = makeCandidate({
+      status: 'active',
+      pr: makePR({ state: 'OPEN', updatedAt: new Date().toISOString() }),
+    })
+    const result = executeGC([activeCandidate], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    expect(result.remoteBranchesDeleted).to.have.length(0)
+    expect(result.agentNamesRecycled).to.have.length(0)
+    expect(result.skipped).to.have.length(1)
+  })
+
+  it('should collect agent names from all actionable candidates for recycling', () => {
+    const candidate1 = makeCandidate({ agentName: 'alpha-agent' })
+    const candidate2 = makeCandidate({
+      agentName: 'beta-agent',
+      branch: 'PRLT-101/feat/other',
+      worktreePath: '/workspace/agents/temp/beta-agent/proletariat',
+    })
+    const result = executeGC([candidate1, candidate2], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    expect(result.agentNamesRecycled).to.include('alpha-agent')
+    expect(result.agentNamesRecycled).to.include('beta-agent')
+  })
+})
+
+// =============================================================================
+// deleteRemoteBranch Tests (PRLT-1176)
+// =============================================================================
+
+describe('@smoke GC deleteRemoteBranch', () => {
+  it('should return false when branch does not exist on remote', () => {
+    // This will fail because the branch doesn't exist, but should not throw
+    const result = deleteRemoteBranch('nonexistent-branch-gc-test-99999', process.cwd())
+    expect(result).to.be.false
+  })
+
+  it('should not throw on failure', () => {
+    expect(() => {
+      deleteRemoteBranch('nonexistent-branch-gc-test-99999', process.cwd())
+    }).to.not.throw()
+  })
+})
+
+// =============================================================================
+// killTmuxInContainer Tests (PRLT-1176)
+// =============================================================================
+
+describe('@smoke GC killTmuxInContainer', () => {
+  it('should return false for non-existent container', () => {
+    // Non-existent container — should fail gracefully
+    const result = killTmuxInContainer('nonexistent-container-gc-test-99999')
+    expect(result).to.be.false
+  })
+
+  it('should not throw on failure', () => {
+    expect(() => {
+      killTmuxInContainer('nonexistent-container-gc-test-99999')
+    }).to.not.throw()
+  })
+})
+
+// =============================================================================
+// cleanClaudeSessionData Tests (PRLT-1176)
+// =============================================================================
+
+describe('@smoke GC cleanClaudeSessionData', () => {
+  it('should return false for non-existent container', () => {
+    const result = cleanClaudeSessionData('nonexistent-container-gc-test-99999')
+    expect(result).to.be.false
+  })
+
+  it('should not throw on failure', () => {
+    expect(() => {
+      cleanClaudeSessionData('nonexistent-container-gc-test-99999')
+    }).to.not.throw()
+  })
+})
+
+// =============================================================================
+// markExecutionRecordsCleaned / purgeExecutionRecords Tests (PRLT-1176)
+// =============================================================================
+
+describe('@smoke GC DB record cleanup', () => {
+  it('should return 0 for empty agent list', () => {
+    const marked = markExecutionRecordsCleaned('/nonexistent/path', [])
+    expect(marked).to.equal(0)
+  })
+
+  it('should return 0 for purge with empty agent list', () => {
+    const purged = purgeExecutionRecords('/nonexistent/path', [])
+    expect(purged).to.equal(0)
+  })
+
+  it('should return 0 when database does not exist', () => {
+    // Non-existent path — should fail gracefully
+    const marked = markExecutionRecordsCleaned('/tmp/nonexistent-gc-test-99999', ['some-agent'])
+    expect(marked).to.equal(0)
+  })
+
+  it('should return 0 for purge when database does not exist', () => {
+    const purged = purgeExecutionRecords('/tmp/nonexistent-gc-test-99999', ['some-agent'])
+    expect(purged).to.equal(0)
+  })
+})
+
+// =============================================================================
+// recycleAgentNames Tests (PRLT-1176)
+// =============================================================================
+
+describe('@smoke GC recycleAgentNames', () => {
+  it('should return empty array for empty agent list', () => {
+    const recycled = recycleAgentNames('/nonexistent/path', [])
+    expect(recycled).to.deep.equal([])
+  })
+
+  it('should return empty array when database does not exist', () => {
+    // Non-existent path — should fail gracefully
+    const recycled = recycleAgentNames('/tmp/nonexistent-gc-test-99999', ['some-agent'])
+    expect(recycled).to.deep.equal([])
+  })
+})
+
+// =============================================================================
+// Regression: GCResult must have all new fields (PRLT-1176)
+// =============================================================================
+
+describe('@smoke GC PRLT-1176 regression — result fields', () => {
+  it('should fail if remoteBranchesDeleted field is missing from GCResult', () => {
+    const result: GCResult = executeGC([], { hqPath: '/workspace', execute: false })
+    // This test would fail if the field was removed from GCResult
+    expect(result).to.have.property('remoteBranchesDeleted')
+    expect(Array.isArray(result.remoteBranchesDeleted)).to.be.true
+  })
+
+  it('should fail if tmuxSessionsCleaned field is missing from GCResult', () => {
+    const result: GCResult = executeGC([], { hqPath: '/workspace', execute: false })
+    expect(result).to.have.property('tmuxSessionsCleaned')
+    expect(Array.isArray(result.tmuxSessionsCleaned)).to.be.true
+  })
+
+  it('should fail if claudeSessionsCleaned field is missing from GCResult', () => {
+    const result: GCResult = executeGC([], { hqPath: '/workspace', execute: false })
+    expect(result).to.have.property('claudeSessionsCleaned')
+    expect(Array.isArray(result.claudeSessionsCleaned)).to.be.true
+  })
+
+  it('should fail if dbRecordsMarked field is missing from GCResult', () => {
+    const result: GCResult = executeGC([], { hqPath: '/workspace', execute: false })
+    expect(result).to.have.property('dbRecordsMarked')
+    expect(typeof result.dbRecordsMarked).to.equal('number')
+  })
+
+  it('should fail if dbRecordsPurged field is missing from GCResult', () => {
+    const result: GCResult = executeGC([], { hqPath: '/workspace', execute: false })
+    expect(result).to.have.property('dbRecordsPurged')
+    expect(typeof result.dbRecordsPurged).to.equal('number')
+  })
+
+  it('should fail if agentNamesRecycled field is missing from GCResult', () => {
+    const result: GCResult = executeGC([], { hqPath: '/workspace', execute: false })
+    expect(result).to.have.property('agentNamesRecycled')
+    expect(Array.isArray(result.agentNamesRecycled)).to.be.true
   })
 })
