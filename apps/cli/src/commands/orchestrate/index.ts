@@ -248,20 +248,28 @@ export default class Orchestrate extends PromptCommand {
       let poller: OrchestratePoller | null = null
 
       if (pollInterval > 0) {
-        poller = new OrchestratePoller({
-          engine,
-          db,
-          log: (msg) => { if (verbose) this.log(styles.muted(msg)) },
-          cwd: workspaceInfo.path,
-        })
-        pollTimer = setInterval(() => {
-          void poller!.poll()
-        }, pollInterval * 1000)
+        try {
+          poller = new OrchestratePoller({
+            engine,
+            db,
+            log: (msg) => { if (verbose) this.log(styles.muted(msg)) },
+            cwd: workspaceInfo.path,
+          })
+          pollTimer = setInterval(() => {
+            void poller!.poll()
+          }, pollInterval * 1000)
+        } catch (err) {
+          this.log(styles.error(`  Failed to start poller: ${err instanceof Error ? err.message : String(err)}`))
+        }
       }
+
+      // Keep Node.js event loop alive — signal listeners alone don't prevent exit
+      const keepAlive = setInterval(() => {}, 60_000)
 
       // Keep the process alive until signal
       await new Promise<void>((resolve) => {
         const cleanup = () => {
+          clearInterval(keepAlive)
           engine.stop()
           if (pollTimer) clearInterval(pollTimer)
           if (rl) { rl.close(); rl = null }
