@@ -95,6 +95,7 @@ import {
 } from '../../lib/work-source/index.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
 import { handlePostExecutionTransition } from '../../lib/work-lifecycle/index.js'
+import { runPreflightChecks, formatPreflightReport } from '../../lib/execution/preflight.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -239,6 +240,7 @@ export default class WorkStart extends PMOCommand {
     '<%= config.bin %> <%= command.id %> TKT-001 --review-gate post        # Ship then human reviews after',
     '<%= config.bin %> <%= command.id %> PRLT-1085 PRLT-1086 PRLT-1087 --create-pr  # Batch spawn in parallel',
     '<%= config.bin %> <%= command.id %> TKT-001 TKT-002 TKT-003 --max-parallel 2  # Limit concurrent spawns',
+    '<%= config.bin %> <%= command.id %> TKT-001 --dry-run                        # Validate environment without spawning',
   ]
 
   static args = {
@@ -400,6 +402,10 @@ export default class WorkStart extends PMOCommand {
     'max-parallel': Flags.integer({
       description: 'Maximum number of concurrent spawns when starting multiple tickets (default: unlimited)',
       min: 1,
+    }),
+    'dry-run': Flags.boolean({
+      description: 'Validate environment and prerequisites without actually spawning an agent',
+      default: false,
     }),
   }
 
@@ -807,6 +813,64 @@ export default class WorkStart extends PMOCommand {
       }
       // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
       ticketId = ticket.id
+
+      // --dry-run: validate environment and report issues without spawning
+      if (flags['dry-run']) {
+        const dryRunEnvironment = flags['run-on-host'] ? 'host' : 'devcontainer'
+        const dryRunExecutor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+
+        const report = runPreflightChecks({
+          environment: dryRunEnvironment,
+          executor: dryRunExecutor,
+          db,
+          ticket: { id: ticket.id, title: ticket.title },
+          agentDir: null, // Not yet created during dry-run
+        })
+
+        if (jsonMode) {
+          const metadata = createMetadata('work start', flags)
+          metadata.dryRun = true
+          metadata.environment = dryRunEnvironment
+          metadata.executor = dryRunExecutor
+          const jsonResult = {
+            passed: report.passed,
+            checks: report.checks.map(c => ({
+              name: c.name,
+              label: c.label,
+              passed: c.passed,
+              severity: c.severity,
+              message: c.message,
+              fix: c.fix ?? null,
+            })),
+            errors: report.errors.length,
+            warnings: report.warnings.length,
+          }
+          outputExecutionResultAsJson(
+            [{ workId: '', ticketId: ticket.id, agent: '', status: report.passed ? 'ready' : 'blocked' }],
+            report.passed ? 1 : 0,
+            report.passed ? 0 : 1,
+            { ...metadata, preflight: jsonResult }
+          )
+        } else {
+          this.log('')
+          this.log(styles.header(`Dry-run: preflight validation for ${ticket.id}`))
+          this.log(styles.muted(`   Environment: ${dryRunEnvironment}`))
+          this.log(styles.muted(`   Executor: ${dryRunExecutor}`))
+          this.log('')
+          this.log(formatPreflightReport(report))
+          this.log('')
+
+          if (report.passed) {
+            this.log(styles.success('All preflight checks passed — ready to spawn.'))
+          } else {
+            this.log(styles.error(`${report.errors.length} error(s) and ${report.warnings.length} warning(s) found.`))
+            this.log(styles.muted('Fix the errors above, then run without --dry-run to start work.'))
+          }
+        }
+
+        db.close()
+        return
+      }
 
       // In JSON mode with explicit flags, implement two-step confirm-then-execute protocol
       if (jsonMode) {
@@ -2506,24 +2570,61 @@ export default class WorkStart extends PMOCommand {
           errorType: 'spawn_failure',
         })
 
+        // Run post-failure diagnostics to give user actionable info
+        const failureDiag = runPreflightChecks({
+          environment,
+          executor,
+          db,
+          ticket: { id: ticket.id, title: ticket.title },
+          agentDir: context.agentDir,
+        })
+        const diagErrors = failureDiag.errors
+
         if (jsonMode) {
-          // Output JSON failure result with resolved PR mode
+          // Output JSON failure result with resolved PR mode and diagnostics
           const failMetadata = createMetadata('work start', flags)
           failMetadata.resolvedPRMode = createPR ? 'create-pr' : 'no-pr'
           failMetadata.prModeSource = prModeSource
+          failMetadata.spawnError = result.error || 'Unknown error'
+          if (diagErrors.length > 0) {
+            failMetadata.diagnostics = diagErrors.map(e => ({
+              check: e.name,
+              message: e.message,
+              fix: e.fix ?? null,
+            }))
+          }
           outputExecutionResultAsJson(
             [{
               workId: execution.id,
               ticketId: ticket.id,
               agent: assignedAgent,
               status: 'failed',
+              error: result.error || 'Unknown error',
             }],
             0,
             1,
             failMetadata
           )
         } else {
-          return handleError('START_FAILED', `Failed to start work: ${result.error}`)
+          // Build a detailed error message with the spawn error and any diagnostic findings
+          const spawnError = result.error || 'Unknown error'
+          const errorLines = [`Failed to start work on ${ticket.id}: ${spawnError}`]
+
+          if (diagErrors.length > 0) {
+            errorLines.push('')
+            errorLines.push('Diagnostics found these issues:')
+            for (const diag of diagErrors) {
+              errorLines.push(`  ✗ ${diag.label}: ${diag.message}`)
+              if (diag.fix) {
+                errorLines.push(`    → Fix: ${diag.fix}`)
+              }
+            }
+          }
+
+          errorLines.push('')
+          errorLines.push('Tip: Run with --dry-run to validate your environment before spawning.')
+
+          return handleError('START_FAILED', errorLines.join('\n'))
         }
       }
 
@@ -2634,6 +2735,7 @@ export default class WorkStart extends PMOCommand {
       ticketId: string
       agent: string
       status: string
+      error?: string
     }> = []
 
     // Spawn agents with concurrency control
@@ -2664,6 +2766,7 @@ export default class WorkStart extends PMOCommand {
           ticketId: ticket.id,
           agent: '',
           status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
         })
       }
     }
@@ -3269,7 +3372,21 @@ export default class WorkStart extends PMOCommand {
       this.log(styles.success(`   ✓ ${ticket.id} started (${execution.id})`))
     } else {
       executionStorage.updateStatus(execution.id, 'failed')
-      throw new Error(result.error || 'Unknown error')
+      // Include diagnostic details in the error message
+      const spawnError = result.error || 'Unknown error'
+      const diag = runPreflightChecks({
+        environment,
+        executor,
+        db,
+        ticket: { id: ticket.id, title: ticket.title },
+        agentDir: context.agentDir,
+      })
+      const diagIssues = diag.errors
+      if (diagIssues.length > 0) {
+        const details = diagIssues.map(e => `${e.label}: ${e.message}`).join('; ')
+        throw new Error(`${spawnError} [${details}]`)
+      }
+      throw new Error(spawnError)
     }
   }
 }

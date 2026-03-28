@@ -117,6 +117,34 @@ export interface OutputMetadata {
     method: string
     provider: string
   }
+  /** Dry-run mode indicator (PRLT-1132) */
+  dryRun?: boolean
+  /** Resolved execution environment */
+  environment?: string
+  /** Resolved executor type */
+  executor?: string
+  /** Preflight check results (PRLT-1132) */
+  preflight?: {
+    passed: boolean
+    checks: Array<{
+      name: string
+      label: string
+      passed: boolean
+      severity: string
+      message: string
+      fix: string | null
+    }>
+    errors: number
+    warnings: number
+  }
+  /** Error message from spawn failure */
+  spawnError?: string
+  /** Diagnostic check results after spawn failure */
+  diagnostics?: Array<{
+    check: string
+    message: string
+    fix: string | null
+  }>
 }
 
 /**
@@ -219,6 +247,8 @@ export interface ExecutionResultJsonOutput {
       sessionId?: string
       containerId?: string
       status: string
+      /** Error message when status is 'failed' (PRLT-1132) */
+      error?: string
     }>
     successCount: number
     failCount: number
@@ -766,6 +796,7 @@ export function outputExecutionResultAsJson(
     sessionId?: string
     containerId?: string
     status: string
+    error?: string
   }>,
   successCount: number,
   failCount: number,
