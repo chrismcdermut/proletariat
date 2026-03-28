@@ -5,6 +5,7 @@ import type { ContainerInfo } from '../../src/lib/execution/container-cleanup.js
 import {
   GCScheduler,
   classifyArtifact,
+  isAgentAlive,
   parseWorktreeList,
   extractAgentName,
   executeGC,
@@ -663,6 +664,121 @@ describe('@smoke GC recycleAgentNames', () => {
     // Non-existent path — should fail gracefully
     const recycled = recycleAgentNames('/tmp/nonexistent-gc-test-99999', ['some-agent'])
     expect(recycled).to.deep.equal([])
+  })
+})
+
+// =============================================================================
+// isAgentAlive Tests (PRLT-1184)
+// =============================================================================
+
+describe('@smoke GC isAgentAlive', () => {
+  it('should return true when container is running', () => {
+    const container: ContainerInfo = {
+      containerId: 'abc123',
+      containerName: 'prlt-agent-bold-turing',
+      agentName: 'bold-turing',
+      running: true,
+      status: 'running',
+    }
+    expect(isAgentAlive('bold-turing', '/nonexistent/hq', container)).to.be.true
+  })
+
+  it('should return false when container exists but is not running', () => {
+    const container: ContainerInfo = {
+      containerId: 'abc123',
+      containerName: 'prlt-agent-bold-turing',
+      agentName: 'bold-turing',
+      running: false,
+      status: 'exited',
+    }
+    // No DB at this path, so DB check also returns false
+    expect(isAgentAlive('bold-turing', '/nonexistent/hq', container)).to.be.false
+  })
+
+  it('should return false when no container and no DB', () => {
+    expect(isAgentAlive('bold-turing', '/nonexistent/hq', null)).to.be.false
+  })
+
+  it('should not throw when DB access fails', () => {
+    expect(() => isAgentAlive('bold-turing', '/tmp/nonexistent-gc-test-99999', null)).to.not.throw()
+  })
+})
+
+// =============================================================================
+// Regression: active agent with no PR must not be classified as 'closed' (PRLT-1184)
+// =============================================================================
+
+describe('@smoke GC PRLT-1184 regression — active agent protection', () => {
+  function makeCandidate(overrides: Partial<GCCandidate> = {}): GCCandidate {
+    return {
+      worktreePath: '/workspace/agents/temp/bold-turing/proletariat',
+      branch: 'PRLT-100/feat/test',
+      agentName: 'bold-turing',
+      repoName: 'proletariat',
+      sourceRepoPath: '/workspace/repos/proletariat',
+      pr: null,
+      status: 'active',
+      container: null,
+      ...overrides,
+    }
+  }
+
+  it('should skip agents with running containers even when no PR exists', () => {
+    // An agent that just spawned: no PR, but container is running
+    const container: ContainerInfo = {
+      containerId: 'abc123',
+      containerName: 'prlt-agent-bold-turing',
+      agentName: 'bold-turing',
+      running: true,
+      status: 'running',
+    }
+    const candidate = makeCandidate({
+      status: 'active',
+      pr: null,
+      container,
+    })
+    const result = executeGC([candidate], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    // Active candidate should be skipped, NOT cleaned up
+    expect(result.skipped).to.have.length(1)
+    expect(result.worktreesRemoved).to.have.length(0)
+    expect(result.agentNamesRecycled).to.have.length(0)
+  })
+
+  it('should still classify dead agents with no PR as closed for cleanup', () => {
+    // An agent with no running container and no active DB status (simulated by status: 'closed')
+    const candidate = makeCandidate({
+      status: 'closed',
+      pr: null,
+      container: null,
+    })
+    const result = executeGC([candidate], {
+      hqPath: '/workspace',
+      execute: false,
+    })
+    // Closed candidate should be cleaned up
+    expect(result.worktreesRemoved).to.have.length(1)
+    expect(result.skipped).to.have.length(0)
+  })
+
+  it('classifyArtifact still returns closed for null PR (base behavior unchanged)', () => {
+    // The base classification function itself should still return 'closed' for null PR
+    // The protection happens at the collectGCCandidates level, not in classifyArtifact
+    expect(classifyArtifact(null, 7)).to.equal('closed')
+  })
+
+  it('isAgentAlive returns true for running container regardless of PR state', () => {
+    const container: ContainerInfo = {
+      containerId: 'abc123',
+      containerName: 'prlt-agent-fresh-agent',
+      agentName: 'fresh-agent',
+      running: true,
+      status: 'running',
+    }
+    // Even with a non-existent DB path, running container alone is enough
+    expect(isAgentAlive('fresh-agent', '/nonexistent/hq', container)).to.be.true
   })
 })
 

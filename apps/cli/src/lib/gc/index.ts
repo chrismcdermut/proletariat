@@ -187,6 +187,35 @@ export function classifyArtifact(pr: PRInfo | null, staleDays: number): GCArtifa
 }
 
 /**
+ * Check if an agent is still alive — either its container is running
+ * or its DB status is 'active'/'running'.
+ *
+ * This prevents GC from killing agents that just spawned but haven't
+ * pushed a branch or created a PR yet.
+ */
+export function isAgentAlive(
+  agentName: string,
+  hqPath: string,
+  container: ContainerInfo | null,
+): boolean {
+  // Check 1: container is running
+  if (container?.running) return true
+
+  // Check 2: agent status in DB is active or running
+  try {
+    const { getAgent } = require('../database/agents.js')
+    const agent = getAgent(hqPath, agentName)
+    if (agent && (agent.status === 'active' || agent.status === 'running')) {
+      return true
+    }
+  } catch {
+    // DB access may fail — non-fatal, fall through
+  }
+
+  return false
+}
+
+/**
  * Collect all GC candidates by scanning worktrees and checking PR status.
  *
  * Scans all repos in the HQ, finds worktrees inside the agents/ directory,
@@ -244,7 +273,17 @@ export function collectGCCandidates(options: GCOptions): GCCandidate[] {
         seenBranches.set(wt.branch, pr)
       }
 
-      const status = classifyArtifact(pr, staleDays)
+      let status = classifyArtifact(pr, staleDays)
+      const container = agentName ? containerByAgent.get(agentName) ?? null : null
+
+      // Guard: never GC an agent that is still alive.
+      // Agents that just spawned may not have pushed a branch or created a PR yet,
+      // so classifyArtifact would return 'closed'. Check the actual agent state
+      // (running container or active/running DB status) and override to 'active'.
+      if (status !== 'active' && agentName && isAgentAlive(agentName, hqPath, container)) {
+        log?.(`Agent "${agentName}" is still alive — skipping (was: ${status})`)
+        status = 'active'
+      }
 
       candidates.push({
         worktreePath: wt.worktreePath,
@@ -254,7 +293,7 @@ export function collectGCCandidates(options: GCOptions): GCCandidate[] {
         sourceRepoPath: repoPath,
         pr,
         status,
-        container: agentName ? containerByAgent.get(agentName) ?? null : null,
+        container,
       })
     }
   }
