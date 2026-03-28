@@ -1,0 +1,130 @@
+import { Args } from '@oclif/core';
+import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js';
+import { styles } from '../../lib/styles.js';
+import {
+  shouldOutputJson,
+  outputErrorAsJson,
+  createMetadata,
+} from '../../lib/prompt-json.js';
+
+export default class TicketShow extends PMOCommand {
+  static description = 'View detailed ticket information';
+
+  static examples = [
+    '<%= config.bin %> <%= command.id %> TICK-001',
+    '<%= config.bin %> <%= command.id %>  # Interactive mode',
+  ];
+
+  static flags = {
+    ...pmoBaseFlags,
+  };
+
+  static args = {
+    ticketId: Args.string({
+      description: 'Ticket ID to view - prompts with dropdown if not provided',
+      required: false,
+    }),
+  };
+
+  async execute(): Promise<void> {
+    const { args, flags } = await this.parse(TicketShow);
+    const projectId = (flags as { project?: string }).project;
+
+    // Check if JSON output mode is active
+    const jsonMode = shouldOutputJson(flags);
+
+    // Helper to handle errors in JSON mode
+    const handleError = (code: string, message: string): void => {
+      if (jsonMode) {
+        outputErrorAsJson(code, message, createMetadata('ticket show', flags));
+        return
+      }
+      this.error(message);
+    };
+
+    // Get ticketId - prompt if not provided
+    let ticketId = args.ticketId;
+
+    if (!ticketId) {
+      // Get all tickets for selection via provider
+      const provider = this.resolveProjectProvider(projectId || '');
+      const listResult = await provider.listTickets(projectId);
+      const allTickets = listResult.success ? listResult.tickets : [];
+
+      if (allTickets.length === 0) {
+        return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
+      }
+
+      // Use helper for ticket selection (handles JSON mode automatically)
+      const selected = await this.selectFromList({
+        message: 'Select ticket to view:',
+        items: allTickets,
+        getName: (t) => `${t.id} - ${t.title} (${t.statusName})`,
+        getValue: (t) => t.id,
+        getCommand: (t) => `prlt ticket show ${t.id}${projectId ? ` -P ${projectId}` : ''} --json`,
+        jsonMode: jsonMode ? { flags, commandName: 'ticket show' } : null,
+      });
+
+      if (!selected) {
+        return; // Cancelled or JSON mode (already exited)
+      }
+      ticketId = selected;
+    }
+
+    // Get ticket through provider
+    const provider = await this.resolveTicketProvider(ticketId!, projectId || '');
+    const getResult = await provider.getTicket(ticketId!);
+    if (!getResult.success || !getResult.ticket) {
+      return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
+    }
+    const ticket = getResult.ticket;
+
+    // JSON output mode
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: true,
+        ticket: {
+          id: ticket.id,
+          title: ticket.title,
+          description: ticket.description,
+          priority: ticket.priority,
+          category: ticket.category,
+          statusName: ticket.statusName,
+          statusCategory: ticket.statusCategory,
+          projectId: ticket.projectId,
+          assignee: ticket.assignee,
+          owner: ticket.owner,
+          branch: ticket.branch,
+          epicId: ticket.epicId,
+          position: ticket.position,
+          subtasks: ticket.subtasks,
+          labels: ticket.labels,
+          metadata: ticket.metadata,
+          blockedBy: ticket.blockedBy,
+          acceptanceCriteria: ticket.acceptanceCriteria,
+          specId: ticket.specId,
+          createdAt: ticket.createdAt?.toISOString(),
+          updatedAt: ticket.updatedAt?.toISOString(),
+        },
+      }, null, 2));
+      return;
+    }
+
+    // Display ticket details
+    this.log(`\n${styles.header('Ticket')} ${styles.emphasis(ticket.id)}\n`);
+    this.log(`${styles.header('Title:')}       ${ticket.title}`);
+    this.log(`${styles.header('Project:')}     ${ticket.projectId || 'Unknown'}`);
+    this.log(`${styles.header('Status:')}      ${ticket.statusName}`);
+    this.log(`${styles.header('Priority:')}    ${ticket.priority || 'none'}`);
+    this.log(`${styles.header('Category:')}    ${ticket.category || 'none'}`);
+    this.log(`${styles.header('Created:')}     ${ticket.createdAt ? new Date(ticket.createdAt).toLocaleString() : 'unknown'}`);
+    this.log(`${styles.header('Updated:')}     ${ticket.updatedAt ? new Date(ticket.updatedAt).toLocaleString() : 'unknown'}`);
+
+    if (ticket.description) {
+      this.log(`\n${styles.header('Description:')}`);
+      this.log(`  ${ticket.description.split('\n').join('\n  ')}`);
+    }
+
+    this.log('');
+  }
+}

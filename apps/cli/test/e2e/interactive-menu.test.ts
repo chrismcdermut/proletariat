@@ -95,10 +95,11 @@ const skipSuite = !hasTmux() || !hasPrlt();
   describe('Root command (prlt)', () => {
     it('should display top-level command listing with key commands', () => {
       session.sendCommand('prlt');
-      session.waitForOutput('work', MENU_TIMEOUT);
+      session.waitForOutput('ticket', MENU_TIMEOUT);
 
+      session.assertScreenContains('ticket');
+      session.assertScreenContains('project');
       session.assertScreenContains('work');
-      session.assertScreenContains('agent');
       session.assertScreenContains('init');
     });
 
@@ -108,7 +109,79 @@ const skipSuite = !hasTmux() || !hasPrlt();
 
       const screen = session.getScreen();
       // Should have descriptions for the commands
-      expect(screen.raw).to.match(/work.*|agent.*|Interactive menu/i);
+      expect(screen.raw).to.match(/ticket.*Interactive menu/i);
+    });
+  });
+
+  // ===========================================================================
+  // 2. Ticket submenu — `prlt ticket` shows interactive operations
+  // ===========================================================================
+  describe('Ticket submenu (prlt ticket)', () => {
+    it('should show ticket operations menu with all options', () => {
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
+
+      session.assertScreenContains('Create new ticket');
+      session.assertScreenContains('List all tickets');
+      session.assertScreenContains('View ticket details');
+      session.assertScreenContains('Edit ticket');
+      session.assertScreenContains('Move ticket');
+    });
+
+    it('should highlight "Create new ticket" as the first option', () => {
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
+
+      session.assertSelected('Create new ticket');
+    });
+
+    it('should show the inquirer prompt indicator (?)', () => {
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
+
+      const screen = session.getScreen();
+      // inquirer renders a ? at the start of the prompt line
+      expect(screen.raw).to.match(/\?\s.*Ticket Operations/);
+    });
+  });
+
+  // ===========================================================================
+  // 3. Ticket list — renders table with ticket data
+  // ===========================================================================
+  describe('Ticket list (prlt ticket list)', () => {
+    it('should display a list of tickets', () => {
+      session.sendCommand('prlt ticket list');
+      // Wait for ticket data to render - look for TKT- prefix pattern
+      session.waitForOutput('TKT-', MENU_TIMEOUT);
+
+      const screen = session.getScreen();
+      // Should contain ticket IDs
+      expect(screen.raw).to.match(/TKT-\d+/);
+    });
+  });
+
+  // ===========================================================================
+  // 4. Ticket create flow — interactive prompts
+  // ===========================================================================
+  describe('Ticket create flow (prlt ticket create)', () => {
+    it('should show interactive prompts when creating a ticket', () => {
+      session.sendCommand('prlt ticket create');
+      // The create flow starts by asking for column/status selection
+      session.waitForOutput(/Select column|Ticket Operations|column|title/i, MENU_TIMEOUT);
+
+      const screen = session.getScreen();
+      // Should show some kind of interactive prompt (column or title selection)
+      expect(screen.raw).to.match(/Select|column|title|arrow keys/i);
+    });
+
+    it('should show selectable options in create flow', () => {
+      session.sendCommand('prlt ticket create');
+      // Wait for the interactive prompt to appear with the selection indicator
+      session.waitForOutput('❯', MENU_TIMEOUT);
+
+      const screen = session.getScreen();
+      // Should have the selection indicator
+      expect(screen.raw).to.include('❯');
     });
   });
 
@@ -198,23 +271,26 @@ const skipSuite = !hasTmux() || !hasPrlt();
   // ===========================================================================
   describe('Arrow key navigation', () => {
     it('should move selection down with Down arrow', () => {
-      session.sendCommand('prlt work');
-      session.waitForOutput('Work Operations', MENU_TIMEOUT);
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
 
-      // Press Down arrow
+      // Initially "Create new ticket" should be selected
+      session.assertSelected('Create new ticket');
+
+      // Press Down arrow twice
+      session.send('Down');
       session.send('Down');
 
       // Wait for the UI to update
       session.waitForStable(300);
 
-      // Selection should have moved
-      const screen = session.getScreen();
-      expect(screen.raw).to.include('❯');
+      // "List all tickets" should now be selected (third item)
+      session.assertSelected('List all tickets');
     });
 
     it('should move selection up with Up arrow', () => {
-      session.sendCommand('prlt work');
-      session.waitForOutput('Work Operations', MENU_TIMEOUT);
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
 
       // Move down twice, then back up once
       session.send('Down');
@@ -223,8 +299,8 @@ const skipSuite = !hasTmux() || !hasPrlt();
       session.send('Up');
       session.waitForStable(300);
 
-      const screen = session.getScreen();
-      expect(screen.raw).to.include('❯');
+      // Should be on "Create from template" (second item)
+      session.assertSelected('Create from template');
     });
 
     it('should select item with Enter key', () => {
@@ -257,8 +333,8 @@ const skipSuite = !hasTmux() || !hasPrlt();
   // ===========================================================================
   describe('Escape/back (Ctrl+C)', () => {
     it('should exit menu and return to shell prompt on Ctrl+C', () => {
-      session.sendCommand('prlt agent');
-      session.waitForOutput('What would you like to do', MENU_TIMEOUT);
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
 
       // Send Ctrl+C
       session.send('C-c');
@@ -302,7 +378,7 @@ const skipSuite = !hasTmux() || !hasPrlt();
     });
 
     it('should handle --help flag', () => {
-      session.sendCommand('prlt work --help');
+      session.sendCommand('prlt ticket --help');
       session.waitForStable(1000, MENU_TIMEOUT);
 
       const screen = session.getScreen();
@@ -316,9 +392,9 @@ const skipSuite = !hasTmux() || !hasPrlt();
   // ===========================================================================
   describe('Multiple menu transitions', () => {
     it('should handle sequential menu commands cleanly', () => {
-      // First: open and close work menu
-      session.sendCommand('prlt work');
-      session.waitForOutput('Work Operations', MENU_TIMEOUT);
+      // First: open and close ticket menu
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
       session.send('C-c');
       session.waitForStable(500, MENU_TIMEOUT);
 
@@ -381,8 +457,8 @@ const skipSuite = !hasTmux() || !hasPrlt();
   // ===========================================================================
   describe('Output formatting', () => {
     it('should render the selection indicator (❯) for the active item', () => {
-      session.sendCommand('prlt agent');
-      session.waitForOutput('What would you like to do', MENU_TIMEOUT);
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
 
       const screen = session.getScreen();
       // Should have the ❯ indicator somewhere
@@ -390,8 +466,8 @@ const skipSuite = !hasTmux() || !hasPrlt();
     });
 
     it('should render the "(Use arrow keys)" hint', () => {
-      session.sendCommand('prlt agent');
-      session.waitForOutput('What would you like to do', MENU_TIMEOUT);
+      session.sendCommand('prlt ticket');
+      session.waitForOutput('Ticket Operations', MENU_TIMEOUT);
 
       const screen = session.getScreen();
       expect(screen.raw).to.match(/arrow keys|Use arrow/i);

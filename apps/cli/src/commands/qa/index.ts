@@ -142,7 +142,7 @@ Your job is to **systematically explore every menu, try every option, and find b
 
 1. Document exact reproduction steps
 2. Capture the screen showing the bug
-3. File a ticket in your issue tracker (Linear, Jira, etc.) with category "bug"
+3. File a ticket using the ticket_create MCP tool with category "bug"
 
 ## Session Management
 
