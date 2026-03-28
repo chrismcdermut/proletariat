@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
-import { getWorkColumnSetting, findColumnByName } from '../../lib/work-lifecycle/settings.js';
+import { moveTicketByIntent } from '../../lib/work-lifecycle/transition.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
@@ -113,6 +113,10 @@ export default class WorkShip extends PMOCommand {
       description: 'After merging, rebase other open PRs that become conflicting',
       default: true,
       allowNo: true,
+    }),
+    'no-transition': Flags.boolean({
+      description: 'Skip board state transition (still merges PR)',
+      default: false,
     }),
   };
 
@@ -427,33 +431,26 @@ export default class WorkShip extends PMOCommand {
           },
         });
 
-        try {
-          const targetColumnName = getWorkColumnSetting(db, 'done');
-          const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
-          const columnNames = board ? board.columns.map(col => col.name) : [];
-          doneColumn = findColumnByName(columnNames, targetColumnName);
-
-          if (doneColumn && ticket.projectId) {
+        if (!flags['no-transition']) {
+          try {
             previousColumn = ticket.statusName;
-            await this.storage.moveTicket(ticket.projectId, ticketId, doneColumn);
-            ticketMovedToDone = true;
-
-            // Sync to external provider
-            try {
-              const provider = await this.resolveTicketProvider(ticketId, ticket.projectId);
-              if (provider.name !== 'pmo') {
-                const moveResult = await provider.moveTicket(ticketId, doneColumn);
-                if (moveResult.success) {
-                  ticketTransitionProvider = moveResult.provider;
-                  this.log(styles.muted(`   Synced to ${moveResult.provider}: ${doneColumn}`));
-                }
-              }
-            } catch {
-              // Non-fatal
+            const transition = await moveTicketByIntent({
+              db,
+              storage: this.storage,
+              ticket,
+              intent: 'completed',
+              providerName: 'pmo',
+              resolveProvider: (tid, pid) => this.resolveTicketProvider(tid, pid),
+              log: (msg) => this.log(styles.muted(`   ${msg}`)),
+            });
+            if (transition.moved) {
+              doneColumn = transition.targetColumn;
+              ticketMovedToDone = true;
+              ticketTransitionProvider = 'pmo';
             }
+          } catch (err) {
+            this.warn(`Failed to move ticket ${ticketId} to Done: ${err instanceof Error ? err.message : err}`);
           }
-        } catch (err) {
-          this.warn(`Failed to move ticket ${ticketId} to Done: ${err instanceof Error ? err.message : err}`);
         }
 
         // Auto-export board
@@ -929,13 +926,16 @@ export default class WorkShip extends PMOCommand {
           const ticket = await this.resolveLinkedTicket(pr.number, pr.headBranch, (flags as { project?: string }).project);
           if (ticket) {
             try {
-              const targetColumnName = getWorkColumnSetting(db, 'done');
-              const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
-              const columnNames = board ? board.columns.map(col => col.name) : [];
-              const doneColumn = findColumnByName(columnNames, targetColumnName);
-              if (doneColumn && ticket.projectId) {
-                await this.storage.moveTicket(ticket.projectId, ticket.id, doneColumn);
-                this.log(styles.muted(`   ${ticket.id} → ${doneColumn}`));
+              const transition = await moveTicketByIntent({
+                db,
+                storage: this.storage,
+                ticket,
+                intent: 'completed',
+                providerName: 'pmo',
+                resolveProvider: (tid, pid) => this.resolveTicketProvider(tid, pid),
+              });
+              if (transition.moved) {
+                this.log(styles.muted(`   ${ticket.id} → ${transition.targetColumn}`));
               }
             } catch {
               // Non-fatal

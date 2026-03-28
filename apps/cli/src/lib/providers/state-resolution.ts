@@ -1,15 +1,16 @@
 /**
  * State Resolution Engine
  *
- * Resolves semantic intents (e.g., 'review', 'active', 'done') to actual
+ * Resolves semantic intents (e.g., 'started', 'needs_review', 'completed') to actual
  * PM tool states at runtime. Never caches state IDs across calls.
  *
  * Resolution flow:
  * 1. Always fetch fresh states from the PM provider
- * 2. Check user config — `state-map.{intent}` overrides exact-match against fetched states
- * 3. Match against built-in semantic intent aliases
- * 4. No config + no alias match → LLM resolves (pass available states to LLM)
- * 5. No match → skip (don't move, log warning)
+ * 2. Check pmo_transition_map — explicit user-confirmed mappings from `prlt connect`
+ * 3. Check user config — `state-map.{intent}` overrides exact-match against fetched states
+ * 4. Match against built-in semantic intent aliases
+ * 5. No config + no alias match → LLM resolves (pass available states to LLM)
+ * 6. No match → skip (don't move, log warning)
  *
  * The same move() function works across Linear, Trello, ClickUp, Jira, etc. —
  * each provider implements fetchStates() differently but returns the same shape.
@@ -20,6 +21,7 @@ import type { TicketProvider } from './types.js'
 import type { ProviderStorage } from './types.js'
 import { SettingsStore } from '../database/settings-store.js'
 import { DEFAULT_INTENTS, matchIntentByAliases, getDefaultIntent } from './state-intents.js'
+import { TransitionMapStore } from './transition-map.js'
 import type Database from 'better-sqlite3'
 
 // ---------------------------------------------------------------------------
@@ -54,7 +56,7 @@ export interface StateResolutionResult {
   /** Whether the move succeeded */
   success: boolean
   /** How the state was resolved */
-  resolvedVia?: 'config' | 'alias' | 'llm' | 'skipped'
+  resolvedVia?: 'transition_map' | 'config' | 'alias' | 'llm' | 'skipped'
   /** The resolved state name */
   stateName?: string
   /** The resolved state ID */
@@ -253,6 +255,8 @@ export interface MoveOptions {
   db?: Database.Database
   /** Current state name — if provided, skip move when already in the resolved state */
   currentState?: string
+  /** Provider name for transition map lookups (e.g., 'linear', 'pmo') */
+  providerName?: string
 }
 
 /**
@@ -260,14 +264,15 @@ export interface MoveOptions {
  *
  * Resolution order:
  * 1. Fetch fresh states from the provider (never cache)
- * 2. Check user config for `state-map.{intent}` override → exact match
- * 3. Match against built-in semantic intent aliases
- * 4. LLM fallback — ask Claude which state matches the intent
- * 5. No match → skip, return warning
+ * 2. Check pmo_transition_map for explicit mapping (from `prlt connect`)
+ * 3. Check user config for `state-map.{intent}` override → exact match
+ * 4. Match against built-in semantic intent aliases
+ * 5. LLM fallback — ask Claude which state matches the intent
+ * 6. No match → skip, return warning
  *
  * @param pmProvider - The PM provider to fetch states from and move tickets in
  * @param ticketId - The ticket to move
- * @param intent - The semantic intent (e.g., 'review', 'active', 'done', 'blocked')
+ * @param intent - The semantic intent (e.g., 'started', 'needs_review', 'completed')
  * @param dbOrOptions - Database instance or options object
  * @returns Resolution result with success/failure and metadata
  */
@@ -280,6 +285,7 @@ export async function move(
   // Normalize arguments: support both `move(p, id, intent, db)` and `move(p, id, intent, { db, currentState })`
   let db: Database.Database | undefined
   let currentState: string | undefined
+  let providerName: string | undefined
   if (dbOrOptions && typeof dbOrOptions === 'object' && 'prepare' in dbOrOptions) {
     // It's a Database instance (has .prepare method)
     db = dbOrOptions as Database.Database
@@ -287,6 +293,7 @@ export async function move(
     const opts = dbOrOptions as MoveOptions
     db = opts.db
     currentState = opts.currentState
+    providerName = opts.providerName
   }
   // 1. Always fetch fresh states
   let states: PMState[]
@@ -312,64 +319,69 @@ export async function move(
     return currentState.toLowerCase() === stateName.toLowerCase()
   }
 
-  // 2. Check user config override
+  // Helper: attempt to move ticket to a matched state
+  const tryMove = async (
+    match: PMState,
+    resolvedVia: StateResolutionResult['resolvedVia'],
+  ): Promise<StateResolutionResult> => {
+    if (isAlreadyInState(match.name)) {
+      return { success: false, resolvedVia, stateName: match.name, stateId: match.id }
+    }
+    const result = await pmProvider.moveTicket(ticketId, match.id)
+    return {
+      success: result.success,
+      resolvedVia,
+      stateName: match.name,
+      stateId: match.id,
+      error: result.error,
+    }
+  }
+
+  // 2. Check pmo_transition_map for explicit mapping
+  if (db && providerName) {
+    try {
+      const store = new TransitionMapStore(db)
+      const mappedStateName = store.resolveIntent(providerName, intent)
+      if (mappedStateName) {
+        const match = states.find(s => s.name.toLowerCase() === mappedStateName.toLowerCase())
+        if (match) {
+          return tryMove(match, 'transition_map')
+        }
+        // Mapped state name doesn't match available states — fall through
+      }
+    } catch {
+      // Table may not exist yet (pre-migration) — fall through
+    }
+  }
+
+  // 3. Check user config override
   if (db) {
     const configOverride = getStateMapConfig(db, intent)
     if (configOverride) {
       const match = states.find(s => s.name.toLowerCase() === configOverride.toLowerCase())
       if (match) {
-        if (isAlreadyInState(match.name)) {
-          return { success: false, resolvedVia: 'config', stateName: match.name, stateId: match.id }
-        }
-        const result = await pmProvider.moveTicket(ticketId, match.id)
-        return {
-          success: result.success,
-          resolvedVia: 'config',
-          stateName: match.name,
-          stateId: match.id,
-          error: result.error,
-        }
+        return tryMove(match, 'config')
       }
       // Config is set but no matching state — fall through to alias/LLM
     }
   }
 
-  // 3. Match against built-in semantic intent aliases
+  // 4. Match against built-in semantic intent aliases
   const intentDef = getDefaultIntent(intent)
   if (intentDef) {
     const aliasMatch = matchIntentByAliases(states, intentDef)
     if (aliasMatch) {
-      if (isAlreadyInState(aliasMatch.name)) {
-        return { success: false, resolvedVia: 'alias', stateName: aliasMatch.name, stateId: aliasMatch.id }
-      }
-      const result = await pmProvider.moveTicket(ticketId, aliasMatch.id)
-      return {
-        success: result.success,
-        resolvedVia: 'alias',
-        stateName: aliasMatch.name,
-        stateId: aliasMatch.id,
-        error: result.error,
-      }
+      return tryMove(aliasMatch, 'alias')
     }
   }
 
-  // 4. LLM fallback
+  // 5. LLM fallback
   const llmMatch = await llmResolveState(states, intent)
   if (llmMatch) {
-    if (isAlreadyInState(llmMatch.name)) {
-      return { success: false, resolvedVia: 'llm', stateName: llmMatch.name, stateId: llmMatch.id }
-    }
-    const result = await pmProvider.moveTicket(ticketId, llmMatch.id)
-    return {
-      success: result.success,
-      resolvedVia: 'llm',
-      stateName: llmMatch.name,
-      stateId: llmMatch.id,
-      error: result.error,
-    }
+    return tryMove(llmMatch, 'llm')
   }
 
-  // 5. No match — skip
+  // 6. No match — skip
   const warning = `No state match for intent '${intent}', skipping move`
   console.warn(warning)
   return {
@@ -400,5 +412,5 @@ export async function moveWithProvider(
   currentState?: string,
 ): Promise<StateResolutionResult> {
   const pmProvider = createPMProviderAdapter(provider, storage, projectId)
-  return move(pmProvider, ticketId, intent, { db, currentState })
+  return move(pmProvider, ticketId, intent, { db, currentState, providerName: provider.name })
 }

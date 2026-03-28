@@ -23,15 +23,43 @@ export interface SemanticIntent {
 }
 
 /**
+ * Transition intents — the canonical set of intents used by work commands.
+ *
+ * Each work primitive maps to exactly one transition intent:
+ *   work start  → started
+ *   work ready  → needs_review
+ *   work ship   → completed
+ *   work stop   → paused
+ *   work groom  → ready
+ *   work drop   → dropped
+ *
+ * These are the intents stored in the pmo_transition_map table.
+ */
+export type TransitionIntent = 'started' | 'needs_review' | 'completed' | 'paused' | 'ready' | 'dropped'
+
+export const TRANSITION_INTENTS: TransitionIntent[] = [
+  'started',
+  'needs_review',
+  'completed',
+  'paused',
+  'ready',
+  'dropped',
+]
+
+/**
  * Default semantic intents shipped with the CLI.
  *
  * Order matters: when matching, the first alias match wins.
  * Aliases are matched case-insensitively.
+ *
+ * The `name` field uses the canonical transition intent names where applicable.
+ * Legacy names ('active', 'review', 'done', 'blocked') are kept as aliases
+ * within the new intents for backward compatibility.
  */
 export const DEFAULT_INTENTS: SemanticIntent[] = [
   {
-    name: 'active',
-    description: 'Work has started',
+    name: 'started',
+    description: 'Work has begun',
     aliases: [
       'In Progress',
       'Working On',
@@ -44,7 +72,7 @@ export const DEFAULT_INTENTS: SemanticIntent[] = [
     ],
   },
   {
-    name: 'review',
+    name: 'needs_review',
     description: 'Work is done, awaiting review',
     aliases: [
       'Review',
@@ -59,7 +87,7 @@ export const DEFAULT_INTENTS: SemanticIntent[] = [
     ],
   },
   {
-    name: 'done',
+    name: 'completed',
     description: 'Work is complete',
     aliases: [
       'Done',
@@ -73,25 +101,68 @@ export const DEFAULT_INTENTS: SemanticIntent[] = [
     ],
   },
   {
-    name: 'blocked',
-    description: 'Work is stuck',
+    name: 'paused',
+    description: 'Work is stopped temporarily',
     aliases: [
       'Blocked',
       'On Hold',
       'Stuck',
       'Waiting',
       'Paused',
+      'Not Working On',
       'Impediment',
       'Pending',
+    ],
+  },
+  {
+    name: 'ready',
+    description: 'Groomed and ready to start',
+    aliases: [
+      'Ready',
+      'Ready for Development',
+      'Development Ready',
+      'Planned',
+      'Groomed',
+      'To Do',
+      'Todo',
+      'Selected for Development',
+      'Up Next',
+    ],
+  },
+  {
+    name: 'dropped',
+    description: 'Removed from active work entirely',
+    aliases: [
+      'Canceled',
+      'Cancelled',
+      'Won\'t Do',
+      'Won\'t Fix',
+      'Archived',
+      'Removed',
+      'Dropped',
+      'Discarded',
     ],
   },
 ]
 
 /**
+ * Map from legacy intent names to the new canonical transition intent names.
+ * Used for backward compatibility with existing state-map config overrides.
+ */
+const LEGACY_INTENT_MAP: Record<string, string> = {
+  active: 'started',
+  review: 'needs_review',
+  done: 'completed',
+  blocked: 'paused',
+}
+
+/**
  * Get a default intent by name.
+ * Also resolves legacy intent names (active → started, review → needs_review, etc.)
  */
 export function getDefaultIntent(name: string): SemanticIntent | undefined {
-  return DEFAULT_INTENTS.find(i => i.name === name)
+  const resolved = LEGACY_INTENT_MAP[name] ?? name
+  return DEFAULT_INTENTS.find(i => i.name === resolved)
 }
 
 /**

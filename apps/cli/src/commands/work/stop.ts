@@ -16,6 +16,10 @@ import {
 } from '../../lib/prompt-json.js'
 import { trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
+import { moveTicketByIntent } from '../../lib/work-lifecycle/transition.js'
+import { SQLiteStorage } from '../../lib/pmo/storage/index.js'
+import * as path from 'node:path'
+import * as fs from 'node:fs'
 
 export default class WorkStop extends PromptCommand {
   static description = 'Stop a running agent working on a ticket'
@@ -38,6 +42,10 @@ export default class WorkStop extends PromptCommand {
       char: 'm',
       aliases: ['machine'],
       description: 'Output as JSON',
+      default: false,
+    }),
+    'no-transition': Flags.boolean({
+      description: 'Skip board state transition (still stops the agent)',
       default: false,
     }),
   }
@@ -108,6 +116,37 @@ export default class WorkStop extends PromptCommand {
 
       // Update execution status
       executionStorage.updateStatus(execution.id, 'stopped')
+
+      // Move ticket to paused state (best-effort, non-fatal)
+      if (!flags['no-transition']) {
+        try {
+          const dbPath = path.join(workspaceInfo.path, '.proletariat', 'workspace.db')
+          if (fs.existsSync(dbPath)) {
+            const storage = new SQLiteStorage(dbPath)
+            try {
+              const ticket = await storage.getTicket(ticketId)
+              if (ticket) {
+                const transition = await moveTicketByIntent({
+                  db,
+                  storage: storage as unknown as import('../../lib/providers/types.js').ProviderStorage,
+                  ticket,
+                  intent: 'paused',
+                  providerName: 'pmo',
+                })
+                if (transition.moved) {
+                  if (!jsonMode) {
+                    this.log(styles.muted(`   Moved to: ${transition.targetColumn}`))
+                  }
+                }
+              }
+            } finally {
+              await storage.close()
+            }
+          }
+        } catch {
+          // Non-fatal — don't block work stop for transition failures
+        }
+      }
 
       // Track primitive completion
       trackPrimitiveExecuted({ primitive: 'stop', durationMs: Date.now() - startTime, success: true })
