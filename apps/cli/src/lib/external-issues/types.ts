@@ -14,17 +14,17 @@
  * Supported external issue sources.
  *
  */
-export type IssueSource = 'linear' | 'jira' | 'asana' | 'shortcut' | 'trello' | 'clickup'
+export type IssueSource = 'linear' | 'jira' | 'asana' | 'shortcut' | 'trello' | 'clickup' | 'notion'
 
 /**
  * All valid issue sources as a const array.
  */
-export const ISSUE_SOURCES = ['linear', 'jira', 'asana', 'shortcut', 'trello', 'clickup'] as const
+export const ISSUE_SOURCES = ['linear', 'jira', 'asana', 'shortcut', 'trello', 'clickup', 'notion'] as const
 
 /**
  * Providers supported by the external execution mapping store.
  */
-export type ExternalMappingProvider = 'linear' | 'jira' | 'shortcut' | 'asana' | 'trello' | 'monday' | 'clickup' | 'pmo'
+export type ExternalMappingProvider = 'linear' | 'jira' | 'shortcut' | 'asana' | 'trello' | 'monday' | 'clickup' | 'notion' | 'pmo'
 
 // =============================================================================
 // IssueEnvelope - Canonical External Issue Format

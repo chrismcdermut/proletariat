@@ -63,6 +63,8 @@ export const PMO_TABLES = {
   asana_task_map: 'pmo_asana_task_map',  // Asana task ↔ PMO ticket mapping
   // Trello integration tables
   trello_card_map: 'pmo_trello_card_map',  // Trello card ↔ PMO ticket mapping
+  // Notion integration tables
+  notion_page_map: 'pmo_notion_page_map',  // Notion page ↔ PMO ticket mapping
   // Work lifecycle hooks
   work_hooks: 'pmo_work_hooks',  // Configurable event-driven actions for work events
   // Legacy tables (deprecated, kept for migration)

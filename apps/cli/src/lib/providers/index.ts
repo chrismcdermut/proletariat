@@ -26,6 +26,7 @@ export { LinearTicketProvider } from './linear-provider.js'
 export { TrelloTicketProvider } from './trello-provider.js'
 export { GitHubIssuesTicketProvider } from './github-provider.js'
 export { JiraTicketProvider } from './jira-provider.js'
+export { NotionTicketProvider } from './notion-provider.js'
 export { EventEmittingProvider, type StatusResolver } from './event-emitting-provider.js'
 export { ProviderStatusMappingStore, type StatusMapping } from './status-mapping.js'
 export {
