@@ -219,6 +219,16 @@ export default class Orchestrate extends PromptCommand {
       // Daemon mode: start the engine and run until stopped
       engine.start()
 
+      // Prevent oclif from killing the daemon — oclif's error handler calls
+      // process.exit(0) after run() resolves, which terminates the daemon.
+      // Override process.exit to ignore clean exits while the daemon is running.
+      const originalExit = process.exit
+      let daemonRunning = true
+      process.exit = ((code?: number) => {
+        if (daemonRunning && (code === 0 || code === undefined)) return
+        originalExit(code as number)
+      }) as never
+
       if (jsonMode) {
         outputSuccessAsJson(
           { status: 'running', mode: 'daemon' },
@@ -270,6 +280,8 @@ export default class Orchestrate extends PromptCommand {
       await new Promise<void>((resolve) => {
         const cleanup = () => {
           clearInterval(keepAlive)
+          daemonRunning = false
+          process.exit = originalExit
           engine.stop()
           if (pollTimer) clearInterval(pollTimer)
           if (rl) { rl.close(); rl = null }
