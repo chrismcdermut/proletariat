@@ -6,6 +6,7 @@ import { loadShortcutConfig } from '../shortcut/config.js'
 import { loadTrelloConfig } from '../trello/config.js'
 import { loadMondayConfig } from '../monday/config.js'
 import { loadClickUpConfig } from '../clickup/config.js'
+import { loadGitHubConfig } from '../github/config.js'
 import { loadProviderSources } from './provider-sources.js'
 import { SettingsStore } from '../database/settings-store.js'
 
@@ -13,7 +14,7 @@ const DEFAULT_SOURCE_KEY = 'work.default_source'
 /** @deprecated Old key kept for migration — use DEFAULT_SOURCE_KEY */
 const LEGACY_ACTIVE_SOURCE_KEY = 'work.active_source'
 
-export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'clickup'] as const
+export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'clickup', 'github'] as const
 export type WorkSourceProvider = typeof WORK_SOURCE_PROVIDERS[number]
 
 export interface WorkSourceRef {
@@ -157,6 +158,14 @@ export function getRegisteredWorkSources(db: Database.Database): WorkSourceRef[]
     })
   }
 
+  const githubConfig = loadGitHubConfig(db)
+  if (githubConfig) {
+    providers.set('github', {
+      provider: 'github',
+      context: `${githubConfig.owner}/${githubConfig.repo}`,
+    })
+  }
+
   // Append multi-source provider entries. These use a composite key
   // (provider + ':' + prefix) so they don't overwrite single-provider
   // entries already in the map.
@@ -186,6 +195,7 @@ export function getConnectedIntegrations(db: Database.Database): string[] {
   if (loadTrelloConfig(db)) integrations.push('trello')
   if (loadMondayConfig(db)) integrations.push('monday')
   if (loadClickUpConfig(db)) integrations.push('clickup')
+  if (loadGitHubConfig(db)) integrations.push('github')
 
   return integrations
 }
