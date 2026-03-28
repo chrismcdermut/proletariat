@@ -22,6 +22,7 @@ import type Database from 'better-sqlite3'
 import { isLinearConfigured } from '../linear/config.js'
 import { isClickUpConfigured } from '../clickup/config.js'
 import { isGitHubConfigured } from '../github/config.js'
+import { isJiraConfigured } from '../jira/config.js'
 import { LinearMapper } from '../linear/mapper.js'
 import { isTrelloConfigured } from '../trello/config.js'
 import { TrelloMapper } from '../trello/mapper.js'
@@ -32,6 +33,7 @@ import { LinearTicketProvider } from './linear-provider.js'
 import { ClickUpTicketProvider } from './clickup-provider.js'
 import { TrelloTicketProvider } from './trello-provider.js'
 import { GitHubIssuesTicketProvider } from './github-provider.js'
+import { JiraTicketProvider } from './jira-provider.js'
 import { EventEmittingProvider, type StatusResolver } from './event-emitting-provider.js'
 
 /**
@@ -160,6 +162,12 @@ export function resolveTicketProvider(
     return wrapWithEvents(inner, db, storage, projectId)
   }
 
+  // Check Jira
+  if (externalSource === 'jira' && isJiraConfigured(db)) {
+    const inner = new JiraTicketProvider(db, storage, projectId)
+    return wrapWithEvents(inner, db, storage, projectId)
+  }
+
   // Check Trello
   if (externalSource === 'trello' && isTrelloConfigured(db)) {
     const mapper = new TrelloMapper(db)
@@ -229,6 +237,11 @@ export function resolveProjectProvider(
 
   if (source === 'github') {
     const inner = new GitHubIssuesTicketProvider(db, storage, projectId)
+    return wrapWithEvents(inner, db, storage, projectId)
+  }
+
+  if (source === 'jira') {
+    const inner = new JiraTicketProvider(db, storage, projectId)
     return wrapWithEvents(inner, db, storage, projectId)
   }
 

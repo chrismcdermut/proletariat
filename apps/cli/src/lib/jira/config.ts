@@ -104,6 +104,36 @@ export function saveJiraConfig(db: Database.Database, config: JiraConfig): void 
 }
 
 /**
+ * Get the Jira API token using the provider-sources resolution chain.
+ *
+ * Resolution order:
+ * 1. If a Jira provider source is configured, resolve its apiKeyRef
+ * 2. Legacy fallback: PRLT_JIRA_API_TOKEN or JIRA_API_TOKEN environment variables
+ * 3. Legacy fallback: credential store key 'jira.api_token'
+ */
+export function getJiraApiToken(db: Database.Database): string | null {
+  // 1. Try provider sources (supports custom apiKeyRef per source)
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'jira') {
+        const key = resolveApiKey(db, source)
+        if (key) return key
+      }
+    }
+  } catch {
+    // Provider sources table may not exist in older databases
+  }
+
+  // 2. Legacy: environment variables
+  const envToken = process.env.PRLT_JIRA_API_TOKEN || process.env.JIRA_API_TOKEN
+  if (envToken) return envToken
+
+  // 3. Legacy: stored credential
+  return getCredential(db, JIRA_CONFIG_KEYS.apiToken)
+}
+
+/**
  * Clear all Jira configuration from the database.
  */
 export function clearJiraConfig(db: Database.Database): void {
