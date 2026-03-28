@@ -65,7 +65,7 @@ export default class WorkLinear extends PMOCommand {
   static flags = {
     ...pmoBaseFlags,
     team: Flags.string({
-      description: 'Linear team key (fallback: PRLT_LINEAR_TEAM)',
+      description: 'Linear team key (auto-detected from workspace config)',
     }),
     issue: Flags.string({
       description: 'Linear issue identifier (for example: ENG-123)',
