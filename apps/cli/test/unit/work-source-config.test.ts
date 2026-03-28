@@ -46,7 +46,7 @@ describe('work-source config', () => {
     })
 
     it('throws for unsupported provider', () => {
-      expect(() => parseWorkSourceRef('github:PROJ')).to.throw('Unsupported work source provider')
+      expect(() => parseWorkSourceRef('bitbucket:PROJ')).to.throw('Unsupported work source provider')
     })
 
     it('throws for empty input', () => {

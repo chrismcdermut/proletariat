@@ -21,8 +21,23 @@ describe('PMO Base Command', () => {
   let dbPath: string;
   let db: Database.Database;
 
+  // Container env vars that override findPMO() behavior
+  let savedEnv: Record<string, string | undefined>;
+
   beforeEach(async () => {
     originalCwd = process.cwd();
+    // Save and clear container env vars so findPMO() uses the test's temp directory
+    savedEnv = {
+      PRLT_HQ_PATH: process.env.PRLT_HQ_PATH,
+      DEVCONTAINER: process.env.DEVCONTAINER,
+      PRLT_AGENT_NAME: process.env.PRLT_AGENT_NAME,
+      PRLT_TEST_ENV: process.env.PRLT_TEST_ENV,
+    };
+    delete process.env.PRLT_HQ_PATH;
+    delete process.env.DEVCONTAINER;
+    delete process.env.PRLT_AGENT_NAME;
+    delete process.env.PRLT_TEST_ENV;
+
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pmo-base-cmd-test-'));
     process.chdir(testDir);
 
@@ -40,6 +55,14 @@ describe('PMO Base Command', () => {
     process.chdir(originalCwd);
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
+    }
+    // Restore container env vars
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value !== undefined) {
+        process.env[key] = value;
+      } else {
+        delete process.env[key];
+      }
     }
   });
 
