@@ -23,6 +23,7 @@ export default class GC extends PromptCommand {
     '<%= config.bin %> <%= command.id %> --execute',
     '<%= config.bin %> <%= command.id %> --stale-days 14',
     '<%= config.bin %> <%= command.id %> --status merged',
+    '<%= config.bin %> <%= command.id %> --execute --purge-db',
     '<%= config.bin %> <%= command.id %> --execute --json',
   ]
 
@@ -40,6 +41,10 @@ export default class GC extends PromptCommand {
       description: 'Only process candidates with this status',
       options: ['merged', 'closed', 'stale'],
       multiple: true,
+    }),
+    'purge-db': Flags.boolean({
+      description: 'DELETE old execution records from database (default: mark as gc_cleaned only)',
+      default: false,
     }),
   }
 
@@ -143,6 +148,7 @@ export default class GC extends PromptCommand {
       staleDays: flags['stale-days'],
       filterStatus: filterStatus && filterStatus.length > 0 ? filterStatus : undefined,
       execute,
+      purgeDb: flags['purge-db'],
       log,
     })
 
@@ -157,6 +163,12 @@ export default class GC extends PromptCommand {
             worktreesRemoved: result.worktreesRemoved.length,
             containersRemoved: result.containersRemoved.length,
             branchesPruned: result.branchesPruned.length,
+            remoteBranchesDeleted: result.remoteBranchesDeleted.length,
+            tmuxSessionsCleaned: result.tmuxSessionsCleaned.length,
+            claudeSessionsCleaned: result.claudeSessionsCleaned.length,
+            dbRecordsMarked: result.dbRecordsMarked,
+            dbRecordsPurged: result.dbRecordsPurged,
+            agentNamesRecycled: result.agentNamesRecycled.length,
             stalePRsClosed: result.stalePRsClosed,
             errors: result.errors,
             skipped: result.skipped,
@@ -178,7 +190,25 @@ export default class GC extends PromptCommand {
       this.log(format.success(`${prefix}${execute ? 'Removed' : 'remove'} ${result.containersRemoved.length} container(s)`))
     }
     if (result.branchesPruned.length > 0) {
-      this.log(format.success(`${prefix}${execute ? 'Pruned' : 'prune'} ${result.branchesPruned.length} branch(es)`))
+      this.log(format.success(`${prefix}${execute ? 'Pruned' : 'prune'} ${result.branchesPruned.length} local branch(es)`))
+    }
+    if (result.remoteBranchesDeleted.length > 0) {
+      this.log(format.success(`${prefix}${execute ? 'Deleted' : 'delete'} ${result.remoteBranchesDeleted.length} remote branch(es)`))
+    }
+    if (result.tmuxSessionsCleaned.length > 0) {
+      this.log(format.success(`${prefix}${execute ? 'Cleaned' : 'clean'} tmux sessions in ${result.tmuxSessionsCleaned.length} container(s)`))
+    }
+    if (result.claudeSessionsCleaned.length > 0) {
+      this.log(format.success(`${prefix}${execute ? 'Cleaned' : 'clean'} Claude sessions in ${result.claudeSessionsCleaned.length} container(s)`))
+    }
+    if (result.dbRecordsMarked > 0) {
+      this.log(format.success(`${prefix}${execute ? 'Marked' : 'mark'} ${result.dbRecordsMarked} execution record(s) as gc_cleaned`))
+    }
+    if (result.dbRecordsPurged > 0) {
+      this.log(format.success(`${prefix}${execute ? 'Purged' : 'purge'} ${result.dbRecordsPurged} execution record(s)`))
+    }
+    if (result.agentNamesRecycled.length > 0) {
+      this.log(format.success(`${prefix}${execute ? 'Recycled' : 'recycle'} ${result.agentNamesRecycled.length} agent name(s)`))
     }
     if (result.stalePRsClosed.length > 0) {
       this.log(format.success(`${prefix}${execute ? 'Closed' : 'close'} ${result.stalePRsClosed.length} stale PR(s)`))
