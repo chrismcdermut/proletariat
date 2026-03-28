@@ -25,7 +25,7 @@ describe('Preflight Validation (PRLT-1132)', () => {
       expect(ticketCheck).to.exist
       expect(ticketCheck!.passed).to.equal(false)
       expect(ticketCheck!.message).to.equal('Ticket not found')
-      expect(ticketCheck!.fix).to.contain('prlt ticket create')
+      expect(ticketCheck!.fix).to.contain('Create a ticket in your provider')
     })
 
     it('reports ticket found when ticket is provided', () => {
@@ -239,7 +239,7 @@ describe('Preflight Validation (PRLT-1132)', () => {
           passed: false,
           severity: 'error',
           message: 'Ticket not found',
-          fix: 'Create a ticket first with `prlt ticket create`',
+          fix: 'Create a ticket in your provider (Linear, Jira, etc.) first, or check the ticket ID',
         }],
         errors: [{
           name: 'ticket',
@@ -247,14 +247,14 @@ describe('Preflight Validation (PRLT-1132)', () => {
           passed: false,
           severity: 'error',
           message: 'Ticket not found',
-          fix: 'Create a ticket first with `prlt ticket create`',
+          fix: 'Create a ticket in your provider (Linear, Jira, etc.) first, or check the ticket ID',
         }],
         warnings: [],
       }
 
       const output = formatPreflightReport(report)
       expect(output).to.contain('Fix:')
-      expect(output).to.contain('prlt ticket create')
+      expect(output).to.contain('Create a ticket in your provider')
     })
 
     it('does not include fix line for passing checks', () => {
