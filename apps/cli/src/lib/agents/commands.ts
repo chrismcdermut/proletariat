@@ -1367,17 +1367,21 @@ export function getCleanableAgents(
   workspaceInfo: WorkspaceInfo,
   checkRunning: boolean = true
 ): Agent[] {
-  // Get ephemeral agents in active lifecycle states
-  const ephemeralAgents = workspaceInfo.agents.filter(
-    a => a.type === 'ephemeral' && (a.status === 'active' || a.status === 'running')
-  );
-
   if (!checkRunning) {
-    return ephemeralAgents;
+    // Return all ephemeral agents in active lifecycle states (including running)
+    return workspaceInfo.agents.filter(
+      a => a.type === 'ephemeral' && (a.status === 'active' || a.status === 'running')
+    );
   }
 
-  // Filter out agents with active tmux sessions
-  return ephemeralAgents.filter(agent => {
+  // Exclude agents with 'running' DB status — they are actively working
+  const idleAgents = workspaceInfo.agents.filter(
+    a => a.type === 'ephemeral' && a.status === 'active'
+  );
+
+  // Additionally filter out agents with active tmux sessions (safety net
+  // for agents that are running but whose DB status wasn't updated)
+  return idleAgents.filter(agent => {
     const sessions = getAgentTmuxSessions(agent.name);
     return sessions.length === 0;
   });
