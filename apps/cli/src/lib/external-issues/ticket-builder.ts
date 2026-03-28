@@ -40,7 +40,7 @@ export function buildTicketFromEnvelope(
     projectId,
     statusId: 'external',
     statusName: envelope.status,
-    statusCategory: null,
+    statusCategory: undefined,
     subtasks: [],
     labels: envelope.labels,
     metadata,

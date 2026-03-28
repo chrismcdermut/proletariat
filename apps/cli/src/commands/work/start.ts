@@ -83,6 +83,8 @@ import {
   getTrelloCardById,
 } from '../../lib/external-issues/trello.js'
 import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
+import { buildTicketFromEnvelope } from '../../lib/external-issues/ticket-builder.js'
+import { TicketRefStore } from '../../lib/execution/ticket-refs.js'
 import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/config.js'
 import { LinearMapper } from '../../lib/linear/mapper.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
@@ -648,6 +650,8 @@ export default class WorkStart extends PMOCommand {
       let fromIssueMirror: boolean | undefined
       let fromIssueMirrorSource: string | undefined
       let sourceResolutionMeta: { method: string; provider: string } | undefined
+      // PRLT-1167: When built from envelope without PMO mirror, holds the in-memory ticket
+      let envelopeTicket: Ticket | undefined
 
       // Handle --from shorthand: parse provider:key into source + key
       let fromFlag = flags.from as string | undefined
@@ -766,15 +770,34 @@ export default class WorkStart extends PMOCommand {
         if (mirrorToPmo) {
           linkedTicket = await this.createOrUpdateLinkedTicket(projectId, envelope, db)
           await autoExportToBoard(this.pmoPath, this.storage)
-        } else {
-          if (!existingLinkedTicket) {
-            db.close()
-            return handleError(
-              'EXTERNAL_ISSUE_NOT_MIRRORED',
-              `No linked PMO ticket found for ${sourceAndKey.source} issue "${sourceAndKey.key}". Re-run with --mirror-to-pmo.`
-            )
-          }
+        } else if (existingLinkedTicket) {
+          // Existing PMO ticket found — use it (backward compat)
           linkedTicket = existingLinkedTicket
+        } else {
+          // PRLT-1167: Build Ticket from envelope directly — no PMO mirror
+          linkedTicket = buildTicketFromEnvelope(envelope, projectId)
+          envelopeTicket = linkedTicket
+
+          // Store in ticket_refs so post-execution and other commands can find it
+          const ticketRefStore = new TicketRefStore(db)
+          ticketRefStore.upsert({
+            id: linkedTicket.id,
+            provider: envelope.source.name,
+            externalId: envelope.source.externalId,
+            externalKey: envelope.source.externalKey,
+            externalUrl: envelope.source.url,
+            title: envelope.title,
+            description: envelope.description,
+            status: envelope.status,
+            priority: envelope.priority,
+            category: envelope.category,
+            assignee: envelope.assignee,
+            projectId,
+          })
+
+          if (!jsonMode) {
+            this.log(styles.muted(`Ticket ref stored: ${linkedTicket.id} (no PMO mirror)`))
+          }
         }
 
         ticketId = linkedTicket.id
@@ -806,14 +829,15 @@ export default class WorkStart extends PMOCommand {
         ticketId = selected
       }
 
-      // Get ticket
-      const ticket = await this.storage.getTicket(ticketId!)
+      // Get ticket — use envelope-built ticket when available (PRLT-1167: no PMO mirror)
+      const ticket = envelopeTicket ?? await this.storage.getTicket(ticketId!)
       if (!ticket) {
         db.close()
         return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`)
       }
       // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
       ticketId = ticket.id
+      const isExternalOnly = !!envelopeTicket
 
       // --dry-run: validate environment and report issues without spawning
       if (flags['dry-run']) {
@@ -954,8 +978,8 @@ export default class WorkStart extends PMOCommand {
         // If missing flags, continue and let FlagResolver handle prompts
       }
 
-      // Check if ticket is blocked by dependencies
-      const isBlocked = await this.storage.isTicketBlocked(ticketId!)
+      // Check if ticket is blocked by dependencies (skip for external-only tickets)
+      const isBlocked = isExternalOnly ? false : await this.storage.isTicketBlocked(ticketId!)
       if (isBlocked && !flags.force) {
         const blockers = await this.storage.getTicketBlockers(ticketId!)
         const incompleteBlockers = blockers.filter(b => b.status !== 'done' && b.status !== 'canceled')
@@ -2289,8 +2313,8 @@ export default class WorkStart extends PMOCommand {
           }
         }
 
-        // Save branch to ticket
-        if (!isExistingBranch || finalBranch !== branch) {
+        // Save branch to ticket (skip for external-only tickets — no PMO record)
+        if (!isExternalOnly && (!isExistingBranch || finalBranch !== branch)) {
           await this.storage.updateTicket(ticket.id, { branch: finalBranch })
         }
 
@@ -2458,12 +2482,21 @@ export default class WorkStart extends PMOCommand {
         }
 
         // Update ticket assignee ONLY after successful spawn
+        // For external-only tickets, update ticket_ref instead of PMO storage
         if (!ticket.assignee || ticket.assignee !== assignedAgent) {
-          await this.storage.updateTicket(ticket.id, { assignee: assignedAgent })
+          if (isExternalOnly) {
+            // Update ticket_ref with assignee
+            const ticketRefStore = new TicketRefStore(db)
+            ticketRefStore.upsert({ id: ticket.id, title: ticket.title, assignee: assignedAgent })
+          } else {
+            await this.storage.updateTicket(ticket.id, { assignee: assignedAgent })
+          }
           this.log(styles.muted(`   Assigned to: ${assignedAgent}`))
         }
 
         // Move ticket to target column based on action's toState or default 'started' intent
+        // Skip PMO board operations for external-only tickets (no PMO record to move)
+        if (!isExternalOnly) {
         // If action has a to_state, try direct match first; otherwise use intent resolution
         const targetStateName = selectedAction?.toState
 
@@ -2518,6 +2551,7 @@ export default class WorkStart extends PMOCommand {
             this.log(styles.muted(msg))
           }
         })
+        } // end if (!isExternalOnly)
 
         // Output results
         if (jsonMode) {
