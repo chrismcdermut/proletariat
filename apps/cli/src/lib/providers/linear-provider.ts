@@ -262,10 +262,10 @@ export class LinearTicketProvider implements TicketProvider {
 
     const client = new LinearClient(apiKey)
     const linearConfig = loadLinearConfig(this.db)
-    const teamKey = linearConfig?.defaultTeamKey || process.env.PRLT_LINEAR_TEAM
+    const teamKey = input.metadata?.['linear.team'] || linearConfig?.defaultTeamKey || process.env.PRLT_LINEAR_TEAM
 
     if (!teamKey) {
-      return { success: false, provider: 'linear', error: 'Linear team key is required. Set PRLT_LINEAR_TEAM.' }
+      return { success: false, provider: 'linear', error: 'Linear team key is required. Use --team <key> or set PRLT_LINEAR_TEAM.' }
     }
 
     const team = await client.getTeamByKey(teamKey)

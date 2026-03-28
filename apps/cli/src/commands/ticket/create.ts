@@ -104,6 +104,33 @@ export default class TicketCreate extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
 
+    // Read description from file/stdin EARLY — before any prompts or routing
+    // that could consume stdin or error out before the read happens.
+    if (flags['description-file']) {
+      const filePath = flags['description-file'];
+      try {
+        if (filePath === '-') {
+          if (process.stdin.isTTY) {
+            if (jsonMode) {
+              outputErrorAsJson('DESCRIPTION_FILE_ERROR', 'Cannot read from stdin: no input piped. Use --description-file <path> with a file path instead, or pipe content via: echo "desc" | prlt ticket create --description-file -', createMetadata('ticket create', flags));
+              return;
+            }
+            this.error('Cannot read from stdin: no input piped. Use --description-file <path> with a file path instead, or pipe content via: echo "desc" | prlt ticket create --description-file -');
+          }
+          flags.description = fs.readFileSync(0, 'utf-8');
+        } else {
+          flags.description = fs.readFileSync(filePath, 'utf-8');
+        }
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        if (jsonMode) {
+          outputErrorAsJson('DESCRIPTION_FILE_ERROR', `Failed to read description file "${filePath}": ${errMsg}`, createMetadata('ticket create', flags));
+          return;
+        }
+        this.error(`Failed to read description file "${filePath}": ${errMsg}`);
+      }
+    }
+
     // Determine ticket source (pmo, linear, or prompt user)
     const resolvedSource = await this.resolveSource(flags, jsonMode);
 
@@ -134,25 +161,8 @@ export default class TicketCreate extends PMOCommand {
       this.error(message);
     };
 
-    // Read description from file if --description-file is provided
-    if (flags['description-file']) {
-      const filePath = flags['description-file'];
-      try {
-        if (filePath === '-') {
-          // Guard: prevent hanging when no input is piped
-          if (process.stdin.isTTY) {
-            return handleError('DESCRIPTION_FILE_ERROR', 'Cannot read from stdin: no input piped. Use --description-file <path> with a file path instead, or pipe content via: echo "desc" | prlt ticket create --description-file -');
-          }
-          // Read from stdin
-          flags.description = fs.readFileSync(0, 'utf-8');
-        } else {
-          flags.description = fs.readFileSync(filePath, 'utf-8');
-        }
-      } catch (error: unknown) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        return handleError('DESCRIPTION_FILE_ERROR', `Failed to read description file "${filePath}": ${errMsg}`);
-      }
-    }
+    // NOTE: --description-file handling is done early in execute(), before routing.
+    // flags.description is already populated if --description-file was provided.
 
     // Validate epic if provided
     if (flags.epic) {
@@ -515,24 +525,9 @@ export default class TicketCreate extends PMOCommand {
       title = inputTitle;
     }
 
-    // Read description from file if --description-file is provided
-    let description = flags.description as string | undefined;
-    if (flags['description-file']) {
-      const filePath = flags['description-file'] as string;
-      try {
-        if (filePath === '-') {
-          if (process.stdin.isTTY) {
-            return handleError('DESCRIPTION_FILE_ERROR', 'Cannot read from stdin: no input piped.');
-          }
-          description = fs.readFileSync(0, 'utf-8');
-        } else {
-          description = fs.readFileSync(filePath, 'utf-8');
-        }
-      } catch (error: unknown) {
-        const errMsg = error instanceof Error ? error.message : String(error);
-        return handleError('DESCRIPTION_FILE_ERROR', `Failed to read description file "${filePath}": ${errMsg}`);
-      }
-    }
+    // NOTE: --description-file handling is done early in execute(), before routing.
+    // flags.description is already populated if --description-file was provided.
+    const description = flags.description as string | undefined;
 
     const pmoPriority = flags.priority as string | undefined;
     const category = flags.category as string | undefined;
@@ -589,12 +584,14 @@ export default class TicketCreate extends PMOCommand {
 
     // Route through provider adapter — Linear provider handles API call, mirror, and mapping
     const provider = this.resolveProjectProvider(projectId, 'linear');
+    const teamKey = flags.team as string | undefined;
     const createResult = await provider.createTicket(projectId, {
       title: title!,
       description,
       priority: pmoPriority,
       category,
       labels: labelNames.length > 0 ? labelNames : undefined,
+      metadata: teamKey ? { 'linear.team': teamKey } : undefined,
     });
 
     if (!createResult.success || !createResult.ticket) {
