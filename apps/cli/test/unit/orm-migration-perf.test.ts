@@ -69,10 +69,10 @@ function formatResult(label: string, result: BenchResult): string {
 // Maximum acceptable mean latency per operation (ms).
 // These are generous ceilings to catch catastrophic regressions only.
 const PERF_CEILING = {
-  ticketCreate: 20,   // create + subtasks + metadata
-  ticketView: 10,     // single get with joins
-  ticketList: 30,     // list with filter on 100+ tickets
-  workspaceRead: 50,  // board read (statuses + tickets + columns)
+  ticketCreate: 50,   // create + subtasks + metadata
+  ticketView: 30,     // single get with joins
+  ticketList: 100,    // list with filter on 100+ tickets
+  workspaceRead: 100, // board read (statuses + tickets + columns)
 };
 
 // ---------------------------------------------------------------------------

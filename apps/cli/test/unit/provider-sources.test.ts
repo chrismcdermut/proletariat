@@ -65,7 +65,7 @@ describe('provider-sources', () => {
     })
 
     it('rejects invalid provider', () => {
-      const errors = validateProviderSourceEntry(makeEntry({ provider: 'github' as 'linear' }))
+      const errors = validateProviderSourceEntry(makeEntry({ provider: 'bitbucket' as 'linear' }))
       expect(errors.some(e => e.field === 'provider')).to.be.true
     })
 

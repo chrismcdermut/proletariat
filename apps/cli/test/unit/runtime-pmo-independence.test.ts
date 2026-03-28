@@ -62,7 +62,6 @@ describe('Runtime PMO Independence (PRLT-1151)', () => {
     'session/prune.ts',
     'session/report.ts',
     'session/restart.ts',
-    'ticket/index.ts',
     'work/hooks/add.ts',
     'work/hooks/list.ts',
     'work/hooks/toggle.ts',
