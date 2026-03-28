@@ -159,7 +159,7 @@ function ensureLinearConfig(
   if (requireTeam && !team) {
     throw new ExternalIssueAdapterError(
       'MISSING_CONFIG',
-      'Missing Linear team key. Pass --team or set PRLT_LINEAR_TEAM.',
+      'Missing Linear team key. Run "prlt linear connect" to configure, pass --team, or set PRLT_LINEAR_TEAM.',
     )
   }
 

@@ -112,3 +112,37 @@ export function getLinearApiKey(db: Database.Database): string | null {
   // 3. Legacy: stored workspace setting (now in credentials.db)
   return getCredential(db, LINEAR_CONFIG_KEYS.apiKey)
 }
+
+/**
+ * Resolve the Linear team key from all available sources.
+ *
+ * Resolution order:
+ * 1. Explicit override (e.g. --team flag)
+ * 2. Workspace settings (linear.default_team_key) — set by `prlt linear connect`
+ * 3. Provider sources (teamProjectId) — set by `prlt work source set linear`
+ * 4. PRLT_LINEAR_TEAM / LINEAR_TEAM_KEY environment variables
+ */
+export function resolveLinearTeamKey(db: Database.Database, override?: string): string | null {
+  // 1. Explicit override
+  if (override) return override
+
+  // 2. Workspace settings
+  const settings = new SettingsStore(db)
+  const dbTeamKey = settings.get(LINEAR_CONFIG_KEYS.defaultTeamKey)
+  if (dbTeamKey) return dbTeamKey
+
+  // 3. Provider sources
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'linear' && source.teamProjectId) {
+        return source.teamProjectId
+      }
+    }
+  } catch {
+    // Provider sources table may not exist in older databases
+  }
+
+  // 4. Environment variables
+  return process.env.PRLT_LINEAR_TEAM || process.env.LINEAR_TEAM_KEY || null
+}

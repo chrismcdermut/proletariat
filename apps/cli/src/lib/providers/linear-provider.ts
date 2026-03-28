@@ -11,7 +11,7 @@
 import type Database from 'better-sqlite3'
 import { LinearClient } from '../linear/client.js'
 import { LinearMapper } from '../linear/mapper.js'
-import { getLinearApiKey, loadLinearConfig } from '../linear/config.js'
+import { getLinearApiKey, resolveLinearTeamKey } from '../linear/config.js'
 import { findMatchingLinearState } from '../external-issues/outbound-sync.js'
 import { listLinearIssues } from '../external-issues/linear.js'
 import { PMO_PRIORITY_TO_LINEAR, LINEAR_PRIORITY_TO_PMO } from '../linear/types.js'
@@ -189,11 +189,10 @@ export class LinearTicketProvider implements TicketProvider {
       return { success: false, provider: 'linear', tickets: [], error: 'Linear API key not configured' }
     }
 
-    const linearConfig = loadLinearConfig(this.db)
-    const team = linearConfig?.defaultTeamKey || process.env.PRLT_LINEAR_TEAM
+    const team = resolveLinearTeamKey(this.db)
 
     try {
-      const envelopes = await listLinearIssues({ apiKey, team }, { limit: 50 })
+      const envelopes = await listLinearIssues({ apiKey, team: team ?? undefined }, { limit: 50 })
 
       let tickets: Ticket[] = envelopes.map(envelope => ({
         id: envelope.source.externalKey,
@@ -261,11 +260,11 @@ export class LinearTicketProvider implements TicketProvider {
     }
 
     const client = new LinearClient(apiKey)
-    const linearConfig = loadLinearConfig(this.db)
-    const teamKey = input.metadata?.['linear.team'] || linearConfig?.defaultTeamKey || process.env.PRLT_LINEAR_TEAM
+    const teamKeyOverride = input.metadata?.['linear.team']
+    const teamKey = resolveLinearTeamKey(this.db, teamKeyOverride)
 
     if (!teamKey) {
-      return { success: false, provider: 'linear', error: 'Linear team key is required. Use --team <key> or set PRLT_LINEAR_TEAM.' }
+      return { success: false, provider: 'linear', error: 'Linear team key is required. Run "prlt linear connect" to configure, or pass --team.' }
     }
 
     const team = await client.getTeamByKey(teamKey)
