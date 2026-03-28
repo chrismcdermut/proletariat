@@ -2,7 +2,7 @@ import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
-import { getWorkColumnSetting, findColumnByName } from '../../lib/work-lifecycle/settings.js';
+import { moveTicketByIntent } from '../../lib/work-lifecycle/transition.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
@@ -60,6 +60,10 @@ export default class WorkReady extends PMOCommand {
     }),
     'no-pr': Flags.boolean({
       description: 'Skip PR creation prompt',
+      default: false,
+    }),
+    'no-transition': Flags.boolean({
+      description: 'Skip board state transition (still runs other actions)',
       default: false,
     }),
   };
@@ -147,35 +151,26 @@ export default class WorkReady extends PMOCommand {
       // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
       ticketId = ticket.id;
 
-      // Get configured column name (from pmo_settings or default)
-      // "ready" moves ticket to Review column (work complete moves to Done)
-      const targetColumnName = getWorkColumnSetting(db, 'review');
-
-      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
-      const columnNames = board ? board.columns.map(col => col.name) : [];
-      const reviewColumn = findColumnByName(columnNames, targetColumnName);
-
-      if (!reviewColumn) {
-        db.close();
-        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_review <column-name>`);
-      }
-
+      // Move ticket to review state via intent-based transition
+      let reviewColumn: string | undefined;
       const previousColumn = ticket.statusName;
 
-      // Move to Review column (moveTicket also updates status_id)
-      await this.storage.moveTicket(ticket.projectId!, ticketId!, reviewColumn);
-
-      // Sync to external provider (e.g., Linear) if ticket was imported from one
-      try {
-        const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId!);
-        if (provider.name !== 'pmo') {
-          const result = await provider.moveTicket(ticketId!, reviewColumn);
-          if (result.success) {
-            this.log(styles.muted(`   Synced to ${result.provider}: ${reviewColumn}`));
-          }
+      if (!flags['no-transition']) {
+        const transition = await moveTicketByIntent({
+          db,
+          storage: this.storage,
+          ticket,
+          intent: 'needs_review',
+          providerName: 'pmo',
+          resolveProvider: (tid, pid) => this.resolveTicketProvider(tid, pid),
+          log: (msg) => this.log(styles.muted(`   ${msg}`)),
+        });
+        reviewColumn = transition.targetColumn;
+        if (!transition.moved && !transition.targetColumn) {
+          this.log(styles.warning(`No review column found for intent 'needs_review'. Transition skipped.`));
         }
-      } catch {
-        // Non-fatal — don't block work ready for provider sync failures
+      } else {
+        this.log(styles.muted('   Transition skipped (--no-transition)'));
       }
 
       // Auto-export to board.md if configured
@@ -287,8 +282,8 @@ export default class WorkReady extends PMOCommand {
 
       this.log(styles.success(`Work ready: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
-      this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${reviewColumn}`));
+      if (previousColumn) this.log(styles.muted(`   From: ${previousColumn}`));
+      if (reviewColumn) this.log(styles.muted(`   To: ${reviewColumn}`));
       if (prUrl) {
         this.log(styles.muted(`   PR: ${prUrl}`));
       }

@@ -1,8 +1,8 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
-import { getWorkColumnSetting, findColumnByName } from '../../lib/work-lifecycle/settings.js';
+import { moveTicketByIntent } from '../../lib/work-lifecycle/transition.js';
 import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
@@ -33,6 +33,10 @@ export default class WorkComplete extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    'no-transition': Flags.boolean({
+      description: 'Skip board state transition (still runs other actions)',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
@@ -109,34 +113,26 @@ export default class WorkComplete extends PMOCommand {
       // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
       ticketId = ticket.id;
 
-      // Get configured column name (from pmo_settings or default)
-      const targetColumnName = getWorkColumnSetting(db, 'done');
-
-      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
-      const columnNames = board ? board.columns.map(col => col.name) : [];
-      const doneColumn = findColumnByName(columnNames, targetColumnName);
-
-      if (!doneColumn) {
-        db.close();
-        this.error(`No "${targetColumnName}" column found in board configuration. Configure with: prlt config set column_done <column-name>`);
-      }
-
+      // Move ticket to done state via intent-based transition
+      let doneColumn: string | undefined;
       const previousColumn = ticket.statusName;
 
-      // Move to Done column (moveTicket also updates status_id)
-      await this.storage.moveTicket(ticket.projectId!, ticketId!, doneColumn);
-
-      // Sync to external provider (e.g., Linear) if ticket was imported from one
-      try {
-        const provider = await this.resolveTicketProvider(ticketId!, ticket.projectId!);
-        if (provider.name !== 'pmo') {
-          const result = await provider.moveTicket(ticketId!, doneColumn);
-          if (result.success) {
-            this.log(styles.muted(`   Synced to ${result.provider}: ${doneColumn}`));
-          }
+      if (!flags['no-transition']) {
+        const transition = await moveTicketByIntent({
+          db,
+          storage: this.storage,
+          ticket,
+          intent: 'completed',
+          providerName: 'pmo',
+          resolveProvider: (tid, pid) => this.resolveTicketProvider(tid, pid),
+          log: (msg) => this.log(styles.muted(`   ${msg}`)),
+        });
+        doneColumn = transition.targetColumn;
+        if (!transition.moved && !transition.targetColumn) {
+          this.log(styles.warning(`No done column found for intent 'completed'. Transition skipped.`));
         }
-      } catch {
-        // Non-fatal — don't block work complete for provider sync failures
+      } else {
+        this.log(styles.muted('   Transition skipped (--no-transition)'));
       }
 
       // Auto-export to board.md if configured
@@ -187,8 +183,8 @@ export default class WorkComplete extends PMOCommand {
 
       this.log(styles.success(`Work complete: ${ticketId}`));
       this.log(styles.muted(`   Title: ${ticket.title}`));
-      this.log(styles.muted(`   From: ${previousColumn}`));
-      this.log(styles.muted(`   To: ${doneColumn}`));
+      if (previousColumn) this.log(styles.muted(`   From: ${previousColumn}`));
+      if (doneColumn) this.log(styles.muted(`   To: ${doneColumn}`));
     } catch (error) {
       db.close();
       throw error;
