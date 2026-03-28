@@ -12,7 +12,15 @@
  */
 
 import type Database from 'better-sqlite3'
-import type { Ticket } from '../pmo/types.js'
+/**
+ * Minimal ticket shape needed for intent-based transitions.
+ * Accepts both full Ticket objects and partial objects from batch spawn paths.
+ */
+export interface TransitionTicket {
+  id: string
+  projectId?: string
+  statusName?: string
+}
 import type { ProviderStorage, TicketProvider } from '../providers/types.js'
 import type { TransitionIntent } from '../providers/state-intents.js'
 import { TransitionMapStore } from '../providers/transition-map.js'
@@ -101,7 +109,7 @@ export function resolveIntentToColumn(
 export async function moveTicketByIntent(opts: {
   db: Database.Database
   storage: ProviderStorage
-  ticket: Ticket
+  ticket: TransitionTicket
   intent: TransitionIntent
   providerName: string
   resolveProvider?: (ticketId: string, projectId: string) => Promise<TicketProvider>
