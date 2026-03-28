@@ -211,7 +211,8 @@ export interface WorkspaceManifest {
 
 export interface ExecutionContext {
   ticketId: string
-  externalTicketId?: string // External provider key (e.g. PRLT-1065) — used for branch/session naming instead of internal TKT ID
+  /** @deprecated PRLT-1166: ticketId now stores the external provider key (e.g. PRLT-1065) directly. This field is kept for backwards compatibility but should not be used for new code. */
+  externalTicketId?: string
   ticketTitle: string
   ticketDescription?: string
   ticketSubtasks?: Array<{ title: string; done: boolean }>
@@ -463,13 +464,15 @@ export interface ExecutionConfig {
 
 /**
  * Extract ticket ID from a tmux session name.
- * Session names like: prlt-TKT-347-implement or TKT-347-implement
- * Returns the ticket ID (e.g., "TKT-347") or undefined if not found.
+ * Session names like: prlt-TKT-347-implement, TKT-347-implement, or PRLT-1065-implement
+ * Returns the ticket ID (e.g., "TKT-347" or "PRLT-1065") or undefined if not found.
+ *
+ * Supports both internal PMO IDs (TKT-xxx) and external provider IDs (PRLT-xxx, PROJ-xxx, etc.).
  */
 export function extractTicketFromSession(sessionName: string | null | undefined): string | undefined {
   if (!sessionName) return undefined
   const name = sessionName.replace(/^prlt-/, '')
-  const match = name.match(/^(TKT-\d+)/)
+  const match = name.match(/^([A-Z]+-\d+)/)
   return match ? match[1] : undefined
 }
 
