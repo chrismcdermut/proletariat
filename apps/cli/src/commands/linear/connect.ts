@@ -21,6 +21,9 @@ import {
   getLinearApiKey,
 } from '../../lib/linear/index.js'
 import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { autoMapIntents, formatMappingTable, type IntentMapping } from '../../lib/providers/auto-mapper.js'
+import { TransitionMapStore } from '../../lib/providers/transition-map.js'
+import type { TransitionIntent } from '../../lib/providers/state-intents.js'
 
 export default class LinearConnect extends PMOCommand {
   static description = 'Connect to Linear workspace and configure authentication'
@@ -323,6 +326,10 @@ export default class LinearConnect extends PMOCommand {
         prefix: `${matched!.key}-`,
         label: matched!.name,
       })
+
+      // Auto-map board states to transition intents
+      await this.autoMapBoardStates(client, matched!.id, db, jsonMode)
+
       if (jsonMode) {
         outputSuccessAsJson({
           authenticated: true,
@@ -394,9 +401,106 @@ export default class LinearConnect extends PMOCommand {
       label: selectedTeamName,
     })
 
+    // Auto-map board states to transition intents
+    const selectedTeam = teams.find((t) => t.key === selectedTeamKey)
+    if (selectedTeam) {
+      await this.autoMapBoardStates(client, selectedTeam.id, db, jsonMode)
+    }
+
     this.log('')
     this.log(colors.success('Linear integration configured!'))
     this.log(colors.textMuted('  Run "prlt linear import" to pull issues into PMO'))
     this.log(colors.textMuted('  Run "prlt work spawn --from-linear" to pull and spawn agents'))
+  }
+
+  /**
+   * Pull board states from Linear, auto-guess intent mappings,
+   * show to user for confirmation, and store in pmo_transition_map.
+   */
+  private async autoMapBoardStates(
+    client: LinearClient,
+    teamId: string,
+    db: import('better-sqlite3').Database,
+    jsonMode: boolean,
+  ): Promise<void> {
+    try {
+      const states = await client.listStates(teamId)
+      if (states.length === 0) return
+
+      // Sort by position for display
+      const sortedStates = [...states].sort((a, b) => a.position - b.position)
+
+      // Auto-guess mappings using state types + name heuristics
+      const mappings = autoMapIntents(
+        sortedStates.map(s => ({ id: s.id, name: s.name, type: s.type, position: s.position })),
+        'linear',
+      )
+
+      if (mappings.length === 0) return
+
+      // Display the mapping table
+      if (!jsonMode) {
+        this.log('')
+        this.log(colors.primary('Board State Mapping'))
+        this.log('')
+        const lines = formatMappingTable(
+          mappings,
+          sortedStates.map(s => ({ id: s.id, name: s.name, type: s.type, position: s.position })),
+        )
+        for (const line of lines) {
+          this.log(colors.textMuted(`  ${line}`))
+        }
+        this.log('')
+      }
+
+      // In JSON mode, output the mappings for agent confirmation
+      if (jsonMode) {
+        // Store mappings automatically in JSON mode (agents can't confirm interactively)
+        const store = new TransitionMapStore(db)
+        for (const m of mappings) {
+          store.upsertMapping({
+            provider: 'linear',
+            intent: m.intent,
+            providerStateName: m.stateName,
+            providerStateId: m.stateId,
+          })
+        }
+        return
+      }
+
+      // Interactive: ask user to confirm or edit mappings
+      const choices = [
+        { name: 'Yes, save these mappings', value: 'accept' },
+        { name: 'No, skip mapping for now', value: 'skip' },
+      ]
+      const message = 'Save these state mappings?'
+
+      const { action } = await inquirer.prompt([{
+        type: 'list',
+        name: 'action',
+        message,
+        choices,
+      }])
+
+      if (action === 'accept') {
+        const store = new TransitionMapStore(db)
+        for (const m of mappings) {
+          store.upsertMapping({
+            provider: 'linear',
+            intent: m.intent,
+            providerStateName: m.stateName,
+            providerStateId: m.stateId,
+          })
+        }
+        this.log(colors.textMuted(`  Saved ${mappings.length} state mappings`))
+      } else {
+        this.log(colors.textMuted('  Skipped state mapping. You can configure later with "prlt config set state-map.<intent> <state-name>"'))
+      }
+    } catch (error) {
+      // Non-fatal — don't block connect for mapping failures
+      if (!jsonMode) {
+        this.log(colors.textMuted(`  Could not auto-map board states: ${error instanceof Error ? error.message : String(error)}`))
+      }
+    }
   }
 }

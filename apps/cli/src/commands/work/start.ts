@@ -17,6 +17,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
 import { getWorkColumnSetting, findColumnByName, resolveReviewGate, isValidReviewGateMode } from '../../lib/work-lifecycle/settings.js'
+import { moveTicketByIntent } from '../../lib/work-lifecycle/transition.js'
 import { getTicketExternalMetadata, resolveExternalTicketId } from '../../lib/external-issues/utils.js'
 import type { ReviewGateMode } from '../../lib/pmo/types.js'
 import { WorkAction } from '../../lib/pmo/types.js'
@@ -2462,8 +2463,8 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`   Assigned to: ${assignedAgent}`))
         }
 
-        // Move ticket to target column based on action's toState
-        // If action has a to_state, use that state name directly; otherwise fall back to "In Progress" default
+        // Move ticket to target column based on action's toState or default 'started' intent
+        // If action has a to_state, try direct match first; otherwise use intent resolution
         const targetStateName = selectedAction?.toState
 
         const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
@@ -2471,28 +2472,25 @@ export default class WorkStart extends PMOCommand {
 
         let targetColumnName: string | null = null
         if (targetStateName) {
-          // Try direct state name match first
+          // Try direct state name match first (backward compat with action toState)
           targetColumnName = findColumnByName(columnNames, targetStateName)
-          if (!targetColumnName) {
-            // Fall back to category-based lookup for backward compatibility
-            type ColumnTypeKey = 'planned' | 'in_progress' | 'review' | 'done'
-            const categoryMap: Record<string, ColumnTypeKey> = {
-              'Backlog': 'planned',
-              'Todo': 'planned',
-              'In Progress': 'in_progress',
-              'Done': 'done',
-            }
-            const columnType = categoryMap[targetStateName] || 'in_progress' as ColumnTypeKey
-            const workColumnName = getWorkColumnSetting(db, columnType)
-            targetColumnName = findColumnByName(columnNames, workColumnName)
-          }
-        } else {
-          // No target state specified — default to "In Progress"
-          const workColumnName = getWorkColumnSetting(db, 'in_progress')
-          targetColumnName = findColumnByName(columnNames, workColumnName)
         }
 
-        if (targetColumnName && ticket.statusName !== targetColumnName) {
+        if (!targetColumnName) {
+          // Use intent-based resolution — 'started' intent
+          const transition = await moveTicketByIntent({
+            db,
+            storage: this.storage,
+            ticket,
+            intent: 'started',
+            providerName: 'pmo',
+            resolveProvider: (tid, pid) => this.resolveTicketProvider(tid, pid),
+            log: (msg) => this.log(styles.muted(`   ${msg}`)),
+          })
+          if (transition.moved) {
+            this.log(styles.muted(`   Moved to: ${transition.targetColumn}`))
+          }
+        } else if (targetColumnName && ticket.statusName !== targetColumnName) {
           try {
             await this.storage.moveTicket(ticket.projectId!, ticket.id, targetColumnName)
             this.log(styles.muted(`   Moved to: ${targetColumnName}`))
@@ -3346,26 +3344,15 @@ export default class WorkStart extends PMOCommand {
         await this.storage.updateTicket(ticket.id, { assignee: agentName })
       }
 
-      // Move ticket to In Progress column ONLY after successful spawn
-      const targetColumnName = getWorkColumnSetting(db, 'in_progress')
-
-      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
-      const columnNames = board ? board.columns.map(col => col.name) : []
-      const inProgressColumn = findColumnByName(columnNames, targetColumnName)
-
-      if (inProgressColumn && ticket.status !== inProgressColumn) {
-        await this.storage.moveTicket(ticket.projectId!, ticket.id, inProgressColumn)
-
-        // Sync to external provider (e.g., Linear) if ticket was imported from one
-        try {
-          const provider = await this.resolveTicketProvider(ticket.id, ticket.projectId!)
-          if (provider.name !== 'pmo') {
-            await provider.moveTicket(ticket.id, inProgressColumn)
-          }
-        } catch {
-          // Non-fatal — don't block work start for provider sync failures
-        }
-      }
+      // Move ticket to In Progress column ONLY after successful spawn — via intent resolution
+      const transition = await moveTicketByIntent({
+        db,
+        storage: this.storage,
+        ticket,
+        intent: 'started',
+        providerName: 'pmo',
+        resolveProvider: (tid, pid) => this.resolveTicketProvider(tid, pid),
+      })
 
       await autoExportToBoard(this.pmoPath, this.storage, () => {})
 
