@@ -266,7 +266,7 @@ function checkTicket(ticket: { id: string; title: string } | null): PreflightChe
       passed: false,
       severity: 'error',
       message: 'Ticket not found',
-      fix: 'Create a ticket first with `prlt ticket create`, or check the ticket ID',
+      fix: 'Create a ticket in your provider (Linear, Jira, etc.) first, or check the ticket ID',
     }
   }
 
