@@ -137,25 +137,36 @@ export async function moveTicketByIntent(opts: {
   }
 
   // Move in local PMO
+  let localMoveSucceeded = false
   try {
     await storage.moveTicket(ticket.projectId, ticket.id, targetColumn)
+    localMoveSucceeded = true
   } catch (error) {
-    return {
-      moved: false,
-      targetColumn,
-      previousColumn,
-      message: `Failed to move: ${error instanceof Error ? error.message : String(error)}`,
+    const code = (error as { code?: string }).code
+    if (code === 'SQLITE_READONLY') {
+      // PRLT-1183: In container environments the HQ database is mounted read-only.
+      // Skip local PMO write but still sync to external provider below.
+      if (log) log('Local PMO update skipped (read-only database)')
+    } else {
+      return {
+        moved: false,
+        targetColumn,
+        previousColumn,
+        message: `Failed to move: ${error instanceof Error ? error.message : String(error)}`,
+      }
     }
   }
 
-  // Sync to external provider
+  // Sync to external provider (e.g. Linear)
+  let externalSyncSucceeded = false
   if (resolveProvider) {
     try {
       const provider = await resolveProvider(ticket.id, ticket.projectId)
       if (provider.name !== 'pmo') {
         const result = await provider.moveTicket(ticket.id, targetColumn)
-        if (result.success && log) {
-          log(`Synced to ${result.provider}: ${targetColumn}`)
+        if (result.success) {
+          externalSyncSucceeded = true
+          if (log) log(`Synced to ${result.provider}: ${targetColumn}`)
         }
       }
     } catch {
@@ -164,7 +175,7 @@ export async function moveTicketByIntent(opts: {
   }
 
   return {
-    moved: true,
+    moved: localMoveSucceeded || externalSyncSucceeded,
     targetColumn,
     previousColumn,
   }

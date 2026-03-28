@@ -9,8 +9,10 @@
  */
 
 import Database from 'better-sqlite3'
+import * as path from 'node:path'
 import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
 import { type DatabaseDriver, BetterSqlite3Driver } from '../../database/driver.js'
+import { isReadOnlyHQMount } from '../../container.js'
 import {
   AcceptanceCriterion,
   Board,
@@ -91,8 +93,14 @@ export class SQLiteStorage implements PMOStorage {
   constructor(dbPath: string) {
     this.dbPath = dbPath
 
-    // Open database (creates if doesn't exist)
-    this.db = new Database(dbPath)
+    // Auto-detect read-only mode for container environments (PRLT-1183).
+    // The dbPath lives under .proletariat/ — derive the workspace root (grandparent)
+    // and check if it sits on a read-only HQ mount.
+    const workspaceRoot = path.dirname(path.dirname(dbPath))
+    const readOnly = isReadOnlyHQMount(workspaceRoot)
+
+    // Open database — read-only in container environments to prevent SQLITE_READONLY crashes
+    this.db = new Database(dbPath, readOnly ? { readonly: true } : undefined)
     this.db.pragma('foreign_keys = ON')
 
     // Create DatabaseDriver abstraction
@@ -106,7 +114,9 @@ export class SQLiteStorage implements PMOStorage {
       db: this.db,
       driver: this.driver,
       drizzle: this.drizzle,
-      updateBoardTimestamp: (projectId: string) => updateBoardTimestamp(this.db, projectId),
+      updateBoardTimestamp: readOnly
+        ? () => {} // No-op in read-only mode
+        : (projectId: string) => updateBoardTimestamp(this.db, projectId),
     }
 
     // Initialize domain-specific storage modules
@@ -122,8 +132,10 @@ export class SQLiteStorage implements PMOStorage {
     this.actionStorage = new ActionStorage(ctx)
     this.workflowRuleStorage = new WorkflowRuleStorage(ctx)
 
-    // Ensure PMO tables exist
-    this.ensurePMOTables()
+    // Ensure PMO tables exist — skip in read-only mode (tables already exist on HQ)
+    if (!readOnly) {
+      this.ensurePMOTables()
+    }
   }
 
   /**

@@ -141,14 +141,18 @@ export default class WorkComplete extends PMOCommand {
       // Mark any running executions for this ticket as completed
       const runningExecution = executionStorage.getRunningExecution(ticketId!);
       if (runningExecution) {
-        executionStorage.updateStatus(runningExecution.id, 'completed');
+        const updated = executionStorage.tryUpdateStatus(runningExecution.id, 'completed');
 
-        // Track work completion analytics
-        const startTime = runningExecution.startedAt ? new Date(runningExecution.startedAt).getTime() : 0;
-        const durationMs = startTime > 0 ? Date.now() - startTime : 0;
-        trackWorkCompleted({ durationMs, prCreated: false });
+        if (updated) {
+          // Track work completion analytics
+          const startTime = runningExecution.startedAt ? new Date(runningExecution.startedAt).getTime() : 0;
+          const durationMs = startTime > 0 ? Date.now() - startTime : 0;
+          trackWorkCompleted({ durationMs, prCreated: false });
 
-        this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+          this.log(styles.muted(`   Execution ${runningExecution.id} marked as completed`));
+        } else {
+          this.log(styles.muted(`   Execution ${runningExecution.id} status update skipped (read-only database)`));
+        }
 
         // PRLT-984: Commit validation — warn if no meaningful code was committed
         if (runningExecution.branch && runningExecution.agentName) {
