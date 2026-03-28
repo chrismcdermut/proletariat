@@ -458,7 +458,7 @@ describe('JSON Envelope Contract Tests (TKT-1006)', () => {
   // ===========================================================================
   describe('interactive leakage audit', () => {
     const commandsDir = path.resolve(__dirname, '../../src/commands');
-    const coreFamilies = ['work', 'execution', 'agent'];
+    const coreFamilies = ['work', 'ticket', 'execution', 'agent'];
 
     function getCommandFiles(family: string): string[] {
       const familyDir = path.join(commandsDir, family);
@@ -535,7 +535,7 @@ describe('JSON Envelope Contract Tests (TKT-1006)', () => {
   // ===========================================================================
   describe('choice command field audit', () => {
     const commandsDir = path.resolve(__dirname, '../../src/commands');
-    const coreFamilies = ['work', 'execution', 'agent'];
+    const coreFamilies = ['work', 'ticket', 'execution', 'agent'];
 
     function getCommandFiles(family: string): string[] {
       const familyDir = path.join(commandsDir, family);
