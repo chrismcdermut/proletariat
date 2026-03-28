@@ -217,6 +217,17 @@ export default class Orchestrate extends PromptCommand {
       }
 
       // Daemon mode: start the engine and run until stopped
+      //
+      // PRLT-1211: Override process.exit to prevent oclif from killing the daemon.
+      // After run() returns, oclif's error handler calls process.exit(0) via
+      // @oclif/core/lib/errors/handle.js → Exit.exit(). We intercept exit(0)
+      // so the daemon stays alive; non-zero exits still terminate immediately.
+      const originalExit = process.exit
+      process.exit = ((code: number) => {
+        if (code === 0) return  // swallow oclif's clean-exit call
+        originalExit(code)
+      }) as never
+
       engine.start()
 
       if (jsonMode) {
@@ -273,6 +284,8 @@ export default class Orchestrate extends PromptCommand {
           engine.stop()
           if (pollTimer) clearInterval(pollTimer)
           if (rl) { rl.close(); rl = null }
+          // Restore original process.exit so the process can terminate after cleanup
+          process.exit = originalExit
           this.log(styles.muted('\n  Orchestrate daemon stopped'))
           resolve()
         }

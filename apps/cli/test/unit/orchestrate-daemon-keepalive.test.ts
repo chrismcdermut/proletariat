@@ -96,6 +96,126 @@ describe('orchestrate daemon keepalive (PRLT-1202)', () => {
     try { unlinkSync(join(tmpDir, 'no-keepalive.mjs')) } catch {}
     try { unlinkSync(join(tmpDir, 'with-keepalive.mjs')) } catch {}
     try { unlinkSync(join(tmpDir, 'sigterm-cleanup.mjs')) } catch {}
+    try { unlinkSync(join(tmpDir, 'exit-override.mjs')) } catch {}
+    try { unlinkSync(join(tmpDir, 'exit-override-nonzero.mjs')) } catch {}
+    try { unlinkSync(join(tmpDir, 'exit-override-restore.mjs')) } catch {}
+  })
+})
+
+/**
+ * Regression test for PRLT-1211: oclif force-calls process.exit(0) despite keepalive timer.
+ *
+ * The bug: after the orchestrate command's run() method returns, oclif's error
+ * handler calls process.exit(0) via @oclif/core/lib/errors/handle.js, which
+ * kills the daemon even though it has an active keepalive timer.
+ *
+ * The fix: override process.exit in daemon mode so exit(0) is a no-op.
+ * Non-zero exits still terminate immediately. The original is restored during
+ * cleanup so the process can exit after shutdown.
+ */
+describe('orchestrate process.exit override (PRLT-1211)', () => {
+  let tmpDir: string
+
+  before(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'prlt-exit-override-test-'))
+  })
+
+  it('process stays alive when process.exit(0) is called with override active', async () => {
+    // Simulates oclif calling process.exit(0) after run() returns.
+    // With the override, exit(0) is swallowed and the daemon stays alive.
+    const script = join(tmpDir, 'exit-override.mjs')
+    writeFileSync(script, `
+      const keepAlive = setInterval(() => {}, 60000)
+
+      // Override process.exit — same pattern as the orchestrate command fix
+      const originalExit = process.exit
+      process.exit = ((code) => {
+        if (code === 0) return
+        originalExit(code)
+      })
+
+      // Simulate oclif calling process.exit(0) after command completes
+      setTimeout(() => { process.exit(0) }, 200)
+
+      await new Promise((resolve) => {
+        const cleanup = () => {
+          clearInterval(keepAlive)
+          process.exit = originalExit
+          resolve()
+        }
+        process.on('SIGINT', cleanup)
+        process.on('SIGTERM', cleanup)
+      })
+    `)
+
+    const exitCode = await runWithTimeout(script, 2000)
+    expect(exitCode).to.equal('timeout', 'process.exit(0) should be swallowed — daemon stays alive')
+  })
+
+  it('process still exits on non-zero exit code', async () => {
+    // Non-zero exit codes must still terminate the process
+    const script = join(tmpDir, 'exit-override-nonzero.mjs')
+    writeFileSync(script, `
+      const keepAlive = setInterval(() => {}, 60000)
+
+      const originalExit = process.exit
+      process.exit = ((code) => {
+        if (code === 0) return
+        originalExit(code)
+      })
+
+      // Non-zero exit should still work
+      setTimeout(() => { process.exit(1) }, 200)
+
+      await new Promise((resolve) => {
+        process.on('SIGINT', () => { clearInterval(keepAlive); resolve() })
+        process.on('SIGTERM', () => { clearInterval(keepAlive); resolve() })
+      })
+    `)
+
+    const exitCode = await runWithTimeout(script, 2000)
+    expect(exitCode).to.equal('1', 'Non-zero exit codes should still terminate the process')
+  })
+
+  it('process exits normally after cleanup restores original process.exit', async () => {
+    // After SIGTERM, cleanup restores original process.exit, so exit(0) works
+    const script = join(tmpDir, 'exit-override-restore.mjs')
+    writeFileSync(script, `
+      const keepAlive = setInterval(() => {}, 60000)
+
+      const originalExit = process.exit
+      process.exit = ((code) => {
+        if (code === 0) return
+        originalExit(code)
+      })
+
+      await new Promise((resolve) => {
+        const cleanup = () => {
+          clearInterval(keepAlive)
+          process.exit = originalExit
+          resolve()
+        }
+        process.on('SIGINT', cleanup)
+        process.on('SIGTERM', cleanup)
+      })
+      // After cleanup restores process.exit, exit(0) terminates as expected
+      process.exit(0)
+    `)
+
+    const exitCode = await new Promise((resolve) => {
+      const child = fork(script, [], { stdio: 'ignore' })
+      setTimeout(() => { child.kill('SIGTERM') }, 500)
+      child.on('exit', (code) => resolve(code))
+      setTimeout(() => { child.kill('SIGKILL'); resolve(null) }, 5000)
+    })
+
+    expect(exitCode).to.equal(0, 'After cleanup, process.exit(0) should terminate normally')
+  })
+
+  after(() => {
+    try { unlinkSync(join(tmpDir, 'exit-override.mjs')) } catch {}
+    try { unlinkSync(join(tmpDir, 'exit-override-nonzero.mjs')) } catch {}
+    try { unlinkSync(join(tmpDir, 'exit-override-restore.mjs')) } catch {}
   })
 })
 
