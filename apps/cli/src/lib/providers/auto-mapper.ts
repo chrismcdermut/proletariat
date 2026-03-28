@@ -41,6 +41,17 @@ const LINEAR_TYPE_TO_INTENT: Record<string, TransitionIntent> = {
 }
 
 /**
+ * Map from Jira status category keys to transition intents.
+ * Jira has 3 categories: new, indeterminate, done.
+ * "needs_review" has no Jira category — resolved by name heuristics.
+ */
+const JIRA_CATEGORY_TO_INTENT: Record<string, TransitionIntent> = {
+  new: 'ready',
+  indeterminate: 'started',
+  done: 'completed',
+}
+
+/**
  * Auto-guess transition intent mappings from a list of board states.
  *
  * Strategy:
@@ -74,6 +85,22 @@ export function autoMapIntents(
     if (providerType === 'linear') {
       const typeMatch = states.find(s =>
         s.type && LINEAR_TYPE_TO_INTENT[s.type] === intent && !usedStateIds.has(s.id)
+      )
+      if (typeMatch) {
+        mappings.push({
+          intent,
+          stateName: typeMatch.name,
+          stateId: typeMatch.id,
+          confidence: 'type',
+        })
+        usedStateIds.add(typeMatch.id)
+        continue
+      }
+    }
+
+    if (providerType === 'jira') {
+      const typeMatch = states.find(s =>
+        s.type && JIRA_CATEGORY_TO_INTENT[s.type] === intent && !usedStateIds.has(s.id)
       )
       if (typeMatch) {
         mappings.push({

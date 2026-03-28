@@ -204,6 +204,34 @@ describe('Auto-Mapper', () => {
       expect(byIntent.get('completed')?.stateName).to.equal('Done')
     })
 
+    it('maps Jira board states using category-based matching', () => {
+      const jiraStates = [
+        { id: '1', name: 'Open', type: 'new', position: 0 },
+        { id: '2', name: 'In Progress', type: 'indeterminate', position: 1 },
+        { id: '3', name: 'In Review', type: 'indeterminate', position: 2 },
+        { id: '4', name: 'Done', type: 'done', position: 3 },
+      ]
+
+      const mappings = autoMapIntents(jiraStates, 'jira')
+      const byIntent = new Map(mappings.map(m => [m.intent, m]))
+
+      // ready → Open (type: new)
+      expect(byIntent.get('ready')?.stateName).to.equal('Open')
+      expect(byIntent.get('ready')?.confidence).to.equal('type')
+
+      // started → In Progress (type: indeterminate, first match)
+      expect(byIntent.get('started')?.stateName).to.equal('In Progress')
+      expect(byIntent.get('started')?.confidence).to.equal('type')
+
+      // completed → Done (type: done)
+      expect(byIntent.get('completed')?.stateName).to.equal('Done')
+      expect(byIntent.get('completed')?.confidence).to.equal('type')
+
+      // needs_review → In Review (name heuristic, since Jira has no review category)
+      expect(byIntent.get('needs_review')?.stateName).to.equal('In Review')
+      expect(byIntent.get('needs_review')?.confidence).to.equal('name')
+    })
+
     it('does not map the same state to multiple intents', () => {
       const states = [
         { id: '1', name: 'In Progress', type: 'started', position: 0 },
