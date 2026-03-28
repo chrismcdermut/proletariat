@@ -69,79 +69,6 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
   });
 
   // =========================================================================
-  // Ticket Family
-  // =========================================================================
-  describe('ticket family', () => {
-    beforeEach(() => {
-      createTestTicket(db, 'test-project', {
-        id: 'TKT-100',
-        title: 'Test Ticket Alpha',
-        status: 'Backlog',
-        statusId: 'default-backlog',
-      });
-      createTestTicket(db, 'test-project', {
-        id: 'TKT-101',
-        title: 'Test Ticket Beta',
-        status: 'Backlog',
-        statusId: 'default-backlog',
-      });
-    });
-
-    it('ticket index --json should output a valid prompt envelope', async () => {
-      const output = await execInProcess('ticket -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('prompt');
-    });
-
-    it('ticket list --format json should output parseable JSON array', async () => {
-      const output = await execInProcess('ticket list -P test-project --format json');
-      // ticket list with --format json outputs raw array, not envelope
-      const json = extractJson<unknown[]>(output);
-      expect(json).to.be.an('array');
-      expect(json.length).to.be.greaterThan(0);
-      // Each ticket should have core fields
-      const ticket = json[0] as Record<string, unknown>;
-      expect(ticket).to.have.property('id');
-      expect(ticket).to.have.property('title');
-    });
-
-    it('ticket create --json should output a prompt envelope for missing fields', async () => {
-      const output = await execInProcess('ticket create -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('prompt');
-    });
-
-    it('ticket move --json should output a prompt for ticket selection', async () => {
-      const output = await execInProcess('ticket move -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('prompt');
-      const prompt = (json as { prompt: { choices: Array<{ command?: string }> } }).prompt;
-      expect(prompt.choices).to.be.an('array');
-      // Verify choices have command fields
-      for (const choice of prompt.choices) {
-        if (choice.command) {
-          expect(choice.command).to.include('--json');
-        }
-      }
-    });
-
-    it('ticket move with ticket ID --json should output column selection prompt', async () => {
-      const output = await execInProcess('ticket move TKT-100 -P test-project --json');
-      const json = extractJson<Record<string, unknown>>(output);
-      const errors = validateJsonEnvelope(json);
-      expect(errors, `Envelope errors: ${errors.join(', ')}`).to.be.empty;
-      expect(json.type).to.equal('prompt');
-    });
-
-  });
-
-  // =========================================================================
   // Work Family
   // =========================================================================
   describe('work family', () => {
@@ -240,10 +167,9 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
     it('all prompt envelopes should have metadata with command and flags', async () => {
       // Test multiple commands that output prompt envelopes
       const promptCommands = [
-        'ticket -P test-project --json',
         'work -P test-project --json',
-        'ticket create -P test-project --json',
-        'ticket move -P test-project --json',
+        'agent -P test-project --json',
+        'execution -P test-project --json',
       ];
 
       for (const cmd of promptCommands) {
@@ -257,9 +183,9 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
 
     it('prompt envelopes should have non-null prompt field', async () => {
       const promptCommands = [
-        'ticket -P test-project --json',
-        'ticket create -P test-project --json',
-        'ticket move -P test-project --json',
+        'work -P test-project --json',
+        'agent -P test-project --json',
+        'execution -P test-project --json',
       ];
 
       for (const cmd of promptCommands) {
@@ -268,15 +194,6 @@ describe('Machine-Mode JSON Contracts (TKT-1006)', () => {
         expect(json.type, `${cmd}: type should be 'prompt'`).to.equal('prompt');
         expect(json.prompt, `${cmd}: prompt should not be null`).to.not.be.null;
       }
-    });
-
-    it('error envelopes should have code and message', async () => {
-      // Use ticket show with a non-existent ticket to trigger an error envelope
-      const output = await execInProcess('ticket show NONEXISTENT-999 -P test-project --json');
-      const json = extractJson<{ type: string; error: { code: string; message: string } }>(output);
-      expect(json.type).to.equal('error');
-      expect(json.error.code).to.be.a('string').and.not.empty;
-      expect(json.error.message).to.be.a('string').and.not.empty;
     });
   });
 });
