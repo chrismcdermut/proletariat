@@ -143,6 +143,12 @@ export function resolveTicketProvider(
         const inner = new LinearTicketProvider(db, storage, projectId, null)
         return wrapWithEvents(inner, db, storage, projectId)
       }
+    } else if (metadata?.external_key || metadata?.external_id) {
+      // PRLT-1167: External-only ticket (no PMO mirror, no LinearMapper mapping).
+      // When metadata contains external_key/external_id, resolve to Linear provider
+      // so post-execution transitions write back to Linear directly.
+      const inner = new LinearTicketProvider(db, storage, projectId, null)
+      return wrapWithEvents(inner, db, storage, projectId)
     }
   }
 
@@ -158,6 +164,10 @@ export function resolveTicketProvider(
     const mapping = mapper.getByTicketId(ticketId)
 
     if (mapping) {
+      const inner = new TrelloTicketProvider(db, storage, projectId, null)
+      return wrapWithEvents(inner, db, storage, projectId)
+    } else if (metadata?.external_key || metadata?.external_id) {
+      // PRLT-1167: External-only ticket — resolve to Trello provider directly
       const inner = new TrelloTicketProvider(db, storage, projectId, null)
       return wrapWithEvents(inner, db, storage, projectId)
     }
