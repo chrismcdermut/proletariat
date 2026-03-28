@@ -109,6 +109,9 @@ export {
   type MirrorResolutionInput,
 } from './work-start.js'
 
+// Ticket builder (PRLT-1167: skip PMO mirror)
+export { buildTicketFromEnvelope } from './ticket-builder.js'
+
 // Outbound sync
 export {
   OutboundSyncHandler,
