@@ -1,7 +1,7 @@
 import { expect } from 'chai'
 import Database from 'better-sqlite3'
 import { ExecutionStorage } from '../../src/lib/execution/storage.js'
-import { getAvailableAgents, selectAgent } from '../../src/lib/execution/spawner.js'
+import { getAvailableAgents, selectAgent, resolveOutputMode } from '../../src/lib/execution/spawner.js'
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js'
 import type { WorkspaceInfo } from '../../src/lib/agents/commands.js'
 import type { Agent } from '../../src/lib/database/index.js'
@@ -255,6 +255,23 @@ describe('Spawner', () => {
 
       expect(available).to.have.length(1)
       expect(available).to.include('stale-agent')
+    })
+  })
+
+  // ===========================================================================
+  // PRLT-1119: resolveOutputMode — background display must use print mode
+  // ===========================================================================
+  describe('resolveOutputMode (PRLT-1119)', () => {
+    it('returns print for background display mode', () => {
+      expect(resolveOutputMode('background')).to.equal('print')
+    })
+
+    it('returns interactive for terminal display mode', () => {
+      expect(resolveOutputMode('terminal')).to.equal('interactive')
+    })
+
+    it('returns interactive for foreground display mode', () => {
+      expect(resolveOutputMode('foreground')).to.equal('interactive')
     })
   })
 
