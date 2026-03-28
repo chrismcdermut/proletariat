@@ -94,9 +94,9 @@ describe('--from flag parsing', () => {
 })
 
 describe('mirror-to-pmo with from-issue flow', () => {
-  it('defaults to enabled (mirroring on)', () => {
+  it('defaults to disabled (PRLT-1167: skip PMO mirror by default)', () => {
     const result = resolveMirrorToPmo({})
-    expect(result.enabled).to.equal(true)
+    expect(result.enabled).to.equal(false)
     expect(result.source).to.equal('default')
   })
 
