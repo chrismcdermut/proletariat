@@ -1,5 +1,6 @@
 import type {
   AsanaProject,
+  AsanaSection,
   AsanaTask,
   AsanaTaskUpsertInput,
   AsanaUser,
@@ -175,5 +176,23 @@ export class AsanaClient {
       completed: task.completed,
       notes: task.notes,
     }
+  }
+
+  async deleteTask(taskGid: string): Promise<void> {
+    await this.request(`/tasks/${taskGid}`, { method: 'DELETE' as 'PUT' })
+  }
+
+  async listSections(projectGid: string): Promise<AsanaSection[]> {
+    const sections = await this.request<Array<{ gid: string; name: string }>>(`/projects/${projectGid}/sections`, {
+      query: { opt_fields: 'gid,name' },
+    })
+    return sections.map((s) => ({ gid: s.gid, name: s.name }))
+  }
+
+  async addTaskToSection(sectionGid: string, taskGid: string): Promise<void> {
+    await this.request(`/sections/${sectionGid}/addTask`, {
+      method: 'POST',
+      body: { data: { task: taskGid } },
+    })
   }
 }

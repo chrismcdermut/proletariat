@@ -16,6 +16,11 @@ export interface AsanaProject {
   name: string
 }
 
+export interface AsanaSection {
+  gid: string
+  name: string
+}
+
 export interface AsanaUser {
   gid: string
   name: string
