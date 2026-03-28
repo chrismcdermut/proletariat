@@ -14,6 +14,7 @@ export type {
   AsanaConfig,
   AsanaWorkspace,
   AsanaProject,
+  AsanaSection,
   AsanaUser,
   AsanaTask,
   AsanaTaskMap,

@@ -26,6 +26,8 @@ import { isJiraConfigured } from '../jira/config.js'
 import { LinearMapper } from '../linear/mapper.js'
 import { isTrelloConfigured } from '../trello/config.js'
 import { TrelloMapper } from '../trello/mapper.js'
+import { isAsanaConfigured } from '../asana/config.js'
+import { AsanaMapper } from '../asana/mapper.js'
 import type { StateCategory } from '../pmo/types.js'
 import type { TicketProvider, ProviderStorage } from './types.js'
 import { PMOTicketProvider } from './pmo-provider.js'
@@ -34,6 +36,7 @@ import { ClickUpTicketProvider } from './clickup-provider.js'
 import { TrelloTicketProvider } from './trello-provider.js'
 import { GitHubIssuesTicketProvider } from './github-provider.js'
 import { JiraTicketProvider } from './jira-provider.js'
+import { AsanaTicketProvider } from './asana-provider.js'
 import { EventEmittingProvider, type StatusResolver } from './event-emitting-provider.js'
 
 /**
@@ -189,6 +192,20 @@ export function resolveTicketProvider(
     return wrapWithEvents(inner, db, storage, projectId)
   }
 
+  // Check Asana
+  if (externalSource === 'asana' && isAsanaConfigured(db)) {
+    const mapper = new AsanaMapper(db)
+    const mapping = mapper.getByTicketId(ticketId)
+
+    if (mapping) {
+      const inner = new AsanaTicketProvider(db, storage, projectId)
+      return wrapWithEvents(inner, db, storage, projectId)
+    } else if (metadata?.external_key || metadata?.external_id) {
+      const inner = new AsanaTicketProvider(db, storage, projectId)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  }
+
   // Default: local PMO
   const inner = new PMOTicketProvider(storage, projectId)
   return wrapWithEvents(inner, db, storage, projectId)
@@ -242,6 +259,11 @@ export function resolveProjectProvider(
 
   if (source === 'jira') {
     const inner = new JiraTicketProvider(db, storage, projectId)
+    return wrapWithEvents(inner, db, storage, projectId)
+  }
+
+  if (source === 'asana') {
+    const inner = new AsanaTicketProvider(db, storage, projectId)
     return wrapWithEvents(inner, db, storage, projectId)
   }
 
