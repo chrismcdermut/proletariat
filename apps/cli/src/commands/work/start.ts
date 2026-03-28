@@ -47,7 +47,7 @@ import {
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo, isClaudeExecutor, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
-import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getAuthMethod, saveAuthMethod, getCreatePrDefault, getMirrorToPmoDefault, getCleanupPolicy } from '../../lib/execution/config.js'
+import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getAuthMethod, saveAuthMethod, getCreatePrDefault, getVerifyCiDefault, getMirrorToPmoDefault, getCleanupPolicy } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath, buildWorkspaceRepos } from '../../lib/execution/context.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
@@ -326,6 +326,10 @@ export default class WorkStart extends PMOCommand {
     }),
     'no-pr': Flags.boolean({
       description: '[deprecated: use --create-pr instead] Skip PR creation when work is ready',
+      default: false,
+    }),
+    'verify-ci': Flags.boolean({
+      description: 'Agent polls CI after pushing and fixes failures before exiting (PRLT-1126)',
       default: false,
     }),
     output: Flags.string({
@@ -2089,6 +2093,19 @@ export default class WorkStart extends PMOCommand {
       // Add createPR to context
       context.createPR = createPR
 
+      // Resolve verify-ci: flag > workspace config > default false
+      // Only meaningful when createPR is true (need a PR to poll CI on)
+      let verifyCi = false
+      if (flags['verify-ci']) {
+        verifyCi = true
+      } else {
+        const configVerifyCi = getVerifyCiDefault(db)
+        if (configVerifyCi !== null) {
+          verifyCi = configVerifyCi
+        }
+      }
+      context.verifyCi = verifyCi
+
       // Resolve review gate mode (most specific wins: spawn flag > action config > workspace default)
       const reviewGate = resolveReviewGate(
         flags['review-gate'] as ReviewGateMode | undefined,
@@ -2113,6 +2130,11 @@ export default class WorkStart extends PMOCommand {
           post: 'ships immediately — human reviews after merge',
         }
         this.log(styles.warning(`   Review gate: ${reviewGate} (${gateDescriptions[reviewGate]})`))
+      }
+
+      // Display verify-ci status
+      if (!jsonMode && verifyCi && context.createPR) {
+        this.log(styles.success(`   CI verify: enabled — agent will poll CI and fix failures before exiting`))
       }
 
       // Handle git operations
@@ -2690,6 +2712,7 @@ export default class WorkStart extends PMOCommand {
       if (flags['skip-permissions']) startArgs.push('--skip-permissions')
       if (flags['create-pr']) startArgs.push('--create-pr')
       if (flags['no-pr']) startArgs.push('--no-pr')
+      if (flags['verify-ci']) startArgs.push('--verify-ci')
       if (flags.session) startArgs.push('--session', flags.session as string)
       if (flags.force) startArgs.push('--force')
       if (flags.focus) startArgs.push('--focus')

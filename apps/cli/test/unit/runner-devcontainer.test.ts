@@ -100,6 +100,39 @@ describe('Devcontainer Runner (TKT-140)', () => {
     })
 
     // =========================================================================
+    // PRLT-1119: Background display mode must use print output mode
+    // =========================================================================
+    describe('background display mode (PRLT-1119)', () => {
+      it('should include -p flag when outputMode is print for background display', () => {
+        // When spawner resolves outputMode='print' for background display,
+        // buildDevcontainerCommand must include the -p flag so claude doesn't
+        // hang waiting for TTY input.
+        const cmd = buildDevcontainerCommand(
+          makeContext(), 'claude-code', promptFile, containerId,
+          'print', 'danger', 'background'
+        )
+        expect(cmd).to.include('-p ')
+        expect(cmd).to.include('--disallowedTools EnterPlanMode')
+      })
+
+      it('should NOT include -it flags for background display', () => {
+        const cmd = buildDevcontainerCommand(
+          makeContext(), 'claude-code', promptFile, containerId,
+          'print', 'danger', 'background'
+        )
+        expect(cmd).to.not.include('-it')
+      })
+
+      it('should still include -p flag for background even in safe permission mode', () => {
+        const cmd = buildDevcontainerCommand(
+          makeContext(), 'claude-code', promptFile, containerId,
+          'print', 'safe', 'background'
+        )
+        expect(cmd).to.include('-p ')
+      })
+    })
+
+    // =========================================================================
     // Codex executor
     // =========================================================================
     describe('codex executor', () => {
