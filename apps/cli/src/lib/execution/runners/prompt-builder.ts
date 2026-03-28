@@ -30,7 +30,7 @@ const INTEGRATION_COMMANDS: IntegrationCommandSet[] = [
     displayName: 'Asana',
     commands: [
       'prlt asana connect — authenticate with Asana',
-      'prlt asana sync --ticket TKT-XXX --create-missing --project <gid> — sync a PMO ticket to Asana',
+      'prlt asana sync --ticket <id> --create-missing --project <gid> — sync a ticket to Asana',
       'prlt asana import — import Asana tasks into PMO',
     ],
   },
@@ -39,7 +39,7 @@ const INTEGRATION_COMMANDS: IntegrationCommandSet[] = [
     displayName: 'Linear',
     commands: [
       'prlt linear connect — authenticate with Linear',
-      'prlt linear sync --ticket TKT-XXX --create-missing — sync a PMO ticket to Linear',
+      'prlt linear sync --ticket <id> --create-missing — sync a ticket to Linear',
       'prlt linear import — import Linear issues into PMO',
     ],
   },
@@ -48,7 +48,7 @@ const INTEGRATION_COMMANDS: IntegrationCommandSet[] = [
     displayName: 'Jira',
     commands: [
       'prlt jira connect — authenticate with Jira',
-      'prlt jira sync --ticket TKT-XXX --create-missing — sync a PMO ticket to Jira',
+      'prlt jira sync --ticket <id> --create-missing — sync a ticket to Jira',
       'prlt jira import — import Jira issues into PMO',
     ],
   },
@@ -57,7 +57,7 @@ const INTEGRATION_COMMANDS: IntegrationCommandSet[] = [
     displayName: 'Shortcut',
     commands: [
       'prlt shortcut connect — authenticate with Shortcut',
-      'prlt shortcut sync --ticket TKT-XXX --create-missing — sync a PMO ticket to Shortcut',
+      'prlt shortcut sync --ticket <id> --create-missing — sync a ticket to Shortcut',
       'prlt shortcut import — import Shortcut stories into PMO',
     ],
   },
@@ -66,7 +66,7 @@ const INTEGRATION_COMMANDS: IntegrationCommandSet[] = [
     displayName: 'Monday.com',
     commands: [
       'prlt monday connect — authenticate with Monday.com',
-      'prlt monday sync --ticket TKT-XXX --create-missing — sync a PMO ticket to Monday.com',
+      'prlt monday sync --ticket <id> --create-missing — sync a ticket to Monday.com',
     ],
   },
 ]
@@ -234,7 +234,7 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
   prompt += buildOrchestratorCommandReference()
   prompt += `## Spawning Agents\n`
   prompt += `\`\`\`\n`
-  prompt += `script -q /dev/null prlt work start TKT-XXXX --ephemeral --skip-permissions --create-pr --verify-ci --display background --action implement --run-on-host --yes\n`
+  prompt += `script -q /dev/null prlt work start <ticket-id> --ephemeral --skip-permissions --create-pr --verify-ci --display background --action implement --run-on-host --yes\n`
   prompt += `\`\`\`\n`
   prompt += `- Review: \`--action review\` (model decides whether to comment, fix, or both)\n\n`
   prompt += buildOrchestratorAntiPatterns()

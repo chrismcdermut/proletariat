@@ -23,6 +23,7 @@ import { loadExecutionConfig, getCleanupPolicy } from './config.js'
 import { runExecution, isDockerRunning, checkDockerDaemon, isGitHubTokenAvailable, isDevcontainerCliInstalled, runExecutorPreflight, getAgentContainerName, isContainerRunning, getContainerId, buildSessionName, isSrtInstalled, checkDockerMemoryCapacity } from './runners.js'
 import { detectRepoWorktrees, resolveWorktreePath } from './context.js'
 import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
+import { TicketRefStore } from './ticket-refs.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
 import { type ExternalMappingProvider } from '../external-issues/types.js'
 import { copyMediaToAgentWorkspace } from '../media/index.js'
@@ -351,10 +352,12 @@ export async function spawnAgentForTicket(
   // Build execution context
   // Find proper HQ root (don't assume PMO is at {hq}/pmo - it could be at {hq}/repos/myrepo/pmo)
   const hqPath = findHQRoot() || path.dirname(pmoPath)
-  const externalTicketId = resolveExternalTicketId(ticket)
+  // PRLT-1166: Use external provider key (e.g. PRLT-1065) as the primary ticket ID.
+  // This replaces the internal TKT-xxx ID as the canonical identifier.
+  const primaryTicketId = resolveExternalTicketId(ticket)
   const context: ExecutionContext = {
-    ticketId: ticket.id,
-    externalTicketId: externalTicketId !== ticket.id ? externalTicketId : undefined,
+    ticketId: primaryTicketId,
+    externalTicketId: undefined, // @deprecated — ticketId now holds the external ID directly
     ticketTitle: ticket.title,
     ticketDescription: ticket.description,
     ticketSubtasks: ticket.subtasks?.map(s => ({ title: s.title, done: s.done })),
@@ -633,9 +636,26 @@ export async function spawnAgentForTicket(
   // Resolve cleanup policy: explicit override > action-specific > workspace default (PRLT-1061)
   const cleanupPolicy = options.cleanupPolicy || getCleanupPolicy(db, context.actionId)
 
-  // Create execution record
+  // PRLT-1166: Upsert a ticket_ref at spawn time so runtime lookups don't need PMO
+  const ticketRefStore = new TicketRefStore(db)
+  ticketRefStore.upsert({
+    id: primaryTicketId,
+    provider: ticket.metadata?.external_source || 'pmo',
+    externalId: ticket.metadata?.external_id ?? null,
+    externalKey: ticket.metadata?.external_key ?? null,
+    externalUrl: ticket.metadata?.external_url ?? null,
+    title: ticket.title,
+    description: ticket.description,
+    status: ticket.statusName,
+    priority: ticket.priority,
+    category: ticket.category,
+    assignee: agentName,
+    projectId: ticket.projectId,
+  })
+
+  // Create execution record — ticket_id is now the external provider key (PRLT-xxx)
   const execution = executionStorage.createExecution({
-    ticketId: ticket.id,
+    ticketId: primaryTicketId,
     agentName,
     executor,
     environment,
@@ -716,7 +736,7 @@ export async function spawnAgentForTicket(
         externalKey: ticket.metadata?.external_key ?? null,
         canonicalUrl: ticket.metadata?.external_url ?? null,
         latestStateSnapshot: {
-          ticketId: ticket.id,
+          ticketId: primaryTicketId,
           ticketStatus: ticket.statusName ?? null,
           ticketCategory: ticket.statusCategory ?? null,
           teamKey: ticket.metadata?.external_project ?? null,
