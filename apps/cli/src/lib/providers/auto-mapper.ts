@@ -54,7 +54,7 @@ const LINEAR_TYPE_TO_INTENT: Record<string, TransitionIntent> = {
  */
 export function autoMapIntents(
   states: BoardState[],
-  providerType: 'linear' | 'jira' | 'trello' | 'asana' | 'shortcut' | 'clickup' | 'pmo' = 'pmo',
+  providerType: 'linear' | 'jira' | 'trello' | 'asana' | 'shortcut' | 'clickup' | 'github' | 'pmo' = 'pmo',
 ): IntentMapping[] {
   const mappings: IntentMapping[] = []
   const usedStateIds = new Set<string>()

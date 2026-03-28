@@ -28,6 +28,7 @@ const CREDENTIAL_KEYS = new Set([
   'shortcut.api_token',
   'monday.api_token',
   'clickup.api_key',
+  'github.token',
 ])
 
 /**
