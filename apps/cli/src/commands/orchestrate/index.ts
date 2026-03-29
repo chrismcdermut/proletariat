@@ -33,7 +33,6 @@ import {
   PRESET_NAMES,
 } from '../../lib/orchestrate/index.js'
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
-import { initHookManager } from '../../lib/work-lifecycle/hooks/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
 export default class Orchestrate extends PromptCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
@@ -193,9 +192,13 @@ export default class Orchestrate extends PromptCommand {
         },
       })
 
-      // Initialize work-lifecycle systems
+      // Initialize work-lifecycle adapter (event hub for provider state changes).
+      // NOTE: Do NOT call initHookManager() here — the OrchestrateEngine already
+      // handles hook execution with mode-aware behavior (auto/confirm/notify/off).
+      // Adding HookManager would cause double-execution: the engine respects modes
+      // while HookManager executes ALL enabled hooks unconditionally, bypassing
+      // safety gates like confirm mode. See PRLT-1218.
       initWorkLifecycleAdapter()
-      initHookManager(db)
 
       // One-shot mode: fire a single event and exit
       if (parsedFlags.once) {
