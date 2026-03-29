@@ -19,7 +19,6 @@ const SAFE_ACTIONS = new Set([
   'cleanup-container',
   'health-check',
   'rebase-conflicting-prs',
-  'resolve-conflict',
 ])
 
 describe('Orchestrate Presets', () => {

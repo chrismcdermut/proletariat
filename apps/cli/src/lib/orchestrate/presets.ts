@@ -39,14 +39,19 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_agent_spawned', action: 'move-ticket', config: { target: 'in-progress' } },
 ]
 
-/** Safe actions that can be auto-executed even in supervised mode. */
+/**
+ * Safe actions that can be auto-executed even in supervised mode.
+ *
+ * Actions that spawn agents/containers (spawn-agent, respawn, spawn-fix-agent,
+ * resolve-conflict) are NOT safe — they create external resources and must
+ * require confirmation in supervised mode.
+ */
 const SAFE_ACTIONS = new Set([
   'move-ticket',
   'notify',
   'cleanup-container',
   'health-check',
   'rebase-conflicting-prs',
-  'resolve-conflict',
 ])
 
 export const PRESETS: Record<PresetName, PresetDefinition> = {
