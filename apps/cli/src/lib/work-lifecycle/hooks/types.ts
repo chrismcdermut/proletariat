@@ -67,6 +67,19 @@ export const HOOKABLE_EVENTS: HookableEvent[] = [
 export type HookActionType = 'shell' | 'webhook' | 'log'
 
 /**
+ * Automation mode for a hook.
+ *
+ * - auto: fires immediately, no human needed
+ * - confirm: pauses, waits for approval before executing
+ * - notify: fires immediately but also sends a notification
+ * - off: disabled, skipped silently
+ */
+export type HookMode = 'auto' | 'confirm' | 'notify' | 'off'
+
+/** All valid hook modes. */
+export const HOOK_MODES: HookMode[] = ['auto', 'confirm', 'notify', 'off']
+
+/**
  * Persisted hook configuration stored in the database.
  */
 export interface WorkHookConfig {
@@ -86,6 +99,12 @@ export interface WorkHookConfig {
   description: string | null
   /** When the hook was created */
   createdAt: string
+  /** Automation mode (auto/confirm/notify/off) */
+  mode: HookMode
+  /** Execution priority (lower = higher priority) */
+  priority: number
+  /** Optional JSON config for built-in actions */
+  config: Record<string, unknown> | null
 }
 
 /**
@@ -100,7 +119,19 @@ export interface WorkHookRow {
   enabled: number
   description: string | null
   created_at: string
+  mode: string | null
+  priority: number | null
+  config: string | null
 }
+
+/**
+ * Handler function for built-in actions injected into HookManager.
+ * Receives event context and optional per-hook config, returns an execution result.
+ */
+export type HookActionHandler = (
+  ctx: Record<string, unknown>,
+  config?: Record<string, unknown>,
+) => { action: string; success: boolean; error?: string; durationMs: number; skipped?: boolean }
 
 /**
  * Result of executing a single hook.
@@ -108,8 +139,14 @@ export interface WorkHookRow {
 export interface HookExecutionResult {
   hookId: string
   hookName: string
+  /** The resolved action name (built-in action or raw command) */
+  action: string
   success: boolean
   error?: string
   /** Duration in ms */
   durationMs: number
+  /** True when hook was skipped (mode=off or confirm denied) */
+  skipped?: boolean
+  /** True when hook is queued for confirmation */
+  awaitingConfirmation?: boolean
 }

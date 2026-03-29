@@ -103,6 +103,7 @@ export function executeHook(
     return {
       hookId: hook.id,
       hookName: hook.name,
+      action: hook.actionValue,
       success: true,
       durationMs: Date.now() - start,
     }
@@ -110,6 +111,7 @@ export function executeHook(
     return {
       hookId: hook.id,
       hookName: hook.name,
+      action: hook.actionValue,
       success: false,
       error: err instanceof Error ? err.message : String(err),
       durationMs: Date.now() - start,

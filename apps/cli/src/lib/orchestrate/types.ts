@@ -61,21 +61,13 @@ export const ORCHESTRATE_EVENTS: OrchestrateEvent[] = [
 ]
 
 // =============================================================================
-// Hook Modes
+// Hook Modes (re-exported from work-lifecycle hooks for backward compatibility)
 // =============================================================================
 
-/**
- * Automation level for a hook.
- *
- * - auto: fires immediately, no human needed
- * - confirm: pauses, notifies, waits for approval
- * - notify: fires but also pings (log, Slack, dashboard)
- * - off: disabled
- */
-export type HookMode = 'auto' | 'confirm' | 'notify' | 'off'
-
-/** All valid hook modes. */
-export const HOOK_MODES: HookMode[] = ['auto', 'confirm', 'notify', 'off']
+// Import locally so types in this file can reference HookMode
+import type { HookMode as _HookMode } from '../work-lifecycle/hooks/types.js'
+export type HookMode = _HookMode
+export { HOOK_MODES } from '../work-lifecycle/hooks/types.js'
 
 // =============================================================================
 // Built-in Actions

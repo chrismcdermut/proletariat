@@ -17,6 +17,9 @@ function makeHook(overrides: Partial<WorkHookConfig> = {}): WorkHookConfig {
     enabled: true,
     description: null,
     createdAt: new Date().toISOString(),
+    mode: 'auto',
+    priority: 0,
+    config: null,
     ...overrides,
   }
 }
@@ -172,10 +175,10 @@ describe('Hook Executor (TKT-140)', () => {
   // General behavior
   // =========================================================================
   describe('general', () => {
-    it('should always return hookId, hookName, success, and durationMs', () => {
+    it('should always return hookId, hookName, action, success, and durationMs', () => {
       const hook = makeHook({ actionType: 'log', actionValue: 'test' })
       const result = executeHook(hook, 'work:started', {})
-      expect(result).to.have.all.keys('hookId', 'hookName', 'success', 'durationMs')
+      expect(result).to.have.all.keys('hookId', 'hookName', 'action', 'success', 'durationMs')
     })
 
     it('should include error field on failure', () => {

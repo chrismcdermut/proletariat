@@ -2,13 +2,14 @@ import { expect } from 'chai'
 import { OrchestrateEngine } from '../../src/lib/orchestrate/engine.js'
 import Database from 'better-sqlite3'
 import { ensureHooksTable } from '../../src/lib/work-lifecycle/hooks/storage.js'
+import { resetEventBus } from '../../src/lib/events/event-bus.js'
 import type { OrchestrateActionResult } from '../../src/lib/orchestrate/types.js'
 
 /**
  * Unit tests for the OrchestrateEngine.
  *
  * Tests cover:
- * - Event handling and hook execution
+ * - Event handling and hook execution (delegated to HookManager)
  * - Mode-aware behavior (auto, confirm, notify, off)
  * - Pending confirmation queue
  * - Shell fallback execution
@@ -54,9 +55,11 @@ describe('OrchestrateEngine', () => {
 
   beforeEach(() => {
     db = createTestDb()
+    resetEventBus()
   })
 
   afterEach(() => {
+    resetEventBus()
     db.close()
   })
 
@@ -303,6 +306,29 @@ describe('OrchestrateEngine', () => {
 
       expect(results).to.have.length(1)
       expect(results[0].success).to.be.true
+    })
+  })
+
+  // ===========================================================================
+  // Delegation to HookManager (PRLT-1219)
+  // ===========================================================================
+
+  describe('delegation', () => {
+    it('should use a single execution path via HookManager', async () => {
+      // Verify that OrchestrateEngine delegates to HookManager
+      // by checking that mode-aware execution works identically
+      insertHook(db, { name: 'auto-hook', event: 'on_ci_green', action: 'notify', mode: 'auto' })
+      insertHook(db, { name: 'off-hook', event: 'on_ci_green', action: 'notify', mode: 'off' })
+
+      const engine = new OrchestrateEngine({ db })
+      const results = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+
+      expect(results).to.have.length(2)
+      // auto hook executes
+      expect(results[0].success).to.be.true
+      expect(results[0].skipped).to.be.undefined
+      // off hook is skipped
+      expect(results[1].skipped).to.be.true
     })
   })
 })
