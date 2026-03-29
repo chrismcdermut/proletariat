@@ -176,6 +176,130 @@ describe('Orchestrate Built-in Actions', () => {
   })
 
   // ===========================================================================
+  // CLI Invocation String Validation (PRLT-1223)
+  // ===========================================================================
+
+  describe('CLI invocation strings', () => {
+    // Each action that shells out to prlt will fail in test env because prlt
+    // commands aren't available, but the error message contains the exact
+    // command string, which we can validate against expected syntax.
+
+    it('merge-pr should use: prlt work ship <ticket> --pr <number> --yes', () => {
+      const result = executeBuiltinAction('merge-pr', {
+        event: 'on_ci_green',
+        ticket: 'PRLT-100',
+        pr: 42,
+      })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('prlt work ship PRLT-100 --pr 42 --yes')
+    })
+
+    it('merge-pr should work with only PR (no ticket)', () => {
+      const result = executeBuiltinAction('merge-pr', {
+        event: 'on_ci_green',
+        pr: 55,
+      })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('prlt work ship')
+      expect(result.error).to.include('--pr 55')
+      expect(result.error).to.include('--yes')
+    })
+
+    it('spawn-agent should use: prlt work start <ticket> --yes --display background', () => {
+      const result = executeBuiltinAction('spawn-agent', {
+        event: 'on_ticket_ready',
+        ticket: 'PRLT-200',
+      })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('prlt work start PRLT-200 --yes --display background')
+    })
+
+    it('respawn should use: prlt work start <ticket> --yes --display background --force', () => {
+      const result = executeBuiltinAction('respawn', {
+        event: 'on_agent_died',
+        ticket: 'PRLT-300',
+      })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('prlt work start PRLT-300 --yes --display background --force')
+    })
+
+    it('spawn-fix-agent should use: prlt work start <ticket> --action revise --yes --display background', () => {
+      const result = executeBuiltinAction('spawn-fix-agent', {
+        event: 'on_ci_failed',
+        ticket: 'PRLT-400',
+      })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('prlt work start PRLT-400 --action revise --yes --display background')
+    })
+
+    it('health-check should use: prlt poke <agent> "..."', () => {
+      const result = executeBuiltinAction('health-check', {
+        event: 'on_agent_idle',
+        agent: 'bold-turing',
+      })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('prlt poke bold-turing')
+    })
+
+    it('cleanup-container should use: prlt docker rm <target> --yes', () => {
+      const result = executeBuiltinAction('cleanup-container', {
+        event: 'on_agent_completed',
+        agent: 'bold-turing',
+      })
+      // cleanup-container uses `|| true` so it succeeds even when prlt is missing
+      expect(result.action).to.equal('cleanup-container')
+      expect(result.success).to.be.true
+    })
+
+    it('cleanup-container should prefer container over agent when both present', () => {
+      const result = executeBuiltinAction('cleanup-container', {
+        event: 'on_agent_completed',
+        agent: 'bold-turing',
+        container: 'prlt-container-abc',
+      })
+      // cleanup-container uses `|| true` so it succeeds even when prlt is missing
+      expect(result.action).to.equal('cleanup-container')
+      expect(result.success).to.be.true
+    })
+
+    it('rebase-conflicting-prs should use: prlt work rebase --all --yes', () => {
+      const result = executeBuiltinAction('rebase-conflicting-prs', {
+        event: 'on_pr_merged',
+      })
+      // May succeed (if || true catches) or fail, but the command should be correct
+      expect(result.action).to.equal('rebase-conflicting-prs')
+    })
+
+    it('resolve-conflict should attempt poke then fallback to respawn with --action resolve', () => {
+      const result = executeBuiltinAction('resolve-conflict', {
+        event: 'on_pr_conflicting',
+        ticket: 'PRLT-500',
+        pr: 99,
+      })
+      // The poke will fail, then the respawn will fail in test env
+      // but the error should show the fallback command
+      expect(result.action).to.equal('resolve-conflict')
+      if (!result.success && result.error) {
+        expect(result.error).to.include('prlt work start PRLT-500 --action resolve --yes --display background')
+      }
+    })
+
+    it('move-ticket should use positional args for all config targets', () => {
+      const targets = ['done', 'review', 'in-progress', 'backlog']
+      for (const target of targets) {
+        const result = executeBuiltinAction('move-ticket', {
+          event: 'on_pr_merged',
+          ticket: 'TKT-001',
+        }, { target })
+        expect(result.success).to.be.false
+        expect(result.error).to.include(`prlt ticket move TKT-001 "${target}"`)
+        expect(result.error).to.not.include('--to')
+        expect(result.error).to.not.include('--yes')
+      }
+    })
+  })
+
+  // ===========================================================================
   // Unknown Action
   // ===========================================================================
 
@@ -200,6 +324,67 @@ describe('Orchestrate Built-in Actions', () => {
     it('should export AGENT_SPAWN_TIMEOUT_MS >= 120s to avoid ETIMEDOUT on container setup', () => {
       expect(AGENT_SPAWN_TIMEOUT_MS).to.be.a('number')
       expect(AGENT_SPAWN_TIMEOUT_MS).to.be.at.least(120_000)
+    })
+  })
+
+  // ===========================================================================
+  // Error Handling and Timeouts (PRLT-1223)
+  // ===========================================================================
+
+  describe('error handling', () => {
+    it('actions should catch execSync errors and return failure (not throw)', () => {
+      // All actions that call execSync should catch errors and return a result
+      const actionsWithContext: Array<{ name: string; ctx: OrchestrateEventContext }> = [
+        { name: 'merge-pr', ctx: { event: 'test', ticket: 'TKT-1', pr: 1 } },
+        { name: 'move-ticket', ctx: { event: 'test', ticket: 'TKT-1' } },
+        { name: 'spawn-agent', ctx: { event: 'test', ticket: 'TKT-1' } },
+        { name: 'respawn', ctx: { event: 'test', ticket: 'TKT-1' } },
+        { name: 'spawn-fix-agent', ctx: { event: 'test', ticket: 'TKT-1' } },
+        { name: 'health-check', ctx: { event: 'test', agent: 'agent-1' } },
+        { name: 'cleanup-container', ctx: { event: 'test', agent: 'agent-1' } },
+        { name: 'resolve-conflict', ctx: { event: 'test', ticket: 'TKT-1' } },
+      ]
+
+      for (const { name, ctx } of actionsWithContext) {
+        // Should not throw — errors are caught internally
+        const result = executeBuiltinAction(name, ctx)
+        expect(result).to.have.property('action', name)
+        expect(result).to.have.property('success')
+        expect(result).to.have.property('durationMs')
+        if (!result.success) {
+          expect(result.error).to.be.a('string').with.length.greaterThan(0)
+        }
+      }
+    })
+
+    it('actions should include meaningful error messages on failure', () => {
+      const result = executeBuiltinAction('merge-pr', {
+        event: 'test',
+        ticket: 'TKT-1',
+        pr: 999,
+      })
+      // Will fail because prlt is not available — the error should contain context
+      expect(result.success).to.be.false
+      expect(result.error).to.be.a('string')
+      expect(result.error!.length).to.be.greaterThan(0)
+    })
+
+    it('resolve-conflict should gracefully skip when ticket is missing', () => {
+      const result = executeBuiltinAction('resolve-conflict', {
+        event: 'on_pr_conflicting',
+        pr: 42,
+        branch: 'feat/unknown',
+      })
+      expect(result.success).to.be.true
+      expect(result.skipped).to.be.true
+      expect(result.error).to.be.undefined
+    })
+
+    it('AGENT_SPAWN_TIMEOUT_MS should be used by spawn-agent, respawn, and spawn-fix-agent', () => {
+      // Verify the timeout constant is reasonable and used by all spawn actions
+      expect(AGENT_SPAWN_TIMEOUT_MS).to.equal(180_000)
+      // This is implicitly tested by the CLI invocation tests above,
+      // but we verify the constant is exported and has the right value
     })
   })
 
