@@ -143,6 +143,39 @@ describe('Orchestrate Built-in Actions', () => {
   })
 
   // ===========================================================================
+  // Move-ticket CLI flag regression (PRLT-1220)
+  // ===========================================================================
+
+  describe('move-ticket command format (PRLT-1220)', () => {
+    it('should use positional args, not --to or --yes flags', () => {
+      const ctx: OrchestrateEventContext = {
+        event: 'on_pr_merged',
+        ticket: 'TKT-012',
+      }
+      const result = executeBuiltinAction('move-ticket', ctx, { target: 'in-progress' })
+      // The action will fail because prlt is not available in test, but the
+      // error message contains the exact command that was attempted.
+      expect(result.success).to.be.false
+      expect(result.error).to.be.a('string')
+      // Must use positional args: prlt ticket move TICKETID COLUMN
+      expect(result.error).to.include('prlt ticket move TKT-012 "in-progress"')
+      // Must NOT use the old --to / --yes flags
+      expect(result.error).to.not.include('--to')
+      expect(result.error).to.not.include('--yes')
+    })
+
+    it('should default target to "done" when no config provided', () => {
+      const ctx: OrchestrateEventContext = {
+        event: 'on_pr_merged',
+        ticket: 'TKT-099',
+      }
+      const result = executeBuiltinAction('move-ticket', ctx)
+      expect(result.success).to.be.false
+      expect(result.error).to.include('prlt ticket move TKT-099 "done"')
+    })
+  })
+
+  // ===========================================================================
   // Unknown Action
   // ===========================================================================
 

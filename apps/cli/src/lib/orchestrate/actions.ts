@@ -46,7 +46,7 @@ const moveTicket: ActionHandler = (ctx, config) => {
       return { action: 'move-ticket', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
     }
 
-    execSync(`prlt ticket move ${ctx.ticket} --to "${target}" --yes`, { timeout: 30_000, stdio: 'pipe' })
+    execSync(`prlt ticket move ${ctx.ticket} "${target}"`, { timeout: 30_000, stdio: 'pipe' })
     return { action: 'move-ticket', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'move-ticket', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
