@@ -24,19 +24,25 @@ interface PresetDefinition {
 }
 
 const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Record<string, unknown> }> = [
+  // PR lifecycle
   { event: 'on_ci_green', action: 'merge-pr' },
   { event: 'on_pr_merged', action: 'move-ticket', config: { target: 'done' } },
   { event: 'on_pr_opened', action: 'move-ticket', config: { target: 'review' } },
   { event: 'on_pr_merged', action: 'rebase-conflicting-prs' },
   { event: 'on_pr_conflicting', action: 'resolve-conflict' },
+  // Ticket lifecycle
   { event: 'on_ticket_ready', action: 'spawn-agent' },
+  // Agent lifecycle (PRLT-1224: full loop — spawned→in-progress, completed→review, died→ready)
+  { event: 'on_agent_spawned', action: 'move-ticket', config: { target: 'in-progress' } },
+  { event: 'on_agent_completed', action: 'move-ticket', config: { target: 'review' } },
+  { event: 'on_agent_completed', action: 'cleanup-container' },
+  { event: 'on_agent_died', action: 'move-ticket', config: { target: 'ready' } },
   { event: 'on_agent_died', action: 'respawn', config: { max_retries: 2 } },
   { event: 'on_agent_died', action: 'notify' },
+  { event: 'on_agent_idle', action: 'health-check' },
+  // CI lifecycle
   { event: 'on_ci_failed', action: 'notify' },
   { event: 'on_ci_failed', action: 'spawn-fix-agent' },
-  { event: 'on_agent_completed', action: 'cleanup-container' },
-  { event: 'on_agent_idle', action: 'health-check' },
-  { event: 'on_agent_spawned', action: 'move-ticket', config: { target: 'in-progress' } },
 ]
 
 /**

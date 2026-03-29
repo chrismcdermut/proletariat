@@ -173,6 +173,24 @@ export default class SessionReport extends PromptCommand {
       // Update execution status
       executionStorage.updateStatus(execution.id, executionStatus)
 
+      // PRLT-1224: Ticket transition — move ticket based on outcome.
+      // If a PR was created (by agent or safety net), move to review.
+      // Otherwise, move to ready (reset for retry or manual pickup).
+      // All prlt commands are idempotent — safe to run multiple times.
+      let ticketTransition: string | undefined
+      if (execution.ticketId) {
+        const hasPR = safetyNetResult?.autoProposed || this.branchHasPR()
+        ticketTransition = hasPR ? 'review' : 'ready'
+        try {
+          execSync(`prlt ticket move ${execution.ticketId} "${ticketTransition}"`, {
+            timeout: 30_000,
+            stdio: 'pipe',
+          })
+        } catch {
+          // Non-fatal — ticket transition failures shouldn't block cleanup
+        }
+      }
+
       // Determine cleanup action based on policy
       let shouldCleanup = false
       let cleanupReason = ''
@@ -240,6 +258,7 @@ export default class SessionReport extends PromptCommand {
         cleanupSuccess: cleanupResult.success,
         cleanupError: cleanupResult.error,
         safetyNet: safetyNetResult,
+        ticketTransition,
       }
 
       if (jsonMode) {
@@ -269,6 +288,9 @@ export default class SessionReport extends PromptCommand {
         } else if (safetyNetResult.autoProposeFailed) {
           this.log(`  ⚠ Safety net: auto-propose failed — ${safetyNetResult.error}`)
         }
+      }
+      if (ticketTransition) {
+        this.log(`  Ticket: moved to ${ticketTransition}`)
       }
     } finally {
       db.close()
@@ -448,5 +470,39 @@ export default class SessionReport extends PromptCommand {
     }
 
     return dirs
+  }
+
+  /**
+   * Check if the current branch has an open PR.
+   * Best-effort — returns false on any failure.
+   */
+  private branchHasPR(): boolean {
+    const repoDirs = this.findWorkspaceRepoDirs()
+    for (const repoDir of repoDirs) {
+      try {
+        const branch = execSync('git rev-parse --abbrev-ref HEAD', {
+          cwd: repoDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          encoding: 'utf-8',
+        }).trim()
+
+        if (!branch || branch === 'HEAD' || branch === 'main' || branch === 'master') {
+          continue
+        }
+
+        const prState = execSync(`gh pr view "${branch}" --json state --jq '.state'`, {
+          cwd: repoDir,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          encoding: 'utf-8',
+        }).trim()
+
+        if (prState === 'OPEN' || prState === 'MERGED') {
+          return true
+        }
+      } catch {
+        // No PR or git operations failed — continue checking other repos
+      }
+    }
+    return false
   }
 }

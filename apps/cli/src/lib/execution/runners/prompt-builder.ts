@@ -333,6 +333,27 @@ function buildWorkspaceSection(context: ExecutionContext): string {
 }
 
 // =============================================================================
+// Ticket Operations Guidance (PRLT-1224)
+// =============================================================================
+
+/**
+ * Build role prompt guidance telling agents to use prlt commands for ticket operations.
+ * This is "soft enforcement" (LLM tier) — the Claude Code lifecycle hooks provide
+ * "hard enforcement" (auto tier) as a safety net.
+ */
+export function buildTicketOperationsGuidance(): string {
+  let section = `\n## Ticket Operations\n\n`
+  section += `Use \`prlt\` for ALL ticket and workflow operations:\n`
+  section += `- \`prlt ticket move <id> <status>\` — change ticket status\n`
+  section += `- \`prlt ticket comment <id> "message"\` — log progress\n`
+  section += `- \`prlt commit "message"\` — commit with ticket ID\n`
+  section += `- \`prlt work propose <id>\` — create PR and move to review\n\n`
+  section += `**NEVER** use \`gh\`, \`curl\`, or raw API calls to interact with Linear, Jira, Asana, or other external services. `
+  section += `Always use the corresponding \`prlt\` commands.\n\n`
+  return section
+}
+
+// =============================================================================
 // CI Verification Instructions (PRLT-1126)
 // =============================================================================
 
@@ -413,6 +434,9 @@ export function buildPrompt(context: ExecutionContext): string {
   if (integrationSection) {
     prompt += `\n${integrationSection}`
   }
+
+  // PRLT-1224: Soft guidance (LLM tier) — tell agents to use prlt for ticket operations
+  prompt += buildTicketOperationsGuidance()
 
   if (context.customMessage) {
     prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
