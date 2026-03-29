@@ -214,6 +214,126 @@ describe('OrchestratePoller', () => {
   })
 
   // ===========================================================================
+  // Agent Lifecycle Dedup (PRLT-1223)
+  // ===========================================================================
+
+  describe('agent lifecycle deduplication', () => {
+    it('should not fire same event twice for same agent state', async () => {
+      db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status, lifecycle_state) VALUES ('aw-d1', 'TKT-D1', 'agent-d1', 'running', 'healthy')").run()
+
+      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+
+      // First poll: observe initial state
+      await poller.poll()
+      expect(firedEvents.filter(e => e.event === 'on_agent_died')).to.be.empty
+
+      // Transition to died
+      db.prepare("UPDATE agent_work SET lifecycle_state = 'died', status = 'error' WHERE id = 'aw-d1'").run()
+      await poller.poll()
+
+      const diedAfterFirst = firedEvents.filter(e => e.event === 'on_agent_died')
+      expect(diedAfterFirst).to.have.length(1)
+
+      // Poll again with same state — should NOT fire again
+      await poller.poll()
+      const diedAfterSecond = firedEvents.filter(e => e.event === 'on_agent_died')
+      expect(diedAfterSecond).to.have.length(1, 'on_agent_died should not fire twice for the same state')
+    })
+
+    it('should fire on_agent_idle for heartbeat timeout detection', async () => {
+      // Insert an agent with a recent heartbeat first
+      db.prepare(`
+        INSERT INTO agent_work (id, ticket_id, agent_name, status, lifecycle_state, last_heartbeat)
+        VALUES ('aw-idle', 'TKT-IDLE', 'idle-agent', 'running', 'healthy', datetime('now'))
+      `).run()
+
+      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+
+      // First poll: observe initial state (records prevState as 'healthy')
+      await poller.poll()
+      expect(firedEvents.filter(e => e.event === 'on_agent_idle')).to.be.empty
+
+      // Now simulate heartbeat going stale (>5 min ago)
+      db.prepare("UPDATE agent_work SET last_heartbeat = datetime('now', '-10 minutes') WHERE id = 'aw-idle'").run()
+
+      // Second poll: heartbeat check detects idle, fires on_agent_idle
+      await poller.poll()
+      const idleEvents = firedEvents.filter(e => e.event === 'on_agent_idle')
+      expect(idleEvents.length).to.be.greaterThanOrEqual(1, 'Should fire on_agent_idle for stale heartbeat')
+      expect(idleEvents[0].ctx.agent).to.equal('idle-agent')
+      expect(idleEvents[0].ctx.ticket).to.equal('TKT-IDLE')
+    })
+
+    it('should fire events only on state transitions, not on every poll', async () => {
+      db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status, lifecycle_state) VALUES ('aw-t1', 'TKT-T1', 'agent-t1', 'running', 'healthy')").run()
+
+      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+
+      // First poll: observe initial state (no events)
+      await poller.poll()
+      expect(firedEvents).to.be.empty
+
+      // 5 more polls with no state change — still no events
+      for (let i = 0; i < 5; i++) {
+        await poller.poll()
+      }
+      expect(firedEvents.filter(e =>
+        e.event === 'on_agent_died' ||
+        e.event === 'on_agent_completed' ||
+        e.event === 'on_agent_idle'
+      )).to.be.empty
+
+      // Now transition to completed — should fire exactly once
+      db.prepare("UPDATE agent_work SET lifecycle_state = 'completed' WHERE id = 'aw-t1'").run()
+      await poller.poll()
+
+      const completed = firedEvents.filter(e => e.event === 'on_agent_completed')
+      expect(completed).to.have.length(1)
+
+      // More polls — no additional events
+      await poller.poll()
+      await poller.poll()
+      expect(firedEvents.filter(e => e.event === 'on_agent_completed')).to.have.length(1)
+    })
+  })
+
+  // ===========================================================================
+  // Ticket Dedup Extended (PRLT-1223)
+  // ===========================================================================
+
+  describe('ticket dedup extended', () => {
+    it('should fire on_ticket_ready only once across many poll cycles', async () => {
+      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-DEDUP', 'Dedup', 'status-ready', NULL)").run()
+
+      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+
+      // Poll 5 times
+      for (let i = 0; i < 5; i++) {
+        await poller.poll()
+      }
+
+      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
+      expect(readyEvents).to.have.length(1, 'on_ticket_ready should fire exactly once per ticket')
+    })
+
+    it('should fire on_ticket_ready for multiple distinct tickets', async () => {
+      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-A', 'Ticket A', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-B', 'Ticket B', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-C', 'Ticket C', 'status-ready', NULL)").run()
+
+      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      await poller.poll()
+
+      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
+      expect(readyEvents).to.have.length(3)
+      const ticketIds = readyEvents.map(e => e.ctx.ticket)
+      expect(ticketIds).to.include('TKT-A')
+      expect(ticketIds).to.include('TKT-B')
+      expect(ticketIds).to.include('TKT-C')
+    })
+  })
+
+  // ===========================================================================
   // Error Handling
   // ===========================================================================
 

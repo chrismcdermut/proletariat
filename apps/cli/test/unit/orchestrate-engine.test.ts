@@ -331,4 +331,107 @@ describe('OrchestrateEngine', () => {
       expect(results[1].skipped).to.be.true
     })
   })
+
+  // ===========================================================================
+  // Hook Deduplication (PRLT-1223)
+  // ===========================================================================
+
+  describe('hook deduplication', () => {
+    it('should not execute the same hook twice for a single event fire', async () => {
+      // Insert a single hook — it should execute exactly once per fireEvent call
+      insertHook(db, { name: 'dedup-hook', event: 'on_ci_green', action: 'notify', mode: 'auto' })
+
+      const engine = new OrchestrateEngine({ db })
+      const results = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+
+      expect(results).to.have.length(1)
+      expect(results[0].action).to.equal('notify')
+    })
+
+    it('should execute each distinct hook once when multiple hooks match', async () => {
+      insertHook(db, { name: 'hook-a', event: 'on_ci_green', action: 'notify', mode: 'auto', priority: 1 })
+      insertHook(db, { name: 'hook-b', event: 'on_ci_green', action: 'notify', mode: 'auto', priority: 2 })
+
+      const engine = new OrchestrateEngine({ db })
+      const results = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+
+      // Each distinct hook fires exactly once
+      expect(results).to.have.length(2)
+    })
+
+    it('should not accumulate state across separate event fires', async () => {
+      insertHook(db, { name: 'repeatable-hook', event: 'on_ci_green', action: 'notify', mode: 'auto' })
+
+      const engine = new OrchestrateEngine({ db })
+
+      // Fire the same event twice — each fire should return fresh results
+      const results1 = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+      const results2 = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+
+      expect(results1).to.have.length(1)
+      expect(results2).to.have.length(1)
+    })
+
+    it('confirm-mode hooks should not execute without approval even on repeated fires', async () => {
+      insertHook(db, { name: 'confirm-dedup', event: 'on_ticket_ready', action: 'spawn-agent', mode: 'confirm' })
+
+      const engine = new OrchestrateEngine({ db })
+
+      // Fire event multiple times — confirm hook should queue each time but never execute
+      const results1 = await engine.fireEvent('on_ticket_ready', { event: 'on_ticket_ready', ticket: 'TKT-1' })
+      const results2 = await engine.fireEvent('on_ticket_ready', { event: 'on_ticket_ready', ticket: 'TKT-1' })
+
+      // Both fires return awaitingConfirmation
+      expect(results1).to.have.length(1)
+      expect(results1[0].awaitingConfirmation).to.be.true
+      expect(results2).to.have.length(1)
+      expect(results2[0].awaitingConfirmation).to.be.true
+
+      // Pending queue has both
+      expect(engine.getPendingConfirmations()).to.have.length(2)
+    })
+  })
+
+  // ===========================================================================
+  // Supervised Mode Integration (PRLT-1223)
+  // ===========================================================================
+
+  describe('supervised mode integration', () => {
+    it('should execute auto hooks and queue confirm hooks for the same event', async () => {
+      // Simulate supervised preset: safe action (auto) + destructive action (confirm)
+      insertHook(db, { name: 'safe-notify', event: 'on_agent_died', action: 'notify', mode: 'auto', priority: 1 })
+      insertHook(db, { name: 'dangerous-respawn', event: 'on_agent_died', action: 'respawn', mode: 'confirm', priority: 2 })
+
+      const engine = new OrchestrateEngine({ db })
+      const results = await engine.fireEvent('on_agent_died', {
+        event: 'on_agent_died',
+        ticket: 'TKT-1',
+        agent: 'agent-1',
+      })
+
+      expect(results).to.have.length(2)
+      // First hook (auto notify) executes immediately
+      expect(results[0].action).to.equal('notify')
+      expect(results[0].success).to.be.true
+      expect(results[0].skipped).to.be.undefined
+      // Second hook (confirm respawn) is queued
+      expect(results[1].awaitingConfirmation).to.be.true
+      expect(engine.getPendingConfirmations()).to.have.length(1)
+    })
+
+    it('off-mode hooks should never execute regardless of event count', async () => {
+      insertHook(db, { name: 'disabled-hook', event: 'on_ci_green', action: 'notify', mode: 'off' })
+
+      const engine = new OrchestrateEngine({ db })
+      const results1 = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+      const results2 = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+      const results3 = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+
+      // All three fires should skip the off-mode hook
+      for (const results of [results1, results2, results3]) {
+        expect(results).to.have.length(1)
+        expect(results[0].skipped).to.be.true
+      }
+    })
+  })
 })
