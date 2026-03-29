@@ -175,6 +175,8 @@ export interface RuntimeEventMap {
   'on_agent_died': OrchestrateGenericEvent
   'on_agent_completed': OrchestrateGenericEvent
   'on_agent_idle': OrchestrateGenericEvent
+  'on_review_approved': OrchestrateGenericEvent
+  'on_changes_requested': OrchestrateGenericEvent
   'on_version_published': OrchestrateGenericEvent
 }
 
