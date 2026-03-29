@@ -11,8 +11,11 @@
  */
 
 import { execSync } from 'node:child_process'
+import * as path from 'node:path'
 import type Database from 'better-sqlite3'
 import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks, getPRByNumber } from '../pr/index.js'
+import { runSyncCycle, type SyncReport } from '../sync/engine.js'
+import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import type { OrchestrateEngine } from './engine.js'
 
 // =============================================================================
@@ -68,6 +71,7 @@ export class OrchestratePoller {
     await this.pollReadyTickets()
     await this.pollAgentLifecycle()
     await this.pollGitHubPRs()
+    await this.pollBoardReconciliation()
   }
 
   // ===========================================================================
@@ -317,6 +321,121 @@ export class OrchestratePoller {
     } catch {
       // Non-fatal GitHub polling error
     }
+  }
+
+  // ===========================================================================
+  // Board Reconciliation
+  // ===========================================================================
+
+  /**
+   * Run board reconciliation — deterministic rules that sync ticket state
+   * from GitHub without LLM involvement.
+   *
+   * Rules:
+   * 1. PR merged → ticket to Done
+   * 2. PR opened → ticket to Review
+   * 3. Agent spawned → ticket to In Progress
+   * 4. Detect duplicate tickets
+   * 5. Flag stale Triage tickets that match merged PRs
+   */
+  private async pollBoardReconciliation(): Promise<void> {
+    try {
+      // Get the workspace db path from the database file path
+      const dbPath = this.getDbPath()
+      if (!dbPath) return
+
+      const storage = new SQLiteStorage(dbPath)
+
+      // Get all active project IDs
+      const projects = this.db.prepare(`
+        SELECT id FROM pmo_projects WHERE is_archived = 0
+        LIMIT 20
+      `).all() as Array<{ id: string }>
+
+      for (const project of projects) {
+        try {
+          const report = await runSyncCycle(this.db, storage, project.id, {
+            cwd: this.cwd,
+            log: (msg) => this.log(`[reconcile] ${msg}`),
+            dryRun: false,
+          })
+
+          // Fire events for applied reconciliation actions
+          await this.fireReconciliationEvents(report)
+        } catch (err) {
+          this.log(`[reconcile] Error reconciling project ${project.id}: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+    } catch {
+      // Non-fatal board reconciliation error
+    }
+  }
+
+  /**
+   * Fire orchestrate events based on reconciliation results.
+   * This bridges deterministic reconciliation into the event-driven hook system.
+   */
+  private async fireReconciliationEvents(report: SyncReport): Promise<void> {
+    for (const action of report.applied) {
+      try {
+        switch (action.type) {
+          case 'move_to_done':
+            this.log(`[reconcile] Fired on_pr_merged for ${action.ticketId}`)
+            await this.engine.fireEvent('on_pr_merged', {
+              event: 'on_pr_merged',
+              ticket: action.ticketId,
+            })
+            break
+
+          case 'move_to_review':
+            this.log(`[reconcile] Fired on_pr_opened for ${action.ticketId}`)
+            await this.engine.fireEvent('on_pr_opened', {
+              event: 'on_pr_opened',
+              ticket: action.ticketId,
+            })
+            break
+
+          case 'move_to_in_progress':
+            this.log(`[reconcile] Fired on_agent_spawned for ${action.ticketId}`)
+            await this.engine.fireEvent('on_agent_spawned', {
+              event: 'on_agent_spawned',
+              ticket: action.ticketId,
+            })
+            break
+
+          case 'flag_stale':
+          case 'flag_stale_triage':
+            this.log(`[reconcile] Stale: ${action.ticketId} — ${action.reason}`)
+            break
+
+          case 'flag_duplicate':
+            this.log(`[reconcile] Duplicate: ${action.ticketId} — ${action.reason}`)
+            break
+
+          case 'move_to_backlog':
+            this.log(`[reconcile] Moved to backlog: ${action.ticketId} — ${action.reason}`)
+            break
+        }
+      } catch (err) {
+        this.log(`[reconcile] Error firing event for ${action.ticketId}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // Log failures
+    for (const failure of report.failed) {
+      this.log(`[reconcile] Failed: ${failure.action.ticketId} — ${failure.error}`)
+    }
+  }
+
+  /**
+   * Get the database file path from the current database connection.
+   * Derives it from cwd/.proletariat/workspace.db.
+   */
+  private getDbPath(): string | null {
+    if (this.cwd) {
+      return path.join(this.cwd, '.proletariat', 'workspace.db')
+    }
+    return null
   }
 
   // ===========================================================================

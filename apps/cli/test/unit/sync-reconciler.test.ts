@@ -1,6 +1,9 @@
 import { expect } from 'chai'
 import {
   reconcileTicket,
+  reconcileAgentSpawned,
+  detectDuplicates,
+  detectStaleTriage,
   type ReconcileContext,
   type ReconcileAction,
 } from '../../src/lib/sync/reconciler.js'
@@ -146,7 +149,7 @@ describe('Sync Reconciler', () => {
       expect(action!.targetStatus).to.equal('Review')
     })
 
-    it('should NOT move to Review when checks are failing', () => {
+    it('should move to Review even when checks are failing (PR opened rule)', () => {
       const ctx: ReconcileContext = {
         ticket: makeTicket({ statusCategory: 'started', statusName: 'In Progress' }),
         pr: makePR({ state: 'OPEN' }),
@@ -155,8 +158,10 @@ describe('Sync Reconciler', () => {
       }
 
       const action = reconcileTicket(ctx)
-      // Should not produce a move_to_review action
-      expect(action?.type).to.not.equal('move_to_review')
+      // Rule 2b: PR opened → Review fires even without green CI
+      expect(action).to.not.be.null
+      expect(action!.type).to.equal('move_to_review')
+      expect(action!.reason).to.include('opened for review')
     })
 
     it('should NOT move to Review when PR is a draft', () => {
@@ -184,7 +189,7 @@ describe('Sync Reconciler', () => {
       expect(action?.type).to.not.equal('move_to_review')
     })
 
-    it('should NOT move to Review when there are no checks', () => {
+    it('should move to Review when there are no checks (PR opened rule)', () => {
       const ctx: ReconcileContext = {
         ticket: makeTicket({ statusCategory: 'started', statusName: 'In Progress' }),
         pr: makePR({ state: 'OPEN' }),
@@ -193,7 +198,9 @@ describe('Sync Reconciler', () => {
       }
 
       const action = reconcileTicket(ctx)
-      expect(action?.type).to.not.equal('move_to_review')
+      // Rule 2b: PR opened → Review fires even without CI checks
+      expect(action).to.not.be.null
+      expect(action!.type).to.equal('move_to_review')
     })
 
     it('should treat SKIPPED checks as passing', () => {
@@ -351,6 +358,258 @@ describe('Sync Reconciler', () => {
       const action = reconcileTicket(ctx)
       expect(action).to.not.be.null
       expect(action!.type).to.equal('move_to_backlog')
+    })
+  })
+
+  // =========================================================================
+  // Rule 2b: PR opened (no CI checks) → move to Review
+  // =========================================================================
+  describe('Rule 2b: PR opened (no CI) + ticket In Progress → move to Review', () => {
+    it('should move to Review when PR is open and not draft, even without CI checks', () => {
+      const ctx: ReconcileContext = {
+        ticket: makeTicket({ statusCategory: 'started', statusName: 'In Progress' }),
+        pr: makePR({ state: 'OPEN', isDraft: false }),
+        checks: [],
+        hasActiveExecution: true,
+      }
+
+      const action = reconcileTicket(ctx)
+      expect(action).to.not.be.null
+      expect(action!.type).to.equal('move_to_review')
+      expect(action!.reason).to.include('opened for review')
+    })
+
+    it('should NOT move to Review when PR is draft', () => {
+      const ctx: ReconcileContext = {
+        ticket: makeTicket({ statusCategory: 'started', statusName: 'In Progress' }),
+        pr: makePR({ state: 'OPEN', isDraft: true }),
+        checks: [],
+        hasActiveExecution: true,
+      }
+
+      const action = reconcileTicket(ctx)
+      expect(action?.type).to.not.equal('move_to_review')
+    })
+
+    it('should prefer CI green reason over generic PR opened reason', () => {
+      const ctx: ReconcileContext = {
+        ticket: makeTicket({ statusCategory: 'started', statusName: 'In Progress' }),
+        pr: makePR({ state: 'OPEN', isDraft: false }),
+        checks: makeChecks(['SUCCESS']),
+        hasActiveExecution: true,
+      }
+
+      const action = reconcileTicket(ctx)
+      expect(action).to.not.be.null
+      expect(action!.type).to.equal('move_to_review')
+      expect(action!.reason).to.include('CI checks passing')
+    })
+  })
+})
+
+// =============================================================================
+// Board-Level Reconciliation Tests
+// =============================================================================
+
+describe('Board-Level Reconciliation', () => {
+  // =========================================================================
+  // Agent Spawned → In Progress
+  // =========================================================================
+  describe('reconcileAgentSpawned', () => {
+    it('should move backlog ticket to In Progress when agent is running', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'backlog', statusName: 'Backlog' }),
+      ]
+      const activeAgentTicketIds = new Set(['TKT-001'])
+
+      const actions = reconcileAgentSpawned(tickets, activeAgentTicketIds)
+      expect(actions).to.have.length(1)
+      expect(actions[0].type).to.equal('move_to_in_progress')
+      expect(actions[0].ticketId).to.equal('TKT-001')
+      expect(actions[0].targetStatus).to.equal('In Progress')
+    })
+
+    it('should move unstarted ticket to In Progress when agent is running', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'unstarted', statusName: 'Ready' }),
+      ]
+      const activeAgentTicketIds = new Set(['TKT-001'])
+
+      const actions = reconcileAgentSpawned(tickets, activeAgentTicketIds)
+      expect(actions).to.have.length(1)
+      expect(actions[0].type).to.equal('move_to_in_progress')
+    })
+
+    it('should move triage ticket to In Progress when agent is running', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'triage', statusName: 'Triage' }),
+      ]
+      const activeAgentTicketIds = new Set(['TKT-001'])
+
+      const actions = reconcileAgentSpawned(tickets, activeAgentTicketIds)
+      expect(actions).to.have.length(1)
+      expect(actions[0].type).to.equal('move_to_in_progress')
+    })
+
+    it('should NOT move already started ticket', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'started', statusName: 'In Progress' }),
+      ]
+      const activeAgentTicketIds = new Set(['TKT-001'])
+
+      const actions = reconcileAgentSpawned(tickets, activeAgentTicketIds)
+      expect(actions).to.have.length(0)
+    })
+
+    it('should NOT move ticket when no agent is running', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'backlog', statusName: 'Backlog' }),
+      ]
+      const activeAgentTicketIds = new Set<string>()
+
+      const actions = reconcileAgentSpawned(tickets, activeAgentTicketIds)
+      expect(actions).to.have.length(0)
+    })
+
+    it('should handle multiple tickets with agents', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'backlog', statusName: 'Backlog' }),
+        makeTicket({ id: 'TKT-002', statusCategory: 'unstarted', statusName: 'Ready' }),
+        makeTicket({ id: 'TKT-003', statusCategory: 'started', statusName: 'In Progress' }),
+      ]
+      const activeAgentTicketIds = new Set(['TKT-001', 'TKT-002', 'TKT-003'])
+
+      const actions = reconcileAgentSpawned(tickets, activeAgentTicketIds)
+      expect(actions).to.have.length(2) // Only TKT-001 and TKT-002
+    })
+  })
+
+  // =========================================================================
+  // Duplicate Detection
+  // =========================================================================
+  describe('detectDuplicates', () => {
+    it('should detect tickets with identical titles', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', title: 'Fix login bug', createdAt: new Date('2024-01-01') }),
+        makeTicket({ id: 'TKT-002', title: 'Fix login bug', createdAt: new Date('2024-01-02') }),
+      ]
+
+      const actions = detectDuplicates(tickets)
+      expect(actions).to.have.length(1)
+      expect(actions[0].type).to.equal('flag_duplicate')
+      expect(actions[0].ticketId).to.equal('TKT-002') // Newer ticket flagged
+      expect(actions[0].reason).to.include('TKT-001')
+    })
+
+    it('should detect duplicates after normalizing prefixes', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', title: 'PRLT-123: Fix login bug', createdAt: new Date('2024-01-01') }),
+        makeTicket({ id: 'TKT-002', title: 'Fix login bug', createdAt: new Date('2024-01-02') }),
+      ]
+
+      const actions = detectDuplicates(tickets)
+      expect(actions).to.have.length(1)
+      expect(actions[0].type).to.equal('flag_duplicate')
+    })
+
+    it('should NOT flag completed/canceled tickets as duplicates', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', title: 'Fix login bug', statusCategory: 'completed', createdAt: new Date('2024-01-01') }),
+        makeTicket({ id: 'TKT-002', title: 'Fix login bug', statusCategory: 'started', createdAt: new Date('2024-01-02') }),
+      ]
+
+      const actions = detectDuplicates(tickets)
+      expect(actions).to.have.length(0)
+    })
+
+    it('should NOT flag tickets with different titles', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', title: 'Fix login bug', createdAt: new Date('2024-01-01') }),
+        makeTicket({ id: 'TKT-002', title: 'Add signup feature', createdAt: new Date('2024-01-02') }),
+      ]
+
+      const actions = detectDuplicates(tickets)
+      expect(actions).to.have.length(0)
+    })
+
+    it('should flag the newer duplicate, not the older one', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-002', title: 'Fix login bug', createdAt: new Date('2024-01-02') }),
+        makeTicket({ id: 'TKT-001', title: 'Fix login bug', createdAt: new Date('2024-01-01') }),
+      ]
+
+      const actions = detectDuplicates(tickets)
+      expect(actions).to.have.length(1)
+      expect(actions[0].ticketId).to.equal('TKT-002') // Newer flagged regardless of order
+    })
+  })
+
+  // =========================================================================
+  // Stale Triage Detection
+  // =========================================================================
+  describe('detectStaleTriage', () => {
+    it('should flag backlog ticket whose branch has a merged PR', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'backlog', statusName: 'Backlog', branch: 'PRLT-100/feat/test' }),
+      ]
+      const mergedBranches = new Set(['PRLT-100/feat/test'])
+
+      const actions = detectStaleTriage(tickets, mergedBranches)
+      expect(actions).to.have.length(1)
+      expect(actions[0].type).to.equal('flag_stale_triage')
+      expect(actions[0].ticketId).to.equal('TKT-001')
+      expect(actions[0].reason).to.include('merged PR')
+    })
+
+    it('should flag triage ticket whose branch has a merged PR', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'triage', statusName: 'Triage', branch: 'PRLT-100/feat/test' }),
+      ]
+      const mergedBranches = new Set(['PRLT-100/feat/test'])
+
+      const actions = detectStaleTriage(tickets, mergedBranches)
+      expect(actions).to.have.length(1)
+      expect(actions[0].type).to.equal('flag_stale_triage')
+    })
+
+    it('should flag unstarted ticket whose branch has a merged PR', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'unstarted', statusName: 'Ready', branch: 'PRLT-100/feat/test' }),
+      ]
+      const mergedBranches = new Set(['PRLT-100/feat/test'])
+
+      const actions = detectStaleTriage(tickets, mergedBranches)
+      expect(actions).to.have.length(1)
+    })
+
+    it('should NOT flag started ticket', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'started', statusName: 'In Progress', branch: 'PRLT-100/feat/test' }),
+      ]
+      const mergedBranches = new Set(['PRLT-100/feat/test'])
+
+      const actions = detectStaleTriage(tickets, mergedBranches)
+      expect(actions).to.have.length(0)
+    })
+
+    it('should NOT flag ticket without a branch', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'backlog', statusName: 'Backlog' }),
+      ]
+      const mergedBranches = new Set(['PRLT-100/feat/test'])
+
+      const actions = detectStaleTriage(tickets, mergedBranches)
+      expect(actions).to.have.length(0)
+    })
+
+    it('should NOT flag ticket whose branch has no merged PR', () => {
+      const tickets = [
+        makeTicket({ id: 'TKT-001', statusCategory: 'backlog', statusName: 'Backlog', branch: 'PRLT-200/feat/other' }),
+      ]
+      const mergedBranches = new Set(['PRLT-100/feat/test'])
+
+      const actions = detectStaleTriage(tickets, mergedBranches)
+      expect(actions).to.have.length(0)
     })
   })
 })
