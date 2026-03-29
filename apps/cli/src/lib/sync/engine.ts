@@ -21,6 +21,9 @@ import {
 } from '../pr/index.js'
 import {
   reconcileTicket,
+  reconcileAgentSpawned,
+  detectDuplicates,
+  detectStaleTriage,
   type ReconcileAction,
   type ReconcileResult,
   type ReconcileContext,
@@ -97,9 +100,47 @@ export async function runSyncCycle(
     }
   }
 
+  // Board-level reconciliation: agent spawned → In Progress
+  const activeAgentTicketIds = new Set<string>()
+  try {
+    const runningAgents = db.prepare(`
+      SELECT DISTINCT ticket_id FROM agent_work
+      WHERE status IN ('starting', 'running')
+    `).all() as Array<{ ticket_id: string }>
+    for (const row of runningAgents) {
+      activeAgentTicketIds.add(row.ticket_id)
+    }
+  } catch {
+    // agent_work table may not exist — non-fatal
+  }
+
+  // Get all tickets for board-level rules (duplicates, stale triage, agent spawned)
+  const allTickets = await storage.listTickets(projectId)
+  const agentSpawnedActions = reconcileAgentSpawned(allTickets, activeAgentTicketIds)
+  actions.push(...agentSpawnedActions)
+
+  // Board-level: detect duplicate tickets
+  const duplicateActions = detectDuplicates(allTickets)
+  actions.push(...duplicateActions)
+
+  // Board-level: detect stale triage tickets matching merged PRs
+  const mergedBranches = new Set<string>()
+  for (const ticket of allTickets) {
+    if (!ticket.branch) continue
+    const category = ticket.statusCategory
+    if (category === 'backlog' || category === 'unstarted' || category === 'triage') {
+      const pr = prByBranch.get(ticket.branch) ?? getPRForBranch(ticket.branch, cwd)
+      if (pr?.state === 'MERGED') {
+        mergedBranches.add(ticket.branch)
+      }
+    }
+  }
+  const staleTriageActions = detectStaleTriage(allTickets, mergedBranches)
+  actions.push(...staleTriageActions)
+
   const result: ReconcileResult = {
     actions,
-    checked: startedTickets.length,
+    checked: startedTickets.length + allTickets.length,
     errors,
   }
 
@@ -115,9 +156,9 @@ export async function runSyncCycle(
       continue
     }
 
-    if (action.type === 'flag_stale') {
-      // Stale tickets are logged but not moved
-      log?.(`Stale: ${action.ticketId} — ${action.reason}`)
+    if (action.type === 'flag_stale' || action.type === 'flag_stale_triage' || action.type === 'flag_duplicate') {
+      // Flag actions are logged but not moved — they're informational
+      log?.(`${action.type}: ${action.ticketId} — ${action.reason}`)
       applied.push(action)
       continue
     }
@@ -209,9 +250,15 @@ function formatAction(action: ReconcileAction): string {
       return `move ${action.ticketId} to Done (${action.reason})`
     case 'move_to_review':
       return `move ${action.ticketId} to Review (${action.reason})`
+    case 'move_to_in_progress':
+      return `move ${action.ticketId} to In Progress (${action.reason})`
     case 'move_to_backlog':
       return `move ${action.ticketId} to Backlog (${action.reason})`
     case 'flag_stale':
       return `flag ${action.ticketId} as stale (${action.reason})`
+    case 'flag_stale_triage':
+      return `flag ${action.ticketId} as stale triage (${action.reason})`
+    case 'flag_duplicate':
+      return `flag ${action.ticketId} as duplicate (${action.reason})`
   }
 }
