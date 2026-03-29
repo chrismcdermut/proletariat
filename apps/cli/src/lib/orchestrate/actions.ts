@@ -14,6 +14,13 @@ import type { OrchestrateEventContext, OrchestrateActionResult } from './types.j
 type ActionHandler = (ctx: OrchestrateEventContext, config?: Record<string, unknown>) => OrchestrateActionResult
 
 /**
+ * Timeout for actions that spawn agents via `prlt work start`.
+ * Container creation + clone + setup regularly exceeds 60s,
+ * so we allow 180s to avoid ETIMEDOUT on the execSync call.
+ */
+export const AGENT_SPAWN_TIMEOUT_MS = 180_000
+
+/**
  * Merge a PR via `prlt work ship`.
  */
 const mergePr: ActionHandler = (ctx, config) => {
@@ -76,7 +83,7 @@ const spawnAgent: ActionHandler = (ctx) => {
       return { action: 'spawn-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
     }
 
-    execSync(`prlt work start ${ctx.ticket} --yes --display background`, { timeout: 60_000, stdio: 'pipe' })
+    execSync(`prlt work start ${ctx.ticket} --yes --display background`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
     return { action: 'spawn-agent', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'spawn-agent', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
@@ -93,7 +100,7 @@ const respawn: ActionHandler = (ctx, config) => {
       return { action: 'respawn', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
     }
 
-    execSync(`prlt work start ${ctx.ticket} --yes --display background --force`, { timeout: 60_000, stdio: 'pipe' })
+    execSync(`prlt work start ${ctx.ticket} --yes --display background --force`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
     return { action: 'respawn', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'respawn', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
@@ -144,7 +151,7 @@ const spawnFixAgent: ActionHandler = (ctx) => {
       return { action: 'spawn-fix-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
     }
 
-    execSync(`prlt work start ${ctx.ticket} --action revise --yes --display background`, { timeout: 60_000, stdio: 'pipe' })
+    execSync(`prlt work start ${ctx.ticket} --action revise --yes --display background`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
     return { action: 'spawn-fix-agent', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'spawn-fix-agent', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
@@ -191,7 +198,7 @@ const resolveConflict: ActionHandler = (ctx) => {
     }
 
     // Respawn the agent with resolve action
-    execSync(`prlt work start ${ctx.ticket} --action resolve --yes --display background`, { timeout: 60_000, stdio: 'pipe' })
+    execSync(`prlt work start ${ctx.ticket} --action resolve --yes --display background`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
     return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'resolve-conflict', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
