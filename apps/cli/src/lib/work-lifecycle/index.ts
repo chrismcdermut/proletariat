@@ -23,7 +23,10 @@ export {
 export {
   initHookManager,
   stopHookManager,
+  HookManager,
 } from './hooks/index.js'
+
+export type { HookManagerOptions } from './hooks/index.js'
 
 export {
   handlePostExecutionTransition,

@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
-import type { WorkHookConfig, WorkHookRow, HookableEvent, HookActionType } from './types.js'
+import type { WorkHookConfig, WorkHookRow, HookableEvent, HookActionType, HookMode } from './types.js'
 
 /** Table name for work hooks. */
 export const HOOKS_TABLE = 'pmo_work_hooks'
@@ -44,6 +44,15 @@ export function ensureHooksTable(db: Database.Database): void {
  * Convert a database row to a WorkHookConfig.
  */
 function rowToConfig(row: WorkHookRow): WorkHookConfig {
+  let config: Record<string, unknown> | null = null
+  if (row.config) {
+    try {
+      config = JSON.parse(row.config) as Record<string, unknown>
+    } catch {
+      // Invalid JSON — ignore
+    }
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -53,6 +62,9 @@ function rowToConfig(row: WorkHookRow): WorkHookConfig {
     enabled: row.enabled === 1,
     description: row.description,
     createdAt: row.created_at,
+    mode: (row.mode as HookMode) || 'auto',
+    priority: row.priority ?? 0,
+    config,
   }
 }
 
@@ -66,24 +78,32 @@ export class WorkHookStorage {
 
   /**
    * List all hooks, optionally filtered by event name or enabled status.
+   * Returns hooks ordered by priority (ascending), then creation time.
    */
   list(options?: { event?: HookableEvent; enabled?: boolean }): WorkHookConfig[] {
-    let sql = `SELECT * FROM ${HOOKS_TABLE} WHERE 1=1`
     const params: unknown[] = []
+    let where = ' WHERE 1=1'
 
     if (options?.event) {
-      sql += ' AND event = ?'
+      where += ' AND event = ?'
       params.push(options.event)
     }
     if (options?.enabled !== undefined) {
-      sql += ' AND enabled = ?'
+      where += ' AND enabled = ?'
       params.push(options.enabled ? 1 : 0)
     }
 
-    sql += ' ORDER BY created_at ASC'
-
-    const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
-    return rows.map(rowToConfig)
+    // Try extended query with mode/priority/config columns first
+    try {
+      const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at, mode, priority, config FROM ${HOOKS_TABLE}${where} ORDER BY priority ASC, created_at ASC`
+      const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
+      return rows.map(rowToConfig)
+    } catch {
+      // Fallback without mode/priority/config (pre-migration)
+      const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at FROM ${HOOKS_TABLE}${where} ORDER BY created_at ASC`
+      const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
+      return rows.map(rowToConfig)
+    }
   }
 
   /**

@@ -3,18 +3,21 @@
  *
  * Configurable event-driven actions for work lifecycle events.
  * Hooks subscribe to the EventBus and execute user-configured
- * actions (shell commands, webhooks, log messages) when events fire.
+ * actions (shell commands, webhooks, log messages, built-in actions)
+ * when events fire, with mode-aware behavior (auto/confirm/notify/off).
  */
 
 export type {
   HookableEvent,
   HookActionType,
+  HookMode,
   WorkHookConfig,
   WorkHookRow,
   HookExecutionResult,
+  HookActionHandler,
 } from './types.js'
 
-export { HOOKABLE_EVENTS } from './types.js'
+export { HOOKABLE_EVENTS, HOOK_MODES } from './types.js'
 
 export {
   WorkHookStorage,
@@ -31,3 +34,5 @@ export {
   initHookManager,
   stopHookManager,
 } from './manager.js'
+
+export type { HookManagerOptions } from './manager.js'
