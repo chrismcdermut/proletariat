@@ -159,6 +159,25 @@ const spawnFixAgent: ActionHandler = (ctx) => {
 }
 
 /**
+ * Spawn a review agent for a PR.
+ * Review agents are non-destructive — they read the diff and post comments.
+ * Uses --action review to launch in read-only mode with the review role prompt.
+ */
+const spawnReviewAgent: ActionHandler = (ctx) => {
+  const start = Date.now()
+  try {
+    if (!ctx.ticket) {
+      return { action: 'spawn-review-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
+    }
+
+    execSync(`prlt work start ${ctx.ticket} --action review --yes --display background`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
+    return { action: 'spawn-review-agent', success: true, durationMs: Date.now() - start }
+  } catch (err) {
+    return { action: 'spawn-review-agent', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  }
+}
+
+/**
  * Health check / poke an idle agent.
  */
 const healthCheck: ActionHandler = (ctx) => {
@@ -221,6 +240,7 @@ export const ACTION_HANDLERS: Record<string, ActionHandler> = {
   'notify': notify,
   'cleanup-container': cleanupContainer,
   'spawn-fix-agent': spawnFixAgent,
+  'spawn-review-agent': spawnReviewAgent,
   'health-check': healthCheck,
   'resolve-conflict': resolveConflict,
 }

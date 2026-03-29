@@ -28,6 +28,7 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_ci_green', action: 'merge-pr' },
   { event: 'on_pr_merged', action: 'move-ticket', config: { target: 'done' } },
   { event: 'on_pr_opened', action: 'move-ticket', config: { target: 'review' } },
+  { event: 'on_pr_opened', action: 'spawn-review-agent' },
   { event: 'on_pr_merged', action: 'rebase-conflicting-prs' },
   { event: 'on_pr_conflicting', action: 'resolve-conflict' },
   // Ticket lifecycle
@@ -51,6 +52,9 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
  * Actions that spawn agents/containers (spawn-agent, respawn, spawn-fix-agent,
  * resolve-conflict) are NOT safe — they create external resources and must
  * require confirmation in supervised mode.
+ *
+ * Exception: spawn-review-agent IS safe because review agents are non-destructive
+ * — they only read diffs and post review comments (read-only permission mode).
  */
 const SAFE_ACTIONS = new Set([
   'move-ticket',
@@ -58,6 +62,7 @@ const SAFE_ACTIONS = new Set([
   'cleanup-container',
   'health-check',
   'rebase-conflicting-prs',
+  'spawn-review-agent',
 ])
 
 export const PRESETS: Record<PresetName, PresetDefinition> = {

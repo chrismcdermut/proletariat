@@ -86,6 +86,7 @@ export type BuiltinAction =
   | 'notify'
   | 'cleanup-container'
   | 'spawn-fix-agent'
+  | 'spawn-review-agent'
   | 'health-check'
   | 'resolve-conflict'
 
@@ -99,6 +100,7 @@ export const BUILTIN_ACTIONS: BuiltinAction[] = [
   'notify',
   'cleanup-container',
   'spawn-fix-agent',
+  'spawn-review-agent',
   'health-check',
   'resolve-conflict',
 ]
