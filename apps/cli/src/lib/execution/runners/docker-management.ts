@@ -291,6 +291,7 @@ export function createDockerContainer(
     `-e DEVCONTAINER=true`,
     `-e PRLT_HQ_PATH=/hq`,
     `-e PRLT_AGENT_NAME="${context.agentName}"`,
+    `-e PRLT_TICKET_ID="${context.ticketId}"`,
     `-e PRLT_HOST_PATH="${context.agentDir}"`,
     ...(context.useApiKey && process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
     ...(process.env.GITHUB_TOKEN ? [`-e GITHUB_TOKEN="${process.env.GITHUB_TOKEN}"`] : []),
@@ -337,14 +338,44 @@ export function createDockerContainer(
 }
 
 /**
- * Build the Claude Code stop hook config in the new matcher+hooks array format.
- * PRLT-1082: The old flat format caused Claude Code to skip the entire settings.json
- * due to validation error, breaking skipDangerousModePermissionPrompt.
+ * Build Claude Code lifecycle hooks for agent containers.
+ *
+ * PRLT-1224: Three hooks enforce ticket transitions at the Claude Code session layer:
+ * - Start: move ticket to in-progress when the agent session begins
+ * - Stop: run session report (cleanup + safety net + ticket transition)
+ * - SubagentStop: same session report for sub-agent sessions
+ *
+ * All prlt commands are idempotent — safe to run multiple times.
+ *
+ * PRLT-1082: Uses the new matcher+hooks array format (not the old flat format)
+ * to avoid Claude Code settings.json validation errors.
  */
-export function buildClaudeStopHookConfig(): Record<string, unknown> {
+export function buildClaudeLifecycleHooks(): Record<string, unknown> {
   return {
     hooks: {
+      Start: [
+        {
+          matcher: '',
+          hooks: [
+            {
+              type: 'command' as const,
+              command: 'prlt ticket move "$PRLT_TICKET_ID" in-progress 2>/dev/null || true',
+            },
+          ],
+        },
+      ],
       Stop: [
+        {
+          matcher: '',
+          hooks: [
+            {
+              type: 'command' as const,
+              command: 'prlt session report --agent "$PRLT_AGENT_NAME" --status exited 2>/dev/null || true',
+            },
+          ],
+        },
+      ],
+      SubagentStop: [
         {
           matcher: '',
           hooks: [
@@ -357,6 +388,13 @@ export function buildClaudeStopHookConfig(): Record<string, unknown> {
       ],
     },
   }
+}
+
+/**
+ * @deprecated Use buildClaudeLifecycleHooks() instead. Kept for backward compatibility.
+ */
+export function buildClaudeStopHookConfig(): Record<string, unknown> {
+  return buildClaudeLifecycleHooks()
 }
 
 /**
@@ -422,20 +460,19 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
       )
       console.debug(`[runners:docker] Wrote ~/.claude/settings.json to container`)
 
-      // Write Claude Code stop hook for automatic container cleanup (PRLT-1061)
-      // When the Claude Code session ends, the stop hook calls `prlt session report`
-      // which reads the execution record and cleanup policy to decide what to do.
-      // Uses $PRLT_AGENT_NAME shell variable which is set as a container env var
-      // during createDockerContainer() — this ensures the correct agent name is used
-      // regardless of which process is running the container setup.
-      const stopHookConfig = buildClaudeStopHookConfig()
-      // Merge stop hook into existing settings.json
-      const mergedSettings = { ...JSON.parse(claudeSettings), ...stopHookConfig }
+      // Write Claude Code lifecycle hooks (PRLT-1224, extends PRLT-1061)
+      // Start hook: move ticket to in-progress when agent session begins
+      // Stop hook: run session report (cleanup + safety net + ticket transition)
+      // SubagentStop hook: same session report for sub-agent sessions
+      // Uses $PRLT_AGENT_NAME and $PRLT_TICKET_ID shell variables set as container env vars
+      const lifecycleHooks = buildClaudeLifecycleHooks()
+      // Merge lifecycle hooks into existing settings.json
+      const mergedSettings = { ...JSON.parse(claudeSettings), ...lifecycleHooks }
       execSync(
         `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude/settings.json'`,
         { input: JSON.stringify(mergedSettings), stdio: ['pipe', 'pipe', 'pipe'] }
       )
-      console.debug(`[runners:docker] Configured Claude Code stop hook for container cleanup`)
+      console.debug(`[runners:docker] Configured Claude Code lifecycle hooks for agent containers`)
     } catch (error) {
       console.debug('[runners:docker] Failed to copy Claude settings to container:', error)
     }

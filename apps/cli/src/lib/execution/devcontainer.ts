@@ -14,6 +14,7 @@ export type MountMode = 'worktree' | 'clone'
 
 export interface DevcontainerOptions {
   agentName: string
+  ticketId?: string
   agentDir: string
   repoWorktrees?: string[]  // Names of repo worktrees to mount (only needed for worktree mode)
   memory?: string
@@ -175,6 +176,7 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
       PRLT_HQ_PATH: '/hq',
       // Agent identity - allows agent to know its name and host path
       PRLT_AGENT_NAME: options.agentName,
+      PRLT_TICKET_ID: options.ticketId || '',
       PRLT_HOST_PATH: options.agentDir,
       // Mount mode - allows scripts to know if git wrapper is needed
       PRLT_MOUNT_MODE: mountMode,
