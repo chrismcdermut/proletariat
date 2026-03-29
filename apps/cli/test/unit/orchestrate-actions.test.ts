@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { executeBuiltinAction, ACTION_HANDLERS } from '../../src/lib/orchestrate/actions.js'
+import { executeBuiltinAction, ACTION_HANDLERS, AGENT_SPAWN_TIMEOUT_MS } from '../../src/lib/orchestrate/actions.js'
 import type { OrchestrateEventContext } from '../../src/lib/orchestrate/types.js'
 
 /**
@@ -156,6 +156,17 @@ describe('Orchestrate Built-in Actions', () => {
     it('should include the action name in the error', () => {
       const result = executeBuiltinAction('does-not-exist', { event: 'on_ci_green' })
       expect(result.error).to.include('does-not-exist')
+    })
+  })
+
+  // ===========================================================================
+  // Agent Spawn Timeout (PRLT-1221 regression)
+  // ===========================================================================
+
+  describe('agent spawn timeout', () => {
+    it('should export AGENT_SPAWN_TIMEOUT_MS >= 120s to avoid ETIMEDOUT on container setup', () => {
+      expect(AGENT_SPAWN_TIMEOUT_MS).to.be.a('number')
+      expect(AGENT_SPAWN_TIMEOUT_MS).to.be.at.least(120_000)
     })
   })
 
