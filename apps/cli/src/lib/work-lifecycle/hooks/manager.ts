@@ -159,6 +159,52 @@ export class HookManager {
   }
 
   // ===========================================================================
+  // Testable Utilities (public for PRLT-1223 test suite)
+  // ===========================================================================
+
+  /**
+   * Build a context object from raw event data.
+   * Normalizes common field names for built-in action handlers.
+   *
+   * Public so it can be tested in isolation.
+   */
+  static buildContext(eventName: string, data: Record<string, unknown>): Record<string, unknown> {
+    return {
+      event: eventName,
+      ticket: (data.ticketId ?? data.workItemId ?? data.ticket) as string | undefined,
+      pr: (data.prNumber ?? data.pr) as number | undefined,
+      branch: data.branch as string | undefined,
+      agent: (data.agentName ?? data.agent ?? data.sessionId) as string | undefined,
+      container: data.containerId as string | undefined,
+      executionId: data.executionId as string | undefined,
+      prUrl: data.prUrl as string | undefined,
+      projectId: data.projectId as string | undefined,
+      ...data,
+    }
+  }
+
+  /**
+   * Resolve the action name from a hook config and a set of known action handlers.
+   *
+   * - If the action_value contains `--action <name>`, extracts the name
+   * - If the action_value is a known built-in action, uses it directly
+   * - Otherwise uses the raw action_value (shell command)
+   *
+   * Public so it can be tested in isolation.
+   */
+  static resolveActionName(hook: WorkHookConfig, knownActions: Record<string, unknown> = {}): string {
+    // If the action_value contains --action, extract the action name
+    const actionMatch = hook.actionValue.match(/--action\s+(\S+)/)
+    if (actionMatch) return actionMatch[1]
+
+    // If it's a known built-in action name directly
+    if (knownActions[hook.actionValue]) return hook.actionValue
+
+    // Otherwise it's a raw shell command — use the action_value as-is
+    return hook.actionValue
+  }
+
+  // ===========================================================================
   // Private
   // ===========================================================================
 
@@ -174,11 +220,11 @@ export class HookManager {
       if (hooks.length === 0) return results
 
       // Build context from the payload
-      const ctx = this.buildContext(eventName, eventData)
+      const ctx = HookManager.buildContext(eventName, eventData)
 
       for (const hook of hooks) {
         const mode = hook.mode || 'auto'
-        const actionName = this.resolveActionName(hook)
+        const actionName = HookManager.resolveActionName(hook, this.actionHandlers)
 
         // --- off: skip silently ---
         if (mode === 'off') {
@@ -253,41 +299,6 @@ export class HookManager {
   }
 
   /**
-   * Build a context object from raw event data.
-   * Normalizes common field names for built-in action handlers.
-   */
-  private buildContext(eventName: string, data: Record<string, unknown>): Record<string, unknown> {
-    return {
-      event: eventName,
-      ticket: (data.ticketId ?? data.workItemId ?? data.ticket) as string | undefined,
-      pr: (data.prNumber ?? data.pr) as number | undefined,
-      branch: data.branch as string | undefined,
-      agent: (data.agentName ?? data.agent ?? data.sessionId) as string | undefined,
-      container: data.containerId as string | undefined,
-      executionId: data.executionId as string | undefined,
-      prUrl: data.prUrl as string | undefined,
-      projectId: data.projectId as string | undefined,
-      ...data,
-    }
-  }
-
-  /**
-   * Resolve the action name from a hook config.
-   * Built-in actions are referenced by name; shell hooks use the raw command.
-   */
-  private resolveActionName(hook: WorkHookConfig): string {
-    // If the action_value contains --action, extract the action name
-    const actionMatch = hook.actionValue.match(/--action\s+(\S+)/)
-    if (actionMatch) return actionMatch[1]
-
-    // If it's a known built-in action name directly
-    if (this.actionHandlers[hook.actionValue]) return hook.actionValue
-
-    // Otherwise it's a raw shell command — use the action_value as-is
-    return hook.actionValue
-  }
-
-  /**
    * Execute a hook action — either via a built-in handler or the standard executor.
    */
   private executeHookAction(
@@ -296,7 +307,7 @@ export class HookManager {
     eventData: Record<string, unknown>,
     ctx: Record<string, unknown>,
   ): HookExecutionResult {
-    const actionName = this.resolveActionName(hook)
+    const actionName = HookManager.resolveActionName(hook, this.actionHandlers)
 
     // Try built-in action handler first
     if (this.actionHandlers[actionName]) {
