@@ -153,12 +153,16 @@ export default class Orchestrate extends PromptCommand {
           }
         },
         onConfirm: async (hookName, event, action) => {
-          // In JSON mode, output as JSON and auto-deny (external system should handle)
+          // In JSON mode, output as JSON and auto-deny (external system should handle).
+          // Use console.log instead of outputSuccessAsJson to avoid ExitError killing the daemon.
           if (jsonMode) {
-            outputSuccessAsJson(
-              { type: 'confirmation_required', hookName, event, action },
-              createMetadata('orchestrate', flags),
-            )
+            console.log(JSON.stringify({
+              type: 'success',
+              prompt: null,
+              success: true,
+              result: { type: 'confirmation_required', hookName, event, action },
+              metadata: createMetadata('orchestrate', flags),
+            }, null, 2))
             return false
           }
 
@@ -230,10 +234,15 @@ export default class Orchestrate extends PromptCommand {
       }) as never
 
       if (jsonMode) {
-        outputSuccessAsJson(
-          { status: 'running', mode: 'daemon' },
-          createMetadata('orchestrate', flags),
-        )
+        // In daemon mode, output JSON status without throwing ExitError.
+        // outputSuccessAsJson throws oclif ExitError which would kill the daemon loop.
+        console.log(JSON.stringify({
+          type: 'success',
+          prompt: null,
+          success: true,
+          result: { status: 'running', mode: 'daemon' },
+          metadata: createMetadata('orchestrate', flags),
+        }, null, 2))
       } else {
         this.log('')
         this.log(styles.title('Orchestrate daemon started'))
