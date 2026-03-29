@@ -354,6 +354,27 @@ export function buildTicketOperationsGuidance(): string {
 }
 
 // =============================================================================
+// Test Enforcement Guidance (PRLT-1225)
+// =============================================================================
+
+/**
+ * Build test enforcement guidance telling agents they MUST write tests.
+ * This is "soft enforcement" (LLM tier) — the Claude Code PreToolUse hook
+ * provides "hard enforcement" as a safety net.
+ */
+export function buildTestEnforcementGuidance(): string {
+  let section = `\n## Test Requirements (MANDATORY)\n\n`
+  section += `**Every PR MUST include tests for changed code. No exceptions.**\n\n`
+  section += `- Write **unit tests** for new functions, helpers, and modified logic\n`
+  section += `- Write **integration/e2e tests** for new flows, commands, and API changes\n`
+  section += `- Test files go in \`test/unit/\` and \`test/e2e/\` within the package directory\n`
+  section += `- If you modify source code, you MUST add or update corresponding tests\n`
+  section += `- Run \`pnpm test:unit\` to verify tests pass before committing\n\n`
+  section += `A pre-commit hook will block your commit if no test files were added or modified. Write tests as you go, not at the end.\n\n`
+  return section
+}
+
+// =============================================================================
 // CI Verification Instructions (PRLT-1126)
 // =============================================================================
 
@@ -437,6 +458,11 @@ export function buildPrompt(context: ExecutionContext): string {
 
   // PRLT-1224: Soft guidance (LLM tier) — tell agents to use prlt for ticket operations
   prompt += buildTicketOperationsGuidance()
+
+  // PRLT-1225: Soft guidance (LLM tier) — tell agents they must write tests
+  if (context.modifiesCode) {
+    prompt += buildTestEnforcementGuidance()
+  }
 
   if (context.customMessage) {
     prompt += `\n## Additional Instructions\n\n${context.customMessage}\n`
