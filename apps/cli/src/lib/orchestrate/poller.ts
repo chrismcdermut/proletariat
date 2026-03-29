@@ -52,6 +52,9 @@ export class OrchestratePoller {
   /** Track which tickets we've already fired on_ticket_ready for. */
   private firedReadyTickets = new Set<string>()
 
+  /** Track tickets with active conflict resolution to prevent duplicate agent spawns. */
+  private activeConflictResolutions = new Set<string>()
+
   /** Track known agent lifecycle states. */
   private lastAgentStates = new Map<string, string>()
 
@@ -275,20 +278,35 @@ export class OrchestratePoller {
             mergeable = 'MERGEABLE'
           }
         } catch {
-          // gh command failed
+          // gh command failed — preserve previous mergeable state to avoid
+          // CONFLICTING→UNKNOWN→CONFLICTING re-fire cycles
+          mergeable = tracked?.lastMergeable ?? 'UNKNOWN'
+        }
+
+        // Clear conflict resolution tracking when PR becomes mergeable
+        if (mergeable === 'MERGEABLE' && ticketId) {
+          this.activeConflictResolutions.delete(ticketId)
         }
 
         // Fire on_pr_conflicting on first observation or when transitioning to CONFLICTING
         const isNewConflict = mergeable === 'CONFLICTING' && (!tracked || tracked.lastMergeable !== 'CONFLICTING')
         if (isNewConflict) {
-          this.log(`[poll] PR conflicting: PR #${pr.number}`)
-          await this.engine.fireEvent('on_pr_conflicting', {
-            event: 'on_pr_conflicting',
-            pr: pr.number,
-            branch: pr.headBranch,
-            ticket: ticketId,
-            prUrl: pr.url,
-          })
+          // Dedup: skip if we already have an active conflict resolution for this ticket
+          if (ticketId && this.activeConflictResolutions.has(ticketId)) {
+            this.log(`[poll] PR #${pr.number} conflicting but resolution already active for ${ticketId}, skipping`)
+          } else {
+            if (ticketId) {
+              this.activeConflictResolutions.add(ticketId)
+            }
+            this.log(`[poll] PR conflicting: PR #${pr.number}`)
+            await this.engine.fireEvent('on_pr_conflicting', {
+              event: 'on_pr_conflicting',
+              pr: pr.number,
+              branch: pr.headBranch,
+              ticket: ticketId,
+              prUrl: pr.url,
+            })
+          }
         }
 
         // Update tracking
