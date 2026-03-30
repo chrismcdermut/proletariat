@@ -541,7 +541,7 @@ export class LinearTicketProvider implements TicketProvider {
         category: row.category ? String(row.category) : undefined,
         projectId: row.project_id ? String(row.project_id) : '',
         projectName: row.project_id ? String(row.project_id) : '',
-        statusId: row.status ? String(row.status) : undefined,
+        statusId: row.status ? String(row.status) : 'unknown',
         statusName: row.status ? String(row.status) : undefined,
         owner: row.assignee ? String(row.assignee) : undefined,
         assignee: row.assignee ? String(row.assignee) : undefined,

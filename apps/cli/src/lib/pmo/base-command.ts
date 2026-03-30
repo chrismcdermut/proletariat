@@ -282,11 +282,11 @@ export abstract class PMOCommand extends RuntimeCommand {
    * @param metadata - Optional pre-loaded metadata (avoids extra DB lookup)
    * @returns The appropriate TicketProvider
    */
-  protected resolveTicketProvider(
+  protected async resolveTicketProvider(
     ticketId: string,
     projectId: string,
     metadata?: Record<string, string> | null,
-  ): TicketProvider {
+  ): Promise<TicketProvider> {
     const db = this.storage.getDatabase();
     // If no metadata provided, look it up from ticket_refs or agent_work
     const resolvedMetadata = metadata ?? this.lookupTicketMetadata(db, ticketId);
