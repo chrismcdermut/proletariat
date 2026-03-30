@@ -14,8 +14,9 @@ import { LinearMapper } from '../linear/mapper.js'
 import { getLinearApiKey, resolveLinearTeamKey } from '../linear/config.js'
 import { findMatchingLinearState } from '../external-issues/outbound-sync.js'
 import { listLinearIssues } from '../external-issues/linear.js'
-import { PMO_PRIORITY_TO_LINEAR, LINEAR_PRIORITY_TO_PMO } from '../linear/types.js'
+import { PMO_PRIORITY_TO_LINEAR, LINEAR_PRIORITY_TO_PMO, LINEAR_STATE_TO_PMO_CATEGORY } from '../linear/types.js'
 import type { Ticket, TicketFilter, CreateTicketInput, UpdateTicketInput } from '../pmo/types.js'
+import type { NormalizedIssueEnvelope } from '../external-issues/types.js'
 import type {
   TicketProvider,
   ProviderMoveResult,
@@ -194,6 +195,13 @@ export class LinearTicketProvider implements TicketProvider {
     try {
       const envelopes = await listLinearIssues({ apiKey, team: team ?? undefined }, { limit: 50 })
 
+      // Sync fetched Linear tickets into local PMO (best-effort, non-blocking)
+      try {
+        await this.syncEnvelopesToLocalPMO(envelopes, projectId || this.projectId)
+      } catch {
+        // Non-fatal: sync failure doesn't block list
+      }
+
       let tickets: Ticket[] = envelopes.map(envelope => ({
         id: envelope.source.externalKey,
         title: envelope.title,
@@ -248,6 +256,156 @@ export class LinearTicketProvider implements TicketProvider {
         tickets: [],
         error: error instanceof Error ? error.message : String(error),
       }
+    }
+  }
+
+  /**
+   * Sync fetched Linear issue envelopes into the local PMO database.
+   * Creates or updates pmo_tickets and pmo_external_issue_map entries.
+   * Best-effort: sync failures never block the list operation.
+   */
+  private async syncEnvelopesToLocalPMO(envelopes: NormalizedIssueEnvelope[], targetProjectId: string): Promise<void> {
+    try {
+      // Resolve the target project — need a valid PMO project for ticket creation
+      const resolvedProjectId = this.resolveTargetProject(targetProjectId)
+      if (!resolvedProjectId) return
+
+      // Get workflow statuses for status mapping
+      const statuses = this.getWorkflowStatuses(resolvedProjectId)
+
+      const mapper = new LinearMapper(this.db)
+
+      for (const envelope of envelopes) {
+        try {
+          const externalId = envelope.source.externalId
+          const externalKey = envelope.source.externalKey
+          const raw = envelope.source.raw as Record<string, unknown>
+          const stateType = (raw.state as Record<string, unknown> | undefined)?.type as string | undefined
+          const teamKey = (raw.team as Record<string, unknown> | undefined)?.key as string | undefined
+
+          // Map Linear state type to PMO status category
+          const pmoCategory = stateType ? (LINEAR_STATE_TO_PMO_CATEGORY[stateType] ?? 'backlog') : 'backlog'
+          const matchingStatus = statuses.find(s => s.category === pmoCategory)
+          const fallbackStatus = statuses.find(s => s.isDefault) ?? statuses[0]
+          const targetStatus = matchingStatus ?? fallbackStatus
+
+          // Check if already mapped
+          const existing = mapper.getByLinearId(externalId)
+
+          if (existing) {
+            // Update the existing PMO ticket with latest Linear data
+            try {
+              await this.storage.updateTicket(existing.pmoTicketId, {
+                title: envelope.title,
+                description: envelope.description || undefined,
+                priority: envelope.priority || undefined,
+                assignee: envelope.assignee || undefined,
+                statusId: targetStatus?.id,
+                statusName: targetStatus?.name ?? envelope.status,
+                metadata: {
+                  'external_source': 'linear',
+                  'external_key': externalKey,
+                  'external_id': externalId,
+                  'external_url': envelope.source.url,
+                  'linear.issue_id': externalId,
+                  'linear.identifier': externalKey,
+                  'linear.url': envelope.source.url,
+                  'linear.state': envelope.status,
+                },
+              } as Partial<Ticket>)
+            } catch {
+              // Non-fatal: update failure doesn't block list
+            }
+
+            // Update sync timestamp
+            try {
+              mapper.updateSyncTimestamp(existing.pmoTicketId)
+            } catch {
+              // Non-fatal
+            }
+          } else {
+            // Create a new PMO ticket and mapping
+            try {
+              const ticket = await this.storage.createTicket(resolvedProjectId, {
+                title: envelope.title,
+                description: envelope.description || undefined,
+                priority: envelope.priority || undefined,
+                statusId: targetStatus?.id,
+                assignee: envelope.assignee || undefined,
+                labels: envelope.labels,
+                metadata: {
+                  'external_source': 'linear',
+                  'external_key': externalKey,
+                  'external_id': externalId,
+                  'external_url': envelope.source.url,
+                  'linear.issue_id': externalId,
+                  'linear.identifier': externalKey,
+                  'linear.url': envelope.source.url,
+                  'linear.team': teamKey ?? externalKey.split('-')[0],
+                  'linear.state': envelope.status,
+                },
+              })
+
+              mapper.createMapping({
+                pmoTicketId: ticket.id,
+                linearIssueId: externalId,
+                linearIdentifier: externalKey,
+                linearTeamKey: teamKey ?? externalKey.split('-')[0],
+                linearUrl: envelope.source.url,
+                syncDirection: 'inbound',
+                createdAt: new Date(),
+              })
+            } catch {
+              // Non-fatal: creation failure doesn't block list
+            }
+          }
+        } catch {
+          // Non-fatal: individual envelope sync failure doesn't block others
+        }
+      }
+    } catch {
+      // Non-fatal: entire sync failure doesn't block the list operation
+    }
+  }
+
+  /**
+   * Resolve the target project ID for syncing. Falls back to first available project.
+   */
+  private resolveTargetProject(projectId: string): string | null {
+    if (projectId) return projectId
+
+    // Try to find the first non-archived project
+    try {
+      const row = this.db.prepare(
+        `SELECT id FROM pmo_projects WHERE is_archived = 0 ORDER BY created_at ASC LIMIT 1`,
+      ).get() as { id: string } | undefined
+      return row?.id ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Get workflow statuses for a project from the database.
+   */
+  private getWorkflowStatuses(projectId: string): Array<{ id: string; name: string; category: string; isDefault: boolean }> {
+    try {
+      const rows = this.db.prepare(`
+        SELECT ws.id, ws.name, ws.category, ws.is_default
+        FROM pmo_workflow_statuses ws
+        JOIN pmo_projects p ON p.workflow_id = ws.workflow_id
+        WHERE p.id = ?
+        ORDER BY ws.position ASC
+      `).all(projectId) as Array<{ id: string; name: string; category: string; is_default: number }>
+
+      return rows.map(r => ({
+        id: r.id,
+        name: r.name,
+        category: r.category,
+        isDefault: r.is_default === 1,
+      }))
+    } catch {
+      return []
     }
   }
 
