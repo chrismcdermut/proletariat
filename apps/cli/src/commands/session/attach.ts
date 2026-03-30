@@ -54,18 +54,17 @@ export default class SessionAttach extends PMOCommand {
     ...pmoBaseFlags,
     'new-tab': Flags.boolean({
       char: 'n',
-      description: 'Open in a new terminal tab (default: true)',
-      default: true,
+      description: 'Open in a new terminal tab (requires macOS + supported terminal)',
+      default: false,
     }),
     'current-terminal': Flags.boolean({
       char: 'c',
-      description: 'Attach in current terminal instead of new tab',
+      description: 'Attach in current terminal (this is now the default behavior)',
       default: false,
     }),
     terminal: Flags.string({
       char: 't',
-      description: 'Terminal app to use (iTerm, Terminal, Ghostty)',
-      default: 'iTerm',
+      description: 'Terminal app to use for --new-tab (iTerm, Terminal, Ghostty)',
     }),
   }
 
@@ -167,11 +166,20 @@ export default class SessionAttach extends PMOCommand {
       // Not in a workspace or DB not available - fall back to no control mode
     }
 
-    // Default to new tab unless --current-terminal is specified
-    if (flags['current-terminal']) {
-      await this.attachInCurrentTerminal(selectedSession, useControlMode)
+    // Default to current terminal; --new-tab is opt-in (requires macOS + AppleScript)
+    if (flags['new-tab']) {
+      const terminalApp = flags.terminal ?? detectTerminalApp()
+      if (!terminalApp) {
+        this.log(styles.warning('Could not detect terminal emulator for new tab.'))
+        this.log(styles.muted('Falling back to direct attach in current terminal.'))
+        this.log(styles.muted('Tip: Use --terminal <app> to specify your terminal (iTerm, Terminal, Ghostty).'))
+        this.log('')
+        await this.attachInCurrentTerminal(selectedSession, useControlMode)
+      } else {
+        await this.attachInNewTab(selectedSession, terminalApp, useControlMode)
+      }
     } else {
-      await this.attachInNewTab(selectedSession, flags.terminal, useControlMode)
+      await this.attachInCurrentTerminal(selectedSession, useControlMode)
     }
   }
 
@@ -272,30 +280,75 @@ export default class SessionAttach extends PMOCommand {
    * Attach to session in current terminal
    */
   private async attachInCurrentTerminal(session: SessionChoice, useControlMode: boolean): Promise<void> {
+    // TTY check: docker exec -it and tmux attach both require an interactive terminal
+    if (!process.stdin.isTTY) {
+      this.error(
+        'Cannot attach to session: stdin is not a TTY.\n' +
+        'Run this command from an interactive terminal, or use "prlt session peek" to view output non-interactively.'
+      )
+    }
+
+    // Handle synthetic container:* session IDs — these indicate the container is
+    // running but no tmux session was found during discovery. Try to find a
+    // tmux session now, or fall back to an interactive shell.
+    let resolvedSessionId: string | null = session.sessionId
+    if (session.type === 'container' && session.containerId && session.sessionId.startsWith('container:')) {
+      resolvedSessionId = this.resolveContainerSession(session.containerId)
+    }
+
     try {
       // Set mouse mode based on attach type:
       // - Plain terminal: mouse on (enables scroll in tmux; hold Shift/Option to bypass)
       // - iTerm -CC: mouse off (iTerm handles scrolling natively)
       const mouseMode = useControlMode ? 'off' : 'on'
-      try {
-        if (session.type === 'container' && session.containerId) {
-          execSync(`docker exec ${session.containerId} tmux set-option -t "${session.sessionId}" mouse ${mouseMode}`, { stdio: 'pipe' })
-        } else {
-          execSync(`tmux set-option -t "${session.sessionId}" mouse ${mouseMode}`, { stdio: 'pipe' })
-        }
-      } catch {
-        // Non-fatal: mouse mode is a convenience, don't block attach
-      }
 
-      const tmuxAttach = buildTmuxAttachCommand(useControlMode, session.type === 'container')
       if (session.type === 'container' && session.containerId) {
-        execSync(`docker exec -it ${session.containerId} ${tmuxAttach} -t "${session.sessionId}"`, { stdio: 'inherit' })
+        if (resolvedSessionId) {
+          try {
+            execSync(`docker exec ${session.containerId} tmux set-option -t "${resolvedSessionId}" mouse ${mouseMode}`, { stdio: 'pipe' })
+          } catch {
+            // Non-fatal: mouse mode is a convenience, don't block attach
+          }
+          const tmuxAttach = buildTmuxAttachCommand(useControlMode, true)
+          execSync(`docker exec -it ${session.containerId} ${tmuxAttach} -t "${resolvedSessionId}"`, { stdio: 'inherit' })
+        } else {
+          // No tmux session found — fall back to interactive shell in the container
+          this.log(styles.warning('No tmux session found inside container. Opening interactive shell.'))
+          execSync(`docker exec -it ${session.containerId} bash`, { stdio: 'inherit' })
+        }
       } else {
-        execSync(`${tmuxAttach} -t "${session.sessionId}"`, { stdio: 'inherit' })
+        try {
+          execSync(`tmux set-option -t "${resolvedSessionId}" mouse ${mouseMode}`, { stdio: 'pipe' })
+        } catch {
+          // Non-fatal: mouse mode is a convenience, don't block attach
+        }
+        const tmuxAttach = buildTmuxAttachCommand(useControlMode, false)
+        execSync(`${tmuxAttach} -t "${resolvedSessionId}"`, { stdio: 'inherit' })
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      this.error(`Failed to attach to ${session.type} session "${resolvedSessionId ?? session.sessionId}": ${msg}`)
+    }
+  }
+
+  /**
+   * Try to find an actual tmux session inside a container.
+   * Returns the session name, or null if no tmux sessions exist.
+   */
+  private resolveContainerSession(containerId: string): string | null {
+    try {
+      const output = execSync(
+        `docker exec ${containerId} tmux list-sessions -F "#{session_name}" 2>/dev/null`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim()
+      if (output) {
+        const sessions = output.split('\n')
+        return sessions[0] // Return the first available session
       }
     } catch {
-      this.error(`Failed to attach to ${session.type} session "${session.sessionId}"`)
+      // No tmux server or sessions in container
     }
+    return null
   }
 
   /**
@@ -310,17 +363,23 @@ export default class SessionAttach extends PMOCommand {
     fs.mkdirSync(baseDir, { recursive: true })
     const scriptPath = path.join(baseDir, `attach-${Date.now()}.sh`)
 
+    // Resolve synthetic container:* session IDs for new-tab attach scripts
+    let resolvedSessionId = session.sessionId
+    if (session.type === 'container' && session.containerId && session.sessionId.startsWith('container:')) {
+      resolvedSessionId = this.resolveContainerSession(session.containerId) ?? session.sessionId
+    }
+
     // Different attach command for container vs host sessions
     const tmuxAttach = buildTmuxAttachCommand(useControlMode, session.type === 'container')
     const attachCmd = session.type === 'container' && session.containerId
-      ? `docker exec -it ${session.containerId} ${tmuxAttach} -t "${session.sessionId}"`
-      : `${tmuxAttach} -t "${session.sessionId}"`
+      ? `docker exec -it ${session.containerId} ${tmuxAttach} -t "${resolvedSessionId}"`
+      : `${tmuxAttach} -t "${resolvedSessionId}"`
 
     // Set mouse mode based on attach type
     const mouseMode = useControlMode ? 'off' : 'on'
     const mouseCmd = session.type === 'container' && session.containerId
-      ? `docker exec ${session.containerId} tmux set-option -t "${session.sessionId}" mouse ${mouseMode} 2>/dev/null || true`
-      : `tmux set-option -t "${session.sessionId}" mouse ${mouseMode} 2>/dev/null || true`
+      ? `docker exec ${session.containerId} tmux set-option -t "${resolvedSessionId}" mouse ${mouseMode} 2>/dev/null || true`
+      : `tmux set-option -t "${resolvedSessionId}" mouse ${mouseMode} 2>/dev/null || true`
 
     const script = `#!/bin/bash
 # Set terminal tab title
@@ -330,7 +389,7 @@ echo -ne "\\033]1;${title}\\007"
 # Set mouse mode before attaching
 ${mouseCmd}
 
-echo "Attaching to: ${session.sessionId} (${session.type})"
+echo "Attaching to: ${resolvedSessionId} (${session.type})"
 ${attachCmd}
 
 # Clean up
@@ -392,7 +451,8 @@ exec $SHELL
 
       this.log(styles.success('Opened new tab and attaching to session'))
     } catch (error) {
-      this.error(`Failed to open terminal tab: ${error instanceof Error ? error.message : error}`)
+      const msg = error instanceof Error ? error.message : String(error)
+      this.error(`Failed to open terminal tab with ${terminalApp}: ${msg}`)
     }
   }
 }
