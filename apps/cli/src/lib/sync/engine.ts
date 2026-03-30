@@ -19,6 +19,8 @@ import {
   listOpenPRs,
   type PRInfo,
 } from '../pr/index.js'
+import { ExternalExecutionMappingStore } from '../external-issues/mapping-store.js'
+import type { ExternalMappingProvider } from '../external-issues/types.js'
 import {
   reconcileTicket,
   reconcileAgentSpawned,
@@ -98,6 +100,41 @@ export async function runSyncCycle(
       const msg = err instanceof Error ? err.message : String(err)
       errors.push({ ticketId: ticket.id, error: msg })
     }
+  }
+
+  // Sync discovered PRs into pmo_external_execution_prs so work ship can find them
+  try {
+    const mappingStore = new ExternalExecutionMappingStore(db)
+    for (const ticket of startedTickets) {
+      if (!ticket.branch) continue
+      const pr = prByBranch.get(ticket.branch) ?? null
+      if (!pr) continue
+
+      // Find external mappings that reference this ticket
+      const mappingRows = db.prepare(`
+        SELECT provider, external_id
+        FROM pmo_external_execution_map
+        WHERE latest_state_snapshot LIKE ? OR external_key = ?
+      `).all(`%${ticket.id}%`, ticket.metadata?.external_key ?? '') as Array<{
+        provider: ExternalMappingProvider
+        external_id: string
+      }>
+
+      for (const row of mappingRows) {
+        try {
+          mappingStore.upsertMapping({
+            provider: row.provider,
+            externalId: row.external_id,
+            prUrl: pr.url,
+            lastSyncedAt: new Date(),
+          })
+        } catch {
+          // Non-fatal — skip this mapping
+        }
+      }
+    }
+  } catch {
+    // PR sync is non-fatal — don't break the reconciliation cycle
   }
 
   // Board-level reconciliation: agent spawned → In Progress

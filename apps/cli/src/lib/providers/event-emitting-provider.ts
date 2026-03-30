@@ -198,6 +198,29 @@ export class EventEmittingProvider implements TicketProvider {
     const startTime = Date.now()
     const result = await this.inner.updateTicket(ticketId, input)
     trackTicketOperation({ operation: 'update', provider: this.name, durationMs: Date.now() - startTime, success: result.success })
+
+    // If a PR URL was added in the update metadata, emit pr_created event
+    if (result.success && input.metadata?.['pr_url']) {
+      const bus = getEventBus()
+
+      bus.emit('ticket:pr_linked', {
+        ticketId,
+        projectId: this.projectId,
+        prUrl: input.metadata['pr_url'],
+        prTitle: input.metadata['pr_title'] ?? null,
+        timestamp: new Date(),
+      })
+
+      bus.emit('work:pr_created', {
+        workItemId: ticketId,
+        source: this.name,
+        projectId: this.projectId,
+        prUrl: input.metadata['pr_url'],
+        prTitle: input.metadata['pr_title'] ?? null,
+        timestamp: new Date(),
+      })
+    }
+
     return result
   }
 

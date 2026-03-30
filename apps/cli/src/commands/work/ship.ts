@@ -246,6 +246,21 @@ export default class WorkShip extends PMOCommand {
           }
         }
 
+        // Fallback: search GitHub for open PRs matching ticket ID in branch name
+        if (!prInfo) {
+          const ticketExternalKey = ticket.metadata?.external_key;
+          const openPRs = listOpenPRs();
+          const matchingPR = openPRs.find(pr => {
+            if (ticketExternalKey && pr.headBranch.startsWith(`${ticketExternalKey}/`)) return true;
+            if (pr.headBranch.startsWith(`${ticketId}/`)) return true;
+            return false;
+          });
+          if (matchingPR) {
+            prInfo = matchingPR;
+            prNumber = matchingPR.number;
+          }
+        }
+
         if (!prInfo || !prNumber) {
           db.close();
           return handleError('NO_PR_FOUND', `No pull request found for ticket "${ticketId}". Create one with "prlt work ready ${ticketId} --pr".`);
