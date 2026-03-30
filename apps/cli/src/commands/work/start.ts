@@ -805,12 +805,14 @@ export default class WorkStart extends PMOCommand {
       }
 
       if (!ticketId) {
-        // Get all tickets live from provider (Linear, etc.) — falls back to local PMO
+        // Get all tickets live from provider (Linear, GitHub, etc.) — no local PMO fallback
         const startProvider = this.resolveProjectProvider(projectId || '')
         const startListResult = await startProvider.listTickets(projectId)
-        const allTickets = startListResult.success && startListResult.tickets.length > 0
-          ? startListResult.tickets
-          : await this.storage.listTickets(projectId)
+        if (!startListResult.success) {
+          db.close()
+          return handleError('LIST_FAILED', startListResult.error || 'Failed to list tickets from provider.')
+        }
+        const allTickets = startListResult.tickets
 
         if (allTickets.length === 0) {
           db.close()
@@ -833,13 +835,14 @@ export default class WorkStart extends PMOCommand {
         ticketId = selected
       }
 
-      // Get ticket — use envelope-built ticket when available (PRLT-1167: no PMO mirror)
-      // Otherwise try provider first (Linear live), fall back to local PMO
+      // Get ticket from provider — no local PMO fallback
       let ticket = envelopeTicket ?? null
       if (!ticket) {
         const tp = await this.resolveTicketProvider(ticketId!, projectId || '')
         const gr = await tp.getTicket(ticketId!)
-        ticket = (gr.success && gr.ticket) ? gr.ticket : await this.storage.getTicket(ticketId!)
+        if (gr.success && gr.ticket) {
+          ticket = gr.ticket
+        }
       }
       if (!ticket) {
         db.close()
@@ -2851,14 +2854,15 @@ export default class WorkStart extends PMOCommand {
     const batchJsonMode = shouldOutputJson(flags as { json?: boolean })
     const batchJsonModeConfig = batchJsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work start' } : null
 
-    // Get all tickets and filter to backlog/unstarted (not in progress)
-    // Note: In batch mode, we get all tickets across all projects
-    // Pull live from provider when configured (e.g. Linear)
+    // Get all tickets from provider — no local PMO fallback
     const batchProvider = this.resolveProjectProvider('')
     const batchListResult = await batchProvider.listTickets(undefined)
-    const allTickets = batchListResult.success && batchListResult.tickets.length > 0
-      // eslint-disable-next-line unicorn/no-useless-undefined
-      ? batchListResult.tickets : await this.storage.listTickets(undefined)
+    if (!batchListResult.success) {
+      db.close()
+      this.log(styles.muted(`Failed to list tickets: ${batchListResult.error}`))
+      return
+    }
+    const allTickets = batchListResult.tickets
     const backlogTickets = allTickets.filter(t =>
       t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory
     )
