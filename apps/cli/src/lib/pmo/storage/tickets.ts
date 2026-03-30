@@ -250,15 +250,66 @@ export class TicketStorage {
 
   /**
    * Get a ticket by ID.
-   * Tries direct ID lookup first, then falls back to external key lookup
-   * so that external IDs like PRLT-xxx resolve correctly.
+   * Tries direct ID lookup first, then falls back to external key lookup,
+   * then falls back to ticket_refs (lightweight runtime cache).
+   * The ticket_refs fallback handles the case where pmo_tickets has been
+   * dropped (migration 0021) and tickets are queried from providers live.
    */
   async getTicket(id: string): Promise<Ticket | null> {
-    const ticket = await this.getTicketById(id)
-    if (ticket) return ticket
+    try {
+      const ticket = await this.getTicketById(id)
+      if (ticket) return ticket
 
-    // Fallback: look up by external key (e.g. PRLT-xxx → TKT-xxx)
-    return this.getTicketByExternalKey(id)
+      // Fallback: look up by external key (e.g. PRLT-xxx → TKT-xxx)
+      const byKey = await this.getTicketByExternalKey(id)
+      if (byKey) return byKey
+    } catch {
+      // pmo_tickets table may not exist (dropped by migration 0021)
+    }
+
+    // Final fallback: ticket_refs (lightweight runtime cache)
+    return this.getTicketFromRefs(id)
+  }
+
+  /**
+   * Get a ticket from the ticket_refs runtime cache.
+   * Returns a minimal Ticket object with the fields ticket_refs stores.
+   */
+  private getTicketFromRefs(id: string): Ticket | null {
+    try {
+      const db = this.ctx.db
+      const row = db.prepare(
+        'SELECT * FROM ticket_refs WHERE id = ? OR external_key = ? OR external_id = ?',
+      ).get(id, id, id) as Record<string, unknown> | undefined
+
+      if (!row) return null
+
+      return {
+        id: String(row.id ?? id),
+        title: String(row.title ?? ''),
+        description: row.description ? String(row.description) : undefined,
+        priority: row.priority ? String(row.priority) : undefined,
+        category: row.category ? String(row.category) : undefined,
+        projectId: row.project_id ? String(row.project_id) : '',
+        projectName: row.project_id ? String(row.project_id) : '',
+        statusId: row.status ? String(row.status) : undefined,
+        statusName: row.status ? String(row.status) : undefined,
+        owner: row.assignee ? String(row.assignee) : undefined,
+        assignee: row.assignee ? String(row.assignee) : undefined,
+        subtasks: [],
+        labels: [],
+        metadata: {
+          ...(row.provider && String(row.provider) !== 'pmo' ? { external_source: String(row.provider) } : {}),
+          ...(row.external_key ? { external_key: String(row.external_key) } : {}),
+          ...(row.external_id ? { external_id: String(row.external_id) } : {}),
+          ...(row.external_url ? { external_url: String(row.external_url) } : {}),
+        },
+        createdAt: row.cached_at ? new Date(String(row.cached_at)) : new Date(),
+        updatedAt: row.updated_at ? new Date(String(row.updated_at)) : new Date(),
+      }
+    } catch {
+      return null
+    }
   }
 
   /**
@@ -668,6 +719,87 @@ export class TicketStorage {
    * @param filter - Additional filters to apply.
    */
   async listTickets(projectIdOrName: string | undefined, filter?: TicketFilter): Promise<Ticket[]> {
+    try {
+      return await this.listTicketsFromPmo(projectIdOrName, filter)
+    } catch {
+      // pmo_tickets table may not exist (dropped by migration 0021)
+      // Fall back to ticket_refs
+      return this.listTicketsFromRefs(projectIdOrName, filter)
+    }
+  }
+
+  /**
+   * List tickets from the ticket_refs runtime cache.
+   * Returns minimal Ticket objects with basic filtering support.
+   */
+  private listTicketsFromRefs(projectId: string | undefined, filter?: TicketFilter): Ticket[] {
+    try {
+      const db = this.ctx.db
+      let sql = 'SELECT * FROM ticket_refs'
+      const conditions: string[] = []
+      const params: unknown[] = []
+
+      if (projectId) {
+        conditions.push('project_id = ?')
+        params.push(projectId)
+      }
+      if (filter?.priority) {
+        conditions.push('priority = ?')
+        params.push(filter.priority)
+      }
+      if (filter?.category) {
+        conditions.push('category = ?')
+        params.push(filter.category)
+      }
+      if (filter?.column) {
+        conditions.push('status = ?')
+        params.push(filter.column)
+      }
+      if (filter?.search) {
+        conditions.push('(title LIKE ? OR description LIKE ?)')
+        params.push(`%${filter.search}%`, `%${filter.search}%`)
+      }
+      if (filter?.assignee) {
+        conditions.push('assignee = ?')
+        params.push(filter.assignee)
+      }
+
+      if (conditions.length > 0) {
+        sql += ' WHERE ' + conditions.join(' AND ')
+      }
+      sql += ' ORDER BY updated_at DESC'
+
+      const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>
+
+      return rows.map(row => ({
+        id: String(row.id ?? ''),
+        title: String(row.title ?? ''),
+        description: row.description ? String(row.description) : undefined,
+        priority: row.priority ? String(row.priority) : undefined,
+        category: row.category ? String(row.category) : undefined,
+        projectId: row.project_id ? String(row.project_id) : '',
+        projectName: row.project_id ? String(row.project_id) : '',
+        statusId: row.status ? String(row.status) : undefined,
+        statusName: row.status ? String(row.status) : undefined,
+        owner: row.assignee ? String(row.assignee) : undefined,
+        assignee: row.assignee ? String(row.assignee) : undefined,
+        subtasks: [],
+        labels: [],
+        metadata: {
+          ...(row.provider && String(row.provider) !== 'pmo' ? { external_source: String(row.provider) } : {}),
+          ...(row.external_key ? { external_key: String(row.external_key) } : {}),
+          ...(row.external_id ? { external_id: String(row.external_id) } : {}),
+          ...(row.external_url ? { external_url: String(row.external_url) } : {}),
+        },
+        createdAt: row.cached_at ? new Date(String(row.cached_at)) : new Date(),
+        updatedAt: row.updated_at ? new Date(String(row.updated_at)) : new Date(),
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  private async listTicketsFromPmo(projectIdOrName: string | undefined, filter?: TicketFilter): Promise<Ticket[]> {
     // Resolve project identifier to actual ID if provided
     let resolvedProjectId: string | undefined
     if (projectIdOrName !== undefined) {
