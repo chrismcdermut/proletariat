@@ -146,12 +146,13 @@ export class LinearMapper {
     // Check if already mapped (idempotent by external issue id)
     const existing = this.getByLinearId(issue.id)
     if (existing) {
-      // Update the existing PMO ticket with latest Linear data
+      // Update the existing PMO ticket with latest Linear data (including status)
       const ticketInput = this.issueToTicketInput(issue, statuses)
       await storage.updateTicket(existing.pmoTicketId, {
         title: ticketInput.title,
         description: ticketInput.description,
         priority: ticketInput.priority,
+        statusId: ticketInput.statusId,
         assignee: ticketInput.assignee,
         labels: ticketInput.labels ?? [],
         metadata: ticketInput.metadata ?? {},
