@@ -412,62 +412,38 @@ export default class WorkStart extends PMOCommand {
     }),
   }
 
-  private async findLinkedTicketByEnvelope(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
-    const tickets = await this.storage.listTickets(projectId)
-    return tickets.find((ticket) => {
-      const external = getTicketExternalMetadata(ticket)
-      return external.source === envelope.source.name
-        && (external.key === envelope.source.externalKey || external.id === envelope.source.externalId)
-    })
+  private async findLinkedTicketByEnvelope(_projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
+    // Ticket lives in the provider (Linear, etc.) — look it up directly, no local PMO scan
+    const provider = this.resolveProjectProvider(_projectId)
+    if (provider.name !== 'pmo') {
+      const result = await provider.getTicket(envelope.source.externalKey)
+      if (result.success && result.ticket) return result.ticket
+    }
+    return undefined
   }
 
-  private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope, db: Database.Database): Promise<Ticket> {
-    const existing = await this.findLinkedTicketByEnvelope(projectId, envelope)
-    const description = buildExternalTicketDescription(envelope)
+  private async createOrUpdateLinkedTicket(_projectId: string, envelope: NormalizedIssueEnvelope, _db: Database.Database): Promise<Ticket> {
+    // No local PMO mirror or LinearMapper mapping needed.
+    // Build a ticket from the envelope directly — the ticket lives in the provider.
     const metadata = buildExternalMetadata(envelope)
-
-    let ticket: Ticket
-    if (existing) {
-      ticket = await this.storage.updateTicket(existing.id, {
-        title: envelope.title,
-        description,
-        priority: envelope.priority ?? undefined,
-        category: envelope.category ?? undefined,
-        labels: envelope.labels,
-        metadata: {
-          ...existing.metadata,
-          ...metadata,
-        },
-      })
-    } else {
-      ticket = await this.storage.createTicket(projectId, {
-        title: envelope.title,
-        description,
-        priority: envelope.priority ?? undefined,
-        category: envelope.category ?? undefined,
-        labels: envelope.labels,
-        metadata,
-      })
+    return {
+      id: envelope.source.externalKey,
+      title: envelope.title,
+      description: buildExternalTicketDescription(envelope),
+      priority: envelope.priority ?? undefined,
+      category: envelope.category ?? undefined,
+      projectId: envelope.projectKey,
+      projectName: envelope.projectKey,
+      statusId: envelope.status,
+      statusName: envelope.status,
+      owner: envelope.assignee || undefined,
+      assignee: envelope.assignee || undefined,
+      subtasks: [],
+      labels: envelope.labels,
+      metadata,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     }
-
-    // Create Linear mapping so OutboundSyncHandler can push status/PR changes back
-    if (envelope.source.name === 'linear') {
-      const mapper = new LinearMapper(db)
-      const existingMapping = mapper.getByTicketId(ticket.id)
-      if (!existingMapping) {
-        mapper.createMapping({
-          pmoTicketId: ticket.id,
-          linearIssueId: envelope.source.externalId,
-          linearIdentifier: envelope.source.externalKey,
-          linearTeamKey: envelope.projectKey,
-          linearUrl: envelope.source.url,
-          syncDirection: 'outbound',
-          createdAt: new Date(),
-        })
-      }
-    }
-
-    return ticket
   }
 
   private async fetchExternalIssue(
@@ -2706,29 +2682,16 @@ export default class WorkStart extends PMOCommand {
       jsonMode: jsonMode ? { flags, commandName: 'work start', baseCommand: `prlt work start ${ticketIds.join(' ')}` } : undefined,
     })
 
-    // Resolve all ticket IDs to tickets (handles external IDs like PRLT-xxx)
+    // Resolve all ticket IDs to tickets via provider (handles external IDs like PRLT-xxx)
     type TicketResult = Exclude<Awaited<ReturnType<typeof this.storage.getTicket>>, null>
     const tickets: Array<{ ticket: TicketResult; originalId: string }> = []
     for (const rawId of ticketIds) {
-      // Try direct lookup first
-      let ticket = await this.storage.getTicket(rawId)
-
-      // If not found, try resolving as external ticket ID
-      if (!ticket) {
-        const resolved = resolveExternalTicketId({ id: rawId, metadata: {} })
-        if (resolved !== rawId) {
-          ticket = await this.storage.getTicket(resolved)
-        }
-      }
-
-      // Still not found — try searching by external key in metadata
-      if (!ticket) {
-        const allTickets = await this.storage.listTickets(projectId)
-        ticket = allTickets.find(t => {
-          const ext = getTicketExternalMetadata(t)
-          return ext.key === rawId
-        }) ?? null
-      }
+      // Look up ticket through provider — no local PMO fallback
+      // eslint-disable-next-line no-await-in-loop
+      const tp = await this.resolveTicketProvider(rawId, projectId || '')
+      // eslint-disable-next-line no-await-in-loop
+      const gr = await tp.getTicket(rawId)
+      let ticket = (gr.success && gr.ticket) ? gr.ticket : null
 
       if (!ticket) {
         if (jsonMode) {
