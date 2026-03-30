@@ -32,9 +32,22 @@ export const DEFAULT_WORK_COLUMNS = {
   in_progress: 'In Progress',
   review: 'Review',
   done: 'Done',
+  backlog: 'Backlog',
 } as const;
 
 export type WorkColumnType = keyof typeof DEFAULT_WORK_COLUMNS;
+
+/**
+ * Full workflow configuration — the resolved column names for each lifecycle stage.
+ * Read from pmo_settings with fallback to DEFAULT_WORK_COLUMNS.
+ */
+export interface WorkflowConfig {
+  planned: string
+  in_progress: string
+  review: string
+  done: string
+  backlog: string
+}
 
 /**
  * Get a work column setting from pmo_settings with fallback to default.
@@ -109,6 +122,77 @@ export function findColumnByName(
   );
 
   return partialMatch || null;
+}
+
+/**
+ * Read the full workflow configuration from pmo_settings.
+ * Returns configured column names for each lifecycle stage, falling back
+ * to DEFAULT_WORK_COLUMNS for any that aren't set.
+ *
+ * @param db - Database instance
+ * @returns WorkflowConfig with resolved column names
+ */
+export function getWorkflowConfig(db: DatabaseLike): WorkflowConfig {
+  return {
+    planned: getWorkColumnSetting(db, 'planned'),
+    in_progress: getWorkColumnSetting(db, 'in_progress'),
+    review: getWorkColumnSetting(db, 'review'),
+    done: getWorkColumnSetting(db, 'done'),
+    backlog: getWorkColumnSetting(db, 'backlog'),
+  }
+}
+
+/**
+ * Save a full workflow configuration to pmo_settings.
+ *
+ * @param db - Database instance
+ * @param config - Partial workflow config — only provided keys are saved
+ */
+export function setWorkflowConfig(
+  db: DatabaseLike,
+  config: Partial<WorkflowConfig>,
+): void {
+  for (const [key, value] of Object.entries(config)) {
+    if (value !== undefined) {
+      setWorkColumnSetting(db, key as WorkColumnType, value)
+    }
+  }
+}
+
+/**
+ * Map from short target names (used in presets/actions) to WorkColumnType.
+ * Allows presets to use human-friendly names like 'done' or 'review'
+ * that resolve to the user's actual column names.
+ */
+const TARGET_TO_COLUMN_TYPE: Record<string, WorkColumnType> = {
+  'done': 'done',
+  'review': 'review',
+  'in-progress': 'in_progress',
+  'in_progress': 'in_progress',
+  'ready': 'planned',
+  'planned': 'planned',
+  'backlog': 'backlog',
+}
+
+/**
+ * Resolve a workflow target name to the configured column name.
+ *
+ * Used by the move-ticket action to translate intent-like targets
+ * (e.g. 'done', 'review') into the actual column name configured
+ * for the workspace (e.g. 'Shipped', 'QA').
+ *
+ * If the target is not a known intent, returns it unchanged.
+ *
+ * @param db - Database instance
+ * @param target - Target name from preset/action config
+ * @returns Resolved column name
+ */
+export function resolveWorkflowTarget(db: DatabaseLike, target: string): string {
+  const columnType = TARGET_TO_COLUMN_TYPE[target.toLowerCase()]
+  if (columnType) {
+    return getWorkColumnSetting(db, columnType)
+  }
+  return target
 }
 
 // =============================================================================

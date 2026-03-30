@@ -28,6 +28,7 @@ import {
   type ReconcileResult,
   type ReconcileContext,
 } from './reconciler.js'
+import { getWorkflowConfig, type WorkflowConfig } from '../work-lifecycle/settings.js'
 
 // =============================================================================
 // Types
@@ -70,6 +71,14 @@ export async function runSyncCycle(
   const { cwd, log, dryRun } = options
   const execStorage = new ExecutionStorage(db)
 
+  // Read workflow configuration for target column name resolution
+  let workflowConfig: WorkflowConfig | undefined
+  try {
+    workflowConfig = getWorkflowConfig(db)
+  } catch {
+    // pmo_settings table may not exist yet — fall back to defaults
+  }
+
   // Gather all tickets in active states (started = In Progress / In Review)
   const startedTickets = await storage.listTickets(projectId, { statusCategory: 'started' })
   // Also check recently completed tickets to catch any that were manually moved
@@ -90,7 +99,7 @@ export async function runSyncCycle(
   for (const ticket of startedTickets) {
     try {
       const ctx = buildContext(ticket, prByBranch, execStorage, cwd)
-      const action = reconcileTicket(ctx)
+      const action = reconcileTicket(ctx, workflowConfig)
       if (action) {
         actions.push(action)
       }
@@ -116,7 +125,7 @@ export async function runSyncCycle(
 
   // Get all tickets for board-level rules (duplicates, stale triage, agent spawned)
   const allTickets = await storage.listTickets(projectId)
-  const agentSpawnedActions = reconcileAgentSpawned(allTickets, activeAgentTicketIds)
+  const agentSpawnedActions = reconcileAgentSpawned(allTickets, activeAgentTicketIds, workflowConfig)
   actions.push(...agentSpawnedActions)
 
   // Board-level: detect duplicate tickets
@@ -247,13 +256,13 @@ function markExecutionsCompleted(execStorage: ExecutionStorage, ticketId: string
 function formatAction(action: ReconcileAction): string {
   switch (action.type) {
     case 'move_to_done':
-      return `move ${action.ticketId} to Done (${action.reason})`
+      return `move ${action.ticketId} to ${action.targetStatus ?? 'Done'} (${action.reason})`
     case 'move_to_review':
-      return `move ${action.ticketId} to Review (${action.reason})`
+      return `move ${action.ticketId} to ${action.targetStatus ?? 'Review'} (${action.reason})`
     case 'move_to_in_progress':
-      return `move ${action.ticketId} to In Progress (${action.reason})`
+      return `move ${action.ticketId} to ${action.targetStatus ?? 'In Progress'} (${action.reason})`
     case 'move_to_backlog':
-      return `move ${action.ticketId} to Backlog (${action.reason})`
+      return `move ${action.ticketId} to ${action.targetStatus ?? 'Backlog'} (${action.reason})`
     case 'flag_stale':
       return `flag ${action.ticketId} as stale (${action.reason})`
     case 'flag_stale_triage':
