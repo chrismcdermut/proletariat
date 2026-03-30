@@ -28,14 +28,22 @@ function createMockDb(options?: {
   return {
     _data: data,
     prepare: (sql: string) => ({
-      all: () => {
-        if (sql.includes('pmo_tickets') && sql.includes('todo')) {
+      all: (..._args: unknown[]) => {
+        // Match ready tickets query (new: by status name or unstarted category)
+        if (sql.includes('pmo_tickets') && (sql.includes('ws.name') || sql.includes('unstarted'))) {
           return data.readyTickets
         }
         if (sql.includes('agent_work')) {
           return data.agents
         }
         return []
+      },
+      get: (..._args: unknown[]) => {
+        // Handle pmo_settings lookups for getWorkflowConfig
+        if (sql.includes('pmo_settings')) {
+          return undefined // No config → fallback to category-based query
+        }
+        return undefined
       },
     }),
     close: () => {},

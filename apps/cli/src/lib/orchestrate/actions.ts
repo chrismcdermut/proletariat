@@ -9,7 +9,10 @@
  */
 
 import { execSync } from 'node:child_process'
+import * as path from 'node:path'
+import * as fs from 'node:fs'
 import type { OrchestrateEventContext, OrchestrateActionResult } from './types.js'
+import { resolveWorkflowTarget } from '../work-lifecycle/settings.js'
 
 type ActionHandler = (ctx: OrchestrateEventContext, config?: Record<string, unknown>) => OrchestrateActionResult
 
@@ -44,20 +47,64 @@ const mergePr: ActionHandler = (ctx, config) => {
 
 /**
  * Move a ticket to a target status.
+ *
+ * Resolves intent-like targets (e.g. 'done', 'review') through the workflow
+ * configuration so users with custom column names get the right mapping.
  */
 const moveTicket: ActionHandler = (ctx, config) => {
   const start = Date.now()
   try {
-    const target = (config?.target as string) || 'done'
+    let target = (config?.target as string) || 'done'
     if (!ctx.ticket) {
       return { action: 'move-ticket', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
     }
+
+    // Resolve the target through workflow config (e.g. 'done' → 'Shipped')
+    target = resolveTargetFromWorkspace(target)
 
     execSync(`prlt ticket move ${ctx.ticket} "${target}"`, { timeout: 30_000, stdio: 'pipe' })
     return { action: 'move-ticket', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'move-ticket', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
   }
+}
+
+/**
+ * Resolve a workflow target by opening the workspace DB and checking settings.
+ * If the DB isn't available, returns the target as-is.
+ */
+function resolveTargetFromWorkspace(target: string): string {
+  try {
+    const dbPath = findWorkspaceDb()
+    if (!dbPath) return target
+
+    // Dynamic import to avoid circular dependencies — better-sqlite3 is always available at runtime
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Database = require('better-sqlite3')
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      return resolveWorkflowTarget(db, target)
+    } finally {
+      db.close()
+    }
+  } catch {
+    return target
+  }
+}
+
+/**
+ * Find the workspace.db by walking up from cwd looking for .proletariat/workspace.db.
+ */
+function findWorkspaceDb(): string | null {
+  let dir = process.cwd()
+  for (let i = 0; i < 10; i++) {
+    const dbPath = path.join(dir, '.proletariat', 'workspace.db')
+    if (fs.existsSync(dbPath)) return dbPath
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
 }
 
 /**

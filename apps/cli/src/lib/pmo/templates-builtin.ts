@@ -19,7 +19,9 @@ export interface WorkflowTemplateStatus {
 export interface ColumnSettings {
   column_planned: string;
   column_in_progress: string;
+  column_review?: string;
   column_done: string;
+  column_backlog?: string;
 }
 
 export interface BuiltinTemplate {
@@ -68,7 +70,9 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     columnSettings: {
       column_planned: 'Ready',
       column_in_progress: 'In Progress',
+      column_review: 'Review',
       column_done: 'Done',
+      column_backlog: 'Backlog',
     },
     showInPicker: false, // Internal default, not shown in picker
   },
@@ -88,6 +92,7 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
       column_planned: 'To Do',
       column_in_progress: 'In Progress',
       column_done: 'Done',
+      column_backlog: 'Backlog',
     },
     showInPicker: true,
   },
@@ -108,7 +113,9 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     columnSettings: {
       column_planned: 'Todo',
       column_in_progress: 'In Progress',
+      column_review: 'In Review',
       column_done: 'Done',
+      column_backlog: 'Backlog',
     },
     showInPicker: true,
   },
@@ -130,7 +137,9 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     columnSettings: {
       column_planned: 'Ship',
       column_in_progress: 'In Progress',
+      column_review: 'Review',
       column_done: 'Done',
+      column_backlog: 'Ship',
     },
     showInPicker: true,
   },
@@ -150,7 +159,9 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     columnSettings: {
       column_planned: 'Confirmed',
       column_in_progress: 'Fixing',
+      column_review: 'Verifying',
       column_done: 'Fixed',
+      column_backlog: 'Reported',
     },
     showInPicker: false, // Specialized template
   },
@@ -170,7 +181,9 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
     columnSettings: {
       column_planned: 'Planning',
       column_in_progress: 'In Development',
+      column_review: 'Ready to Launch',
       column_done: 'Launched',
+      column_backlog: 'Ideation',
     },
     showInPicker: false, // Specialized template
   },
@@ -227,6 +240,8 @@ export function getColumnSettingsForTemplate(
   return {
     column_planned: findColumn(['planned', 'ready', 'scheduled', 'todo'], columns[1] || 'Planned'),
     column_in_progress: findColumn(['progress', 'active', 'doing', 'working'], columns[2] || 'In Progress'),
+    column_review: findColumn(['review', 'qa', 'approval', 'verif'], columns[columns.length - 2] || 'Review'),
     column_done: findColumn(['done', 'complete', 'finished', 'published', 'shipped'], columns[columns.length - 1] || 'Done'),
+    column_backlog: findColumn(['backlog', 'inbox', 'triage', 'reported'], columns[0] || 'Backlog'),
   };
 }

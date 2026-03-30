@@ -18,6 +18,7 @@ import type { PRReviewDecision } from '../pr/index.js'
 import { runSyncCycle, type SyncReport } from '../sync/engine.js'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import type { OrchestrateEngine } from './engine.js'
+import { getWorkflowConfig } from '../work-lifecycle/settings.js'
 
 // =============================================================================
 // Types
@@ -84,22 +85,46 @@ export class OrchestratePoller {
   // ===========================================================================
 
   /**
-   * Check for tickets in "Ready" (todo) status with no active agent.
+   * Check for tickets in the configured "ready" status with no active agent.
    * Fires on_ticket_ready for each.
+   *
+   * Uses the configured ready/planned column name from pmo_settings.
+   * Falls back to category-based matching if no config is available.
    */
   private async pollReadyTickets(): Promise<void> {
     try {
-      const readyTickets = this.db.prepare(`
-        SELECT t.id, t.title
-        FROM pmo_tickets t
-        JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-        WHERE ws.category = 'todo'
-          AND t.assignee IS NULL
-          AND t.id NOT IN (
-            SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-          )
-        LIMIT 10
-      `).all() as Array<{ id: string; title: string }>
+      // Resolve configured ready status name
+      let readyStatusName: string | null = null
+      try {
+        const config = getWorkflowConfig(this.db)
+        readyStatusName = config.planned
+      } catch {
+        // pmo_settings may not exist yet
+      }
+
+      const readyTickets = readyStatusName
+        ? this.db.prepare(`
+            SELECT t.id, t.title
+            FROM pmo_tickets t
+            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
+            WHERE LOWER(ws.name) = LOWER(?)
+              AND t.assignee IS NULL
+              AND t.id NOT IN (
+                SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
+              )
+            LIMIT 10
+          `).all(readyStatusName) as Array<{ id: string; title: string }>
+        : this.db.prepare(`
+            SELECT t.id, t.title
+            FROM pmo_tickets t
+            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
+            WHERE ws.category = 'unstarted'
+              AND t.assignee IS NULL
+              AND t.id NOT IN (
+                SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
+              )
+            LIMIT 10
+          `).all() as Array<{ id: string; title: string }>
 
       for (const ticket of readyTickets) {
         if (this.firedReadyTickets.has(ticket.id)) continue

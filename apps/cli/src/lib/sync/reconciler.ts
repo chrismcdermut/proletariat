@@ -16,6 +16,7 @@
 
 import type { PRInfo, PRCheck } from '../pr/index.js'
 import type { Ticket, StateCategory } from '../pmo/types.js'
+import type { WorkflowConfig } from '../work-lifecycle/settings.js'
 
 // =============================================================================
 // Types
@@ -58,10 +59,19 @@ export interface ReconcileResult {
 
 /**
  * Determine reconciliation actions for a single ticket.
+ *
+ * @param ctx - Reconciliation context (ticket, PR, checks, execution state)
+ * @param config - Optional workflow config for resolving target column names.
+ *                 When omitted, falls back to hardcoded defaults (Review, Done, etc.)
  */
-export function reconcileTicket(ctx: ReconcileContext): ReconcileAction | null {
+export function reconcileTicket(ctx: ReconcileContext, config?: WorkflowConfig): ReconcileAction | null {
   const { ticket, pr, checks, hasActiveExecution } = ctx
   const category = ticket.statusCategory
+
+  // Resolve target status names from config (or defaults)
+  const doneStatus = config?.done ?? 'Done'
+  const reviewStatus = config?.review ?? 'Review'
+  const backlogStatus = config?.backlog ?? 'Backlog'
 
   // Rule 1: Merged PR + ticket not Done → move to Done
   if (pr?.state === 'MERGED' && category !== 'completed' && category !== 'canceled') {
@@ -70,19 +80,19 @@ export function reconcileTicket(ctx: ReconcileContext): ReconcileAction | null {
       ticketId: ticket.id,
       ticketTitle: ticket.title,
       reason: `PR #${pr.number} is merged but ticket is still in ${ticket.statusName ?? category}`,
-      targetStatus: 'Done',
+      targetStatus: doneStatus,
     }
   }
 
   // Rule 4: Ticket in review + PR closed (not merged) → move to Backlog
   // Check this before rule 2 since a closed PR should take precedence
-  if (pr?.state === 'CLOSED' && category === 'started' && isReviewStatus(ticket)) {
+  if (pr?.state === 'CLOSED' && category === 'started' && isReviewStatus(ticket, config)) {
     return {
       type: 'move_to_backlog',
       ticketId: ticket.id,
       ticketTitle: ticket.title,
       reason: `PR #${pr.number} was closed without merging`,
-      targetStatus: 'Backlog',
+      targetStatus: backlogStatus,
     }
   }
 
@@ -91,7 +101,7 @@ export function reconcileTicket(ctx: ReconcileContext): ReconcileAction | null {
     pr?.state === 'OPEN' &&
     !pr.isDraft &&
     category === 'started' &&
-    !isReviewStatus(ticket) &&
+    !isReviewStatus(ticket, config) &&
     checks.length > 0 &&
     allChecksGreen(checks)
   ) {
@@ -100,7 +110,7 @@ export function reconcileTicket(ctx: ReconcileContext): ReconcileAction | null {
       ticketId: ticket.id,
       ticketTitle: ticket.title,
       reason: `PR #${pr.number} has all CI checks passing`,
-      targetStatus: 'Review',
+      targetStatus: reviewStatus,
     }
   }
 
@@ -110,21 +120,21 @@ export function reconcileTicket(ctx: ReconcileContext): ReconcileAction | null {
     pr?.state === 'OPEN' &&
     !pr.isDraft &&
     category === 'started' &&
-    !isReviewStatus(ticket)
+    !isReviewStatus(ticket, config)
   ) {
     return {
       type: 'move_to_review',
       ticketId: ticket.id,
       ticketTitle: ticket.title,
       reason: `PR #${pr.number} opened for review`,
-      targetStatus: 'Review',
+      targetStatus: reviewStatus,
     }
   }
 
   // Rule 3: Ticket In Progress + no active agent + no open PR → flag as stale
   if (
     category === 'started' &&
-    !isReviewStatus(ticket) &&
+    !isReviewStatus(ticket, config) &&
     !hasActiveExecution &&
     (!pr || pr.state === 'CLOSED')
   ) {
@@ -150,9 +160,14 @@ function allChecksGreen(checks: PRCheck[]): boolean {
 
 /**
  * Check if a ticket is in a review-like status.
+ * When a WorkflowConfig is provided, matches against the configured review column name.
+ * Otherwise falls back to substring matching for backward compatibility.
  */
-function isReviewStatus(ticket: Ticket): boolean {
+function isReviewStatus(ticket: Ticket, config?: WorkflowConfig): boolean {
   const name = (ticket.statusName ?? '').toLowerCase()
+  if (config?.review) {
+    return name === config.review.toLowerCase()
+  }
   return name.includes('review') || name.includes('in review')
 }
 
@@ -175,12 +190,18 @@ export interface BoardReconcileContext {
 /**
  * Detect tickets whose agent has been spawned but status is still in triage/backlog.
  * Rule: Agent spawned → ticket should be In Progress.
+ *
+ * @param tickets - All tickets on the board
+ * @param activeAgentTicketIds - Ticket IDs with running agents
+ * @param config - Optional workflow config for resolving target column names
  */
 export function reconcileAgentSpawned(
   tickets: Ticket[],
   activeAgentTicketIds: Set<string>,
+  config?: WorkflowConfig,
 ): ReconcileAction[] {
   const actions: ReconcileAction[] = []
+  const inProgressStatus = config?.in_progress ?? 'In Progress'
 
   for (const ticket of tickets) {
     const category = ticket.statusCategory
@@ -194,7 +215,7 @@ export function reconcileAgentSpawned(
         ticketId: ticket.id,
         ticketTitle: ticket.title,
         reason: 'Agent is actively working on this ticket',
-        targetStatus: 'In Progress',
+        targetStatus: inProgressStatus,
       })
     }
   }

@@ -12,6 +12,7 @@
 import { execSync } from 'node:child_process'
 import type Database from 'better-sqlite3'
 import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks } from '../pr/index.js'
+import { getWorkflowConfig } from '../work-lifecycle/settings.js'
 
 // =============================================================================
 // Types
@@ -344,17 +345,38 @@ export class SimplePoller {
     const changes: PollChange[] = []
 
     try {
-      const readyTickets = this.db.prepare(`
-        SELECT t.id, t.title
-        FROM pmo_tickets t
-        JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-        WHERE ws.category = 'todo'
-          AND t.assignee IS NULL
-          AND t.id NOT IN (
-            SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-          )
-        LIMIT 20
-      `).all() as ReadyTicket[]
+      // Resolve configured ready status name
+      let readyStatusName: string | null = null
+      try {
+        const config = getWorkflowConfig(this.db)
+        readyStatusName = config.planned
+      } catch {
+        // pmo_settings may not exist yet
+      }
+
+      const readyTickets = readyStatusName
+        ? this.db.prepare(`
+            SELECT t.id, t.title
+            FROM pmo_tickets t
+            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
+            WHERE LOWER(ws.name) = LOWER(?)
+              AND t.assignee IS NULL
+              AND t.id NOT IN (
+                SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
+              )
+            LIMIT 20
+          `).all(readyStatusName) as ReadyTicket[]
+        : this.db.prepare(`
+            SELECT t.id, t.title
+            FROM pmo_tickets t
+            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
+            WHERE ws.category = 'unstarted'
+              AND t.assignee IS NULL
+              AND t.id NOT IN (
+                SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
+              )
+            LIMIT 20
+          `).all() as ReadyTicket[]
 
       const currentReadyIds = new Set(readyTickets.map(t => t.id))
 

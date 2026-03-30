@@ -59,9 +59,20 @@ function createTestDb(): Database.Database {
     )
   `)
 
-  // Insert a "todo" status
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ready', 'Ready', 'todo')").run()
+  // Create pmo_settings table for workflow config
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pmo_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `)
+
+  // Insert statuses with proper categories
+  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ready', 'Ready', 'unstarted')").run()
   db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ip', 'In Progress', 'started')").run()
+
+  // Configure the ready status name so the poller can find it
+  db.prepare("INSERT INTO pmo_settings (key, value) VALUES ('column_planned', 'Ready')").run()
 
   return db
 }
