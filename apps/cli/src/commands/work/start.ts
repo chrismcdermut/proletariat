@@ -805,8 +805,12 @@ export default class WorkStart extends PMOCommand {
       }
 
       if (!ticketId) {
-        // Get all tickets, optionally filtered by project if -P/--project flag is provided
-        const allTickets = await this.storage.listTickets(projectId)
+        // Get all tickets live from provider (Linear, etc.) — falls back to local PMO
+        const startProvider = this.resolveProjectProvider(projectId || '')
+        const startListResult = await startProvider.listTickets(projectId)
+        const allTickets = startListResult.success && startListResult.tickets.length > 0
+          ? startListResult.tickets
+          : await this.storage.listTickets(projectId)
 
         if (allTickets.length === 0) {
           db.close()
@@ -830,7 +834,13 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Get ticket — use envelope-built ticket when available (PRLT-1167: no PMO mirror)
-      const ticket = envelopeTicket ?? await this.storage.getTicket(ticketId!)
+      // Otherwise try provider first (Linear live), fall back to local PMO
+      let ticket = envelopeTicket ?? null
+      if (!ticket) {
+        const tp = await this.resolveTicketProvider(ticketId!, projectId || '')
+        const gr = await tp.getTicket(ticketId!)
+        ticket = (gr.success && gr.ticket) ? gr.ticket : await this.storage.getTicket(ticketId!)
+      }
       if (!ticket) {
         db.close()
         return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`)
@@ -2842,9 +2852,13 @@ export default class WorkStart extends PMOCommand {
     const batchJsonModeConfig = batchJsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work start' } : null
 
     // Get all tickets and filter to backlog/unstarted (not in progress)
-    // Note: In batch mode, we get all tickets across all projects (pass undefined for projectId)
-    // eslint-disable-next-line unicorn/no-useless-undefined
-    const allTickets = await this.storage.listTickets(undefined)
+    // Note: In batch mode, we get all tickets across all projects
+    // Pull live from provider when configured (e.g. Linear)
+    const batchProvider = this.resolveProjectProvider('')
+    const batchListResult = await batchProvider.listTickets(undefined)
+    const allTickets = batchListResult.success && batchListResult.tickets.length > 0
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      ? batchListResult.tickets : await this.storage.listTickets(undefined)
     const backlogTickets = allTickets.filter(t =>
       t.statusCategory === 'backlog' || t.statusCategory === 'unstarted' || !t.statusCategory
     )
