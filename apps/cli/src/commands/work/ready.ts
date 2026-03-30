@@ -29,6 +29,7 @@ import { tryValidateCommits } from '../../lib/execution/commit-validation.js';
 import { detectRepoWorktrees } from '../../lib/execution/context.js';
 import { ensureRemoteUpToDate } from '../../lib/repos/git.js';
 import { openWorkspaceDatabase } from '../../lib/database/index.js';
+import { getEventBus } from '../../lib/events/event-bus.js';
 
 export default class WorkReady extends PMOCommand {
   static description = 'Mark work as ready for review (moves ticket to In Review column)';
@@ -287,6 +288,18 @@ export default class WorkReady extends PMOCommand {
               throw err;
             }
           }
+
+          // Emit work:pr_created so the outbound sync handler can register
+          // the PR in pmo_external_execution_prs and sync to Linear
+          const bus = getEventBus();
+          bus.emit('work:pr_created', {
+            workItemId: ticketId!,
+            source: 'pmo',
+            projectId: undefined,
+            prUrl: prResult.url,
+            prTitle: ticket.title ?? null,
+            timestamp: new Date(),
+          });
         }
       }
 

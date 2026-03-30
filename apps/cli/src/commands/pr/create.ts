@@ -26,6 +26,7 @@ import {
 import { FlagResolver } from '../../lib/flags/index.js';
 import { trackPRCreated } from '../../lib/telemetry/analytics.js';
 import { ensureRemoteUpToDate } from '../../lib/repos/git.js';
+import { getEventBus } from '../../lib/events/event-bus.js';
 
 export default class PRCreate extends PMOCommand {
   static description = 'Create a GitHub pull request from the current branch';
@@ -263,13 +264,25 @@ export default class PRCreate extends PMOCommand {
     // Track PR creation analytics
     trackPRCreated({ source: 'prlt' });
 
-    // Store PR URL in ticket metadata
+    // Store PR URL in ticket metadata and emit PR event for sync
     if (ticket && result.url && this.hasPMO) {
       await this.storage.updateTicket(ticket.id, {
         metadata: {
           pr_url: result.url,
           pr_number: String(result.number),
         },
+      });
+
+      // Emit work:pr_created so the outbound sync handler can register
+      // the PR in pmo_external_execution_prs and sync to Linear
+      const bus = getEventBus();
+      bus.emit('work:pr_created', {
+        workItemId: ticket.id,
+        source: 'pmo',
+        projectId: undefined,
+        prUrl: result.url,
+        prTitle: prTitle ?? null,
+        timestamp: new Date(),
       });
     }
 
