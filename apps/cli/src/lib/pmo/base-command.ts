@@ -274,23 +274,67 @@ export abstract class PMOCommand extends RuntimeCommand {
 
   /**
    * Resolve the correct ticket provider for a specific ticket.
-   * Uses the ticket's metadata to determine whether to route through
-   * Linear, Jira, etc. or use local PMO.
+   * Uses ticket metadata from ticket_refs or agent_work to determine
+   * whether to route through Linear, Jira, etc. or use local PMO.
    *
    * @param ticketId - The ticket ID to resolve the provider for
    * @param projectId - The project the ticket belongs to
+   * @param metadata - Optional pre-loaded metadata (avoids extra DB lookup)
    * @returns The appropriate TicketProvider
    */
-  protected async resolveTicketProvider(ticketId: string, projectId: string): Promise<TicketProvider> {
-    const ticket = await this.storage.getTicket(ticketId);
+  protected resolveTicketProvider(
+    ticketId: string,
+    projectId: string,
+    metadata?: Record<string, string> | null,
+  ): TicketProvider {
     const db = this.storage.getDatabase();
+    // If no metadata provided, look it up from ticket_refs or agent_work
+    const resolvedMetadata = metadata ?? this.lookupTicketMetadata(db, ticketId);
     return resolveTicketProvider(
       ticketId,
       projectId,
       db,
       this.storage as unknown as ProviderStorage,
-      ticket?.metadata,
+      resolvedMetadata,
     );
+  }
+
+  /**
+   * Look up ticket metadata from ticket_refs or agent_work tables.
+   * These tables survive the pmo_tickets removal.
+   */
+  private lookupTicketMetadata(db: import('better-sqlite3').Database, ticketId: string): Record<string, string> | null {
+    try {
+      // Check ticket_refs first
+      const ref = db.prepare(
+        'SELECT provider, external_id, external_key, external_url FROM ticket_refs WHERE id = ? OR external_key = ?',
+      ).get(ticketId, ticketId) as { provider: string; external_id: string | null; external_key: string | null; external_url: string | null } | undefined;
+
+      if (ref && ref.provider !== 'pmo') {
+        return {
+          external_source: ref.provider,
+          ...(ref.external_id ? { external_id: ref.external_id } : {}),
+          ...(ref.external_key ? { external_key: ref.external_key } : {}),
+          ...(ref.external_url ? { external_url: ref.external_url } : {}),
+        };
+      }
+
+      // Check agent_work metadata
+      const work = db.prepare(
+        'SELECT ticket_metadata FROM agent_work WHERE ticket_id = ?',
+      ).get(ticketId) as { ticket_metadata: string | null } | undefined;
+
+      if (work?.ticket_metadata) {
+        try {
+          return JSON.parse(work.ticket_metadata);
+        } catch {
+          // Invalid JSON
+        }
+      }
+    } catch {
+      // Tables may not exist
+    }
+    return null;
   }
 
   /**

@@ -26,6 +26,7 @@ import { dropAgentWorkFk } from './0017_drop_agent_work_fk.js'
 import { createTicketRefs } from './0018_create_ticket_refs.js'
 import { gcArtifactCleanup } from './0019_gc_artifact_cleanup.js'
 import { transitionMap } from './0020_transition_map.js'
+import { dropPmoTicketCache } from './0021_drop_pmo_ticket_cache.js'
 
 /**
  * Ordered list of all migrations.
@@ -52,4 +53,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   createTicketRefs,
   gcArtifactCleanup,
   transitionMap,
+  dropPmoTicketCache,
 ]

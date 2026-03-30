@@ -1,13 +1,12 @@
 /**
  * Ticket Provider Resolver
  *
- * Determines which provider should handle ticket operations based on the
- * ticket's external source metadata or workspace configuration.
+ * Determines which provider should handle ticket operations based on
+ * the ticket's metadata or workspace configuration.
  *
- * All resolved providers are wrapped with EventEmittingProvider, making
- * the adapter layer the central event hub. Every provider (PMO, Linear,
- * Jira, Shortcut, Asana) is an equal peer that emits events through
- * the same mechanism.
+ * Provider routing uses ticket metadata (external_source, external_key)
+ * passed in by the caller. No local mapping table lookups are needed
+ * for routing decisions.
  *
  * Two resolution modes:
  * 1. Ticket-level: resolveTicketProvider() — for operations on a specific ticket
@@ -23,11 +22,8 @@ import { isLinearConfigured } from '../linear/config.js'
 import { isClickUpConfigured } from '../clickup/config.js'
 import { isGitHubConfigured } from '../github/config.js'
 import { isJiraConfigured } from '../jira/config.js'
-import { LinearMapper } from '../linear/mapper.js'
 import { isTrelloConfigured } from '../trello/config.js'
-import { TrelloMapper } from '../trello/mapper.js'
 import { isAsanaConfigured } from '../asana/config.js'
-import { AsanaMapper } from '../asana/mapper.js'
 import type { StateCategory } from '../pmo/types.js'
 import type { TicketProvider, ProviderStorage } from './types.js'
 import { PMOTicketProvider } from './pmo-provider.js'
@@ -41,10 +37,10 @@ import { EventEmittingProvider, type StatusResolver } from './event-emitting-pro
 
 /**
  * Create a StatusResolver backed by the database.
- * Used by EventEmittingProvider to resolve status names/categories
- * for event emission.
+ * Uses workflow_statuses for status name resolution (config data).
+ * Uses ticket_refs for current ticket status lookup (runtime cache).
  */
-function createDbStatusResolver(db: Database.Database, storage: ProviderStorage): StatusResolver {
+function createDbStatusResolver(db: Database.Database): StatusResolver {
   return {
     resolveStatusByName(projectId: string, statusName: string) {
       try {
@@ -74,19 +70,18 @@ function createDbStatusResolver(db: Database.Database, storage: ProviderStorage)
     },
 
     getTicketStatus(ticketId: string) {
+      // Use ticket_refs for status lookup (lightweight runtime cache)
       try {
         const row = db.prepare(`
-          SELECT t.status_id, ws.name, ws.category
-          FROM pmo_tickets t
-          LEFT JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-          WHERE t.id = ?
-        `).get(ticketId) as { status_id: string | null; name: string | null; category: string | null } | undefined
+          SELECT status FROM ticket_refs
+          WHERE id = ? OR external_key = ? OR external_id = ?
+        `).get(ticketId, ticketId, ticketId) as { status: string | null } | undefined
 
-        if (row) {
+        if (row?.status) {
           return {
-            statusId: row.status_id,
-            statusName: row.name,
-            statusCategory: (row.category as StateCategory) ?? null,
+            statusId: null,
+            statusName: row.status,
+            statusCategory: null,
           }
         }
       } catch {
@@ -103,10 +98,9 @@ function createDbStatusResolver(db: Database.Database, storage: ProviderStorage)
 function wrapWithEvents(
   provider: TicketProvider,
   db: Database.Database,
-  storage: ProviderStorage,
   projectId: string,
 ): TicketProvider {
-  const resolver = createDbStatusResolver(db, storage)
+  const resolver = createDbStatusResolver(db)
   return new EventEmittingProvider(provider, resolver, projectId)
 }
 
@@ -114,16 +108,15 @@ function wrapWithEvents(
  * Resolve the correct provider for a given ticket.
  *
  * Uses the ticket's metadata to determine the source of truth:
- * - external_source = 'linear' + configured + outbound/bidirectional → Linear
+ * - external_source = 'linear' + configured → Linear
+ * - external_source = 'clickup' + configured → ClickUp
+ * - etc.
  * - Otherwise → PMO
  *
- * The resolved provider is wrapped with EventEmittingProvider so that
- * events are emitted at the adapter layer, not the storage layer.
- *
- * @param ticketId - The PMO ticket ID
- * @param projectId - The PMO project ID
- * @param db - Database handle for config/mapping lookups
- * @param storage - Storage for fallback and local sync
+ * @param ticketId - The ticket ID (may be external key like PRLT-123)
+ * @param projectId - The project ID
+ * @param db - Database handle for config lookups
+ * @param storage - Storage for non-Linear providers (optional, may be null)
  * @param metadata - Ticket metadata (contains external_source, etc.)
  * @returns The appropriate TicketProvider for this ticket
  */
@@ -131,84 +124,69 @@ export function resolveTicketProvider(
   ticketId: string,
   projectId: string,
   db: Database.Database,
-  storage: ProviderStorage,
+  storage: ProviderStorage | null,
   metadata?: Record<string, string> | null,
 ): TicketProvider {
   const externalSource = metadata?.external_source
 
-  // Check Linear
+  // Check Linear — queries Linear API directly, no local mirror
   if (externalSource === 'linear' && isLinearConfigured(db)) {
-    const mapper = new LinearMapper(db)
-    const mapping = mapper.getByTicketId(ticketId)
+    const inner = new LinearTicketProvider(db, projectId, ticketId)
+    return wrapWithEvents(inner, db, projectId)
+  }
 
-    if (mapping) {
-      // Use Linear provider when we need to write back to Linear:
-      // - 'outbound' = ticket came from Linear (via work start) → write back status changes
-      // - 'bidirectional' = both directions synced → write to Linear directly
-      // - 'inbound' = bulk import from Linear → read-only, no write-back
-      if (mapping.syncDirection === 'outbound' || mapping.syncDirection === 'bidirectional') {
-        const inner = new LinearTicketProvider(db, storage, projectId, null)
-        return wrapWithEvents(inner, db, storage, projectId)
-      }
-    } else if (metadata?.external_key || metadata?.external_id) {
-      // PRLT-1167: External-only ticket (no PMO mirror, no LinearMapper mapping).
-      // When metadata contains external_key/external_id, resolve to Linear provider
-      // so post-execution transitions write back to Linear directly.
-      const inner = new LinearTicketProvider(db, storage, projectId, null)
-      return wrapWithEvents(inner, db, storage, projectId)
-    }
+  // For tickets with external_key/external_id but no explicit source,
+  // check if Linear is configured and use it (PRLT-1167 external-only tickets)
+  if (!externalSource && (metadata?.external_key || metadata?.external_id) && isLinearConfigured(db)) {
+    const inner = new LinearTicketProvider(db, projectId, ticketId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
   // Check ClickUp
-  if (externalSource === 'clickup' && isClickUpConfigured(db)) {
+  if (externalSource === 'clickup' && isClickUpConfigured(db) && storage) {
     const inner = new ClickUpTicketProvider(db, storage, projectId)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
   // Check Jira
-  if (externalSource === 'jira' && isJiraConfigured(db)) {
+  if (externalSource === 'jira' && isJiraConfigured(db) && storage) {
     const inner = new JiraTicketProvider(db, storage, projectId)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
   // Check Trello
-  if (externalSource === 'trello' && isTrelloConfigured(db)) {
-    const mapper = new TrelloMapper(db)
-    const mapping = mapper.getByTicketId(ticketId)
-
-    if (mapping) {
-      const inner = new TrelloTicketProvider(db, storage, projectId, null)
-      return wrapWithEvents(inner, db, storage, projectId)
-    } else if (metadata?.external_key || metadata?.external_id) {
-      // PRLT-1167: External-only ticket — resolve to Trello provider directly
-      const inner = new TrelloTicketProvider(db, storage, projectId, null)
-      return wrapWithEvents(inner, db, storage, projectId)
-    }
+  if (externalSource === 'trello' && isTrelloConfigured(db) && storage) {
+    const inner = new TrelloTicketProvider(db, storage, projectId, null)
+    return wrapWithEvents(inner, db, projectId)
   }
 
   // Check GitHub Issues
-  if (externalSource === 'github' && isGitHubConfigured(db)) {
+  if (externalSource === 'github' && isGitHubConfigured(db) && storage) {
     const inner = new GitHubIssuesTicketProvider(db, storage, projectId)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
   // Check Asana
-  if (externalSource === 'asana' && isAsanaConfigured(db)) {
-    const mapper = new AsanaMapper(db)
-    const mapping = mapper.getByTicketId(ticketId)
-
-    if (mapping) {
-      const inner = new AsanaTicketProvider(db, storage, projectId)
-      return wrapWithEvents(inner, db, storage, projectId)
-    } else if (metadata?.external_key || metadata?.external_id) {
-      const inner = new AsanaTicketProvider(db, storage, projectId)
-      return wrapWithEvents(inner, db, storage, projectId)
-    }
+  if (externalSource === 'asana' && isAsanaConfigured(db) && storage) {
+    const inner = new AsanaTicketProvider(db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
-  // Default: local PMO
-  const inner = new PMOTicketProvider(storage, projectId)
-  return wrapWithEvents(inner, db, storage, projectId)
+  // Default: local PMO (only if storage is available)
+  if (storage) {
+    const inner = new PMOTicketProvider(storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
+  }
+
+  // Last resort: Linear if configured, otherwise error
+  if (isLinearConfigured(db)) {
+    const inner = new LinearTicketProvider(db, projectId, ticketId)
+    return wrapWithEvents(inner, db, projectId)
+  }
+
+  // Return a no-op PMO provider that will fail gracefully
+  const inner = new PMOTicketProvider(storage!, projectId)
+  return wrapWithEvents(inner, db, projectId)
 }
 
 /**
@@ -217,66 +195,69 @@ export function resolveTicketProvider(
  * Unlike resolveTicketProvider, this doesn't require a specific ticket.
  * It checks workspace configuration to determine the active provider.
  *
- * The resolved provider is wrapped with EventEmittingProvider so that
- * events are emitted at the adapter layer, not the storage layer.
- *
  * @param db - Database handle for config lookups
- * @param storage - Storage instance
- * @param projectId - The PMO project ID
+ * @param storage - Storage instance (optional, may be null for Linear-only)
+ * @param projectId - The project ID
  * @param source - Optional source hint ('pmo', 'linear', or 'auto')
  * @returns The appropriate TicketProvider
  */
 export function resolveProjectProvider(
   db: Database.Database,
-  storage: ProviderStorage,
+  storage: ProviderStorage | null,
   projectId: string,
   source?: string,
 ): TicketProvider {
-  if (source === 'pmo') {
+  if (source === 'pmo' && storage) {
     const inner = new PMOTicketProvider(storage, projectId)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
   if (source === 'linear') {
-    const inner = new LinearTicketProvider(db, storage, projectId, null)
-    return wrapWithEvents(inner, db, storage, projectId)
+    const inner = new LinearTicketProvider(db, projectId, null)
+    return wrapWithEvents(inner, db, projectId)
   }
 
-  if (source === 'clickup') {
+  if (source === 'clickup' && storage) {
     const inner = new ClickUpTicketProvider(db, storage, projectId)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
-  if (source === 'trello') {
+  if (source === 'trello' && storage) {
     const inner = new TrelloTicketProvider(db, storage, projectId, null)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
-  if (source === 'github') {
+  if (source === 'github' && storage) {
     const inner = new GitHubIssuesTicketProvider(db, storage, projectId)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
-  if (source === 'jira') {
+  if (source === 'jira' && storage) {
     const inner = new JiraTicketProvider(db, storage, projectId)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
-  if (source === 'asana') {
+  if (source === 'asana' && storage) {
     const inner = new AsanaTicketProvider(db, storage, projectId)
-    return wrapWithEvents(inner, db, storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
   }
 
   // auto: use Linear when it's configured in the workspace
   try {
     if (isLinearConfigured(db)) {
-      const inner = new LinearTicketProvider(db, storage, projectId, null)
-      return wrapWithEvents(inner, db, storage, projectId)
+      const inner = new LinearTicketProvider(db, projectId, null)
+      return wrapWithEvents(inner, db, projectId)
     }
   } catch {
     // workspace_settings table may not exist in older/test databases
   }
 
-  const inner = new PMOTicketProvider(storage, projectId)
-  return wrapWithEvents(inner, db, storage, projectId)
+  if (storage) {
+    const inner = new PMOTicketProvider(storage, projectId)
+    return wrapWithEvents(inner, db, projectId)
+  }
+
+  // Last resort: return Linear provider if available
+  const inner = new LinearTicketProvider(db, projectId, null)
+  return wrapWithEvents(inner, db, projectId)
 }

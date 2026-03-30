@@ -1,19 +1,16 @@
 /**
  * Linear Ticket Provider
  *
- * Writes ticket operations directly to Linear via API,
- * then updates local PMO to keep it in sync.
- *
- * Emits work:status_changed with source='linear' so the outbound sync
- * handler skips Linear (avoiding double-write).
+ * Reads and writes ticket data directly from/to the Linear API.
+ * No local PMO mirror — Linear is the single source of truth for
+ * tickets that originate from Linear.
  */
 
 import type Database from 'better-sqlite3'
 import { LinearClient } from '../linear/client.js'
-import { LinearMapper } from '../linear/mapper.js'
 import { getLinearApiKey, resolveLinearTeamKey } from '../linear/config.js'
 import { findMatchingLinearState } from '../external-issues/outbound-sync.js'
-import { listLinearIssues } from '../external-issues/linear.js'
+import { listLinearIssues, getLinearIssueByIdentifier } from '../external-issues/linear.js'
 import { PMO_PRIORITY_TO_LINEAR, LINEAR_PRIORITY_TO_PMO } from '../linear/types.js'
 import type { Ticket, TicketFilter, CreateTicketInput, UpdateTicketInput } from '../pmo/types.js'
 import type {
@@ -25,7 +22,6 @@ import type {
   ProviderGetResult,
   ProviderUpdateResult,
   ProviderAssignResult,
-  ProviderStorage,
 } from './types.js'
 
 export class LinearTicketProvider implements TicketProvider {
@@ -33,9 +29,8 @@ export class LinearTicketProvider implements TicketProvider {
 
   constructor(
     private db: Database.Database,
-    private storage: ProviderStorage,
     private projectId: string,
-    private ticketStatusCategory: string | null,
+    private ticketId: string | null,
   ) {}
 
   private getApiKeyOrFail(): string {
@@ -45,25 +40,24 @@ export class LinearTicketProvider implements TicketProvider {
   }
 
   async moveTicket(ticketId: string, newState: string): Promise<ProviderMoveResult> {
-    // 1. Get Linear API key
     const apiKey = getLinearApiKey(this.db)
     if (!apiKey) {
       return { success: false, provider: 'linear', error: 'Linear API key not configured' }
     }
 
-    // 2. Look up Linear mapping for this PMO ticket
-    const mapper = new LinearMapper(this.db)
-    const mapping = mapper.getByTicketId(ticketId)
-    if (!mapping) {
-      return { success: false, provider: 'linear', error: `No Linear mapping for ticket ${ticketId}` }
+    // Resolve the Linear issue ID from ticket metadata in ticket_refs
+    const linearIssueId = this.resolveLinearIssueId(ticketId)
+    const teamKey = this.resolveTeamKey(ticketId)
+
+    if (!linearIssueId || !teamKey) {
+      return { success: false, provider: 'linear', error: `No Linear issue ID found for ticket ${ticketId}` }
     }
 
-    // 3. Get Linear team's workflow states
     const client = new LinearClient(apiKey)
 
     let team: { id: string; key: string; name: string } | null
     try {
-      team = await client.getTeamByKey(mapping.linearTeamKey)
+      team = await client.getTeamByKey(teamKey)
     } catch (error) {
       return {
         success: false,
@@ -73,7 +67,7 @@ export class LinearTicketProvider implements TicketProvider {
     }
 
     if (!team) {
-      return { success: false, provider: 'linear', error: `Linear team not found: ${mapping.linearTeamKey}` }
+      return { success: false, provider: 'linear', error: `Linear team not found: ${teamKey}` }
     }
 
     let states: Array<{ id: string; name: string; type: string }>
@@ -87,8 +81,6 @@ export class LinearTicketProvider implements TicketProvider {
       }
     }
 
-    // 4. Find the matching Linear state for the target PMO state
-    // Map PMO status category to Linear state type for category matching
     const categoryType = mapPMOStateToLinearType(newState)
     const matchingState = findMatchingLinearState(states, newState, categoryType)
 
@@ -100,9 +92,8 @@ export class LinearTicketProvider implements TicketProvider {
       }
     }
 
-    // 5. Update the issue state on Linear
     try {
-      await client.updateIssueState(mapping.linearIssueId, matchingState.id)
+      await client.updateIssueState(linearIssueId, matchingState.id)
     } catch (error) {
       return {
         success: false,
@@ -111,28 +102,24 @@ export class LinearTicketProvider implements TicketProvider {
       }
     }
 
-    // 6. Also update local PMO to keep it in sync
+    // Update ticket_refs cache with new status
     try {
-      await this.storage.moveTicket(this.projectId, ticketId, newState)
+      this.db.prepare(`
+        UPDATE ticket_refs SET status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? OR external_id = ?
+      `).run(matchingState.name, ticketId, linearIssueId)
     } catch {
-      // Non-fatal: Linear is the source of truth, local PMO is best-effort
+      // Non-fatal: ticket_refs is a cache
     }
 
-    // 7. Post a comment about the status change
+    // Post a comment about the status change
     try {
       await client.addComment(
-        mapping.linearIssueId,
-        `Status updated to **${newState}** (via prlt post-execution transition)`,
+        linearIssueId,
+        `Status updated to **${newState}** (via prlt)`,
       )
     } catch {
       // Non-fatal: comment is informational
-    }
-
-    // 8. Update sync timestamp
-    try {
-      mapper.updateSyncTimestamp(ticketId)
-    } catch {
-      // Non-fatal
     }
 
     return { success: true, provider: 'linear' }
@@ -146,15 +133,12 @@ export class LinearTicketProvider implements TicketProvider {
       return { success: false, provider: 'linear', error: 'Linear API key not configured' }
     }
 
-    // Look up Linear mapping
-    const mapper = new LinearMapper(this.db)
-    const mapping = mapper.getByTicketId(ticketId)
+    const linearIssueId = this.resolveLinearIssueId(ticketId)
 
-    if (mapping) {
-      // Archive the issue in Linear
+    if (linearIssueId) {
       const client = new LinearClient(apiKey)
       try {
-        await client.archiveIssue(mapping.linearIssueId)
+        await client.archiveIssue(linearIssueId)
       } catch (error) {
         return {
           success: false,
@@ -162,20 +146,13 @@ export class LinearTicketProvider implements TicketProvider {
           error: `Failed to archive Linear issue: ${error instanceof Error ? error.message : String(error)}`,
         }
       }
-
-      // Remove the mapping
-      try {
-        mapper.deleteMapping(ticketId)
-      } catch {
-        // Non-fatal
-      }
     }
 
-    // Also delete the local PMO mirror
+    // Remove from ticket_refs cache
     try {
-      await this.storage.deleteTicket(ticketId)
+      this.db.prepare('DELETE FROM ticket_refs WHERE id = ? OR external_id = ?').run(ticketId, linearIssueId)
     } catch {
-      // Non-fatal if Linear archive succeeded
+      // Non-fatal
     }
 
     return { success: true, provider: 'linear' }
@@ -273,10 +250,8 @@ export class LinearTicketProvider implements TicketProvider {
     }
 
     try {
-      // Map PMO priority to Linear priority number
       const linearPriority = input.priority ? PMO_PRIORITY_TO_LINEAR[input.priority] : undefined
 
-      // Resolve label names to Linear label IDs
       let labelIds: string[] | undefined
       if (input.labels && input.labels.length > 0) {
         try {
@@ -290,7 +265,6 @@ export class LinearTicketProvider implements TicketProvider {
         }
       }
 
-      // Create the issue in Linear
       const issue = await client.createIssue({
         teamId: team.id,
         title: input.title,
@@ -299,48 +273,59 @@ export class LinearTicketProvider implements TicketProvider {
         labelIds,
       })
 
-      // Create local PMO mirror ticket
-      const mirrorDescription = [
-        input.description || '',
-        '',
-        '---',
-        `_Created in Linear: [${issue.identifier}](${issue.url})_`,
-      ].join('\n').trim()
-
-      const mirrorPriority = input.priority || LINEAR_PRIORITY_TO_PMO[issue.priority] || undefined
-
-      const pmoTicket = await this.storage.createTicket(projectId, {
-        ...input,
+      // Return a ticket shaped from the Linear API response — no local PMO mirror
+      const ticket: Ticket = {
+        id: issue.identifier,
         title: issue.title,
-        description: mirrorDescription,
-        priority: mirrorPriority,
+        description: input.description || undefined,
+        priority: input.priority || LINEAR_PRIORITY_TO_PMO[issue.priority] || undefined,
+        category: input.category || undefined,
+        projectId: team.key,
+        projectName: team.key,
+        statusId: issue.state.name,
+        statusName: issue.state.name,
+        owner: undefined,
+        assignee: undefined,
+        subtasks: [],
+        labels: input.labels || [],
         metadata: {
-          ...input.metadata,
-          'external_source': 'linear',
-          'external_id': issue.id,
-          'external_key': issue.identifier,
-          'external_url': issue.url,
+          external_source: 'linear',
+          external_id: issue.id,
+          external_key: issue.identifier,
+          external_url: issue.url,
           'linear.issue_id': issue.id,
           'linear.identifier': issue.identifier,
           'linear.url': issue.url,
           'linear.team': issue.team.key,
           'linear.state': issue.state.name,
         },
-      })
-
-      // Create mapping record for sync operations
-      const mapper = new LinearMapper(this.db)
-      mapper.createMapping({
-        pmoTicketId: pmoTicket.id,
-        linearIssueId: issue.id,
-        linearIdentifier: issue.identifier,
-        linearTeamKey: issue.team.key,
-        linearUrl: issue.url,
-        syncDirection: 'outbound',
         createdAt: new Date(),
-      })
+        updatedAt: new Date(),
+      }
 
-      return { success: true, provider: 'linear', ticket: pmoTicket }
+      // Cache in ticket_refs for runtime lookups
+      try {
+        this.db.prepare(`
+          INSERT OR REPLACE INTO ticket_refs
+            (id, provider, external_id, external_key, external_url, title, description, status, priority, category, project_id, cached_at, updated_at)
+          VALUES (?, 'linear', ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(
+          issue.identifier,
+          issue.id,
+          issue.identifier,
+          issue.url,
+          issue.title,
+          input.description || null,
+          issue.state.name,
+          input.priority || null,
+          input.category || null,
+          team.key,
+        )
+      } catch {
+        // Non-fatal: ticket_refs is a cache
+      }
+
+      return { success: true, provider: 'linear', ticket }
     } catch (error) {
       return {
         success: false,
@@ -351,12 +336,58 @@ export class LinearTicketProvider implements TicketProvider {
   }
 
   async getTicket(ticketId: string): Promise<ProviderGetResult> {
-    // For getTicket, use local PMO since we maintain mirrors
-    // This avoids unnecessary API calls for reads
+    // Query Linear API directly for live data
+    let apiKey: string
     try {
-      const ticket = await this.storage.getTicket(ticketId)
+      apiKey = this.getApiKeyOrFail()
+    } catch {
+      return { success: false, provider: 'linear', error: 'Linear API key not configured' }
+    }
+
+    try {
+      // Try to get by identifier (e.g., PRLT-123)
+      const envelope = await getLinearIssueByIdentifier({ apiKey }, ticketId)
+
+      if (!envelope) {
+        // Fall back to ticket_refs cache if API doesn't find it
+        const cached = this.getTicketFromCache(ticketId)
+        if (cached) {
+          return { success: true, provider: 'linear', ticket: cached }
+        }
+        return { success: true, provider: 'linear', ticket: null }
+      }
+
+      const ticket: Ticket = {
+        id: envelope.source.externalKey,
+        title: envelope.title,
+        description: envelope.description || undefined,
+        priority: envelope.priority || undefined,
+        category: envelope.category || undefined,
+        projectId: envelope.projectKey,
+        projectName: envelope.projectKey,
+        statusId: envelope.status,
+        statusName: envelope.status,
+        owner: envelope.assignee || undefined,
+        assignee: envelope.assignee || undefined,
+        subtasks: [],
+        labels: envelope.labels,
+        metadata: {
+          external_source: envelope.source.name,
+          external_key: envelope.source.externalKey,
+          external_id: envelope.source.externalId,
+          external_url: envelope.source.url,
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
       return { success: true, provider: 'linear', ticket }
     } catch (error) {
+      // Fall back to ticket_refs cache on API errors
+      const cached = this.getTicketFromCache(ticketId)
+      if (cached) {
+        return { success: true, provider: 'linear', ticket: cached }
+      }
       return {
         success: false,
         provider: 'linear',
@@ -373,12 +404,9 @@ export class LinearTicketProvider implements TicketProvider {
       return { success: false, provider: 'linear', error: 'Linear API key not configured' }
     }
 
-    // Look up Linear mapping for this PMO ticket
-    const mapper = new LinearMapper(this.db)
-    const mapping = mapper.getByTicketId(ticketId)
+    const linearIssueId = this.resolveLinearIssueId(ticketId)
 
-    if (mapping) {
-      // Build Linear update payload from input fields
+    if (linearIssueId) {
       const linearInput: { title?: string; description?: string; priority?: number } = {}
       if (input.title !== undefined) linearInput.title = input.title
       if (input.description !== undefined) linearInput.description = input.description ?? undefined
@@ -386,11 +414,10 @@ export class LinearTicketProvider implements TicketProvider {
         linearInput.priority = input.priority ? PMO_PRIORITY_TO_LINEAR[input.priority] : undefined
       }
 
-      // Only call Linear API if there are Linear-relevant fields
       if (Object.keys(linearInput).length > 0) {
         const client = new LinearClient(apiKey)
         try {
-          await client.updateIssue(mapping.linearIssueId, linearInput)
+          await client.updateIssue(linearIssueId, linearInput)
         } catch (error) {
           return {
             success: false,
@@ -399,26 +426,24 @@ export class LinearTicketProvider implements TicketProvider {
           }
         }
       }
-
-      // Update sync timestamp
-      try {
-        mapper.updateSyncTimestamp(ticketId)
-      } catch {
-        // Non-fatal
-      }
     }
 
-    // Also update local PMO mirror
+    // Update ticket_refs cache
     try {
-      const ticket = await this.storage.updateTicket(ticketId, input as Partial<Ticket>)
-      return { success: true, provider: 'linear', ticket }
-    } catch (error) {
-      return {
-        success: false,
-        provider: 'linear',
-        error: error instanceof Error ? error.message : String(error),
-      }
+      const setClauses: string[] = ['updated_at = CURRENT_TIMESTAMP']
+      const params: unknown[] = []
+      if (input.title !== undefined) { setClauses.push('title = ?'); params.push(input.title) }
+      if (input.description !== undefined) { setClauses.push('description = ?'); params.push(input.description) }
+      if (input.priority !== undefined) { setClauses.push('priority = ?'); params.push(input.priority) }
+      if ('assignee' in input) { setClauses.push('assignee = ?'); params.push((input as Record<string, unknown>).assignee) }
+      params.push(ticketId, linearIssueId)
+      this.db.prepare(`UPDATE ticket_refs SET ${setClauses.join(', ')} WHERE id = ? OR external_id = ?`).run(...params)
+    } catch {
+      // Non-fatal
     }
+
+    // Return the updated ticket by fetching it live
+    return this.getTicket(ticketId) as Promise<ProviderUpdateResult>
   }
 
   async assignTicket(ticketId: string, assignee: string): Promise<ProviderAssignResult> {
@@ -429,30 +454,110 @@ export class LinearTicketProvider implements TicketProvider {
       return { success: false, provider: 'linear', error: 'Linear API key not configured' }
     }
 
-    // Look up Linear mapping
-    const mapper = new LinearMapper(this.db)
-    const mapping = mapper.getByTicketId(ticketId)
+    const linearIssueId = this.resolveLinearIssueId(ticketId)
 
-    if (mapping) {
+    if (linearIssueId) {
       const client = new LinearClient(apiKey)
       try {
-        // Try to assign by email in Linear (best-effort — assignee may be a local name)
-        await client.assignIssue(mapping.linearIssueId, assignee)
+        await client.assignIssue(linearIssueId, assignee)
       } catch {
         // Non-fatal: assignee may not be a valid Linear email
       }
     }
 
-    // Update local PMO mirror
+    // Update ticket_refs cache
     try {
-      await this.storage.updateTicket(ticketId, { assignee } as Partial<Ticket>)
-      return { success: true, provider: 'linear' }
-    } catch (error) {
-      return {
-        success: false,
-        provider: 'linear',
-        error: error instanceof Error ? error.message : String(error),
+      this.db.prepare('UPDATE ticket_refs SET assignee = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? OR external_id = ?')
+        .run(assignee, ticketId, linearIssueId)
+    } catch {
+      // Non-fatal
+    }
+
+    return { success: true, provider: 'linear' }
+  }
+
+  /**
+   * Resolve the Linear issue UUID from ticket_refs or agent_work metadata.
+   * Checks multiple sources since the ticket ID may be the external key (PRLT-123)
+   * or the internal ref ID.
+   */
+  private resolveLinearIssueId(ticketId: string): string | null {
+    try {
+      // Check ticket_refs first
+      const ref = this.db.prepare(
+        `SELECT external_id FROM ticket_refs WHERE id = ? OR external_key = ? OR external_id = ?`,
+      ).get(ticketId, ticketId, ticketId) as { external_id: string | null } | undefined
+
+      if (ref?.external_id) return ref.external_id
+
+      // Check agent_work metadata
+      const work = this.db.prepare(
+        `SELECT ticket_metadata FROM agent_work WHERE ticket_id = ?`,
+      ).get(ticketId) as { ticket_metadata: string | null } | undefined
+
+      if (work?.ticket_metadata) {
+        try {
+          const meta = JSON.parse(work.ticket_metadata)
+          if (meta.external_id) return meta.external_id
+          if (meta['linear.issue_id']) return meta['linear.issue_id']
+        } catch {
+          // Invalid JSON
+        }
       }
+    } catch {
+      // Table may not exist in test environments
+    }
+    return null
+  }
+
+  /**
+   * Resolve the Linear team key from ticket_refs or workspace config.
+   */
+  private resolveTeamKey(ticketId: string): string | null {
+    // Try to extract from ticket ID (e.g., PRLT-123 → PRLT)
+    const match = ticketId.match(/^([A-Z]+)-\d+$/)
+    if (match) return match[1]
+
+    // Fall back to workspace default
+    return resolveLinearTeamKey(this.db)
+  }
+
+  /**
+   * Get a ticket from the ticket_refs cache.
+   */
+  private getTicketFromCache(ticketId: string): Ticket | null {
+    try {
+      const row = this.db.prepare(
+        `SELECT * FROM ticket_refs WHERE id = ? OR external_key = ? OR external_id = ?`,
+      ).get(ticketId, ticketId, ticketId) as Record<string, unknown> | undefined
+
+      if (!row) return null
+
+      return {
+        id: String(row.id ?? row.external_key ?? ticketId),
+        title: String(row.title ?? ''),
+        description: row.description ? String(row.description) : undefined,
+        priority: row.priority ? String(row.priority) : undefined,
+        category: row.category ? String(row.category) : undefined,
+        projectId: row.project_id ? String(row.project_id) : '',
+        projectName: row.project_id ? String(row.project_id) : '',
+        statusId: row.status ? String(row.status) : undefined,
+        statusName: row.status ? String(row.status) : undefined,
+        owner: row.assignee ? String(row.assignee) : undefined,
+        assignee: row.assignee ? String(row.assignee) : undefined,
+        subtasks: [],
+        labels: [],
+        metadata: {
+          external_source: 'linear',
+          external_key: row.external_key ? String(row.external_key) : '',
+          external_id: row.external_id ? String(row.external_id) : '',
+          external_url: row.external_url ? String(row.external_url) : '',
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+    } catch {
+      return null
     }
   }
 }
@@ -478,6 +583,5 @@ function mapPMOStateToLinearType(stateName: string): string {
   if (lower.includes('triage')) {
     return 'triage'
   }
-  // Default to started for unknown states (most post-execution transitions go forward)
   return 'started'
 }
