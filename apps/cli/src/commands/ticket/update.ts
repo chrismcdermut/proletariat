@@ -95,8 +95,13 @@ export default class TicketUpdate extends PMOCommand {
       return handleError('INVALID_FLAGS', 'Cannot use both --description and --description-file.');
     }
 
-    // Get all tickets
-    const allTickets = await this.storage.listTickets(projectId);
+    // Get all tickets from provider — no local PMO fallback
+    const updateProjectProvider = this.resolveProjectProvider(projectId);
+    const updateListResult = await updateProjectProvider.listTickets(projectId);
+    if (!updateListResult.success) {
+      return handleError('LIST_FAILED', updateListResult.error || 'Failed to list tickets.');
+    }
+    const allTickets = updateListResult.tickets;
 
     if (allTickets.length === 0) {
       return handleError('NO_TICKETS', 'No tickets found.');
@@ -127,12 +132,13 @@ export default class TicketUpdate extends PMOCommand {
       ticketId = selected;
     }
 
-    // Get ticket
-    const ticket = await this.storage.getTicket(ticketId!);
+    // Get ticket from provider — no local PMO fallback
+    const updateTicketProvider = await this.resolveTicketProvider(ticketId!, projectId);
+    const updateGetResult = await updateTicketProvider.getTicket(ticketId!);
+    const ticket = updateGetResult.success ? updateGetResult.ticket ?? null : null;
     if (!ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
-    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
     ticketId = ticket.id;
 
     // Check if any flags were provided
@@ -209,11 +215,14 @@ export default class TicketUpdate extends PMOCommand {
       changedFields.push(`Status: ${flags.status}`);
     }
 
-    // Auto-export
-    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+    // Auto-export only for PMO provider
+    if (updateTicketProvider.name === 'pmo') {
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+    }
 
-    // Refresh ticket for output
-    const updatedTicket = await this.storage.getTicket(ticketId!) || ticket;
+    // Refresh ticket from provider
+    const refreshResult = await updateTicketProvider.getTicket(ticketId!);
+    const updatedTicket = (refreshResult.success && refreshResult.ticket) ? refreshResult.ticket : ticket;
 
     // JSON output mode
     if (jsonMode) {

@@ -81,7 +81,9 @@ export default class TicketMove extends PMOCommand {
     // Cross-project move: if ticketId and --to-project are provided, skip project context
     // The source project is determined from the ticket itself
     if (args.ticketId && flags['to-project']) {
-      const ticket = await this.storage.getTicket(args.ticketId);
+      const crossProvider = await this.resolveTicketProvider(args.ticketId, '');
+      const crossResult = await crossProvider.getTicket(args.ticketId);
+      const ticket = crossResult.success ? crossResult.ticket ?? null : null;
       if (!ticket) {
         return handleError('TICKET_NOT_FOUND', `Ticket "${args.ticketId}" not found.`);
       }
@@ -98,8 +100,13 @@ export default class TicketMove extends PMOCommand {
       },
     });
 
-    // Get all tickets
-    const allTickets = await this.storage.listTickets(projectId);
+    // Get all tickets from provider — no local PMO fallback
+    const moveProvider = this.resolveProjectProvider(projectId);
+    const moveListResult = await moveProvider.listTickets(projectId);
+    if (!moveListResult.success) {
+      return handleError('LIST_FAILED', moveListResult.error || 'Failed to list tickets.');
+    }
+    const allTickets = moveListResult.tickets;
 
     if (allTickets.length === 0) {
       return handleError('NO_TICKETS', 'No tickets found. Create a ticket first with "prlt ticket create".');
@@ -131,12 +138,13 @@ export default class TicketMove extends PMOCommand {
       ticketId = selected;
     }
 
-    // Get ticket
-    const ticket = await this.storage.getTicket(ticketId!);
+    // Get ticket from provider — no local PMO fallback
+    const singleProvider = await this.resolveTicketProvider(ticketId!, projectId);
+    const singleResult = await singleProvider.getTicket(ticketId!);
+    const ticket = singleResult.success ? singleResult.ticket ?? null : null;
     if (!ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
-    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
     ticketId = ticket.id;
 
     // Cross-project move (when --to-project flag is provided)
@@ -261,11 +269,14 @@ export default class TicketMove extends PMOCommand {
       }
     }
 
-    // Refresh ticket to get updated status
-    const moved = await this.storage.getTicket(ticketId!) || ticket;
+    // Refresh ticket to get updated status from provider
+    const refreshResult = await provider.getTicket(ticketId!);
+    const moved = (refreshResult.success && refreshResult.ticket) ? refreshResult.ticket : ticket;
 
-    // Auto-export to board.md after write
-    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+    // Auto-export to board.md only for local PMO provider
+    if (provider.name === 'pmo') {
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+    }
 
     // JSON output mode - match MCP tool response shape
     if (jsonMode) {
