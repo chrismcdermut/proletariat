@@ -60,7 +60,7 @@ export default class TicketDelete extends PMOCommand {
     };
 
     // Get all tickets from provider — no local PMO fallback
-    const deleteProvider = this.resolveProjectProvider(projectId);
+    const deleteProvider = this.resolveProjectProvider(projectId || '');
     const deleteListResult = await deleteProvider.listTickets(projectId);
     if (!deleteListResult.success) {
       return handleError('LIST_FAILED', deleteListResult.error || 'Failed to list tickets.');
@@ -98,7 +98,7 @@ export default class TicketDelete extends PMOCommand {
     }
 
     // Get ticket from provider
-    const ticketProvider = await this.resolveTicketProvider(ticketId!, projectId);
+    const ticketProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
     const getResult = await ticketProvider.getTicket(ticketId!);
     const ticket = getResult.success ? getResult.ticket ?? null : null;
     if (!ticket) {

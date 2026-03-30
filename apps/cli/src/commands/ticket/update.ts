@@ -96,7 +96,7 @@ export default class TicketUpdate extends PMOCommand {
     }
 
     // Get all tickets from provider — no local PMO fallback
-    const updateProjectProvider = this.resolveProjectProvider(projectId);
+    const updateProjectProvider = this.resolveProjectProvider(projectId || '');
     const updateListResult = await updateProjectProvider.listTickets(projectId);
     if (!updateListResult.success) {
       return handleError('LIST_FAILED', updateListResult.error || 'Failed to list tickets.');
@@ -133,7 +133,7 @@ export default class TicketUpdate extends PMOCommand {
     }
 
     // Get ticket from provider — no local PMO fallback
-    const updateTicketProvider = await this.resolveTicketProvider(ticketId!, projectId);
+    const updateTicketProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
     const updateGetResult = await updateTicketProvider.getTicket(ticketId!);
     const ticket = updateGetResult.success ? updateGetResult.ticket ?? null : null;
     if (!ticket) {
