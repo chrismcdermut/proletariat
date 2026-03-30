@@ -27,6 +27,7 @@ describe('Orchestrate Built-in Actions', () => {
       'notify',
       'cleanup-container',
       'spawn-fix-agent',
+      'spawn-review-agent',
       'health-check',
       'resolve-conflict',
     ]
@@ -98,6 +99,12 @@ describe('Orchestrate Built-in Actions', () => {
 
     it('spawn-fix-agent should fail without ticket', () => {
       const result = executeBuiltinAction('spawn-fix-agent', { event: 'on_ci_failed' })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('No ticket')
+    })
+
+    it('spawn-review-agent should fail without ticket', () => {
+      const result = executeBuiltinAction('spawn-review-agent', { event: 'on_pr_opened' })
       expect(result.success).to.be.false
       expect(result.error).to.include('No ticket')
     })
@@ -232,6 +239,15 @@ describe('Orchestrate Built-in Actions', () => {
       expect(result.error).to.include('prlt work start PRLT-400 --action revise --yes --display background')
     })
 
+    it('spawn-review-agent should use: prlt work start <ticket> --action review --yes --display background', () => {
+      const result = executeBuiltinAction('spawn-review-agent', {
+        event: 'on_pr_opened',
+        ticket: 'PRLT-450',
+      })
+      expect(result.success).to.be.false
+      expect(result.error).to.include('prlt work start PRLT-450 --action review --yes --display background')
+    })
+
     it('health-check should use: prlt poke <agent> "..."', () => {
       const result = executeBuiltinAction('health-check', {
         event: 'on_agent_idle',
@@ -340,6 +356,7 @@ describe('Orchestrate Built-in Actions', () => {
         { name: 'spawn-agent', ctx: { event: 'test', ticket: 'TKT-1' } },
         { name: 'respawn', ctx: { event: 'test', ticket: 'TKT-1' } },
         { name: 'spawn-fix-agent', ctx: { event: 'test', ticket: 'TKT-1' } },
+        { name: 'spawn-review-agent', ctx: { event: 'test', ticket: 'TKT-1' } },
         { name: 'health-check', ctx: { event: 'test', agent: 'agent-1' } },
         { name: 'cleanup-container', ctx: { event: 'test', agent: 'agent-1' } },
         { name: 'resolve-conflict', ctx: { event: 'test', ticket: 'TKT-1' } },

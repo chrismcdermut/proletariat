@@ -13,7 +13,8 @@
 import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import type Database from 'better-sqlite3'
-import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks, getPRByNumber } from '../pr/index.js'
+import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks, getPRByNumber, getPRReviewDecision } from '../pr/index.js'
+import type { PRReviewDecision } from '../pr/index.js'
 import { runSyncCycle, type SyncReport } from '../sync/engine.js'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import type { OrchestrateEngine } from './engine.js'
@@ -34,6 +35,7 @@ interface TrackedPR {
   number: number
   lastCIState: 'pending' | 'success' | 'failure' | 'unknown'
   lastMergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+  lastReviewDecision: PRReviewDecision
 }
 
 // =============================================================================
@@ -265,6 +267,30 @@ export class OrchestratePoller {
           }
         }
 
+        // --- Review Decision ---
+        const reviewDecision = getPRReviewDecision(pr.number, this.cwd)
+        if (tracked && reviewDecision && reviewDecision !== tracked.lastReviewDecision) {
+          if (reviewDecision === 'APPROVED') {
+            this.log(`[poll] Review approved: PR #${pr.number}`)
+            await this.engine.fireEvent('on_review_approved', {
+              event: 'on_review_approved',
+              pr: pr.number,
+              branch: pr.headBranch,
+              ticket: ticketId,
+              prUrl: pr.url,
+            })
+          } else if (reviewDecision === 'CHANGES_REQUESTED') {
+            this.log(`[poll] Changes requested: PR #${pr.number}`)
+            await this.engine.fireEvent('on_changes_requested', {
+              event: 'on_changes_requested',
+              pr: pr.number,
+              branch: pr.headBranch,
+              ticket: ticketId,
+              prUrl: pr.url,
+            })
+          }
+        }
+
         // --- Merge Conflicts ---
         let mergeable: TrackedPR['lastMergeable'] = 'UNKNOWN'
         try {
@@ -314,6 +340,7 @@ export class OrchestratePoller {
           number: pr.number,
           lastCIState: ciState,
           lastMergeable: mergeable,
+          lastReviewDecision: reviewDecision,
         })
       }
 

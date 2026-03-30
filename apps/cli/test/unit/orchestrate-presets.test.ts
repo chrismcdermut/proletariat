@@ -21,6 +21,7 @@ const SAFE_ACTIONS = new Set([
   'cleanup-container',
   'health-check',
   'rebase-conflicting-prs',
+  'spawn-review-agent',
 ])
 
 describe('Orchestrate Presets', () => {
@@ -142,19 +143,30 @@ describe('Orchestrate Presets', () => {
   // ===========================================================================
 
   describe('invariants', () => {
-    it('any action calling prlt work start MUST NOT be auto in supervised mode', () => {
-      // Actions that spawn agents/containers: spawn-agent, respawn, spawn-fix-agent, resolve-conflict
-      // These actions internally call `prlt work start` and MUST require confirmation
-      const spawnActions = new Set(['spawn-agent', 'respawn', 'spawn-fix-agent', 'resolve-conflict'])
+    it('code-modifying spawn actions MUST NOT be auto in supervised mode', () => {
+      // Actions that spawn code-modifying agents: spawn-agent, respawn, spawn-fix-agent, resolve-conflict
+      // These actions internally call `prlt work start` with code-modifying actions and MUST require confirmation.
+      // Exception: spawn-review-agent is safe (review agents are read-only, non-destructive).
+      const unsafeSpawnActions = new Set(['spawn-agent', 'respawn', 'spawn-fix-agent', 'resolve-conflict'])
       const supervised = getPreset('supervised')
 
       for (const hook of supervised.hooks) {
-        if (spawnActions.has(hook.action)) {
+        if (unsafeSpawnActions.has(hook.action)) {
           expect(hook.mode).to.equal(
             'confirm',
             `Action "${hook.action}" (event: ${hook.event}) calls prlt work start — must be confirm mode in supervised preset, not ${hook.mode}`
           )
         }
+      }
+    })
+
+    it('spawn-review-agent SHOULD be auto in supervised mode (non-destructive)', () => {
+      const supervised = getPreset('supervised')
+      const reviewHooks = supervised.hooks.filter(h => h.action === 'spawn-review-agent')
+
+      expect(reviewHooks.length).to.be.greaterThan(0, 'Should have at least one spawn-review-agent hook')
+      for (const hook of reviewHooks) {
+        expect(hook.mode).to.equal('auto', 'spawn-review-agent should be auto in supervised mode (review is read-only)')
       }
     })
 

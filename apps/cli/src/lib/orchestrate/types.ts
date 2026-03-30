@@ -35,6 +35,8 @@ export type OrchestrateEvent =
   | 'on_agent_died'
   | 'on_agent_completed'
   | 'on_agent_idle'
+  | 'on_review_approved'
+  | 'on_changes_requested'
   | 'on_version_published'
 
 /** All valid orchestrate event names. */
@@ -57,6 +59,8 @@ export const ORCHESTRATE_EVENTS: OrchestrateEvent[] = [
   'on_agent_died',
   'on_agent_completed',
   'on_agent_idle',
+  'on_review_approved',
+  'on_changes_requested',
   'on_version_published',
 ]
 
@@ -86,6 +90,7 @@ export type BuiltinAction =
   | 'notify'
   | 'cleanup-container'
   | 'spawn-fix-agent'
+  | 'spawn-review-agent'
   | 'health-check'
   | 'resolve-conflict'
 
@@ -99,6 +104,7 @@ export const BUILTIN_ACTIONS: BuiltinAction[] = [
   'notify',
   'cleanup-container',
   'spawn-fix-agent',
+  'spawn-review-agent',
   'health-check',
   'resolve-conflict',
 ]

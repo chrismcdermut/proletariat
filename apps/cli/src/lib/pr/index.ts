@@ -838,6 +838,35 @@ export function getPRChecks(prNumber: number, cwd?: string): PRCheck[] {
   }
 }
 
+/**
+ * Review decision state for a PR.
+ * Lightweight check that only fetches the review decision without full feedback.
+ */
+export type PRReviewDecision = 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
+
+/**
+ * Get the review decision for a PR (lightweight — only fetches reviewDecision).
+ */
+export function getPRReviewDecision(prNumber: number, cwd?: string): PRReviewDecision {
+  try {
+    const result = execSync(
+      `gh pr view ${prNumber} --json reviewDecision -q .reviewDecision`,
+      {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    ).trim();
+
+    if (result === 'APPROVED') return 'APPROVED';
+    if (result === 'CHANGES_REQUESTED') return 'CHANGES_REQUESTED';
+    if (result === 'REVIEW_REQUIRED') return 'REVIEW_REQUIRED';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function formatPRFeedbackForPrompt(feedback: PRFeedback): string {
   const lines: string[] = [];
 
