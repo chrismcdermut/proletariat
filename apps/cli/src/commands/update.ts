@@ -9,6 +9,7 @@ import {
   getUpdateCommand,
   getStandaloneInstallDir,
   isNewerVersion,
+  runNpmInstallWithRetry,
   type PackageManager,
 } from '../lib/update-check.js'
 
@@ -132,10 +133,14 @@ export default class Update extends Command {
     }
 
     try {
-      execSync(command, {
-        stdio: 'inherit',
-        timeout: 120_000,
-      })
+      if (pm === 'npm') {
+        runNpmInstallWithRetry(command)
+      } else {
+        execSync(command, {
+          stdio: 'inherit',
+          timeout: 120_000,
+        })
+      }
 
       if (!jsonMode) {
         this.log('')
@@ -188,7 +193,8 @@ export default class Update extends Command {
     }
 
     if (pm === 'npm') {
-      this.log('  If npm fails with EEXIST, another install method may be conflicting.')
+      this.log('  If npm fails with EEXIST or ENOTEMPTY, another install method may be conflicting.')
+      this.log(`  Try: ${colors.textMuted('npm cache clean --force && npm install -g @proletariat/cli')}`)
       this.log(`  See: ${colors.textMuted('prlt update --help')} or`)
       this.log(`  Docs: ${colors.textMuted('https://github.com/chrismcdermut/proletariat/blob/main/docs/switching-install-methods.md')}`)
       this.log('')

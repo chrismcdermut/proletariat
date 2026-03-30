@@ -385,6 +385,96 @@ export function isNewerVersion(current: string, latest: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// npm ENOTEMPTY workaround
+// ---------------------------------------------------------------------------
+
+/**
+ * Get the npm global node_modules directory.
+ * Returns null if it cannot be determined.
+ */
+export function getNpmGlobalModulesDir(): string | null {
+  try {
+    const prefix = execSync('npm prefix -g', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10_000,
+    }).trim()
+    return path.join(prefix, 'lib', 'node_modules')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Remove the existing @proletariat/cli directory from npm global node_modules.
+ * This prevents ENOTEMPTY errors during `npm install -g`, which is a known npm
+ * bug where renaming the old package directory fails.
+ *
+ * Safe to call even if the directory doesn't exist.
+ */
+export function cleanNpmPackageDir(): boolean {
+  const modulesDir = getNpmGlobalModulesDir()
+  if (!modulesDir) return false
+
+  const packageDir = path.join(modulesDir, '@proletariat', 'cli')
+  try {
+    if (fs.existsSync(packageDir)) {
+      fs.rmSync(packageDir, { recursive: true, force: true })
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Run an npm global install command with automatic ENOTEMPTY retry.
+ *
+ * npm global installs frequently fail with ENOTEMPTY when renaming the
+ * old package directory (a known npm bug). When this error is detected
+ * in stderr, the old package directory is removed and the install is
+ * retried transparently.
+ *
+ * Throws on failure (both non-ENOTEMPTY errors and failed retries).
+ */
+export function runNpmInstallWithRetry(command: string): void {
+  try {
+    execSync(command, {
+      stdio: ['inherit', 'inherit', 'pipe'],
+      timeout: 120_000,
+    })
+  } catch (error: unknown) {
+    const stderr = (error as { stderr?: Buffer })?.stderr?.toString() ?? ''
+
+    if (!stderr.includes('ENOTEMPTY')) {
+      // Not an ENOTEMPTY error — re-throw with stderr attached
+      if (stderr) {
+        process.stderr.write(stderr)
+      }
+      throw error
+    }
+
+    // ENOTEMPTY detected — clean the old directory and retry
+    console.log('')
+    console.log('npm encountered ENOTEMPTY error (known npm bug). Cleaning up and retrying…')
+
+    if (!cleanNpmPackageDir()) {
+      console.error('Could not clean the existing package directory.')
+      if (stderr) {
+        process.stderr.write(stderr)
+      }
+      throw error
+    }
+
+    // Retry with full stdio inherited
+    execSync(command, {
+      stdio: 'inherit',
+      timeout: 120_000,
+    })
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pending check tracking
 // ---------------------------------------------------------------------------
 

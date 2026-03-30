@@ -13,7 +13,7 @@
 
 import { execSync } from 'node:child_process'
 import type { UpdateInfo } from './update-check.js'
-import { dismissVersion, getStaleTapCommands, getStandaloneInstallDir } from './update-check.js'
+import { dismissVersion, getStaleTapCommands, getStandaloneInstallDir, runNpmInstallWithRetry } from './update-check.js'
 
 // ---------------------------------------------------------------------------
 // Environment guards
@@ -174,10 +174,14 @@ async function executeUpdate(info: UpdateInfo): Promise<'updated' | 'failed'> {
   console.log('')
 
   try {
-    execSync(command, {
-      stdio: 'inherit',
-      timeout: 120_000, // 2 minute timeout
-    })
+    if (info.packageManager === 'npm') {
+      runNpmInstallWithRetry(command)
+    } else {
+      execSync(command, {
+        stdio: 'inherit',
+        timeout: 120_000, // 2 minute timeout
+      })
+    }
     console.log('')
     console.log('Update complete! Run your command again to use the new version.')
     return 'updated'
