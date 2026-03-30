@@ -184,7 +184,10 @@ export default class WorkShip extends PMOCommand {
         // Resolve ticket first
         if (!ticketId) {
           // Prompt for ticket selection from shippable tickets (in review or in progress)
-          const allTickets = await this.storage.listTickets(projectId);
+          // Use provider so we pull live from Linear (or other external source) when configured
+          const provider = this.resolveProjectProvider(projectId || '');
+          const listResult = await provider.listTickets(projectId);
+          const allTickets = listResult.success ? listResult.tickets : await this.storage.listTickets(projectId);
           const shippableTickets = allTickets.filter(t =>
             t.statusCategory === 'started' ||
             (t.statusName && (
@@ -219,8 +222,10 @@ export default class WorkShip extends PMOCommand {
           ticketId = selected;
         }
 
-        // Get ticket
-        ticket = await this.storage.getTicket(ticketId!);
+        // Get ticket — try provider first (handles Linear-only tickets), fall back to local storage
+        const ticketProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
+        const getResult = await ticketProvider.getTicket(ticketId!);
+        ticket = getResult.success && getResult.ticket ? getResult.ticket : await this.storage.getTicket(ticketId!);
         if (!ticket) {
           db.close();
           return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
@@ -422,7 +427,7 @@ export default class WorkShip extends PMOCommand {
       let doneColumn: string | null | undefined;
 
       if (ticket && ticketId) {
-        // Update PR metadata
+        // Update PR metadata (best-effort — may not exist locally for external tickets)
         try {
           await this.storage.updateTicket(ticketId, {
             metadata: {
@@ -432,10 +437,12 @@ export default class WorkShip extends PMOCommand {
             },
           });
         } catch (err) {
-          if ((err as { code?: string }).code === 'SQLITE_READONLY') {
-            this.log(styles.muted('   PR metadata update skipped (read-only database)'));
+          const code = (err as { code?: string }).code;
+          if (code === 'SQLITE_READONLY' || code === 'TICKET_NOT_FOUND') {
+            this.log(styles.muted('   PR metadata update skipped (ticket not in local PMO)'));
           } else {
-            throw err;
+            // Non-fatal for external tickets — don't block ship
+            this.log(styles.muted('   PR metadata update skipped'));
           }
         }
 
@@ -606,8 +613,13 @@ export default class WorkShip extends PMOCommand {
     headBranch: string,
     projectId: string | undefined,
   ): Promise<Ticket | null> {
-    // 1. Find by PR metadata on tickets
-    const allTickets = await this.storage.listTickets(projectId);
+    // 1. Find by PR metadata on tickets (check provider first, then local storage)
+    const provider = this.resolveProjectProvider(projectId || '');
+    const listResult = await provider.listTickets(projectId);
+    const allTickets = listResult.success && listResult.tickets.length > 0
+      ? listResult.tickets
+      : await this.storage.listTickets(projectId);
+
     const byMetadata = allTickets.find(t =>
       t.metadata?.pr_number === String(prNumber) ||
       t.metadata?.pr_url?.endsWith(`/pull/${prNumber}`) ||
@@ -622,6 +634,11 @@ export default class WorkShip extends PMOCommand {
         `SELECT ticket_id FROM ${PMO_TABLES.agent_work} WHERE branch = ? LIMIT 1`
       ).get(headBranch) as { ticket_id: string } | undefined;
       if (row?.ticket_id) {
+        // Try provider first for the ticket
+        const ticketProvider = await this.resolveTicketProvider(row.ticket_id, projectId || '');
+        const getResult = await ticketProvider.getTicket(row.ticket_id);
+        if (getResult.success && getResult.ticket) return getResult.ticket;
+
         const ticket = await this.storage.getTicket(row.ticket_id);
         if (ticket) return ticket;
       }
@@ -633,6 +650,11 @@ export default class WorkShip extends PMOCommand {
     const branchResult = validateBranchName(headBranch);
     if (branchResult.valid && branchResult.parts?.ticketId) {
       const branchTicketId = branchResult.parts.ticketId;
+
+      // Try provider for external ticket IDs (e.g., PRLT-1231)
+      const ticketProvider = await this.resolveTicketProvider(branchTicketId, projectId || '');
+      const getResult = await ticketProvider.getTicket(branchTicketId);
+      if (getResult.success && getResult.ticket) return getResult.ticket;
 
       const directTicket = await this.storage.getTicket(branchTicketId);
       if (directTicket) return directTicket;
