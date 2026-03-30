@@ -23,7 +23,6 @@ import { isLinearConfigured } from '../linear/config.js'
 import { isClickUpConfigured } from '../clickup/config.js'
 import { isGitHubConfigured } from '../github/config.js'
 import { isJiraConfigured } from '../jira/config.js'
-import { LinearMapper } from '../linear/mapper.js'
 import { isTrelloConfigured } from '../trello/config.js'
 import { TrelloMapper } from '../trello/mapper.js'
 import { isAsanaConfigured } from '../asana/config.js'
@@ -111,19 +110,31 @@ function wrapWithEvents(
 }
 
 /**
+ * Wrap a provider with EventEmittingProvider using null status resolver.
+ * Used for external providers (Linear, etc.) where tickets don't exist
+ * in local PMO and status resolution would fail.
+ */
+function wrapWithEventsNoResolver(
+  provider: TicketProvider,
+  projectId: string,
+): TicketProvider {
+  return new EventEmittingProvider(provider, null, projectId)
+}
+
+/**
  * Resolve the correct provider for a given ticket.
  *
  * Uses the ticket's metadata to determine the source of truth:
- * - external_source = 'linear' + configured + outbound/bidirectional → Linear
+ * - external_source = 'linear' + configured → Linear
  * - Otherwise → PMO
  *
  * The resolved provider is wrapped with EventEmittingProvider so that
  * events are emitted at the adapter layer, not the storage layer.
  *
- * @param ticketId - The PMO ticket ID
- * @param projectId - The PMO project ID
- * @param db - Database handle for config/mapping lookups
- * @param storage - Storage for fallback and local sync
+ * @param ticketId - The ticket ID (PMO TKT-xxx or external PRLT-xxx)
+ * @param projectId - The project ID
+ * @param db - Database handle for config lookups
+ * @param storage - Storage for PMO fallback
  * @param metadata - Ticket metadata (contains external_source, etc.)
  * @returns The appropriate TicketProvider for this ticket
  */
@@ -136,27 +147,16 @@ export function resolveTicketProvider(
 ): TicketProvider {
   const externalSource = metadata?.external_source
 
-  // Check Linear
+  // Check Linear — when configured, use Linear provider directly (no mapping lookup needed)
   if (externalSource === 'linear' && isLinearConfigured(db)) {
-    const mapper = new LinearMapper(db)
-    const mapping = mapper.getByTicketId(ticketId)
+    const inner = new LinearTicketProvider(db)
+    return wrapWithEventsNoResolver(inner, projectId)
+  }
 
-    if (mapping) {
-      // Use Linear provider when we need to write back to Linear:
-      // - 'outbound' = ticket came from Linear (via work start) → write back status changes
-      // - 'bidirectional' = both directions synced → write to Linear directly
-      // - 'inbound' = bulk import from Linear → read-only, no write-back
-      if (mapping.syncDirection === 'outbound' || mapping.syncDirection === 'bidirectional') {
-        const inner = new LinearTicketProvider(db, storage, projectId, null)
-        return wrapWithEvents(inner, db, storage, projectId)
-      }
-    } else if (metadata?.external_key || metadata?.external_id) {
-      // PRLT-1167: External-only ticket (no PMO mirror, no LinearMapper mapping).
-      // When metadata contains external_key/external_id, resolve to Linear provider
-      // so post-execution transitions write back to Linear directly.
-      const inner = new LinearTicketProvider(db, storage, projectId, null)
-      return wrapWithEvents(inner, db, storage, projectId)
-    }
+  // Also resolve to Linear for tickets with external_key/external_id even without metadata.external_source
+  if (!externalSource && isLinearConfigured(db) && (metadata?.external_key || metadata?.external_id)) {
+    const inner = new LinearTicketProvider(db)
+    return wrapWithEventsNoResolver(inner, projectId)
   }
 
   // Check ClickUp
@@ -180,7 +180,6 @@ export function resolveTicketProvider(
       const inner = new TrelloTicketProvider(db, storage, projectId, null)
       return wrapWithEvents(inner, db, storage, projectId)
     } else if (metadata?.external_key || metadata?.external_id) {
-      // PRLT-1167: External-only ticket — resolve to Trello provider directly
       const inner = new TrelloTicketProvider(db, storage, projectId, null)
       return wrapWithEvents(inner, db, storage, projectId)
     }
@@ -238,8 +237,8 @@ export function resolveProjectProvider(
   }
 
   if (source === 'linear') {
-    const inner = new LinearTicketProvider(db, storage, projectId, null)
-    return wrapWithEvents(inner, db, storage, projectId)
+    const inner = new LinearTicketProvider(db)
+    return wrapWithEventsNoResolver(inner, projectId)
   }
 
   if (source === 'clickup') {
@@ -270,8 +269,8 @@ export function resolveProjectProvider(
   // auto: use Linear when it's configured in the workspace
   try {
     if (isLinearConfigured(db)) {
-      const inner = new LinearTicketProvider(db, storage, projectId, null)
-      return wrapWithEvents(inner, db, storage, projectId)
+      const inner = new LinearTicketProvider(db)
+      return wrapWithEventsNoResolver(inner, projectId)
     }
   } catch {
     // workspace_settings table may not exist in older/test databases
