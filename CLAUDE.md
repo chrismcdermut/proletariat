@@ -49,6 +49,12 @@ cd apps/cli && pnpm build
 
 **Every bug fix PR MUST include a regression test** that fails if the fix is reverted.
 
+**Every PR MUST include tests for changed code. No exceptions.**
+- Write unit tests for new functions and modified logic
+- Write integration tests for new flows and command changes
+- Test files live in `apps/cli/test/unit/` and `apps/cli/test/e2e/`
+- If you modify source code without adding or updating tests, your PR will be blocked
+
 ## Command Code Rules
 
 - **Never call `process.exit()` in command code** — let oclif handle lifecycle (use `return` instead).

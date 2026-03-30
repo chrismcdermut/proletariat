@@ -386,8 +386,56 @@ export function buildClaudeLifecycleHooks(): Record<string, unknown> {
           ],
         },
       ],
+      // PRLT-1225: Enforce test coverage before PR creation or push
+      // Checks git diff for test file changes — injects warning if none found
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [
+            {
+              type: 'command' as const,
+              command: '/home/node/.claude/hooks/enforce-tests.sh',
+            },
+          ],
+        },
+      ],
     },
   }
+}
+
+/**
+ * PRLT-1225: Build the enforce-tests hook script content.
+ * This script fires before Bash tool use, checks if the command is
+ * 'gh pr create' or 'git push', and verifies test files were changed.
+ * If no tests found, injects a system message telling the agent to write tests.
+ */
+export function buildEnforceTestsHookScript(): string {
+  return `#!/bin/bash
+# PRLT-1225: Enforce test coverage in agent PRs
+# Fires before Bash tool use — checks if the command is a push/PR command
+# and verifies that test files were added or modified in the branch.
+
+INPUT=$(cat)
+
+# Quick check: only care about git push and gh pr create
+case "$INPUT" in
+  *"gh pr create"*|*"git push"*|*"prlt work propose"*|*"prlt pr create"*)
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+
+# Check for test files in the branch diff (all commits on this branch)
+TEST_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null | grep -iE '\\.(test|spec)\\.(ts|js|tsx|jsx)$')
+
+if [ -z "$TEST_FILES" ]; then
+  # No tests found — inject warning message into agent context
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","additionalContext":"WARNING: No test files (.test.ts, .spec.ts) have been added or modified in this branch. Every PR MUST include tests for changed code — unit tests for new functions, integration tests for new flows. Write tests before creating the PR."}}\\n'
+fi
+
+exit 0
+`
 }
 
 /**
@@ -464,6 +512,7 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
       // Start hook: move ticket to in-progress when agent session begins
       // Stop hook: run session report (cleanup + safety net + ticket transition)
       // SubagentStop hook: same session report for sub-agent sessions
+      // PreToolUse hook: enforce test coverage before push/PR (PRLT-1225)
       // Uses $PRLT_AGENT_NAME and $PRLT_TICKET_ID shell variables set as container env vars
       const lifecycleHooks = buildClaudeLifecycleHooks()
       // Merge lifecycle hooks into existing settings.json
@@ -473,6 +522,14 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
         { input: JSON.stringify(mergedSettings), stdio: ['pipe', 'pipe', 'pipe'] }
       )
       console.debug(`[runners:docker] Configured Claude Code lifecycle hooks for agent containers`)
+
+      // PRLT-1225: Write the enforce-tests hook script into the container
+      const enforceTestsScript = buildEnforceTestsHookScript()
+      execSync(
+        `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude/hooks && cat > /home/node/.claude/hooks/enforce-tests.sh && chmod +x /home/node/.claude/hooks/enforce-tests.sh'`,
+        { input: enforceTestsScript, stdio: ['pipe', 'pipe', 'pipe'] }
+      )
+      console.debug(`[runners:docker] Wrote enforce-tests hook script to container`)
     } catch (error) {
       console.debug('[runners:docker] Failed to copy Claude settings to container:', error)
     }
