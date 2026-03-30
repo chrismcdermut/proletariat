@@ -282,14 +282,27 @@ export abstract class PMOCommand extends RuntimeCommand {
    * @returns The appropriate TicketProvider
    */
   protected async resolveTicketProvider(ticketId: string, projectId: string): Promise<TicketProvider> {
-    const ticket = await this.storage.getTicket(ticketId);
     const db = this.storage.getDatabase();
+
+    // Try local storage first for metadata
+    const ticket = await this.storage.getTicket(ticketId);
+    let metadata = ticket?.metadata ?? null;
+
+    // If no local ticket found and ticket ID looks like an external key (e.g. PRLT-1231),
+    // build synthetic metadata so the resolver routes to the correct provider.
+    if (!ticket && /^[A-Z]+-\d+$/i.test(ticketId)) {
+      metadata = {
+        external_source: 'linear',
+        external_key: ticketId,
+      };
+    }
+
     return resolveTicketProvider(
       ticketId,
       projectId,
       db,
       this.storage as unknown as ProviderStorage,
-      ticket?.metadata,
+      metadata,
     );
   }
 

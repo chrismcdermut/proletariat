@@ -59,8 +59,13 @@ export default class TicketDelete extends PMOCommand {
       this.error(message);
     };
 
-    // Get all tickets for selection
-    const allTickets = await this.storage.listTickets(projectId);
+    // Get all tickets from provider — no local PMO fallback
+    const deleteProvider = this.resolveProjectProvider(projectId || '');
+    const deleteListResult = await deleteProvider.listTickets(projectId);
+    if (!deleteListResult.success) {
+      return handleError('LIST_FAILED', deleteListResult.error || 'Failed to list tickets.');
+    }
+    const allTickets = deleteListResult.tickets;
 
     if (allTickets.length === 0) {
       return handleError('NO_TICKETS', 'No tickets found.');
@@ -92,12 +97,13 @@ export default class TicketDelete extends PMOCommand {
       ticketId = selected;
     }
 
-    // Get ticket to show details in confirmation
-    const ticket = await this.storage.getTicket(ticketId!);
+    // Get ticket from provider
+    const ticketProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
+    const getResult = await ticketProvider.getTicket(ticketId!);
+    const ticket = getResult.success ? getResult.ticket ?? null : null;
     if (!ticket) {
       return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
     }
-    // Use resolved internal ID for all subsequent operations (external keys like PRLT-xxx resolve to TKT-xxx)
     ticketId = ticket.id;
 
     // Get board for project name (may be null if project was deleted/orphaned)
@@ -136,8 +142,10 @@ export default class TicketDelete extends PMOCommand {
       return handleError('DELETE_FAILED', `Failed to delete ticket: ${result.error}`);
     }
 
-    // Auto-export to board.md after write
-    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+    // Auto-export to board.md only for local PMO provider
+    if (provider.name === 'pmo') {
+      await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+    }
 
     // JSON output mode - match MCP tool response shape
     if (jsonMode) {

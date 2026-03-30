@@ -184,7 +184,14 @@ export default class WorkShip extends PMOCommand {
         // Resolve ticket first
         if (!ticketId) {
           // Prompt for ticket selection from shippable tickets (in review or in progress)
-          const allTickets = await this.storage.listTickets(projectId);
+          // Pull live from provider (Linear, GitHub, etc.) — no local PMO fallback
+          const provider = this.resolveProjectProvider(projectId || '');
+          const listResult = await provider.listTickets(projectId);
+          if (!listResult.success) {
+            db.close();
+            return handleError('LIST_FAILED', listResult.error || 'Failed to list tickets from provider.');
+          }
+          const allTickets = listResult.tickets;
           const shippableTickets = allTickets.filter(t =>
             t.statusCategory === 'started' ||
             (t.statusName && (
@@ -219,30 +226,25 @@ export default class WorkShip extends PMOCommand {
           ticketId = selected;
         }
 
-        // Get ticket
-        ticket = await this.storage.getTicket(ticketId!);
+        // Get ticket from provider — no local PMO fallback
+        const ticketProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
+        const getResult = await ticketProvider.getTicket(ticketId!);
+        if (getResult.success && getResult.ticket) {
+          ticket = getResult.ticket;
+        }
         if (!ticket) {
           db.close();
           return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
         }
         ticketId = ticket.id;
 
-        // Find PR from ticket metadata or branch
-        prNumber = ticket.metadata?.pr_number ? parseInt(ticket.metadata.pr_number, 10) : undefined;
-
-        if (prNumber) {
-          prInfo = getPRByNumber(prNumber);
-        }
-
-        if (!prInfo) {
-          // Try to find PR from execution branch
-          const runningExecution = executionStorage.getRunningExecution(ticketId!);
-          const branch = runningExecution?.branch || ticket.branch;
-          if (branch) {
-            prInfo = getPRForBranch(branch);
-            if (prInfo) {
-              prNumber = prInfo.number;
-            }
+        // Find PR from GitHub directly — look up by execution branch or ticket branch
+        const runningExecution = executionStorage.getRunningExecution(ticketId!);
+        const branch = runningExecution?.branch || ticket.branch;
+        if (branch) {
+          prInfo = getPRForBranch(branch);
+          if (prInfo) {
+            prNumber = prInfo.number;
           }
         }
 
@@ -422,22 +424,8 @@ export default class WorkShip extends PMOCommand {
       let doneColumn: string | null | undefined;
 
       if (ticket && ticketId) {
-        // Update PR metadata
-        try {
-          await this.storage.updateTicket(ticketId, {
-            metadata: {
-              ...ticket.metadata,
-              pr_state: 'MERGED',
-              merged_at: new Date().toISOString(),
-            },
-          });
-        } catch (err) {
-          if ((err as { code?: string }).code === 'SQLITE_READONLY') {
-            this.log(styles.muted('   PR metadata update skipped (read-only database)'));
-          } else {
-            throw err;
-          }
-        }
+        // PR metadata lives in the provider (Linear, GitHub), not local PMO.
+        // No local ticket update needed.
 
         if (!flags['no-transition']) {
           try {
@@ -461,8 +449,10 @@ export default class WorkShip extends PMOCommand {
           }
         }
 
-        // Auto-export board
-        await autoExportToBoard(this.pmoPath, this.storage);
+        // Auto-export board (only when using local PMO, not external providers)
+        if (ticketTransitionProvider === 'pmo') {
+          await autoExportToBoard(this.pmoPath, this.storage);
+        }
 
         // Mark execution as completed
         const runningExecution = executionStorage.getRunningExecution(ticketId);
@@ -602,45 +592,32 @@ export default class WorkShip extends PMOCommand {
    * Resolve the linked ticket for a PR.
    */
   private async resolveLinkedTicket(
-    prNumber: number,
+    _prNumber: number,
     headBranch: string,
     projectId: string | undefined,
   ): Promise<Ticket | null> {
-    // 1. Find by PR metadata on tickets
-    const allTickets = await this.storage.listTickets(projectId);
-    const byMetadata = allTickets.find(t =>
-      t.metadata?.pr_number === String(prNumber) ||
-      t.metadata?.pr_url?.endsWith(`/pull/${prNumber}`) ||
-      t.metadata?.pr_url?.endsWith(`/${prNumber}`)
-    );
-    if (byMetadata) return byMetadata;
-
-    // 2. Look up from agent_work table by branch name
+    // 1. Look up from agent_work table by branch name (runtime state, kept locally)
     try {
       const db = this.storage.getDatabase();
       const row = db.prepare(
         `SELECT ticket_id FROM ${PMO_TABLES.agent_work} WHERE branch = ? LIMIT 1`
       ).get(headBranch) as { ticket_id: string } | undefined;
       if (row?.ticket_id) {
-        const ticket = await this.storage.getTicket(row.ticket_id);
-        if (ticket) return ticket;
+        const ticketProvider = await this.resolveTicketProvider(row.ticket_id, projectId || '');
+        const getResult = await ticketProvider.getTicket(row.ticket_id);
+        if (getResult.success && getResult.ticket) return getResult.ticket;
       }
     } catch {
-      // agent_work lookup failed
+      // agent_work lookup failed — fall through
     }
 
-    // 3. Parse ticket ID from branch name
+    // 2. Parse ticket ID from branch name (e.g., PRLT-1231/feat/slug → PRLT-1231)
     const branchResult = validateBranchName(headBranch);
     if (branchResult.valid && branchResult.parts?.ticketId) {
       const branchTicketId = branchResult.parts.ticketId;
-
-      const directTicket = await this.storage.getTicket(branchTicketId);
-      if (directTicket) return directTicket;
-
-      const byExternalKey = allTickets.find(t =>
-        t.metadata?.external_key === branchTicketId
-      );
-      if (byExternalKey) return byExternalKey;
+      const ticketProvider = await this.resolveTicketProvider(branchTicketId, projectId || '');
+      const getResult = await ticketProvider.getTicket(branchTicketId);
+      if (getResult.success && getResult.ticket) return getResult.ticket;
     }
 
     return null;
