@@ -204,7 +204,7 @@ describe('PRLT-1091: work start provider sync', () => {
       realDb.close()
     })
 
-    it('resolves to PMO provider for inbound mapping (bulk import, no write-back)', () => {
+    it('resolves to Linear provider for inbound mapping when Linear is configured (PRLT-1231: no sync direction)', () => {
       const storage = createMockStorage()
       const realDb = createResolverDb()
       insertMapping(realDb, 'inbound')
@@ -217,8 +217,9 @@ describe('PRLT-1091: work start provider sync', () => {
         { external_source: 'linear' },
       )
 
-      // inbound = bulk import from Linear → read-only, no write-back
-      expect(provider.name).to.equal('pmo')
+      // PRLT-1231: When Linear is configured and external_source=linear,
+      // always route to Linear provider — no sync direction filtering
+      expect(provider.name).to.equal('linear')
       realDb.close()
     })
 
