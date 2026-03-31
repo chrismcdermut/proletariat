@@ -23,12 +23,14 @@
 
 import type { ChildProcess } from 'node:child_process'
 import { shutdownAnalytics } from './telemetry/analytics.js'
+import { getEventBus } from './events/event-bus.js'
 
 /** Cleanup callback - should be fast and not throw */
 type CleanupFn = () => void | Promise<void>
 
 const cleanupCallbacks: CleanupFn[] = []
 const trackedProcesses = new Set<ChildProcess>()
+const trackedSessions = new Map<string, { runner: string }>()
 let isShuttingDown = false
 let installed = false
 
@@ -39,6 +41,24 @@ let installed = false
 async function shutdown(): Promise<void> {
   if (isShuttingDown) return
   isShuttingDown = true
+
+  // Emit agent:stopped for any tracked sessions so cleanup hooks fire
+  if (trackedSessions.size > 0) {
+    try {
+      const bus = getEventBus()
+      for (const [sessionId, meta] of trackedSessions) {
+        bus.emit('agent:stopped', {
+          sessionId,
+          runner: meta.runner,
+          reason: 'error' as const,
+          timestamp: new Date(),
+        })
+      }
+    } catch {
+      // Event emission errors are non-fatal during shutdown
+    }
+    trackedSessions.clear()
+  }
 
   // Kill tracked child processes first
   for (const child of trackedProcesses) {
@@ -125,6 +145,20 @@ export function trackChildProcess(child: ChildProcess): void {
   child.on('error', () => {
     trackedProcesses.delete(child)
   })
+}
+
+/**
+ * Track an agent session for automatic event emission on shutdown.
+ * When the process receives SIGINT/SIGTERM, `agent:stopped` will be
+ * emitted for every tracked session with reason: 'error'.
+ *
+ * @returns Untrack function to remove the session
+ */
+export function trackSession(sessionId: string, runner: string): () => void {
+  trackedSessions.set(sessionId, { runner })
+  return () => {
+    trackedSessions.delete(sessionId)
+  }
 }
 
 /**
