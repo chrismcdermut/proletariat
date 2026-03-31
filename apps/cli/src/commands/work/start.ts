@@ -747,6 +747,7 @@ export default class WorkStart extends PMOCommand {
           linkedTicket = await this.createOrUpdateLinkedTicket(projectId, envelope, db)
           await autoExportToBoard(this.pmoPath, this.storage)
         } else if (existingLinkedTicket) {
+          envelopeTicket = existingLinkedTicket
           // Existing PMO ticket found — use it (backward compat)
           linkedTicket = existingLinkedTicket
         } else {
