@@ -544,10 +544,10 @@ export default class Claude extends PromptCommand {
         storage = pmoContext.storage
       } catch {
         if (jsonMode) {
-          outputErrorAsJson('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.', createMetadata('claude', flags))
+          outputErrorAsJson('PMO_NOT_FOUND', 'No workspace found. Run "prlt new" to create one.', createMetadata('claude', flags))
           return
         }
-        this.error('PMO not found. Run "prlt pmo init" first.')
+        this.error('No workspace found. Run "prlt new" to create one.')
       }
 
       // Select project

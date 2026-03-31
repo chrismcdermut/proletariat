@@ -1,10 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import Database from 'better-sqlite3';
 import { openDriver } from '../database/driver.js';
 import { isValidHQ } from '../workspace.js';
 import { isReadOnlyHQMount } from '../container.js';
 import { throwIfNativeBindingError } from '../database/native-validation.js';
+import { initializePMOTables } from './storage/base.js';
 
 /**
  * Resolve PMO path from stored value.
@@ -64,6 +66,60 @@ function hasPMOTables(dbPath: string): boolean {
 }
 
 /**
+ * Auto-bootstrap PMO tables in an existing workspace.db that lacks them.
+ * This enables any HQ workspace to be used for PMO operations without
+ * requiring an explicit `prlt pmo init`.
+ *
+ * Idempotent: safe to call even if tables already exist.
+ */
+export function bootstrapPMOSchema(dbPath: string, hqPath: string): boolean {
+  if (!fs.existsSync(dbPath)) {
+    return false;
+  }
+
+  // Don't bootstrap on read-only mounts (containers)
+  const workspaceRoot = path.dirname(path.dirname(dbPath));
+  if (isReadOnlyHQMount(workspaceRoot)) {
+    return false;
+  }
+
+  try {
+    const db = new Database(dbPath);
+    db.pragma('foreign_keys = ON');
+
+    try {
+      // Create PMO tables, seed built-in data, validate schema
+      initializePMOTables(db);
+
+      // Set default pmo_path if not already set
+      const existing = db.prepare(
+        "SELECT value FROM pmo_settings WHERE key = 'pmo_path'"
+      ).get();
+      if (!existing) {
+        db.prepare(
+          "INSERT INTO pmo_settings (key, value) VALUES (?, ?)"
+        ).run('pmo_path', 'pmo');
+      }
+    } finally {
+      db.close();
+    }
+
+    // Create the default PMO directory
+    const pmoDir = path.join(hqPath, 'pmo');
+    if (!fs.existsSync(pmoDir)) {
+      fs.mkdirSync(pmoDir, { recursive: true });
+    }
+
+    return true;
+  } catch (error) {
+    // Surface native binding errors immediately
+    throwIfNativeBindingError(error, 'bootstrapPMOSchema');
+    // Silently fail for other errors — caller will fall through
+    return false;
+  }
+}
+
+/**
  * Find PMO directory by checking workspace.db for pmo_projects table
  *
  * Search priority:
@@ -99,7 +155,15 @@ export function findPMO(): string | null {
         const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
         if (config.type === 'hq') {
           const dbPath = path.join(currentDir, '.proletariat', 'workspace.db');
-          const hasTables = hasPMOTables(dbPath);
+          let hasTables = hasPMOTables(dbPath);
+
+          // Auto-bootstrap: if workspace.db exists but lacks PMO tables, create them
+          if (!hasTables && fs.existsSync(dbPath)) {
+            if (bootstrapPMOSchema(dbPath, currentDir)) {
+              hasTables = true;
+            }
+          }
+
           if (hasTables) {
             // Read PMO path from database (new behavior)
             try {
@@ -153,7 +217,16 @@ export function findPMO(): string | null {
       if (machineConfig.activeWorkspace && fs.existsSync(machineConfig.activeWorkspace) && isValidHQ(machineConfig.activeWorkspace)) {
         const activeHqPath = machineConfig.activeWorkspace;
         const dbPath = path.join(activeHqPath, '.proletariat', 'workspace.db');
-        if (hasPMOTables(dbPath)) {
+        let activeHasTables = hasPMOTables(dbPath);
+
+        // Auto-bootstrap: if workspace.db exists but lacks PMO tables, create them
+        if (!activeHasTables && fs.existsSync(dbPath)) {
+          if (bootstrapPMOSchema(dbPath, activeHqPath)) {
+            activeHasTables = true;
+          }
+        }
+
+        if (activeHasTables) {
           try {
             const driver = openDriver(dbPath, { foreignKeys: false, readonly: isReadOnlyHQMount(path.dirname(path.dirname(dbPath))) });
             const result = driver.prepare('SELECT value FROM pmo_settings WHERE key = ?').get('pmo_path') as { value: string } | undefined;

@@ -286,10 +286,10 @@ Clean up your tmux session when done.`,
         storage = pmoContext.storage
       } catch {
         if (jsonMode) {
-          outputErrorAsJson('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.', createMetadata('qa', flags))
+          outputErrorAsJson('PMO_NOT_FOUND', 'No workspace found. Run "prlt new" to create one.', createMetadata('qa', flags))
           return
         }
-        this.error('PMO not found. Run "prlt pmo init" first.')
+        this.error('No workspace found. Run "prlt new" to create one.')
       }
 
       // Select project for filing bugs
