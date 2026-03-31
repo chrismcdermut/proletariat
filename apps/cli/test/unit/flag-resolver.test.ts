@@ -283,6 +283,340 @@ describe('@smoke FlagResolver', () => {
       });
     });
   });
+
+  describe('PRLT-1238: JSON mode command chaining', () => {
+    let capturedOutput: string;
+    let originalLog: typeof console.log;
+
+    beforeEach(() => {
+      capturedOutput = '';
+      originalLog = console.log;
+      console.log = (msg: string) => { capturedOutput = msg; };
+    });
+
+    afterEach(() => {
+      console.log = originalLog;
+    });
+
+    /**
+     * Resolve in JSON mode, capture JSON output. outputPromptAsJson throws ExitError.
+     */
+    async function resolveAndCapture(resolver: FlagResolver<Record<string, unknown>>): Promise<{
+      prompt: { name: string; choices?: Array<{ name: string; value: string; command?: string }> };
+    }> {
+      try {
+        await resolver.resolve();
+        throw new Error('Expected ExitError to be thrown');
+      } catch (error: unknown) {
+        if (error instanceof Error && error.message === 'Expected ExitError to be thrown') throw error;
+        return JSON.parse(capturedOutput);
+      }
+    }
+
+    describe('Bug 1: buildCommand accumulates previously resolved flags', () => {
+      it('should include accumulatedFlags in auto-generated commands', async () => {
+        const resolver = new FlagResolver<{ display?: string }>({
+          commandName: 'work start',
+          baseCommand: 'prlt work start TKT-100',
+          jsonMode: true,
+          flags: {},
+          accumulatedFlags: { 'run-on-host': true, 'permission-mode': 'danger' },
+        });
+
+        resolver.addPrompt({
+          flagName: 'display',
+          type: 'list',
+          message: 'Select display mode:',
+          choices: () => [
+            { name: 'Terminal', value: 'terminal' },
+            { name: 'Foreground', value: 'foreground' },
+          ],
+        });
+
+        const output = await resolveAndCapture(resolver);
+        const terminalChoice = output.prompt.choices?.find(c => c.value === 'terminal');
+
+        expect(terminalChoice).to.exist;
+        expect(terminalChoice!.command).to.include('--run-on-host');
+        expect(terminalChoice!.command).to.include('--permission-mode "danger"');
+        expect(terminalChoice!.command).to.include('--display "terminal"');
+        expect(terminalChoice!.command).to.include('--json');
+      });
+
+      it('should not duplicate flags already in resolvedFlags', async () => {
+        const resolver = new FlagResolver<{ 'permission-mode'?: string }>({
+          commandName: 'work start',
+          baseCommand: 'prlt work start TKT-100',
+          jsonMode: true,
+          flags: { 'permission-mode': 'safe' },
+          accumulatedFlags: { 'permission-mode': 'safe', 'run-on-host': true },
+        });
+
+        resolver.addPrompt({
+          flagName: 'permission-mode',
+          type: 'list',
+          message: 'Permission mode:',
+          when: (ctx) => !ctx.flags['permission-mode'],
+        });
+
+        // permission-mode is already set, so no prompt should fire
+        const result = await resolver.resolve();
+        expect(result['permission-mode']).to.equal('safe');
+        expect(capturedOutput).to.equal('');
+      });
+
+      it('regression: commands without accumulatedFlags lose prior flags', async () => {
+        // Without accumulatedFlags — reproduces Bug 1
+        const resolverWithout = new FlagResolver<{ display?: string }>({
+          commandName: 'work start',
+          baseCommand: 'prlt work start TKT-100',
+          jsonMode: true,
+          flags: {},
+        });
+
+        resolverWithout.addPrompt({
+          flagName: 'display',
+          type: 'list',
+          message: 'Select display mode:',
+          choices: () => [{ name: 'Terminal', value: 'terminal' }],
+        });
+
+        const outputWithout = await resolveAndCapture(resolverWithout);
+        const choiceWithout = outputWithout.prompt.choices?.[0];
+        // Without accumulatedFlags, --run-on-host is NOT included
+        expect(choiceWithout!.command).to.not.include('--run-on-host');
+
+        // With accumulatedFlags — verifies fix
+        capturedOutput = '';
+        const resolverWith = new FlagResolver<{ display?: string }>({
+          commandName: 'work start',
+          baseCommand: 'prlt work start TKT-100',
+          jsonMode: true,
+          flags: {},
+          accumulatedFlags: { 'run-on-host': true },
+        });
+
+        resolverWith.addPrompt({
+          flagName: 'display',
+          type: 'list',
+          message: 'Select display mode:',
+          choices: () => [{ name: 'Terminal', value: 'terminal' }],
+        });
+
+        const outputWith = await resolveAndCapture(resolverWith);
+        const choiceWith = outputWith.prompt.choices?.[0];
+        expect(choiceWith!.command).to.include('--run-on-host');
+      });
+    });
+
+    describe('Bug 2: flag names must match registered oclif flags', () => {
+      it('should use kebab-case --session-action not camelCase --sessionAction', async () => {
+        const resolver = new FlagResolver<{ 'session-action'?: string }>({
+          commandName: 'work start',
+          baseCommand: 'prlt work start TKT-100',
+          jsonMode: true,
+          flags: {},
+        });
+
+        resolver.addPrompt({
+          flagName: 'session-action',
+          type: 'list',
+          message: 'What would you like to do?',
+          choices: () => [
+            { name: 'Attach', value: 'attach' },
+            { name: 'Spawn', value: 'spawn' },
+          ],
+        });
+
+        const output = await resolveAndCapture(resolver);
+        const attachChoice = output.prompt.choices?.find(c => c.value === 'attach');
+
+        expect(attachChoice!.command).to.include('--session-action "attach"');
+        expect(attachChoice!.command).to.not.include('--sessionAction');
+      });
+
+      it('should use --display not --selectedMode in display resolver', async () => {
+        const resolver = new FlagResolver<{ display?: string }>({
+          commandName: 'work start',
+          baseCommand: 'prlt work start TKT-100',
+          jsonMode: true,
+          flags: {},
+        });
+
+        resolver.addPrompt({
+          flagName: 'display',
+          type: 'list',
+          message: 'Select display mode:',
+          choices: () => [
+            { name: 'Terminal', value: 'terminal' },
+            { name: 'Foreground', value: 'foreground' },
+          ],
+        });
+
+        const output = await resolveAndCapture(resolver);
+        const terminalChoice = output.prompt.choices?.find(c => c.value === 'terminal');
+
+        expect(terminalChoice!.command).to.include('--display "terminal"');
+        expect(terminalChoice!.command).to.not.include('--selectedMode');
+      });
+
+      it('should use --create-pr not --prChoice via getCommand', async () => {
+        const jsonBase = 'prlt work start TKT-100';
+        const resolver = new FlagResolver<{ prChoice?: string }>({
+          commandName: 'work start',
+          baseCommand: jsonBase,
+          jsonMode: true,
+          flags: {},
+        });
+
+        resolver.addPrompt({
+          flagName: 'prChoice',
+          type: 'list',
+          message: 'Create a pull request?',
+          choices: () => [
+            { name: 'Yes', value: 'yes' },
+            { name: 'No', value: 'no' },
+          ],
+          getCommand: (value) => {
+            if (value === 'yes') return `${jsonBase} --create-pr --json`;
+            return `${jsonBase} --json`;
+          },
+        });
+
+        const output = await resolveAndCapture(resolver);
+        const yesChoice = output.prompt.choices?.find(c => c.value === 'yes');
+        const noChoice = output.prompt.choices?.find(c => c.value === 'no');
+
+        expect(yesChoice!.command).to.include('--create-pr');
+        expect(yesChoice!.command).to.not.include('--prChoice');
+        expect(noChoice!.command).to.not.include('--prChoice');
+      });
+
+      it('regression: camelCase flag names produce invalid oclif commands', async () => {
+        // Old camelCase naming produces --sessionAction which oclif rejects
+        const resolver = new FlagResolver<{ sessionAction?: string }>({
+          commandName: 'work start',
+          baseCommand: 'prlt work start TKT-100',
+          jsonMode: true,
+          flags: {},
+        });
+
+        resolver.addPrompt({
+          flagName: 'sessionAction',
+          type: 'list',
+          message: 'What would you like to do?',
+          choices: () => [{ name: 'Attach', value: 'attach' }],
+        });
+
+        const output = await resolveAndCapture(resolver);
+        const choice = output.prompt.choices?.[0];
+        // Proves the old naming produces --sessionAction (invalid for oclif)
+        expect(choice!.command).to.include('--sessionAction');
+      });
+    });
+
+    describe('Bug 3: devcontainer choice must add explicit flag', () => {
+      it('should add --environment devcontainer for devcontainer choice', async () => {
+        const jsonBase = 'prlt work start TKT-100';
+        const resolver = new FlagResolver<{ environment?: string }>({
+          commandName: 'work start',
+          baseCommand: jsonBase,
+          jsonMode: true,
+          flags: {},
+        });
+
+        resolver.addPrompt({
+          flagName: 'environment',
+          type: 'list',
+          message: 'Where should the agent run?',
+          default: 'devcontainer',
+          choices: () => [
+            { name: 'devcontainer', value: 'devcontainer' },
+            { name: 'host', value: 'host' },
+            { name: 'cancel', value: 'cancel' },
+          ],
+          getCommand: (value) => {
+            if (value === 'host') return `${jsonBase} --run-on-host --json`;
+            if (value === 'cancel') return '';
+            return `${jsonBase} --environment devcontainer --json`;
+          },
+        });
+
+        const output = await resolveAndCapture(resolver);
+        const devChoice = output.prompt.choices?.find(c => c.value === 'devcontainer');
+
+        expect(devChoice!.command).to.include('--environment devcontainer');
+        expect(devChoice!.command).to.include('--json');
+        // Must NOT be identical to the base invocation (would loop forever)
+        expect(devChoice!.command).to.not.equal(`${jsonBase} --json`);
+      });
+
+      it('regression: devcontainer command without --environment loops forever', () => {
+        const jsonBase = 'prlt work start TKT-100';
+
+        // OLD behavior: devcontainer choice returns base command without any new flag
+        const oldGetCommand = (value: unknown) => {
+          if (value === 'host') return `${jsonBase} --run-on-host --json`;
+          if (value === 'cancel') return '';
+          return `${jsonBase} --json`; // BUG: identical to original invocation
+        };
+
+        expect(oldGetCommand('devcontainer')).to.equal(`${jsonBase} --json`);
+
+        // NEW behavior: adds explicit --environment devcontainer
+        const newGetCommand = (value: unknown) => {
+          if (value === 'host') return `${jsonBase} --run-on-host --json`;
+          if (value === 'cancel') return '';
+          return `${jsonBase} --environment devcontainer --json`;
+        };
+
+        const newDevCmd = newGetCommand('devcontainer');
+        expect(newDevCmd).to.include('--environment devcontainer');
+        expect(newDevCmd).to.not.equal(`${jsonBase} --json`);
+      });
+    });
+
+    describe('accumulated flags with getCommand callbacks', () => {
+      it('getCommand callbacks should include accumulated flags in commands', async () => {
+        const accumulated = { 'run-on-host': true, 'permission-mode': 'danger' };
+        let jsonBase = 'prlt work start TKT-100';
+        for (const [key, val] of Object.entries(accumulated)) {
+          if (typeof val === 'boolean' && val) jsonBase += ` --${key}`;
+          else if (typeof val === 'string') jsonBase += ` --${key} "${val}"`;
+        }
+
+        const resolver = new FlagResolver<{ prChoice?: string }>({
+          commandName: 'work start',
+          baseCommand: 'prlt work start TKT-100',
+          jsonMode: true,
+          flags: {},
+          accumulatedFlags: accumulated,
+        });
+
+        resolver.addPrompt({
+          flagName: 'prChoice',
+          type: 'list',
+          message: 'Create PR?',
+          choices: () => [
+            { name: 'Yes', value: 'yes' },
+            { name: 'No', value: 'no' },
+          ],
+          getCommand: (value) => {
+            if (value === 'yes') return `${jsonBase} --create-pr --json`;
+            return `${jsonBase} --json`;
+          },
+        });
+
+        const output = await resolveAndCapture(resolver);
+        const yesChoice = output.prompt.choices?.find(c => c.value === 'yes');
+
+        expect(yesChoice!.command).to.include('--run-on-host');
+        expect(yesChoice!.command).to.include('--permission-mode "danger"');
+        expect(yesChoice!.command).to.include('--create-pr');
+        expect(yesChoice!.command).to.include('--json');
+      });
+    });
+  });
 });
 
 describe('@smoke shouldOutputJson', () => {

@@ -183,6 +183,43 @@ function isIssueSource(value: string | undefined): value is IssueSource {
   return value === 'linear' || value === 'jira' || value === 'asana' || value === 'shortcut' || value === 'trello'
 }
 
+/**
+ * Extract explicitly-set flags for JSON mode command chaining.
+ * Filters out defaults (false/undefined) and the json flag itself.
+ * Used as accumulatedFlags so buildCommand includes prior resolver results.
+ */
+function getAccumulatedFlags(flags: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [key, val] of Object.entries(flags)) {
+    if (key === 'json' || val === undefined || val === false) continue
+    result[key] = val
+  }
+  return result
+}
+
+/**
+ * Build a base command string with all explicitly-set flags for JSON mode chaining.
+ * Used by getCommand callbacks to include accumulated flags from prior prompts.
+ */
+function buildJsonBase(ticketId: string, flags: Record<string, unknown>): string {
+  let cmd = `prlt work start ${ticketId}`
+  for (const [key, val] of Object.entries(flags)) {
+    if (key === 'json' || val === undefined || val === false) continue
+    if (typeof val === 'boolean') {
+      cmd += ` --${key}`
+    } else if (typeof val === 'string') {
+      cmd += ` --${key} "${val}"`
+    } else if (Array.isArray(val)) {
+      for (const item of val) {
+        cmd += ` --${key} "${item}"`
+      }
+    } else {
+      cmd += ` --${key} ${val}`
+    }
+  }
+  return cmd
+}
+
 function buildExternalMetadata(envelope: NormalizedIssueEnvelope): Record<string, string> {
   switch (envelope.source.name) {
     case 'jira': return buildJiraMetadata(envelope)
@@ -410,6 +447,10 @@ export default class WorkStart extends PMOCommand {
       description: 'Validate environment and prerequisites without actually spawning an agent',
       default: false,
     }),
+    environment: Flags.string({
+      description: 'Execution environment (devcontainer or host). Use to bypass the environment selection prompt.',
+      options: ['devcontainer', 'host'],
+    }),
   }
 
   private async findLinkedTicketByEnvelope(_projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
@@ -579,6 +620,11 @@ export default class WorkStart extends PMOCommand {
     // Apply --skip-permissions as --permission-mode danger
     if (flags['skip-permissions']) {
       flags['permission-mode'] = 'danger'
+    }
+
+    // Handle --environment flag: normalize to --run-on-host for host mode
+    if (flags.environment === 'host') {
+      flags['run-on-host'] = true
     }
 
     // Check if JSON output mode is active
@@ -989,8 +1035,10 @@ export default class WorkStart extends PMOCommand {
           baseCommand: `prlt work start ${ticketId}`,
           jsonMode,
           flags: {},
+          accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
         })
 
+        const jsonBaseBlocked = buildJsonBase(ticketId!, flags as Record<string, unknown>)
         blockedResolver.addPrompt({
           flagName: 'startAnyway',
           type: 'list',
@@ -1000,6 +1048,10 @@ export default class WorkStart extends PMOCommand {
             { name: 'No, cancel', value: 'no' },
             { name: 'Yes, start despite blockers', value: 'yes' },
           ],
+          getCommand: (value) => {
+            if (value === 'yes') return `${jsonBaseBlocked} --force --json`
+            return ''
+          },
         })
 
         const blockedResult = await blockedResolver.resolve()
@@ -1019,15 +1071,16 @@ export default class WorkStart extends PMOCommand {
         }
 
         // Use FlagResolver for session action
-        const sessionResolver = new FlagResolver<{ sessionAction?: string }>({
+        const sessionResolver = new FlagResolver<{ 'session-action'?: string }>({
           commandName: 'work start',
           baseCommand: `prlt work start ${ticketId}`,
           jsonMode,
-          flags: flags['session-action'] ? { sessionAction: flags['session-action'] } : {},
+          flags: flags['session-action'] ? { 'session-action': flags['session-action'] } : {},
+          accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
         })
 
         sessionResolver.addPrompt({
-          flagName: 'sessionAction',
+          flagName: 'session-action',
           type: 'list',
           message: 'What would you like to do?',
           choices: () => [
@@ -1039,7 +1092,7 @@ export default class WorkStart extends PMOCommand {
         })
 
         const sessionResult = await sessionResolver.resolve()
-        const sessionAction = sessionResult.sessionAction
+        const sessionAction = sessionResult['session-action']
 
         if (sessionAction === 'cancel') {
           db.close()
@@ -1198,11 +1251,13 @@ export default class WorkStart extends PMOCommand {
           }
 
           // Use FlagResolver for agent selection
+          const jsonBaseAgent = buildJsonBase(ticketId!, flags as Record<string, unknown>)
           const agentResolver = new FlagResolver<{ selectedAgent?: string }>({
             commandName: 'work start',
             baseCommand: `prlt work start ${ticketId}`,
             jsonMode,
             flags: {},
+            accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
           })
 
           agentResolver.addPrompt({
@@ -1211,6 +1266,10 @@ export default class WorkStart extends PMOCommand {
             message: `Select agent for ${ticketId}:`,
             default: '__ephemeral__',
             choices: () => agentChoiceList,
+            getCommand: (value) => {
+              if (value === '__ephemeral__') return `${jsonBaseAgent} --ephemeral --json`
+              return `${jsonBaseAgent} --agent "${value}" --json`
+            },
           })
 
           const agentResult = await agentResolver.resolve()
@@ -1325,11 +1384,13 @@ export default class WorkStart extends PMOCommand {
           }
 
           // Use FlagResolver for unsaved work action
+          const jsonBaseUnsaved = buildJsonBase(ticketId!, flags as Record<string, unknown>)
           const unsavedResolver = new FlagResolver<{ unsavedAction?: string }>({
             commandName: 'work start',
             baseCommand: `prlt work start ${ticketId}`,
             jsonMode,
             flags: {},
+            accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
           })
 
           unsavedResolver.addPrompt({
@@ -1341,6 +1402,11 @@ export default class WorkStart extends PMOCommand {
               { name: 'Continue anyway (existing work may conflict)', value: 'continue' },
               { name: 'Cancel', value: 'cancel' },
             ],
+            getCommand: (value) => {
+              if (value === 'cancel') return ''
+              // Both 'push' and 'continue' advance; use --force to skip re-prompt
+              return `${jsonBaseUnsaved} --force --json`
+            },
           })
 
           const unsavedResult = await unsavedResolver.resolve()
@@ -1453,14 +1519,15 @@ export default class WorkStart extends PMOCommand {
       const hasDevcontainer = hasDevcontainerConfig(agentDir)
 
       // Use devcontainer by default if available, unless --run-on-host is set
-      const useDevcontainer = hasDevcontainer && !flags['run-on-host']
+      // --environment devcontainer explicitly requests devcontainer mode
+      const useDevcontainer = (hasDevcontainer && !flags['run-on-host']) || flags.environment === 'devcontainer'
 
       // Determine execution environment and display mode
       let environment: ExecutionEnvironment = 'host'
       let displayMode: DisplayMode = 'terminal'
       let permissionMode: PermissionMode = 'danger'
 
-      if (hasDevcontainer && !flags.display && !flags['run-on-host']) {
+      if (hasDevcontainer && !flags.display && !flags['run-on-host'] && !flags.environment) {
         // Agent has devcontainer - prompt for environment choice
         const devcontainerLabel = '🐳 devcontainer (isolated, recommended)'
 
@@ -1472,11 +1539,13 @@ export default class WorkStart extends PMOCommand {
 
         // In JSON mode, use FlagResolver (outputs prompt and exits)
         if (jsonMode) {
+          const jsonBaseEnv = buildJsonBase(ticketId!, flags as Record<string, unknown>)
           const envResolver = new FlagResolver<{ environment?: string }>({
             commandName: 'work start',
             baseCommand: `prlt work start ${ticketId}`,
             jsonMode,
             flags: {},
+            accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
           })
 
           envResolver.addPrompt({
@@ -1486,11 +1555,10 @@ export default class WorkStart extends PMOCommand {
             default: 'devcontainer',
             choices: () => envChoices,
             getCommand: (value) => {
-              const base = `prlt work start ${ticketId}`
-              if (value === 'host') return `${base} --run-on-host --json`
+              if (value === 'host') return `${jsonBaseEnv} --run-on-host --json`
               if (value === 'cancel') return ''
-              // devcontainer is the default when available
-              return `${base} --json`
+              // Explicit --environment devcontainer so the command advances past this prompt
+              return `${jsonBaseEnv} --environment devcontainer --json`
             },
           })
 
@@ -1546,11 +1614,13 @@ export default class WorkStart extends PMOCommand {
               const tokenMessage = 'GitHub token not found. Git push may fail. Continue without token?'
 
               // Use FlagResolver for token action prompt
+              const jsonBaseToken = buildJsonBase(ticketId!, flags as Record<string, unknown>)
               const tokenResolver = new FlagResolver<{ tokenAction?: string }>({
                 commandName: 'work start',
                 baseCommand: `prlt work start ${ticketId}`,
                 jsonMode,
                 flags: {},
+                accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
               })
 
               tokenResolver.addPrompt({
@@ -1563,6 +1633,12 @@ export default class WorkStart extends PMOCommand {
                   { name: 'No, let me run gh auth login first', value: 'cancel' },
                   { name: 'Switch to host mode instead', value: 'host' },
                 ],
+                getCommand: (value) => {
+                  if (value === 'cancel') return ''
+                  if (value === 'host') return `${jsonBaseToken} --run-on-host --json`
+                  // 'continue' — re-run with environment devcontainer explicit
+                  return `${jsonBaseToken} --environment devcontainer --json`
+                },
               })
 
               // In JSON mode, this will output prompt and exit
@@ -1671,15 +1747,16 @@ export default class WorkStart extends PMOCommand {
             : 'Select display mode (no devcontainer - running on host):'
 
           // Use FlagResolver for display mode selection
-          const displayResolver = new FlagResolver<{ selectedMode?: string }>({
+          const displayResolver = new FlagResolver<{ display?: string }>({
             commandName: 'work start',
             baseCommand: `prlt work start ${ticketId}`,
             jsonMode,
             flags: {},
+            accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
           })
 
           displayResolver.addPrompt({
-            flagName: 'selectedMode',
+            flagName: 'display',
             type: 'list',
             message: warningMsg,
             default: 'terminal',
@@ -1691,7 +1768,7 @@ export default class WorkStart extends PMOCommand {
           })
 
           const displayResult = await displayResolver.resolve()
-          displayMode = displayResult.selectedMode as DisplayMode
+          displayMode = displayResult.display as DisplayMode
         }
       }
 
@@ -1729,11 +1806,13 @@ export default class WorkStart extends PMOCommand {
             ]
             const dockerMessage = 'Docker is not running. What would you like to do?'
 
+            const jsonBaseDocker = buildJsonBase(ticketId!, flags as Record<string, unknown>)
             const dockerResolver = new FlagResolver<{ dockerAction?: string }>({
               commandName: 'work start',
               baseCommand: `prlt work start ${ticketId}`,
               jsonMode,
               flags: {},
+              accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
             })
 
             dockerResolver.addPrompt({
@@ -1741,6 +1820,10 @@ export default class WorkStart extends PMOCommand {
               type: 'list',
               message: dockerMessage,
               choices: () => dockerChoices,
+              getCommand: (value) => {
+                if (value === 'host') return `${jsonBaseDocker} --run-on-host --json`
+                return ''
+              },
             })
 
             const dockerResult = await dockerResolver.resolve()
@@ -1828,11 +1911,13 @@ export default class WorkStart extends PMOCommand {
               )
 
               // Use FlagResolver for auth method selection
+              const jsonBaseAuth = buildJsonBase(ticketId!, flags as Record<string, unknown>)
               const authResolver = new FlagResolver<{ authAction?: string }>({
                 commandName: 'work start',
                 baseCommand: `prlt work start ${ticketId}`,
                 jsonMode,
                 flags: {},
+                accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
               })
 
               authResolver.addPrompt({
@@ -1840,6 +1925,13 @@ export default class WorkStart extends PMOCommand {
                 type: 'list',
                 message: 'How should the agent authenticate with Claude?',
                 choices: () => authChoices,
+                getCommand: (value) => {
+                  if (value === 'apikey') return `${jsonBaseAuth} --use-api-key --json`
+                  if (value === 'host') return `${jsonBaseAuth} --run-on-host --json`
+                  if (value === 'cancel') return ''
+                  // oauth — re-run with environment devcontainer (requires interactive auth flow)
+                  return `${jsonBaseAuth} --environment devcontainer --json`
+                },
               })
 
               const authResult = await authResolver.resolve()
@@ -1928,6 +2020,7 @@ export default class WorkStart extends PMOCommand {
                   baseCommand: `prlt work start ${ticketId}`,
                   jsonMode,
                   flags: {},
+                  accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
                 })
 
                 saveResolver.addPrompt({
@@ -1980,6 +2073,7 @@ export default class WorkStart extends PMOCommand {
           baseCommand: `prlt work start ${ticketId}`,
           jsonMode,
           flags: { 'permission-mode': flags['permission-mode'] },
+          accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
         })
 
         const executorName = getExecutorDisplayName(executor)
@@ -2027,11 +2121,13 @@ export default class WorkStart extends PMOCommand {
           prModeSource = 'default (--json --yes)'
         } else {
           // Use FlagResolver for PR choice
+          const jsonBasePr = buildJsonBase(ticketId!, flags as Record<string, unknown>)
           const prResolver = new FlagResolver<{ prChoice?: string }>({
             commandName: 'work start',
             baseCommand: `prlt work start ${ticketId}`,
             jsonMode,
             flags: {},
+            accumulatedFlags: getAccumulatedFlags(flags as Record<string, unknown>),
           })
 
           prResolver.addPrompt({
@@ -2043,6 +2139,10 @@ export default class WorkStart extends PMOCommand {
               { name: '✓ Yes - Create PR when running `prlt work ready`', value: 'yes' },
               { name: '✗ No  - Just move ticket to review (can create PR later)', value: 'no' },
             ],
+            getCommand: (value) => {
+              if (value === 'yes') return `${jsonBasePr} --create-pr --json`
+              return `${jsonBasePr} --json`
+            },
           })
 
           const prResult = await prResolver.resolve()
@@ -2174,8 +2274,9 @@ export default class WorkStart extends PMOCommand {
         if (isExistingBranch) {
           // Ticket already has a branch linked - just use it
           this.log(styles.muted(`Using existing branch: ${branch}`))
-        } else if (flags.action || flags.force) {
-          // Non-interactive mode (spawned from batch command) - auto-create branch
+        } else if (flags.action || flags.force || jsonMode) {
+          // Non-interactive / JSON mode - auto-create branch
+          // JSON mode agents can't interactively enter branch names
           finalBranch = branch
           this.log(styles.muted(`Branch: ${finalBranch}`))
         } else {
