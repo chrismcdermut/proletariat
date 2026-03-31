@@ -25,6 +25,7 @@ import {
   Repository,
   MountMode as DBMountMode
 } from '../database/index.js';
+import { deleteRemoteBranch, markExecutionRecordsCleaned } from '../gc/index.js';
 import {
   isValidAgentName,
   getSuggestedAgentNames,
@@ -897,6 +898,12 @@ export interface CleanupResult {
   tmuxSessionsKilled: string[];
   containersRemoved: string[];
   directoriesRemoved: string[];
+  /** Local branches deleted */
+  branchesDeleted: string[];
+  /** Remote branches deleted */
+  remoteBranchesDeleted: string[];
+  /** Execution records cleaned */
+  executionRecordsCleaned: number;
   errors: string[];
   /** Git status if cleanup was blocked due to unsaved work */
   gitStatus?: AgentGitStatus;
@@ -1189,7 +1196,10 @@ export async function cleanupAgent(
     tmuxSessionsKilled: [],
     containersRemoved: [],
     directoriesRemoved: [],
-    errors: []
+    branchesDeleted: [],
+    remoteBranchesDeleted: [],
+    executionRecordsCleaned: 0,
+    errors: [],
   };
 
   // Find the agent
@@ -1339,7 +1349,54 @@ export async function cleanupAgent(
     }
   }
 
-  // 6. Mark agent lifecycle status in database (not delete — preserves history)
+  // 6. Delete git branches (local + remote)
+  if (!keepDir) {
+    // Get agent worktree branches from the database
+    const agentWorktrees = getAgentWorktrees(workspaceInfo.path, agentName);
+    for (const wt of agentWorktrees) {
+      if (!wt.branch) continue;
+      const sourceRepoPath = path.join(workspaceInfo.path, 'repos', wt.repo_name);
+      if (!fs.existsSync(sourceRepoPath)) continue;
+
+      // Delete local branch
+      if (dryRun) {
+        log(`[dry-run] Would delete local branch: ${wt.branch}`);
+        result.branchesDeleted.push(wt.branch);
+      } else {
+        log(`Deleting local branch: ${wt.branch}`);
+        try {
+          execSync(`git branch -D "${wt.branch}"`, { cwd: sourceRepoPath, stdio: 'pipe' });
+          result.branchesDeleted.push(wt.branch);
+        } catch {
+          // Branch may already be deleted — non-fatal
+        }
+      }
+
+      // Delete remote branch
+      if (dryRun) {
+        log(`[dry-run] Would delete remote branch: ${wt.branch}`);
+        result.remoteBranchesDeleted.push(wt.branch);
+      } else {
+        log(`Deleting remote branch: ${wt.branch}`);
+        if (deleteRemoteBranch(wt.branch, sourceRepoPath)) {
+          result.remoteBranchesDeleted.push(wt.branch);
+        }
+      }
+    }
+  }
+
+  // 7. Clean up execution records
+  if (!keepDir) {
+    if (dryRun) {
+      log(`[dry-run] Would clean execution records for agent: ${agentName}`);
+    } else {
+      log(`Cleaning execution records for agent: ${agentName}`);
+      const cleaned = markExecutionRecordsCleaned(workspaceInfo.path, [agentName]);
+      result.executionRecordsCleaned = cleaned;
+    }
+  }
+
+  // 8. Mark agent lifecycle status in database (not delete — preserves history)
   // Skip marking as cleaned when keeping directory - agent is still partially alive
   if (!dryRun && result.success && !keepDir) {
     if (force && agent.status === 'running') {

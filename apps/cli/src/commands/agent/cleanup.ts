@@ -409,6 +409,9 @@ export default class Cleanup extends PromptCommand {
             tmuxSessionsKilled: r.tmuxSessionsKilled,
             containersRemoved: r.containersRemoved,
             directoriesRemoved: r.directoriesRemoved,
+            branchesDeleted: r.branchesDeleted,
+            remoteBranchesDeleted: r.remoteBranchesDeleted,
+            executionRecordsCleaned: r.executionRecordsCleaned,
             errors: r.errors,
           })),
         },
@@ -440,12 +443,18 @@ export default class Cleanup extends PromptCommand {
     const totalTmux = results.reduce((sum, r) => sum + r.tmuxSessionsKilled.length, 0);
     const totalContainers = results.reduce((sum, r) => sum + r.containersRemoved.length, 0);
     const totalDirs = results.reduce((sum, r) => sum + r.directoriesRemoved.length, 0);
+    const totalBranches = results.reduce((sum, r) => sum + r.branchesDeleted.length, 0);
+    const totalRemoteBranches = results.reduce((sum, r) => sum + r.remoteBranchesDeleted.length, 0);
+    const totalRecords = results.reduce((sum, r) => sum + r.executionRecordsCleaned, 0);
 
-    if (totalTmux > 0 || totalContainers > 0 || totalDirs > 0) {
+    if (totalTmux > 0 || totalContainers > 0 || totalDirs > 0 || totalBranches > 0 || totalRecords > 0) {
       this.log(colors.textMuted(`\nResources ${dryRun ? 'that would be ' : ''}cleaned:`));
       if (totalTmux > 0) this.log(colors.textMuted(`  - Tmux sessions: ${totalTmux}`));
       if (totalContainers > 0) this.log(colors.textMuted(`  - Containers: ${totalContainers}`));
       if (totalDirs > 0) this.log(colors.textMuted(`  - Directories: ${totalDirs}`));
+      if (totalBranches > 0) this.log(colors.textMuted(`  - Local branches: ${totalBranches}`));
+      if (totalRemoteBranches > 0) this.log(colors.textMuted(`  - Remote branches: ${totalRemoteBranches}`));
+      if (totalRecords > 0) this.log(colors.textMuted(`  - Execution records: ${totalRecords}`));
     }
   }
 }
