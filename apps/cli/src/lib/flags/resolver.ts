@@ -164,6 +164,13 @@ export interface FlagResolverOptions<TFlags extends Record<string, unknown>> {
 
   /** Additional custom context */
   context?: Record<string, unknown>;
+
+  /**
+   * Flags resolved by prior steps to include in generated commands.
+   * These are included in buildCommand output for JSON mode chaining
+   * but don't participate in prompt resolution.
+   */
+  accumulatedFlags?: Record<string, unknown>;
 }
 
 /**
@@ -448,12 +455,13 @@ export class FlagResolver<TFlags extends Record<string, unknown> = Record<string
   }
 
   /**
-   * Build a command string for a flag value
+   * Build a command string for a flag value.
+   * Includes accumulated flags from prior resolver steps for JSON mode chaining.
    */
   private buildCommand(flagName: string, value: unknown): string {
     const { baseCommand } = this.options;
 
-    // Build flags part from currently resolved flags
+    // Build flags part from accumulated + resolved flags
     let cmd = baseCommand;
 
     // Add any project flag from context
@@ -462,9 +470,31 @@ export class FlagResolver<TFlags extends Record<string, unknown> = Record<string
       cmd += ` -P ${projectId}`;
     }
 
+    // Track which keys we've already added to avoid duplicates
+    const addedKeys = new Set<string>();
+
+    // Add accumulated flags from prior resolver steps
+    if (this.options.accumulatedFlags) {
+      for (const [key, val] of Object.entries(this.options.accumulatedFlags)) {
+        if (key === flagName || val === undefined || key === 'json') continue;
+        // Skip if this flag is in resolvedFlags (it will be added below)
+        if (key in this.resolvedFlags && this.resolvedFlags[key as keyof TFlags] !== undefined) continue;
+        if (typeof val === 'boolean') {
+          if (val) { cmd += ` --${key}`; addedKeys.add(key); }
+        } else if (typeof val === 'string') {
+          cmd += ` --${key} "${val}"`; addedKeys.add(key);
+        } else if (Array.isArray(val)) {
+          cmd += ` --${key} "${val.join(',')}"`; addedKeys.add(key);
+        } else {
+          cmd += ` --${key} ${val}`; addedKeys.add(key);
+        }
+      }
+    }
+
     // Add resolved flags (except the one we're prompting for)
     for (const [key, val] of Object.entries(this.resolvedFlags)) {
       if (key === flagName || val === undefined || key === 'json') continue;
+      if (addedKeys.has(key)) continue;
       if (typeof val === 'boolean') {
         if (val) cmd += ` --${key}`;
       } else if (typeof val === 'string') {
