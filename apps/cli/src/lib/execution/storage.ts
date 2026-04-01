@@ -9,6 +9,7 @@ import { execSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { PMO_TABLES } from '../pmo/schema.js'
 import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
+import { getEventBus } from '../events/event-bus.js'
 import {
   AgentWork,
   ExecutionStatus,
@@ -411,6 +412,7 @@ export class ExecutionStorage {
     const containerTmuxSessions = this.getContainerTmuxSessionMap()
 
     const cleanedExecutions: CleanedExecution[] = []
+    const bus = getEventBus()
 
     for (const exec of activeExecutions) {
       if (!exec.sessionId) {
@@ -419,13 +421,22 @@ export class ExecutionStorage {
         const ageMs = Date.now() - exec.startedAt.getTime()
         if (ageMs > 5 * 60 * 1000) {
           this.updateStatus(exec.id, 'stopped')
-          cleanedExecutions.push({
+          const cleaned: CleanedExecution = {
             ticketId: exec.ticketId,
             executionId: exec.id,
             agentName: exec.agentName,
             branch: exec.branch,
             environment: exec.environment,
             containerId: exec.containerId,
+          }
+          cleanedExecutions.push(cleaned)
+
+          // Emit agent:stopped so cleanup hooks fire for stale executions
+          bus.emit('agent:stopped', {
+            sessionId: exec.id,
+            runner: 'stale-cleanup',
+            reason: 'error' as const,
+            timestamp: new Date(),
           })
         }
         continue
@@ -454,13 +465,22 @@ export class ExecutionStorage {
       if (!sessionExists) {
         // Session doesn't exist, mark execution as stopped
         this.updateStatus(exec.id, 'stopped')
-        cleanedExecutions.push({
+        const cleaned: CleanedExecution = {
           ticketId: exec.ticketId,
           executionId: exec.id,
           agentName: exec.agentName,
           branch: exec.branch,
           environment: exec.environment,
           containerId: exec.containerId,
+        }
+        cleanedExecutions.push(cleaned)
+
+        // Emit agent:stopped so cleanup hooks fire for stale executions
+        bus.emit('agent:stopped', {
+          sessionId: exec.sessionId,
+          runner: 'stale-cleanup',
+          reason: 'error' as const,
+          timestamp: new Date(),
         })
       }
     }

@@ -93,6 +93,7 @@ export type BuiltinAction =
   | 'spawn-review-agent'
   | 'health-check'
   | 'resolve-conflict'
+  | 'gc-sweep'
 
 /** All valid built-in action names. */
 export const BUILTIN_ACTIONS: BuiltinAction[] = [
@@ -107,6 +108,7 @@ export const BUILTIN_ACTIONS: BuiltinAction[] = [
   'spawn-review-agent',
   'health-check',
   'resolve-conflict',
+  'gc-sweep',
 ]
 
 // =============================================================================

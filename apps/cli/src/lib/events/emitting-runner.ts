@@ -66,6 +66,19 @@ export class EventEmittingRunner implements AgentRunner {
         newStatus,
         timestamp: new Date(),
       })
+
+      // Emit agent:stopped when status transitions to a terminal state
+      if (
+        (newStatus === 'done' || newStatus === 'error') &&
+        previousStatus !== 'done' && previousStatus !== 'error'
+      ) {
+        this.bus.emit('agent:stopped', {
+          sessionId: session.id,
+          runner: this.name,
+          reason: newStatus === 'done' ? 'completed' : 'error',
+          timestamp: new Date(),
+        })
+      }
     }
 
     return newStatus

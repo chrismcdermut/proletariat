@@ -363,6 +363,9 @@ export default class SessionPrune extends PromptCommand {
             tmuxSessionsKilled: [],
             containersRemoved: [],
             directoriesRemoved: [],
+            branchesDeleted: [],
+            remoteBranchesDeleted: [],
+            executionRecordsCleaned: 0,
             errors: [],
           })
         }

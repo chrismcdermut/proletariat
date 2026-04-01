@@ -13,6 +13,14 @@ import * as path from 'node:path'
 import * as fs from 'node:fs'
 import type { OrchestrateEventContext, OrchestrateActionResult } from './types.js'
 import { resolveWorkflowTarget } from '../work-lifecycle/settings.js'
+import {
+  executeCascade,
+  detectZombieContainers,
+  detectOrphanedWorktrees,
+  detectStaleTmuxSessions,
+  type CascadeTarget,
+} from '../gc/cascade.js'
+import { getEventBus } from '../events/event-bus.js'
 
 type ActionHandler = (ctx: OrchestrateEventContext, config?: Record<string, unknown>) => OrchestrateActionResult
 
@@ -271,6 +279,178 @@ const resolveConflict: ActionHandler = (ctx) => {
   }
 }
 
+/**
+ * GC Sweep — periodic safety net for catching cleanup that events missed.
+ *
+ * Detects zombie containers, orphaned worktrees, stale tmux sessions,
+ * and dangling branches. Triggers the same cascade as Tier 1 cleanup.
+ * Fires agent:stopped events so hooks stay consistent.
+ *
+ * This is Tier 2 of the cleanup system — runs as a daemon action.
+ */
+const gcSweep: ActionHandler = (ctx) => {
+  const start = Date.now()
+  try {
+    const hqPath = findHqPath()
+    if (!hqPath) {
+      return { action: 'gc-sweep', success: false, error: 'Could not find workspace HQ path', durationMs: Date.now() - start }
+    }
+
+    // Get active agent names from running executions
+    const activeAgentNames = getActiveAgentNames()
+
+    let cleaned = 0
+    const bus = getEventBus()
+
+    // 1. Detect and clean zombie containers
+    const zombies = detectZombieContainers(activeAgentNames)
+    for (const zombie of zombies) {
+      const target: CascadeTarget = {
+        agentName: zombie.agentName,
+        containerId: zombie.containerId,
+        hqPath,
+      }
+
+      executeCascade(target, { execute: true })
+
+      // Emit agent:stopped so hooks stay consistent
+      bus.emit('agent:stopped', {
+        sessionId: `gc-sweep-${zombie.agentName}`,
+        runner: 'gc-sweep',
+        reason: 'error' as const,
+        timestamp: new Date(),
+      })
+
+      cleaned++
+    }
+
+    // 2. Detect and clean orphaned worktrees
+    const orphanedWorktrees = detectOrphanedWorktrees(hqPath, activeAgentNames)
+    const processedAgents = new Set<string>()
+
+    for (const orphan of orphanedWorktrees) {
+      // Only cascade once per agent (an agent may have multiple worktrees)
+      if (processedAgents.has(orphan.agentName)) continue
+      processedAgents.add(orphan.agentName)
+
+      const target: CascadeTarget = {
+        agentName: orphan.agentName,
+        worktreePath: orphan.worktreePath,
+        sourceRepoPath: orphan.repoPath,
+        branch: orphan.branch,
+        hqPath,
+      }
+
+      executeCascade(target, { execute: true })
+      cleaned++
+    }
+
+    // 3. Detect and clean stale tmux sessions
+    const activeSessionIds = getActiveSessionIds()
+    const staleSessions = detectStaleTmuxSessions(activeSessionIds)
+
+    for (const stale of staleSessions) {
+      // Only cascade if we haven't already processed this agent
+      if (processedAgents.has(stale.agentName)) continue
+      processedAgents.add(stale.agentName)
+
+      const target: CascadeTarget = {
+        agentName: stale.agentName,
+        sessionId: stale.sessionName,
+        hqPath,
+      }
+
+      executeCascade(target, { execute: true, killHostTmux: true })
+      cleaned++
+    }
+
+    return {
+      action: 'gc-sweep',
+      success: true,
+      durationMs: Date.now() - start,
+      skipped: cleaned === 0,
+    }
+  } catch (err) {
+    return {
+      action: 'gc-sweep',
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - start,
+    }
+  }
+}
+
+/**
+ * Find HQ path by walking up from cwd looking for .proletariat directory.
+ */
+function findHqPath(): string | null {
+  let dir = process.cwd()
+  for (let i = 0; i < 10; i++) {
+    const hqDir = path.join(dir, '.proletariat')
+    if (fs.existsSync(hqDir)) return dir
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+/**
+ * Get the set of agent names with active (running/starting) executions.
+ */
+function getActiveAgentNames(): Set<string> {
+  const names = new Set<string>()
+  try {
+    const dbPath = findWorkspaceDb()
+    if (!dbPath) return names
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Database = require('better-sqlite3')
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      const rows = db.prepare(
+        "SELECT DISTINCT agent_name FROM agent_work WHERE status IN ('running', 'starting')"
+      ).all() as { agent_name: string }[]
+      for (const row of rows) {
+        names.add(row.agent_name)
+      }
+    } finally {
+      db.close()
+    }
+  } catch {
+    // Non-fatal
+  }
+  return names
+}
+
+/**
+ * Get the set of session IDs for active executions.
+ */
+function getActiveSessionIds(): Set<string> {
+  const ids = new Set<string>()
+  try {
+    const dbPath = findWorkspaceDb()
+    if (!dbPath) return ids
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Database = require('better-sqlite3')
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      const rows = db.prepare(
+        "SELECT session_id FROM agent_work WHERE status IN ('running', 'starting') AND session_id IS NOT NULL"
+      ).all() as { session_id: string }[]
+      for (const row of rows) {
+        ids.add(row.session_id)
+      }
+    } finally {
+      db.close()
+    }
+  } catch {
+    // Non-fatal
+  }
+  return ids
+}
+
 // =============================================================================
 // Action Registry
 // =============================================================================
@@ -290,6 +470,7 @@ export const ACTION_HANDLERS: Record<string, ActionHandler> = {
   'spawn-review-agent': spawnReviewAgent,
   'health-check': healthCheck,
   'resolve-conflict': resolveConflict,
+  'gc-sweep': gcSweep,
 }
 
 /**
