@@ -417,7 +417,9 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
     }
   }
 
-  // Create PMO if requested
+  // Create PMO if requested, or at minimum ensure PMO schema exists.
+  // PMO tables are required for ticket mapping even when an external
+  // provider (Linear, Jira) is the source of truth.
   if (pmoSetup.includePMO) {
     await createPMO({
       hqPath,
@@ -427,6 +429,12 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
       columns: pmoSetup.columns,
       storageType: pmoSetup.storageType,
     });
+  } else {
+    // Even without full PMO setup, bootstrap the schema so commands
+    // that need PMO context (ticket list, work start, etc.) work.
+    const { bootstrapPMOSchema } = await import('../pmo/find-pmo.js');
+    const dbPath = path.join(hqPath, '.proletariat', 'workspace.db');
+    bootstrapPMOSchema(dbPath, hqPath);
   }
 
   // Add agents if selected - create worktrees AND add to database

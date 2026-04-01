@@ -159,7 +159,7 @@ export abstract class PMOCommand extends RuntimeCommand {
     const projects = await this.storage.listProjects();
 
     if (projects.length === 0) {
-      throw new Error('No projects found. Run "prlt pmo init" first.');
+      throw new Error('No projects found. Create a project first or connect a provider (e.g., prlt linear connect).');
     }
 
     // Filter to projects with tickets if requested

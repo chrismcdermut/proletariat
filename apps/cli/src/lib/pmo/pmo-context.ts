@@ -42,7 +42,7 @@ export async function getPMOContext(
   // Find PMO
   const pmoPath = findPMO();
   if (!pmoPath) {
-    throw new Error('PMO not found. Run "prlt pmo init" first.');
+    throw new Error('No workspace found. Run "prlt new" to create one.');
   }
 
   // Warn once per session if multiple HQ workspaces detected

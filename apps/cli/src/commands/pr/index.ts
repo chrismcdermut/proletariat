@@ -43,7 +43,7 @@ export default class PR extends PMOCommand {
 
     // PMOCommand base class ensures PMO context is available
     if (!this.storage) {
-      return handleError('PMO_NOT_FOUND', 'PMO not found. Run "prlt pmo init" first.');
+      return handleError('PMO_NOT_FOUND', 'No workspace found. Run "prlt new" to create one.');
     }
 
     // Use FlagResolver for action selection

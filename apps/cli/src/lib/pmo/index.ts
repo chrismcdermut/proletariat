@@ -42,7 +42,7 @@ export {
   getProductPath,
   getEpicsPath,
 } from './create-spec-folders.js';
-export { findPMO } from './find-pmo.js';
+export { findPMO, bootstrapPMOSchema } from './find-pmo.js';
 export { getPMOContext, type PMOContext, type GetPMOContextOptions } from './pmo-context.js';
 export { PMOCommand, pmoBaseFlags, jsonModeFlags, machineOutputFlags } from './base-command.js';
 
