@@ -35,6 +35,8 @@ import {
   detectCCVersionInContainer,
   getCCUserPermissionSettings,
   getCCAppPermissionSettings,
+  installClaudeLauncherInContainer,
+  CLAUDE_LAUNCHER_CMD,
 } from '../cc-version.js'
 
 /**
@@ -245,6 +247,11 @@ export async function runOrchestratorInDocker(
           `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
           { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }
         )
+
+        // PRLT-1240: Install claude-launcher.sh wrapper that ensures onboarding
+        // settings survive Claude Code's startup config write.
+        installClaudeLauncherInContainer(containerId)
+        console.debug(`[runners:orchestrator-docker] Installed claude-launcher.sh in container`)
       } catch (error) {
         console.debug('[runners:orchestrator-docker] Failed to copy Claude settings:', error)
       }
@@ -273,9 +280,11 @@ export async function runOrchestratorInDocker(
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     // PRLT-950: Use -- to separate flags from positional prompt argument.
     // --disallowedTools is variadic and will consume the prompt as its second arg without --.
+    // PRLT-1240: Use claude-launcher.sh wrapper in containers to ensure onboarding
+    // settings survive Claude Code's startup config write.
     const executorCmd = executor === 'claude-code'
-      ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}-- "$(cat ${promptPath})"`
-      : `claude ${permissionsFlag}${effortFlag}-- "$(cat ${promptPath})"`
+      ? `${CLAUDE_LAUNCHER_CMD} ${permissionsFlag}${effortFlag}${disallowPlanFlag}-- "$(cat ${promptPath})"`
+      : `${CLAUDE_LAUNCHER_CMD} ${permissionsFlag}${effortFlag}-- "$(cat ${promptPath})"`
 
     // Build tmux session name (reuses the same name as host tmux for consistency)
     const tmuxSessionName = options?.sessionName || containerName
@@ -296,7 +305,7 @@ export async function runOrchestratorInDocker(
         const scriptContent = `#!/bin/bash
 cd /hq
 unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT
-${executor === 'claude-code' ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}"$(cat ${promptPath})"` : `claude "$(cat ${promptPath})"`}
+${executor === 'claude-code' ? `${CLAUDE_LAUNCHER_CMD} ${permissionsFlag}${effortFlag}${disallowPlanFlag}"$(cat ${promptPath})"` : `${CLAUDE_LAUNCHER_CMD} "$(cat ${promptPath})"`}
 echo ""
 echo "Orchestrator complete. Press Enter to close."
 exec bash

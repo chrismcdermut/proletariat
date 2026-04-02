@@ -2,9 +2,9 @@
  * Claude Code Version Management (PRLT-1240)
  *
  * Utilities for detecting Claude Code versions in containers and generating
- * version-appropriate permission settings. Prevents container agents from
- * getting stuck at the bypass permissions prompt when Claude Code updates
- * change the expected settings format.
+ * version-appropriate permission settings. Also provides a launcher wrapper
+ * script that ensures onboarding settings persist through Claude Code's
+ * startup config write.
  */
 
 import { execSync } from 'node:child_process'
@@ -14,23 +14,16 @@ import { execSync } from 'node:child_process'
 // =============================================================================
 
 /**
- * Default Claude Code version for container builds.
- *
- * Pinned to last known-good version where permission bypass settings work
- * correctly. Without this pin, containers install "latest" which may introduce
- * breaking changes to the permission prompt flow.
- *
- * PRLT-1240: Claude Code 2.1.86 changed settings handling so that
- * skipDangerousModePermissionPrompt and bypassPermissionsModeAccepted
- * are no longer sufficient to skip the permissions prompt.
- */
-export const CC_DEFAULT_VERSION = '2.1.81'
-
-/**
  * Version where Claude Code changed the permissions prompt settings format.
  * Versions >= this require additional settings to suppress the prompt.
  */
 export const CC_BREAKING_VERSION = '2.1.86'
+
+/**
+ * Command name for the Claude launcher wrapper script.
+ * Installed at /usr/local/bin/ so it's in PATH inside containers.
+ */
+export const CLAUDE_LAUNCHER_CMD = 'claude-launcher.sh'
 
 // =============================================================================
 // Version Detection
@@ -147,4 +140,93 @@ export function getCCAppPermissionSettings(version?: string): CCAppSettings {
   }
 
   return settings
+}
+
+// =============================================================================
+// Claude Launcher Wrapper (PRLT-1240)
+// =============================================================================
+
+/**
+ * Build the claude-launcher.sh wrapper script content.
+ *
+ * Claude Code >=2.1.86 overwrites ~/.claude.json on startup with its own
+ * runtime cache (OAuth state, feature flags), clobbering hasCompletedOnboarding=true
+ * that prlt writes during container setup. Without that flag, Claude starts the
+ * first-run onboarding flow (theme picker → permissions → workspace trust) and
+ * agents get stuck.
+ *
+ * This wrapper:
+ * 1. Merges onboarding settings into ~/.claude.json before launch
+ * 2. Starts a background guardian that re-applies settings if Claude clobbers them
+ * 3. Execs into claude with all original arguments
+ *
+ * The guardian checks every 500ms for 15 seconds. Once settings survive 3
+ * consecutive checks (1.5s stable), it exits. This covers the startup window
+ * where Claude may overwrite the config.
+ */
+export function buildClaudeLauncherScript(): string {
+  // The node one-liner that merges onboarding settings into ~/.claude.json.
+  // Uses Node.js (always available in containers) instead of jq for reliability.
+  const applySettingsScript = `
+      const fs = require("fs");
+      const f = require("os").homedir() + "/.claude.json";
+      let s = {};
+      try { s = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+      if (s.hasCompletedOnboarding === true) process.exit(0);
+      s.hasCompletedOnboarding = true;
+      s.numStartups = Math.max(s.numStartups || 0, 1);
+      s.theme = s.theme || "dark";
+      s.effortCalloutDismissed = true;
+      s.tipsHistory = Object.assign(s.tipsHistory || {}, {"new-user-warmup": 1});
+      s.projects = s.projects || {};
+      ["/workspace", "/hq", "/"].forEach(function(p) {
+        s.projects[p] = Object.assign(s.projects[p] || {}, {
+          hasTrustDialogAccepted: true,
+          hasCompletedProjectOnboarding: true
+        });
+      });
+      fs.writeFileSync(f, JSON.stringify(s));
+      process.exit(1);
+  `.trim()
+
+  return `#!/bin/bash
+# claude-launcher.sh — PRLT-1240: Ensure onboarding settings survive Claude startup
+# Claude Code >=2.1.86 overwrites ~/.claude.json on startup with runtime cache,
+# clobbering hasCompletedOnboarding=true. This wrapper applies settings before
+# launch and runs a background guardian that re-applies if clobbered.
+
+# Pre-launch: ensure onboarding settings exist in .claude.json
+node -e '${applySettingsScript}' 2>/dev/null || true
+
+# Background guardian: re-apply settings if Claude clobbers them during startup.
+# Checks every 500ms for up to 15s. Exits early once settings are stable (3 consecutive OKs).
+(
+  settled=0
+  for i in $(seq 1 30); do
+    sleep 0.5
+    node -e '${applySettingsScript}' 2>/dev/null
+    if [ $? -eq 0 ]; then
+      settled=$((settled + 1))
+      [ $settled -ge 6 ] && break
+    else
+      settled=0
+    fi
+  done
+) &
+
+# Launch Claude Code with all original arguments
+exec claude "$@"
+`
+}
+
+/**
+ * Install the claude-launcher.sh wrapper script into a running container.
+ * Writes to /usr/local/bin/ (requires --user root for docker exec).
+ */
+export function installClaudeLauncherInContainer(containerId: string): void {
+  const script = buildClaudeLauncherScript()
+  execSync(
+    `docker exec --user root -i ${containerId} bash -c 'cat > /usr/local/bin/${CLAUDE_LAUNCHER_CMD} && chmod +x /usr/local/bin/${CLAUDE_LAUNCHER_CMD}'`,
+    { input: script, stdio: ['pipe', 'pipe', 'pipe'] }
+  )
 }

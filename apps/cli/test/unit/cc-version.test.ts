@@ -1,34 +1,31 @@
 import { expect } from 'chai'
 
 import {
-  CC_DEFAULT_VERSION,
   CC_BREAKING_VERSION,
+  CLAUDE_LAUNCHER_CMD,
   parseCCVersionOutput,
   compareCCVersion,
   isPostBreakingVersion,
   getCCUserPermissionSettings,
   getCCAppPermissionSettings,
+  buildClaudeLauncherScript,
 } from '../../src/lib/execution/cc-version.js'
 
 /**
  * Unit tests for Claude Code version management (PRLT-1240)
  *
- * Verifies version detection, comparison, and version-aware permission settings
- * that prevent container agents from getting stuck at the bypass permissions prompt.
+ * Verifies version detection, comparison, version-aware permission settings,
+ * and the claude-launcher.sh wrapper that ensures onboarding settings persist
+ * through Claude Code's startup config write.
  */
 describe('Claude Code Version Management (PRLT-1240)', () => {
   // ===========================================================================
   // Constants
   // ===========================================================================
 
-  describe('CC_DEFAULT_VERSION', () => {
-    it('should be a valid semver string', () => {
-      expect(CC_DEFAULT_VERSION).to.match(/^\d+\.\d+\.\d+$/)
-    })
-
-    it('should be pinned to a pre-breaking version', () => {
-      // The default version should be before the breaking change
-      expect(compareCCVersion(CC_DEFAULT_VERSION, CC_BREAKING_VERSION)).to.equal(-1)
+  describe('CLAUDE_LAUNCHER_CMD', () => {
+    it('should be claude-launcher.sh', () => {
+      expect(CLAUDE_LAUNCHER_CMD).to.equal('claude-launcher.sh')
     })
   })
 
@@ -234,6 +231,87 @@ describe('Claude Code Version Management (PRLT-1240)', () => {
       const parsed = JSON.parse(json)
       expect(parsed.skipDangerousModePermissionPrompt).to.be.true
       expect(parsed.dangerouslySkipPermissions).to.be.true
+    })
+  })
+
+  // ===========================================================================
+  // Claude Launcher Wrapper (PRLT-1240)
+  // ===========================================================================
+
+  describe('buildClaudeLauncherScript', () => {
+    let script: string
+
+    before(() => {
+      script = buildClaudeLauncherScript()
+    })
+
+    it('should return a non-empty bash script', () => {
+      expect(script).to.be.a('string')
+      expect(script.length).to.be.greaterThan(0)
+      expect(script).to.match(/^#!/)
+    })
+
+    it('should start with a bash shebang', () => {
+      expect(script.startsWith('#!/bin/bash')).to.be.true
+    })
+
+    it('should exec into claude with all arguments', () => {
+      expect(script).to.include('exec claude "$@"')
+    })
+
+    it('should set hasCompletedOnboarding to true', () => {
+      expect(script).to.include('hasCompletedOnboarding')
+    })
+
+    it('should set theme to dark as default', () => {
+      expect(script).to.include('s.theme = s.theme || "dark"')
+    })
+
+    it('should set hasTrustDialogAccepted for project paths', () => {
+      expect(script).to.include('hasTrustDialogAccepted')
+      expect(script).to.include('/workspace')
+      expect(script).to.include('/hq')
+    })
+
+    it('should include a background guardian loop', () => {
+      // Guardian runs in background subshell
+      expect(script).to.include(') &')
+      // Guardian checks periodically
+      expect(script).to.include('sleep 0.5')
+    })
+
+    it('should include pre-launch settings application', () => {
+      // The script applies settings BEFORE the background guardian starts
+      const prelaunchIndex = script.indexOf('Pre-launch')
+      const guardianIndex = script.indexOf('Background guardian')
+      const execIndex = script.indexOf('exec claude')
+      expect(prelaunchIndex).to.be.lessThan(guardianIndex)
+      expect(guardianIndex).to.be.lessThan(execIndex)
+    })
+
+    it('should set effortCalloutDismissed', () => {
+      expect(script).to.include('effortCalloutDismissed')
+    })
+
+    it('should set tipsHistory for new-user-warmup', () => {
+      expect(script).to.include('new-user-warmup')
+    })
+
+    it('should use node for settings manipulation (not jq)', () => {
+      // Node.js is always available in containers; jq may not be
+      expect(script).to.include('node -e')
+      expect(script).to.not.include('jq ')
+    })
+
+    // Regression: launcher must exit cleanly if .claude.json already has onboarding
+    it('should exit 0 from node script when hasCompletedOnboarding is already true', () => {
+      expect(script).to.include('if (s.hasCompletedOnboarding === true) process.exit(0)')
+    })
+
+    // Regression: guardian must self-terminate
+    it('should have a bounded guardian loop that exits after settling', () => {
+      expect(script).to.include('settled')
+      expect(script).to.include('break')
     })
   })
 })

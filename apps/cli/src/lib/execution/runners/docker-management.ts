@@ -22,6 +22,7 @@ import {
   detectCCVersionInContainer,
   getCCUserPermissionSettings,
   getCCAppPermissionSettings,
+  installClaudeLauncherInContainer,
 } from '../cc-version.js'
 
 /** Docker volume name for the shared pnpm store cache (PRLT-1130) */
@@ -543,6 +544,13 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
         { input: enforceTestsScript, stdio: ['pipe', 'pipe', 'pipe'] }
       )
       console.debug(`[runners:docker] Wrote enforce-tests hook script to container`)
+
+      // PRLT-1240: Install claude-launcher.sh wrapper that ensures onboarding
+      // settings survive Claude Code's startup config write. Claude >=2.1.86
+      // overwrites ~/.claude.json on startup, clobbering hasCompletedOnboarding.
+      // The launcher re-applies settings before and during Claude's startup.
+      installClaudeLauncherInContainer(containerId)
+      console.debug(`[runners:docker] Installed claude-launcher.sh in container`)
     } catch (error) {
       console.debug('[runners:docker] Failed to copy Claude settings to container:', error)
     }

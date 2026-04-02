@@ -40,6 +40,7 @@ import { runDevcontainerInTmux } from './devcontainer-tmux.js'
 import { runDevcontainerInTerminal } from './devcontainer-terminal.js'
 import { writeWorkspaceManifest } from '../context.js'
 import type { WorkspaceManifest } from '../types.js'
+import { CLAUDE_LAUNCHER_CMD } from '../cc-version.js'
 
 // =============================================================================
 // Prompt File Management
@@ -149,7 +150,9 @@ export function buildDevcontainerCommand(
     // Tool registry (TKT-083): pass MCP config to Claude Code via --mcp-config flag
     const mcpConfigFlag = mcpConfigFile ? `--mcp-config ${mcpConfigFile} ` : ''
     // PRLT-950: Use -- to separate flags from positional prompt argument.
-    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${mcpConfigFlag}-- "$(cat ${promptFile})"`
+    // PRLT-1240: Use claude-launcher.sh wrapper in containers to ensure onboarding
+    // settings survive Claude Code's startup config write.
+    executorCmd = `${CLAUDE_LAUNCHER_CMD} ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${mcpConfigFlag}-- "$(cat ${promptFile})"`
   } else if (executor === 'codex') {
     const codexPermission: PermissionMode = permissionMode
     const codexContext = resolveCodexExecutionContext(displayMode, outputMode)
