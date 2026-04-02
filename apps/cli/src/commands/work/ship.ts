@@ -155,6 +155,13 @@ export default class WorkShip extends PMOCommand {
     const executionStorage = new ExecutionStorage(db);
 
     try {
+      // --- Step 0: Resolve repo cwd for gh CLI commands ---
+      // gh commands (pr view, pr checks, etc.) need to run inside a git repo
+      // to determine which GitHub repository to query. In workspace/devcontainer
+      // environments, process.cwd() may be the workspace root (not a git repo),
+      // causing gh to fail and PR lookups to return PR_NOT_FOUND.
+      const repoCwd = this.resolveRepoCwd(workspaceInfo, executionStorage);
+
       // --- Handle --all flag: batch ship all green PRs ---
       if (flags.all) {
         await this.shipAll(flags, workspaceInfo, executionStorage, db, jsonMode);
@@ -169,7 +176,7 @@ export default class WorkShip extends PMOCommand {
 
       if (prNumber) {
         // PR number provided directly — find the PR, then resolve the ticket
-        prInfo = getPRByNumber(prNumber);
+        prInfo = getPRByNumber(prNumber, repoCwd);
         if (!prInfo) {
           db.close();
           return handleError('PR_NOT_FOUND', `PR #${prNumber} not found.`);
@@ -184,14 +191,7 @@ export default class WorkShip extends PMOCommand {
         // Resolve ticket first
         if (!ticketId) {
           // Prompt for ticket selection from shippable tickets (in review or in progress)
-          // Pull live from provider (Linear, GitHub, etc.) — no local PMO fallback
-          const provider = this.resolveProjectProvider(projectId || '');
-          const listResult = await provider.listTickets(projectId);
-          if (!listResult.success) {
-            db.close();
-            return handleError('LIST_FAILED', listResult.error || 'Failed to list tickets from provider.');
-          }
-          const allTickets = listResult.tickets;
+          const allTickets = await this.storage.listTickets(projectId);
           const shippableTickets = allTickets.filter(t =>
             t.statusCategory === 'started' ||
             (t.statusName && (
@@ -226,25 +226,30 @@ export default class WorkShip extends PMOCommand {
           ticketId = selected;
         }
 
-        // Get ticket from provider — no local PMO fallback
-        const ticketProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
-        const getResult = await ticketProvider.getTicket(ticketId!);
-        if (getResult.success && getResult.ticket) {
-          ticket = getResult.ticket;
-        }
+        // Get ticket
+        ticket = await this.storage.getTicket(ticketId!);
         if (!ticket) {
           db.close();
           return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
         }
         ticketId = ticket.id;
 
-        // Find PR from GitHub directly — look up by execution branch or ticket branch
-        const runningExecution = executionStorage.getRunningExecution(ticketId!);
-        const branch = runningExecution?.branch || ticket.branch;
-        if (branch) {
-          prInfo = getPRForBranch(branch);
-          if (prInfo) {
-            prNumber = prInfo.number;
+        // Find PR from ticket metadata or branch
+        prNumber = ticket.metadata?.pr_number ? parseInt(ticket.metadata.pr_number, 10) : undefined;
+
+        if (prNumber) {
+          prInfo = getPRByNumber(prNumber, repoCwd);
+        }
+
+        if (!prInfo) {
+          // Try to find PR from execution branch
+          const runningExecution = executionStorage.getRunningExecution(ticketId!);
+          const branch = runningExecution?.branch || ticket.branch;
+          if (branch) {
+            prInfo = getPRForBranch(branch, repoCwd);
+            if (prInfo) {
+              prNumber = prInfo.number;
+            }
           }
         }
 
@@ -273,8 +278,8 @@ export default class WorkShip extends PMOCommand {
         return handleError('PR_CLOSED', `PR #${prNumber} is closed. Reopen it first.`);
       }
 
-      // Resolve the working directory for git operations
-      const cwd = this.resolveWorktreePath(workspaceInfo, executionStorage, ticketId);
+      // Resolve the working directory for git operations (ticket-specific, then fallback)
+      const cwd = this.resolveWorktreePath(workspaceInfo, executionStorage, ticketId) || repoCwd;
 
       // --- Dry run summary ---
       if (flags['dry-run']) {
@@ -424,8 +429,22 @@ export default class WorkShip extends PMOCommand {
       let doneColumn: string | null | undefined;
 
       if (ticket && ticketId) {
-        // PR metadata lives in the provider (Linear, GitHub), not local PMO.
-        // No local ticket update needed.
+        // Update PR metadata
+        try {
+          await this.storage.updateTicket(ticketId, {
+            metadata: {
+              ...ticket.metadata,
+              pr_state: 'MERGED',
+              merged_at: new Date().toISOString(),
+            },
+          });
+        } catch (err) {
+          if ((err as { code?: string }).code === 'SQLITE_READONLY') {
+            this.log(styles.muted('   PR metadata update skipped (read-only database)'));
+          } else {
+            throw err;
+          }
+        }
 
         if (!flags['no-transition']) {
           try {
@@ -449,10 +468,8 @@ export default class WorkShip extends PMOCommand {
           }
         }
 
-        // Auto-export board (only when using local PMO, not external providers)
-        if (ticketTransitionProvider === 'pmo') {
-          await autoExportToBoard(this.pmoPath, this.storage);
-        }
+        // Auto-export board
+        await autoExportToBoard(this.pmoPath, this.storage);
 
         // Mark execution as completed
         const runningExecution = executionStorage.getRunningExecution(ticketId);
@@ -592,32 +609,45 @@ export default class WorkShip extends PMOCommand {
    * Resolve the linked ticket for a PR.
    */
   private async resolveLinkedTicket(
-    _prNumber: number,
+    prNumber: number,
     headBranch: string,
     projectId: string | undefined,
   ): Promise<Ticket | null> {
-    // 1. Look up from agent_work table by branch name (runtime state, kept locally)
+    // 1. Find by PR metadata on tickets
+    const allTickets = await this.storage.listTickets(projectId);
+    const byMetadata = allTickets.find(t =>
+      t.metadata?.pr_number === String(prNumber) ||
+      t.metadata?.pr_url?.endsWith(`/pull/${prNumber}`) ||
+      t.metadata?.pr_url?.endsWith(`/${prNumber}`)
+    );
+    if (byMetadata) return byMetadata;
+
+    // 2. Look up from agent_work table by branch name
     try {
       const db = this.storage.getDatabase();
       const row = db.prepare(
         `SELECT ticket_id FROM ${PMO_TABLES.agent_work} WHERE branch = ? LIMIT 1`
       ).get(headBranch) as { ticket_id: string } | undefined;
       if (row?.ticket_id) {
-        const ticketProvider = await this.resolveTicketProvider(row.ticket_id, projectId || '');
-        const getResult = await ticketProvider.getTicket(row.ticket_id);
-        if (getResult.success && getResult.ticket) return getResult.ticket;
+        const ticket = await this.storage.getTicket(row.ticket_id);
+        if (ticket) return ticket;
       }
     } catch {
-      // agent_work lookup failed — fall through
+      // agent_work lookup failed
     }
 
-    // 2. Parse ticket ID from branch name (e.g., PRLT-1231/feat/slug → PRLT-1231)
+    // 3. Parse ticket ID from branch name
     const branchResult = validateBranchName(headBranch);
     if (branchResult.valid && branchResult.parts?.ticketId) {
       const branchTicketId = branchResult.parts.ticketId;
-      const ticketProvider = await this.resolveTicketProvider(branchTicketId, projectId || '');
-      const getResult = await ticketProvider.getTicket(branchTicketId);
-      if (getResult.success && getResult.ticket) return getResult.ticket;
+
+      const directTicket = await this.storage.getTicket(branchTicketId);
+      if (directTicket) return directTicket;
+
+      const byExternalKey = allTickets.find(t =>
+        t.metadata?.external_key === branchTicketId
+      );
+      if (byExternalKey) return byExternalKey;
     }
 
     return null;
@@ -820,6 +850,33 @@ export default class WorkShip extends PMOCommand {
   }
 
   /**
+   * Resolve a repo-level cwd for gh CLI commands.
+   * gh needs to run inside a git repo to determine the GitHub repository.
+   * Tries: devcontainer/execution worktree, then workspace repositories.
+   */
+  private resolveRepoCwd(
+    workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
+    executionStorage: ExecutionStorage,
+    ticketId?: string,
+  ): string | undefined {
+    // First try the worktree path (handles devcontainer and execution contexts)
+    const worktreePath = this.resolveWorktreePath(workspaceInfo, executionStorage, ticketId);
+    if (worktreePath) return worktreePath;
+
+    // Fall back to the first registered repository in the workspace
+    const mainRepo = workspaceInfo.repositories.find(r => r.type === 'main');
+    const repo = mainRepo || workspaceInfo.repositories[0];
+    if (repo?.path) {
+      const repoPath = path.isAbsolute(repo.path)
+        ? repo.path
+        : path.join(workspaceInfo.path, repo.path);
+      if (fs.existsSync(repoPath)) return repoPath;
+    }
+
+    return undefined;
+  }
+
+  /**
    * Ship all currently-green PRs, or watch all open PRs when --when-green is set.
    */
   private async shipAll(
@@ -837,7 +894,7 @@ export default class WorkShip extends PMOCommand {
       this.error(message);
     };
 
-    const cwd = this.resolveWorktreePath(workspaceInfo, executionStorage);
+    const cwd = this.resolveRepoCwd(workspaceInfo, executionStorage);
 
     // Get all open PRs
     const openPRs = listOpenPRs(cwd);

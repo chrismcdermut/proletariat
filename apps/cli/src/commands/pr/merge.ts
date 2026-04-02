@@ -24,6 +24,9 @@ import { getEventBus } from '../../lib/events/event-bus.js';
 import { validateBranchName } from '../../lib/branch/index.js';
 import { PMO_TABLES } from '../../lib/pmo/schema.js';
 import type { Ticket } from '../../lib/pmo/types.js';
+import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
 
 export default class PRMerge extends PMOCommand {
   static description = 'Merge a GitHub pull request by number';
@@ -93,11 +96,14 @@ export default class PRMerge extends PMOCommand {
       return handleError('GH_NOT_AUTHENTICATED', 'GitHub CLI is not authenticated. Run "gh auth login" first.');
     }
 
+    // Resolve repo cwd for gh CLI commands (may not be in a git repo)
+    const repoCwd = this.resolveRepoCwd();
+
     let prNumber = args.prNumber;
 
     // If no PR number provided, prompt for selection
     if (!prNumber) {
-      const openPRs = listOpenPRs();
+      const openPRs = listOpenPRs(repoCwd);
 
       if (openPRs.length === 0) {
         return handleError('NO_OPEN_PRS', 'No open pull requests found.');
@@ -125,7 +131,7 @@ export default class PRMerge extends PMOCommand {
     }
 
     // Verify PR exists and is open
-    const prInfo = getPRByNumber(prNumber);
+    const prInfo = getPRByNumber(prNumber, repoCwd);
     if (!prInfo) {
       return handleError('PR_NOT_FOUND', `PR #${prNumber} not found.`);
     }
@@ -140,6 +146,7 @@ export default class PRMerge extends PMOCommand {
       method,
       deleteBranch: flags['delete-branch'],
       admin: flags.admin,
+      cwd: repoCwd,
     });
 
     if (!result.success) {
@@ -200,7 +207,7 @@ export default class PRMerge extends PMOCommand {
     // Emit work:pr_merged event for outbound sync (e.g., Linear auto-transition)
     if (linkedTicketId) {
       try {
-        const repo = getGitHubRepo();
+        const repo = getGitHubRepo(repoCwd);
         const prUrl = repo ? `https://github.com/${repo}/pull/${prNumber}` : null;
 
         getEventBus().emit('work:pr_merged', {
@@ -247,6 +254,27 @@ export default class PRMerge extends PMOCommand {
         this.log(styles.muted(`   Synced to ${ticketTransitionProvider}`));
       }
     }
+  }
+
+  /**
+   * Resolve a repo-level cwd for gh CLI commands.
+   * gh needs to run inside a git repo to determine the GitHub repository.
+   */
+  private resolveRepoCwd(): string | undefined {
+    try {
+      const info = getWorkspaceInfo();
+      const mainRepo = info.repositories.find(r => r.type === 'main');
+      const repo = mainRepo || info.repositories[0];
+      if (repo?.path) {
+        const repoPath = path.isAbsolute(repo.path)
+          ? repo.path
+          : path.join(info.path, repo.path);
+        if (fs.existsSync(repoPath)) return repoPath;
+      }
+    } catch {
+      // No workspace available — cwd is likely already in a git repo
+    }
+    return undefined;
   }
 
   /**
