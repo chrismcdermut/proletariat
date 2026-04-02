@@ -16,6 +16,11 @@ import type Database from 'better-sqlite3'
 import { HookManager } from '../work-lifecycle/hooks/manager.js'
 import type { HookExecutionResult, HookActionHandler } from '../work-lifecycle/hooks/types.js'
 import { ACTION_HANDLERS } from './actions.js'
+import {
+  NotificationManager,
+  initNotificationManager,
+  stopNotificationManager,
+} from '../notifications/index.js'
 import type {
   OrchestrateActionResult,
 } from './types.js'
@@ -37,6 +42,7 @@ export interface OrchestrateEngineOptions {
 
 export class OrchestrateEngine {
   private manager: HookManager
+  private notificationManager: NotificationManager
   private running = false
 
   constructor(options: OrchestrateEngineOptions) {
@@ -54,17 +60,22 @@ export class OrchestrateEngine {
       onNotify,
       actionHandlers: ACTION_HANDLERS as Record<string, HookActionHandler>,
     })
+
+    // Initialize the notification manager so it subscribes to events
+    this.notificationManager = initNotificationManager({
+      db: options.db,
+      log: options.log,
+    })
   }
 
   /**
-   * Start the orchestrate engine — delegates to HookManager.
+   * Start the orchestrate engine — delegates to HookManager and NotificationManager.
    */
   start(): void {
     if (this.running) return
     this.running = true
     this.manager.start()
-    // Log is internal to the manager, but we can't access it here easily.
-    // The manager's log callback will handle logging.
+    void this.notificationManager.start()
   }
 
   /**
@@ -73,6 +84,8 @@ export class OrchestrateEngine {
   stop(): void {
     this.running = false
     this.manager.stop()
+    this.notificationManager.stop()
+    stopNotificationManager()
   }
 
   /**
