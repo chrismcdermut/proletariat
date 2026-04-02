@@ -26,7 +26,7 @@ function createTestDb(): Database.Database {
   const db = new Database(':memory:')
   ensureHooksTable(db)
   try {
-    db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('auto', 'confirm', 'notify', 'off'))")
+    db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('auto', 'confirm', 'notify', 'llm', 'human', 'off'))")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN project_id TEXT")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('yaml', 'cli', 'preset'))")
@@ -194,9 +194,15 @@ review:
       const count = applyPreset(db, 'conservative')
       expect(count).to.be.greaterThan(0)
 
-      const hooks = db.prepare("SELECT * FROM pmo_work_hooks WHERE source = 'preset'").all() as Array<{ mode: string }>
+      const hooks = db.prepare("SELECT * FROM pmo_work_hooks WHERE source = 'preset'").all() as Array<{ mode: string; action_value: string }>
       for (const hook of hooks) {
-        expect(hook.mode).to.equal('confirm')
+        // Conservative preset: safe actions are auto (Tier 1), destructive actions are human (Tier 3)
+        // action_value is like "prlt hook fire on_ci_green --action merge-pr", extract the action name
+        const SAFE_ACTIONS = new Set(['move-ticket', 'notify', 'cleanup-container', 'health-check', 'rebase-conflicting-prs', 'spawn-review-agent'])
+        const actionMatch = hook.action_value.match(/--action\s+(\S+)/)
+        const actionName = actionMatch ? actionMatch[1] : hook.action_value
+        const expectedMode = SAFE_ACTIONS.has(actionName) ? 'auto' : 'human'
+        expect(hook.mode).to.equal(expectedMode)
       }
     })
 

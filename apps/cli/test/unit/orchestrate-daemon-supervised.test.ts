@@ -11,7 +11,7 @@ import type { OrchestrateActionResult, OrchestrateEventContext } from '../../src
  *
  * Tests cover:
  * - Supervised mode poll cycles produce 0 container spawns
- * - Confirm-mode hooks correctly block spawn-agent on on_ticket_ready
+ * - LLM-mode hooks correctly block spawn-agent on on_ticket_ready
  * - Full engine + poller integration with mode-aware execution
  */
 
@@ -21,7 +21,7 @@ function createTestDb(): Database.Database {
 
   // Add orchestrate columns
   try {
-    db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('auto', 'confirm', 'notify', 'off'))")
+    db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('auto', 'confirm', 'notify', 'llm', 'human', 'off'))")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN project_id TEXT")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('yaml', 'cli', 'preset'))")
@@ -68,23 +68,23 @@ function createTestDb(): Database.Database {
   `)
 
   // Insert statuses
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ready', 'Ready', 'todo')").run()
+  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ready', 'Ready', 'unstarted')").run()
   db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ip', 'In Progress', 'started')").run()
 
   return db
 }
 
 function insertSupervisedHooks(db: Database.Database): void {
-  // Insert hooks matching the supervised preset: safe=auto, destructive=confirm
+  // Insert hooks matching the supervised preset: safe=auto (Tier 1), destructive=llm (Tier 2)
   const hooks = [
-    { name: 'sup:on_ticket_ready:spawn-agent', event: 'on_ticket_ready', action: 'spawn-agent', mode: 'confirm' },
-    { name: 'sup:on_agent_died:respawn', event: 'on_agent_died', action: 'respawn', mode: 'confirm' },
+    { name: 'sup:on_ticket_ready:spawn-agent', event: 'on_ticket_ready', action: 'spawn-agent', mode: 'llm' },
+    { name: 'sup:on_agent_died:respawn', event: 'on_agent_died', action: 'respawn', mode: 'llm' },
     { name: 'sup:on_agent_died:notify', event: 'on_agent_died', action: 'notify', mode: 'auto' },
-    { name: 'sup:on_ci_green:merge-pr', event: 'on_ci_green', action: 'merge-pr', mode: 'confirm' },
+    { name: 'sup:on_ci_green:merge-pr', event: 'on_ci_green', action: 'merge-pr', mode: 'llm' },
     { name: 'sup:on_agent_completed:cleanup', event: 'on_agent_completed', action: 'cleanup-container', mode: 'auto' },
     { name: 'sup:on_agent_idle:health-check', event: 'on_agent_idle', action: 'health-check', mode: 'auto' },
     { name: 'sup:on_ci_failed:notify', event: 'on_ci_failed', action: 'notify', mode: 'auto' },
-    { name: 'sup:on_ci_failed:spawn-fix', event: 'on_ci_failed', action: 'spawn-fix-agent', mode: 'confirm' },
+    { name: 'sup:on_ci_failed:spawn-fix', event: 'on_ci_failed', action: 'spawn-fix-agent', mode: 'llm' },
     { name: 'sup:on_agent_completed:gc-sweep', event: 'on_agent_completed', action: 'gc-sweep', mode: 'auto' },
   ]
 
@@ -142,14 +142,14 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
       await poller.poll()
       await poller.poll()
 
-      // spawn-agent should be in confirm mode, so no actual spawns
+      // spawn-agent should be in llm mode, so no actual spawns without LLM approval
       const spawnResults = executedActions.filter(r => r.action === 'spawn-agent')
-      const executedSpawns = spawnResults.filter(r => r.success && !r.skipped && !r.awaitingConfirmation)
-      expect(executedSpawns).to.have.length(0, 'No containers should be spawned in supervised mode without approval')
+      const executedSpawns = spawnResults.filter(r => r.success && !r.skipped && !r.awaitingLlmDecision)
+      expect(executedSpawns).to.have.length(0, 'No containers should be spawned in supervised mode without LLM approval')
 
-      // But spawn-agent should be queued for confirmation
-      const queuedSpawns = spawnResults.filter(r => r.awaitingConfirmation)
-      expect(queuedSpawns.length).to.be.greaterThan(0, 'spawn-agent hooks should be queued for confirmation')
+      // But spawn-agent should be queued for LLM decision
+      const queuedSpawns = spawnResults.filter(r => r.awaitingLlmDecision)
+      expect(queuedSpawns.length).to.be.greaterThan(0, 'spawn-agent hooks should be queued for LLM decision')
     })
 
     it('pending confirmations should accumulate without executing', async () => {
@@ -167,10 +167,10 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
 
       const spawns = results.filter(r => r.action === 'spawn-agent')
       expect(spawns).to.have.length(1)
-      expect(spawns[0].awaitingConfirmation).to.be.true
+      expect(spawns[0].awaitingLlmDecision).to.be.true
 
-      // Pending confirmations should have the queued action
-      const pending = engine.getPendingConfirmations()
+      // Pending LLM decisions should have the queued action
+      const pending = engine.getPendingLlmDecisions()
       expect(pending).to.have.length(1)
       expect(pending[0].action).to.equal('spawn-agent')
       expect(pending[0].event).to.equal('on_ticket_ready')
@@ -181,8 +181,8 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
   // Confirm Mode Skip Behavior
   // ===========================================================================
 
-  describe('confirm mode skip behavior', () => {
-    it('on_ticket_ready should queue spawn-agent in confirm mode (not execute)', async () => {
+  describe('llm mode skip behavior', () => {
+    it('on_ticket_ready should queue spawn-agent in llm mode (not execute)', async () => {
       insertSupervisedHooks(db)
 
       const engine = new OrchestrateEngine({ db, log: () => {} })
@@ -193,17 +193,17 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
 
       expect(results).to.have.length(1)
       expect(results[0].action).to.equal('spawn-agent')
-      expect(results[0].awaitingConfirmation).to.be.true
+      expect(results[0].awaitingLlmDecision).to.be.true
       expect(results[0].skipped).to.be.undefined
     })
 
-    it('on_ticket_ready should skip spawn-agent when onConfirm returns false', async () => {
+    it('on_ticket_ready should skip spawn-agent when onLlmDecision returns deny', async () => {
       insertSupervisedHooks(db)
 
       const engine = new OrchestrateEngine({
         db,
         log: () => {},
-        onConfirm: async () => false, // always deny
+        onLlmDecision: async () => 'deny', // always deny
       })
 
       const results = await engine.fireEvent('on_ticket_ready', {
@@ -221,7 +221,7 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
 
       const engine = new OrchestrateEngine({ db, log: () => {} })
 
-      // on_agent_died has: notify (auto) + respawn (confirm)
+      // on_agent_died has: notify (auto) + respawn (llm)
       const results = await engine.fireEvent('on_agent_died', {
         event: 'on_agent_died',
         ticket: 'TKT-1',
@@ -234,22 +234,21 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
       const notifyResult = results.find(r => r.action === 'notify')
       expect(notifyResult).to.exist
       expect(notifyResult!.success).to.be.true
-      expect(notifyResult!.awaitingConfirmation).to.be.undefined
+      expect(notifyResult!.awaitingLlmDecision).to.be.undefined
 
-      // respawn (confirm) should be queued
+      // respawn (llm) should be queued for LLM decision
       const respawnResult = results.find(r => r.action === 'respawn')
       expect(respawnResult).to.exist
-      expect(respawnResult!.awaitingConfirmation).to.be.true
+      expect(respawnResult!.awaitingLlmDecision).to.be.true
     })
 
-    it('denying all confirmations results in zero external actions', async () => {
+    it('denying all LLM decisions results in zero external actions', async () => {
       insertSupervisedHooks(db)
 
-      const executedShellCommands: string[] = []
       const engine = new OrchestrateEngine({
         db,
         log: () => {},
-        onConfirm: async () => false,
+        onLlmDecision: async () => 'deny',
       })
 
       // Fire multiple events with destructive actions
@@ -257,8 +256,8 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
       await engine.fireEvent('on_agent_died', { event: 'on_agent_died', ticket: 'TKT-2', agent: 'a-2' })
       await engine.fireEvent('on_ci_green', { event: 'on_ci_green', ticket: 'TKT-3', pr: 10 })
 
-      // No pending confirmations (all were denied immediately by onConfirm)
-      expect(engine.getPendingConfirmations()).to.have.length(0)
+      // No pending LLM decisions (all were denied immediately by onLlmDecision)
+      expect(engine.getPendingLlmDecisions()).to.have.length(0)
     })
   })
 })

@@ -189,4 +189,10 @@ export interface OrchestrateActionResult {
   durationMs: number
   skipped?: boolean
   awaitingConfirmation?: boolean
+  /** True when hook is queued for LLM decision (Tier 2) */
+  awaitingLlmDecision?: boolean
+  /** True when hook was escalated from LLM to human (Tier 2 → Tier 3) */
+  escalatedToHuman?: boolean
+  /** The decision tier that handled this hook */
+  tier?: import('../work-lifecycle/hooks/types.js').DecisionTier
 }

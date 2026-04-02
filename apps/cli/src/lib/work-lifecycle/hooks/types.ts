@@ -71,17 +71,44 @@ export const HOOKABLE_EVENTS: HookableEvent[] = [
 export type HookActionType = 'shell' | 'webhook' | 'log'
 
 /**
- * Automation mode for a hook.
+ * Automation mode for a hook — determines the decision tier.
  *
- * - auto: fires immediately, no human needed
- * - confirm: pauses, waits for approval before executing
+ * Tier 1 (automatic, free, instant):
+ * - auto: fires immediately, no decision needed
  * - notify: fires immediately but also sends a notification
+ *
+ * Tier 2 (LLM, costs tokens, has judgment):
+ * - llm: routes to registered LLM orchestrator for approve/deny/escalate
+ *
+ * Tier 3 (human, most expensive, final authority):
+ * - human: routes to human via notification (dashboard, Slack, email)
+ * - confirm: pauses, waits for interactive approval before executing (legacy alias for human)
+ *
+ * Disabled:
  * - off: disabled, skipped silently
  */
-export type HookMode = 'auto' | 'confirm' | 'notify' | 'off'
+export type HookMode = 'auto' | 'confirm' | 'notify' | 'llm' | 'human' | 'off'
 
 /** All valid hook modes. */
-export const HOOK_MODES: HookMode[] = ['auto', 'confirm', 'notify', 'off']
+export const HOOK_MODES: HookMode[] = ['auto', 'confirm', 'notify', 'llm', 'human', 'off']
+
+/**
+ * Decision tier for the 3-tier supervision tree.
+ *
+ * - auto: Tier 1 — deterministic, no decision needed
+ * - llm: Tier 2 — LLM orchestrator decides (approve/deny/escalate)
+ * - human: Tier 3 — human decides (final authority)
+ */
+export type DecisionTier = 'auto' | 'llm' | 'human'
+
+/**
+ * LLM orchestrator decision for a Tier 2 hook.
+ *
+ * - approve: execute the hook action
+ * - deny: skip the hook action
+ * - escalate: route to human (Tier 3) for final decision
+ */
+export type LlmDecision = 'approve' | 'deny' | 'escalate'
 
 /**
  * Persisted hook configuration stored in the database.
@@ -151,6 +178,12 @@ export interface HookExecutionResult {
   durationMs: number
   /** True when hook was skipped (mode=off or confirm denied) */
   skipped?: boolean
-  /** True when hook is queued for confirmation */
+  /** True when hook is queued for confirmation (Tier 3 / human) */
   awaitingConfirmation?: boolean
+  /** True when hook is queued for LLM decision (Tier 2) */
+  awaitingLlmDecision?: boolean
+  /** True when hook was escalated from LLM to human (Tier 2 → Tier 3) */
+  escalatedToHuman?: boolean
+  /** The decision tier that handled this hook */
+  tier?: DecisionTier
 }
