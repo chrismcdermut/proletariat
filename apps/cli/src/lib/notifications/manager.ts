@@ -48,8 +48,11 @@ export class NotificationManager {
     const bus = getEventBus()
 
     for (const event of HOOKABLE_EVENTS) {
-      const unsub = bus.on(event as RuntimeEventName, (payload: Record<string, unknown>) => {
-        void this.handleEvent(event, payload)
+      // Use `any` for the listener callback since event payload types vary
+      // and we normalize them into NotificationContext in handleEvent.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const unsub = bus.on(event as RuntimeEventName, (payload: any) => {
+        void this.handleEvent(event, payload as Record<string, unknown>)
       })
       this.unsubscribers.push(unsub)
     }
