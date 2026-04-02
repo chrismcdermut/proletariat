@@ -113,20 +113,20 @@ describe('Merge Conflict Resolution (PRLT-1161, PRLT-1222)', () => {
       expect(hook!.mode).to.equal('auto')
     })
 
-    it('should require confirmation for resolve-conflict in supervised preset (spawns agents)', () => {
+    it('should require LLM approval for resolve-conflict in supervised preset (spawns agents)', () => {
       const hook = PRESETS.supervised.hooks.find(
         h => h.event === 'on_pr_conflicting' && h.action === 'resolve-conflict'
       )
       expect(hook).to.exist
-      expect(hook!.mode).to.equal('confirm')
+      expect(hook!.mode).to.equal('llm')
     })
 
-    it('should require confirmation for resolve-conflict in conservative preset', () => {
+    it('should require human approval for resolve-conflict in conservative preset', () => {
       const hook = PRESETS.conservative.hooks.find(
         h => h.event === 'on_pr_conflicting' && h.action === 'resolve-conflict'
       )
       expect(hook).to.exist
-      expect(hook!.mode).to.equal('confirm')
+      expect(hook!.mode).to.equal('human')
     })
   })
 
@@ -158,19 +158,19 @@ describe('Merge Conflict Resolution (PRLT-1161, PRLT-1222)', () => {
         const hooks = supervised.hooks.filter(h => h.action === action)
         for (const hook of hooks) {
           expect(hook.mode).to.equal(
-            'confirm',
-            `Agent-spawning action "${action}" (event: ${hook.event}) must be confirm in supervised preset, not ${hook.mode}`
+            'llm',
+            `Agent-spawning action "${action}" (event: ${hook.event}) must be llm in supervised preset, not ${hook.mode}`
           )
         }
       }
     })
 
-    it('should classify resolve-conflict as confirm in supervised preset', () => {
+    it('should classify resolve-conflict as llm in supervised preset', () => {
       const hook = PRESETS.supervised.hooks.find(
         h => h.action === 'resolve-conflict'
       )
       expect(hook).to.exist
-      expect(hook!.mode).to.equal('confirm')
+      expect(hook!.mode).to.equal('llm')
     })
 
     it('should still allow resolve-conflict as auto in aggressive preset', () => {

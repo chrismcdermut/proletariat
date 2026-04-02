@@ -14,7 +14,7 @@
 
 import type Database from 'better-sqlite3'
 import { HookManager } from '../work-lifecycle/hooks/manager.js'
-import type { HookExecutionResult, HookActionHandler } from '../work-lifecycle/hooks/types.js'
+import type { HookExecutionResult, HookActionHandler, LlmDecision } from '../work-lifecycle/hooks/types.js'
 import { ACTION_HANDLERS } from './actions.js'
 import {
   NotificationManager,
@@ -24,6 +24,12 @@ import {
 import type {
   OrchestrateActionResult,
 } from './types.js'
+import type {
+  EscalationContext,
+  EscalationReason,
+  PendingLlmDecision,
+  PendingHumanEscalation,
+} from './escalation.js'
 
 // =============================================================================
 // Engine
@@ -38,6 +44,22 @@ export interface OrchestrateEngineOptions {
   onConfirm?: (hookName: string, event: string, action: string) => Promise<boolean>
   /** Callback for notifications */
   onNotify?: (hookName: string, event: string, action: string, result: OrchestrateActionResult) => void
+  /**
+   * Callback for LLM-mode hooks (Tier 2).
+   * Returns the LLM's decision: approve, deny, or escalate.
+   */
+  onLlmDecision?: (context: EscalationContext) => Promise<LlmDecision>
+  /**
+   * Callback for human-mode hooks (Tier 3).
+   * Called for direct human-mode hooks or when LLM escalates.
+   * Returns true to approve, false to deny.
+   */
+  onHumanEscalation?: (context: EscalationContext, reason: EscalationReason) => Promise<boolean>
+  /**
+   * Timeout in ms for LLM decisions before auto-escalating to human.
+   * Defaults to 5 minutes.
+   */
+  llmTimeoutMs?: number
 }
 
 export class OrchestrateEngine {
@@ -58,6 +80,9 @@ export class OrchestrateEngine {
       log: options.log,
       onConfirm: options.onConfirm,
       onNotify,
+      onLlmDecision: options.onLlmDecision,
+      onHumanEscalation: options.onHumanEscalation,
+      llmTimeoutMs: options.llmTimeoutMs,
       actionHandlers: ACTION_HANDLERS as Record<string, HookActionHandler>,
     })
 
@@ -124,6 +149,73 @@ export class OrchestrateEngine {
   denyConfirmation(index: number): boolean {
     return this.manager.denyConfirmation(index)
   }
+
+  // ===========================================================================
+  // LLM Decision Queue (Tier 2)
+  // ===========================================================================
+
+  /**
+   * Get pending LLM decisions.
+   */
+  getPendingLlmDecisions(): PendingLlmDecision[] {
+    return this.manager.getPendingLlmDecisions()
+  }
+
+  /**
+   * Approve a pending LLM decision and execute the action.
+   */
+  async approveLlmDecision(index: number): Promise<OrchestrateActionResult | null> {
+    const result = await this.manager.approveLlmDecision(index)
+    return result ? toActionResult(result) : null
+  }
+
+  /**
+   * Deny a pending LLM decision.
+   */
+  denyLlmDecision(index: number): boolean {
+    return this.manager.denyLlmDecision(index)
+  }
+
+  /**
+   * Escalate a pending LLM decision to human tier.
+   */
+  escalateLlmDecision(index: number): boolean {
+    return this.manager.escalateLlmDecision(index)
+  }
+
+  /**
+   * Check for timed-out LLM decisions and auto-escalate them to human tier.
+   * Returns the number of decisions that were escalated.
+   */
+  escalateTimedOutLlmDecisions(): number {
+    return this.manager.escalateTimedOutLlmDecisions()
+  }
+
+  // ===========================================================================
+  // Human Escalation Queue (Tier 3)
+  // ===========================================================================
+
+  /**
+   * Get pending human escalations.
+   */
+  getPendingHumanEscalations(): PendingHumanEscalation[] {
+    return this.manager.getPendingHumanEscalations()
+  }
+
+  /**
+   * Approve a pending human escalation and execute the action.
+   */
+  async approveHumanEscalation(index: number): Promise<OrchestrateActionResult | null> {
+    const result = await this.manager.approveHumanEscalation(index)
+    return result ? toActionResult(result) : null
+  }
+
+  /**
+   * Deny a pending human escalation.
+   */
+  denyHumanEscalation(index: number): boolean {
+    return this.manager.denyHumanEscalation(index)
+  }
 }
 
 // =============================================================================
@@ -141,6 +233,9 @@ function toActionResult(result: HookExecutionResult): OrchestrateActionResult {
     durationMs: result.durationMs,
     skipped: result.skipped,
     awaitingConfirmation: result.awaitingConfirmation,
+    awaitingLlmDecision: result.awaitingLlmDecision,
+    escalatedToHuman: result.escalatedToHuman,
+    tier: result.tier,
   }
 }
 
