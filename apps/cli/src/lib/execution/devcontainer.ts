@@ -9,6 +9,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { ExecutionConfig, DEFAULT_EXECUTION_CONFIG, ExecutorType } from './types.js'
 import { parseChannel } from '../workspace-config.js'
+import { CC_DEFAULT_VERSION } from './cc-version.js'
 
 export type MountMode = 'worktree' | 'clone'
 
@@ -85,10 +86,12 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
     buildArgs.PRLT_VERSION = channel.version || 'latest'
   }
 
-  // Pass Claude Code version as build arg if pinned
-  if (options.claudeCodeVersion) {
-    buildArgs.CC_VERSION = options.claudeCodeVersion
-  }
+  // PRLT-1240: Always pin Claude Code version to prevent upstream breakage.
+  // Uses explicit version if provided, otherwise falls back to CC_DEFAULT_VERSION.
+  // Without pinning, containers install "latest" which may change the settings
+  // format and cause agents to get stuck at the permissions prompt.
+  const ccVersion = options.claudeCodeVersion || CC_DEFAULT_VERSION
+  buildArgs.CC_VERSION = ccVersion
 
   // For GitHub Packages, pass GITHUB_TOKEN as build arg
   if (channel.registry === 'gh') {

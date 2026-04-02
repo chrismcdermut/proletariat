@@ -31,6 +31,12 @@ import {
   getHostPrltVersion,
 } from './shared.js'
 
+import {
+  detectCCVersionInContainer,
+  getCCUserPermissionSettings,
+  getCCAppPermissionSettings,
+} from '../cc-version.js'
+
 /**
  * Run orchestrator in a Docker container using the sibling container pattern.
  *
@@ -187,6 +193,10 @@ export async function runOrchestratorInDocker(
     // Copy Claude Code settings to container (for bypassing prompts)
     if (executor === 'claude-code') {
       try {
+        // PRLT-1240: Detect CC version in container for version-aware settings
+        const ccVersion = detectCCVersionInContainer(containerId)
+        console.debug(`[runners:orchestrator-docker] Detected Claude Code version: ${ccVersion || 'unknown'}`)
+
         const hostClaudeJson = path.join(os.homedir(), '.claude.json')
         let settings: Record<string, unknown> = {}
 
@@ -199,7 +209,9 @@ export async function runOrchestratorInDocker(
         }
 
         if (config.permissionMode === 'danger') {
-          settings.bypassPermissionsModeAccepted = true
+          // PRLT-1240: Write version-aware permission settings to .claude.json
+          const permSettings = getCCUserPermissionSettings(ccVersion)
+          Object.assign(settings, permSettings)
         }
         settings.numStartups = settings.numStartups || 1
         settings.hasCompletedOnboarding = true
@@ -226,7 +238,9 @@ export async function runOrchestratorInDocker(
           { input: JSON.stringify(settings), stdio: ['pipe', 'pipe', 'pipe'] }
         )
 
-        const claudeSettings = JSON.stringify({ skipDangerousModePermissionPrompt: true })
+        // PRLT-1240: Write version-aware app settings to settings.json
+        const appPermSettings = getCCAppPermissionSettings(ccVersion)
+        const claudeSettings = JSON.stringify(appPermSettings)
         execSync(
           `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
           { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }

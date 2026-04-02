@@ -18,6 +18,11 @@ import {
 import { readDevcontainerJson } from '../devcontainer.js'
 import { isClaudeExecutor } from './executor.js'
 import { getMachineId } from '../../telemetry/analytics.js'
+import {
+  detectCCVersionInContainer,
+  getCCUserPermissionSettings,
+  getCCAppPermissionSettings,
+} from '../cc-version.js'
 
 /** Docker volume name for the shared pnpm store cache (PRLT-1130) */
 export const PNPM_STORE_CACHE_VOLUME = 'pnpm-store-cache'
@@ -461,6 +466,10 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
 
   if (isClaudeExecutor(executor)) {
     try {
+      // PRLT-1240: Detect CC version in container for version-aware settings
+      const ccVersion = detectCCVersionInContainer(containerId)
+      console.debug(`[runners:docker] Detected Claude Code version: ${ccVersion || 'unknown'}`)
+
       const hostClaudeJson = path.join(os.homedir(), '.claude.json')
       let settings: Record<string, unknown> = {}
       if (fs.existsSync(hostClaudeJson)) {
@@ -471,7 +480,9 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
         }
       }
       if (permissionMode === 'danger') {
-        settings.bypassPermissionsModeAccepted = true
+        // PRLT-1240: Write version-aware permission settings to .claude.json
+        const permSettings = getCCUserPermissionSettings(ccVersion)
+        Object.assign(settings, permSettings)
       }
       settings.numStartups = settings.numStartups || 1
       settings.hasCompletedOnboarding = true
@@ -499,9 +510,11 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
         `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
         { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
       )
-      console.debug(`[runners:docker] Copied .claude.json settings to container (bypassPermissionsModeAccepted=${permissionMode === 'danger'})`)
+      console.debug(`[runners:docker] Copied .claude.json settings to container (permissionMode=${permissionMode})`)
 
-      const claudeSettings = JSON.stringify({ skipDangerousModePermissionPrompt: true })
+      // PRLT-1240: Write version-aware app settings to settings.json
+      const appPermSettings = getCCAppPermissionSettings(ccVersion)
+      const claudeSettings = JSON.stringify(appPermSettings)
       execSync(
         `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
         { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }

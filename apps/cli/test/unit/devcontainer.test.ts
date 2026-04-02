@@ -22,6 +22,10 @@ import {
   getGitIdentity,
 } from '../../src/lib/pr/index.js'
 
+import {
+  CC_DEFAULT_VERSION,
+} from '../../src/lib/execution/cc-version.js'
+
 /**
  * Unit tests for devcontainer generation
  */
@@ -982,18 +986,24 @@ describe('Devcontainer', () => {
         expect(result.build.args).to.have.property('CC_VERSION', '2.1.80')
       })
 
-      it('should not include CC_VERSION build arg when claudeCodeVersion is not specified', () => {
+      // PRLT-1240: CC_VERSION now always set — defaults to CC_DEFAULT_VERSION
+      it('should use CC_DEFAULT_VERSION when claudeCodeVersion is not specified', () => {
         const options = makeOptions()
         const result = generateDevcontainerJson(options)
 
-        expect(result.build.args).to.not.have.property('CC_VERSION')
+        // CC_VERSION should always be set to prevent installing latest
+        expect(result.build.args).to.have.property('CC_VERSION')
+        // Should use the default pinned version
+        // CC_DEFAULT_VERSION imported at top of file
+        expect(result.build.args!.CC_VERSION).to.equal(CC_DEFAULT_VERSION)
       })
 
-      it('should not include CC_VERSION build arg when claudeCodeVersion is undefined', () => {
+      it('should use CC_DEFAULT_VERSION when claudeCodeVersion is undefined', () => {
         const options = makeOptions({ claudeCodeVersion: undefined })
         const result = generateDevcontainerJson(options)
 
-        expect(result.build.args).to.not.have.property('CC_VERSION')
+        // CC_DEFAULT_VERSION imported at top of file
+        expect(result.build.args).to.have.property('CC_VERSION', CC_DEFAULT_VERSION)
       })
     })
 
@@ -1054,7 +1064,8 @@ describe('Devcontainer', () => {
         expect(config.build.args.CC_VERSION).to.equal('2.1.80')
       })
 
-      it('should not include CC_VERSION in devcontainer.json when version is not pinned', () => {
+      // PRLT-1240: CC_VERSION now always set — defaults to CC_DEFAULT_VERSION
+      it('should use CC_DEFAULT_VERSION in devcontainer.json when version is not pinned', () => {
         const options: DevcontainerOptions = {
           agentName: 'unpinned-agent',
           agentDir: testDir,
@@ -1067,7 +1078,8 @@ describe('Devcontainer', () => {
           'utf-8'
         )
         const config = JSON.parse(jsonContent)
-        expect(config.build.args).to.not.have.property('CC_VERSION')
+        // CC_DEFAULT_VERSION imported at top of file
+        expect(config.build.args).to.have.property('CC_VERSION', CC_DEFAULT_VERSION)
       })
 
       it('should include CC_VERSION ARG in generated Dockerfile', () => {
