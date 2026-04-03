@@ -30,6 +30,7 @@ describe('Orchestrate Built-in Actions', () => {
       'spawn-review-agent',
       'health-check',
       'resolve-conflict',
+      'gc-sweep',
     ]
 
     it('should have all expected actions registered', () => {
