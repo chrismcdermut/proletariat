@@ -164,6 +164,9 @@ const respawn: ActionHandler = (ctx, config) => {
 
 /**
  * Send a notification about an event.
+ *
+ * Dispatches through the notification layer if providers are configured.
+ * Falls back to terminal stdout if no providers match.
  */
 const notify: ActionHandler = (ctx) => {
   const start = Date.now()
@@ -173,6 +176,22 @@ const notify: ActionHandler = (ctx) => {
   if (ctx.pr) parts.push(`PR=#${ctx.pr}`)
   if (ctx.agent) parts.push(`agent=${ctx.agent}`)
 
+  // Try to dispatch through NotificationManager if available
+  try {
+    // Dynamic import to avoid circular deps at module load time
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getNotificationManager } = require('../notifications/index.js')
+    const manager = getNotificationManager()
+    if (manager) {
+      // Fire async but don't block the action handler
+      void manager.fireEvent(ctx.event || 'notify', ctx)
+      return { action: 'notify', success: true, durationMs: Date.now() - start }
+    }
+  } catch {
+    // Notification layer not available — fall through to terminal
+  }
+
+  // Fallback: terminal notification
   // eslint-disable-next-line no-console
   console.log(`[orchestrate:notify] ${parts.join(' ')}`)
   return { action: 'notify', success: true, durationMs: Date.now() - start }
