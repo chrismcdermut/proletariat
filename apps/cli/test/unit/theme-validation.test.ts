@@ -112,6 +112,61 @@ describe('Theme Validation & Utilities', () => {
       expect(theme!.names).to.include('musk');
     });
 
+    it('includes cracked-engineers theme', () => {
+      const theme = BUILTIN_THEMES.find(t => t.id === 'cracked-engineers');
+      expect(theme).to.exist;
+      expect(theme!.description).to.include('Computing pioneers');
+    });
+
+    it('cracked-engineers theme includes computing pioneers (must-haves)', () => {
+      const theme = BUILTIN_THEMES.find(t => t.id === 'cracked-engineers')!;
+      const mustHaves = [
+        'hopper', 'turing', 'lovelace', 'babbage', 'hamilton',
+        'johnson', 'vaughan', 'jackson', 'ritchie', 'thompson',
+        'knuth', 'dijkstra', 'berners-lee',
+      ];
+      for (const name of mustHaves) {
+        expect(theme.names, `missing pioneer: ${name}`).to.include(name);
+      }
+    });
+
+    it('cracked-engineers theme includes computing pioneers (nice-to-haves)', () => {
+      const theme = BUILTIN_THEMES.find(t => t.id === 'cracked-engineers')!;
+      const niceToHaves = [
+        'mccarthy', 'kay', 'cerf', 'liskov', 'lamport',
+        'stallman', 'wozniak', 'kernighan',
+      ];
+      for (const name of niceToHaves) {
+        expect(theme.names, `missing pioneer: ${name}`).to.include(name);
+      }
+    });
+
+    it('cracked-engineers theme retains existing names', () => {
+      const theme = BUILTIN_THEMES.find(t => t.id === 'cracked-engineers')!;
+      const existingNames = [
+        'karpathy', 'lecun', 'sutskever', 'torvalds', 'fridman',
+      ];
+      for (const name of existingNames) {
+        expect(theme.names, `missing existing name: ${name}`).to.include(name);
+      }
+    });
+
+    it('cracked-engineers theme has no duplicate names', () => {
+      const theme = BUILTIN_THEMES.find(t => t.id === 'cracked-engineers')!;
+      const seen = new Set<string>();
+      for (const name of theme.names) {
+        expect(seen.has(name), `duplicate name: ${name}`).to.be.false;
+        seen.add(name);
+      }
+    });
+
+    it('cracked-engineers theme names are all valid agent names', () => {
+      const theme = BUILTIN_THEMES.find(t => t.id === 'cracked-engineers')!;
+      for (const name of theme.names) {
+        expect(isValidAgentName(name), `invalid agent name: ${name}`).to.be.true;
+      }
+    });
+
     it('includes toyotas theme', () => {
       const theme = BUILTIN_THEMES.find(t => t.id === 'toyotas');
       expect(theme).to.exist;
