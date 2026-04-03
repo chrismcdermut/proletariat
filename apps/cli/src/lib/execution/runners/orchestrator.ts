@@ -10,7 +10,6 @@ import {
   execSync,
   fs,
   path,
-  os,
   DisplayMode,
   ExecutorType,
   ExecutionContext,
@@ -32,8 +31,6 @@ import {
 } from './shared.js'
 
 import {
-  detectCCVersionInContainer,
-  getCCUserPermissionSettings,
   getCCAppPermissionSettings,
 } from '../cc-version.js'
 
@@ -190,63 +187,20 @@ export async function runOrchestratorInDocker(
       console.debug('[runners:orchestrator-docker] Failed to fix Docker socket permissions (may already be accessible)')
     }
 
-    // Copy Claude Code settings to container (for bypassing prompts)
+    // PRLT-1240: Do NOT write ~/.claude.json — Claude Code owns that file and
+    // overwrites it on startup. We use -p (print) mode which skips all onboarding.
+    // Still write ~/.claude/settings.json (Claude does not clobber that).
     if (executor === 'claude-code') {
       try {
-        // PRLT-1240: Detect CC version in container for version-aware settings
-        const ccVersion = detectCCVersionInContainer(containerId)
-        console.debug(`[runners:orchestrator-docker] Detected Claude Code version: ${ccVersion || 'unknown'}`)
-
-        const hostClaudeJson = path.join(os.homedir(), '.claude.json')
-        let settings: Record<string, unknown> = {}
-
-        if (fs.existsSync(hostClaudeJson)) {
-          try {
-            settings = JSON.parse(fs.readFileSync(hostClaudeJson, 'utf-8'))
-          } catch {
-            // Use empty settings
-          }
-        }
-
-        if (config.permissionMode === 'danger') {
-          // PRLT-1240: Write version-aware permission settings to .claude.json
-          const permSettings = getCCUserPermissionSettings(ccVersion)
-          Object.assign(settings, permSettings)
-        }
-        settings.numStartups = settings.numStartups || 1
-        settings.hasCompletedOnboarding = true
-        settings.theme = settings.theme || 'dark'
-        if (!settings.tipsHistory || typeof settings.tipsHistory !== 'object') {
-          settings.tipsHistory = {}
-        }
-        const tips = settings.tipsHistory as Record<string, number>
-        tips['new-user-warmup'] = tips['new-user-warmup'] || 1
-        settings.effortCalloutDismissed = true
-
-        if (!settings.projects || typeof settings.projects !== 'object') {
-          settings.projects = {}
-        }
-        const projects = settings.projects as Record<string, Record<string, unknown>>
-        for (const projectPath of ['/hq', '/']) {
-          if (!projects[projectPath]) projects[projectPath] = {}
-          projects[projectPath].hasTrustDialogAccepted = true
-          projects[projectPath].hasCompletedProjectOnboarding = true
-        }
-
-        execSync(
-          `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
-          { input: JSON.stringify(settings), stdio: ['pipe', 'pipe', 'pipe'] }
-        )
-
-        // PRLT-1240: Write version-aware app settings to settings.json
-        const appPermSettings = getCCAppPermissionSettings(ccVersion)
+        const appPermSettings = getCCAppPermissionSettings()
         const claudeSettings = JSON.stringify(appPermSettings)
         execSync(
           `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
           { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }
         )
+        console.debug('[runners:orchestrator-docker] Wrote ~/.claude/settings.json to container')
       } catch (error) {
-        console.debug('[runners:orchestrator-docker] Failed to copy Claude settings:', error)
+        console.debug('[runners:orchestrator-docker] Failed to write Claude settings:', error)
       }
     }
 
@@ -271,10 +225,12 @@ export async function runOrchestratorInDocker(
     const effortFlag = skipPermissions ? '--effort high ' : ''
     // TKT-053: Disable plan mode for background agents — prevents silent stalls
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
+    // PRLT-1240: Always use -p (print) mode for container agents.
+    // Skips all onboarding prompts and exits cleanly when done.
     // PRLT-950: Use -- to separate flags from positional prompt argument.
     // --disallowedTools is variadic and will consume the prompt as its second arg without --.
     const executorCmd = executor === 'claude-code'
-      ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}-- "$(cat ${promptPath})"`
+      ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}-p -- "$(cat ${promptPath})"`
       : `claude ${permissionsFlag}${effortFlag}-- "$(cat ${promptPath})"`
 
     // Build tmux session name (reuses the same name as host tmux for consistency)
@@ -296,7 +252,7 @@ export async function runOrchestratorInDocker(
         const scriptContent = `#!/bin/bash
 cd /hq
 unset CLAUDECODE CLAUDE_CODE_ENTRYPOINT
-${executor === 'claude-code' ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}"$(cat ${promptPath})"` : `claude "$(cat ${promptPath})"`}
+${executor === 'claude-code' ? `claude ${permissionsFlag}${effortFlag}${disallowPlanFlag}-p "$(cat ${promptPath})"` : `claude "$(cat ${promptPath})"`}
 echo ""
 echo "Orchestrator complete. Press Enter to close."
 exec bash

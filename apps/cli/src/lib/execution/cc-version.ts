@@ -2,9 +2,11 @@
  * Claude Code Version Management (PRLT-1240)
  *
  * Utilities for detecting Claude Code versions in containers and generating
- * version-appropriate permission settings. Prevents container agents from
- * getting stuck at the bypass permissions prompt when Claude Code updates
- * change the expected settings format.
+ * version-appropriate permission settings for ~/.claude/settings.json.
+ *
+ * PRLT-1240: Container agents now use -p (print) mode which skips all onboarding
+ * prompts. Version detection is kept for settings.json compatibility but the
+ * version pin (CC_DEFAULT_VERSION) and launcher wrapper are no longer needed.
  */
 
 import { execSync } from 'node:child_process'
@@ -12,19 +14,6 @@ import { execSync } from 'node:child_process'
 // =============================================================================
 // Constants
 // =============================================================================
-
-/**
- * Default Claude Code version for container builds.
- *
- * Pinned to last known-good version where permission bypass settings work
- * correctly. Without this pin, containers install "latest" which may introduce
- * breaking changes to the permission prompt flow.
- *
- * PRLT-1240: Claude Code 2.1.86 changed settings handling so that
- * skipDangerousModePermissionPrompt and bypassPermissionsModeAccepted
- * are no longer sufficient to skip the permissions prompt.
- */
-export const CC_DEFAULT_VERSION = '2.1.81'
 
 /**
  * Version where Claude Code changed the permissions prompt settings format.

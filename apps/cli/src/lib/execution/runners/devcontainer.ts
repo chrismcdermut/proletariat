@@ -140,7 +140,10 @@ export function buildDevcontainerCommand(
   let executorCmd: string
   const skipPermissions = permissionMode === 'danger'
   if (isClaudeExecutor(executor)) {
-    const printFlag = outputMode === 'print' ? '-p ' : ''
+    // PRLT-1240: Always use -p (print) mode for container agents.
+    // This skips all onboarding prompts (theme picker, permissions, workspace trust)
+    // and ensures the agent exits cleanly when done. Works with any Claude Code version.
+    const printFlag = '-p '
     const bypassTrustFlag = '--permission-mode bypassPermissions '
     const permissionsFlag = skipPermissions ? '--dangerously-skip-permissions ' : ''
     const effortFlag = '--effort high '
