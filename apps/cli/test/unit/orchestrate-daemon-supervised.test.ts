@@ -85,6 +85,7 @@ function insertSupervisedHooks(db: Database.Database): void {
     { name: 'sup:on_agent_idle:health-check', event: 'on_agent_idle', action: 'health-check', mode: 'auto' },
     { name: 'sup:on_ci_failed:notify', event: 'on_ci_failed', action: 'notify', mode: 'auto' },
     { name: 'sup:on_ci_failed:spawn-fix', event: 'on_ci_failed', action: 'spawn-fix-agent', mode: 'confirm' },
+    { name: 'sup:on_agent_completed:gc-sweep', event: 'on_agent_completed', action: 'gc-sweep', mode: 'auto' },
   ]
 
   for (const hook of hooks) {

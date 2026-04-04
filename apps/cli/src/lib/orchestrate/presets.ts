@@ -48,6 +48,8 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   // CI lifecycle
   { event: 'on_ci_failed', action: 'notify' },
   { event: 'on_ci_failed', action: 'spawn-fix-agent' },
+  // Periodic cleanup
+  { event: 'on_agent_completed', action: 'gc-sweep' },
 ]
 
 /**
@@ -67,6 +69,7 @@ const SAFE_ACTIONS = new Set([
   'health-check',
   'rebase-conflicting-prs',
   'spawn-review-agent',
+  'gc-sweep',
 ])
 
 export const PRESETS: Record<PresetName, PresetDefinition> = {

@@ -22,6 +22,7 @@ const SAFE_ACTIONS = new Set([
   'health-check',
   'rebase-conflicting-prs',
   'spawn-review-agent',
+  'gc-sweep',
 ])
 
 describe('Orchestrate Presets', () => {
