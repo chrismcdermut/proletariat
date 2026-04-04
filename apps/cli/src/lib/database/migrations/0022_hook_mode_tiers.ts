@@ -1,5 +1,5 @@
 /**
- * Migration 0021 — Hook Mode Tiers
+ * Migration 0022 — Hook Mode Tiers
  *
  * Extends the mode CHECK constraint on pmo_work_hooks to include
  * 'llm' and 'human' modes for the 3-tier supervision tree.
@@ -12,7 +12,7 @@ import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 
 export const hookModeTiers: Migration = {
-  id: '0021',
+  id: '0022',
   name: 'hook_mode_tiers',
   up: (db: Database.Database) => {
     const tableExists = db.prepare(

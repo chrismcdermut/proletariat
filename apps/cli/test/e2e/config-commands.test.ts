@@ -488,12 +488,41 @@ function setupTestDatabase(db: Database.Database, testDir: string) {
       value TEXT NOT NULL
     );
 
+    -- PMO settings (key-value store for review gate, priorities, etc.)
+    CREATE TABLE IF NOT EXISTS pmo_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    -- Migration tracking (prevents migrator from running against hand-crafted schema)
+    CREATE TABLE IF NOT EXISTS prlt_migrations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TEXT NOT NULL
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_worktrees_agent ON agent_worktrees(agent_name);
     CREATE INDEX IF NOT EXISTS idx_worktrees_repo ON agent_worktrees(repo_name);
     CREATE INDEX IF NOT EXISTS idx_theme_names_theme ON agent_theme_names(theme_id);
     CREATE INDEX IF NOT EXISTS idx_agents_theme ON agents(theme_id);
   `);
+
+  // Mark all migrations as applied so the migrator doesn't modify the test schema
+  const migrationIds = [
+    ['0001', 'baseline'], ['0002', 'work_hooks'], ['0003', 'actions_redesign'],
+    ['0004', 'workflow_rules'], ['0005', 'provider_status_mapping'], ['0006', 'drop_theme_names_used'],
+    ['0007', 'add_worktree_columns'], ['0008', 'add_agent_mount_mode'], ['0009', 'create_media_items'],
+    ['0010', 'add_ticket_position'], ['0011', 'add_review_gate'], ['0012', 'add_action_network_allowlist'],
+    ['0013', 'agent_lifecycle_states'], ['0014', 'agent_work_lifecycle'], ['0015', 'orchestrate_hooks'],
+    ['0016', 'schema_catchup'], ['0017', 'drop_agent_work_fk'], ['0018', 'create_ticket_refs'],
+    ['0019', 'gc_artifact_cleanup'], ['0020', 'transition_map'], ['0021', 'notification_system'],
+    ['0022', 'hook_mode_tiers'],
+  ];
+  const insertMigration = db.prepare('INSERT INTO prlt_migrations (id, name, applied_at) VALUES (?, ?, ?)');
+  for (const [id, name] of migrationIds) {
+    insertMigration.run(id, name, new Date().toISOString());
+  }
 
   // Insert workspace row
   db.prepare(`

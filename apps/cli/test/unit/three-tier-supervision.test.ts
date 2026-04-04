@@ -12,7 +12,7 @@ import {
 } from '../../src/lib/orchestrate/escalation.js'
 import type { PendingLlmDecision } from '../../src/lib/orchestrate/escalation.js'
 import type { LlmDecision } from '../../src/lib/work-lifecycle/hooks/types.js'
-import { hookModeTiers } from '../../src/lib/database/migrations/0021_hook_mode_tiers.js'
+import { hookModeTiers } from '../../src/lib/database/migrations/0022_hook_mode_tiers.js'
 import { orchestrateHooks } from '../../src/lib/database/migrations/0015_orchestrate_hooks.js'
 
 /**

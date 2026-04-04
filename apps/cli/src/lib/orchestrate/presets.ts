@@ -49,6 +49,8 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   // CI lifecycle
   { event: 'on_ci_failed', action: 'notify' },
   { event: 'on_ci_failed', action: 'spawn-fix-agent' },
+  // Maintenance
+  { event: 'on_pr_merged', action: 'gc-sweep' },
 ]
 
 /**
