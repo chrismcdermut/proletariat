@@ -42,6 +42,7 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_agent_died', action: 'respawn', config: { max_retries: 2 } },
   { event: 'on_agent_died', action: 'notify' },
   { event: 'on_agent_idle', action: 'health-check' },
+  { event: 'on_agent_idle', action: 'gc-sweep' },
   // Review lifecycle
   { event: 'on_review_approved', action: 'notify' },
   { event: 'on_changes_requested', action: 'spawn-fix-agent' },

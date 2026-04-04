@@ -12,7 +12,7 @@ import type Database from 'better-sqlite3'
 import type { Migration } from '../migrator.js'
 
 export const hookModeTiers: Migration = {
-  id: '0021',
+  id: '0022',
   name: 'hook_mode_tiers',
   up: (db: Database.Database) => {
     const tableExists = db.prepare(
