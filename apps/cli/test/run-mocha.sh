@@ -17,7 +17,8 @@ echo "$OUTPUT"
 
 if [ "$EXIT_CODE" -ne 0 ]; then
   # Check if the only failure is the workerpool teardown error
-  FAILING_COUNT=$(echo "$OUTPUT" | grep -oP '(\d+) failing' | head -1 | grep -oP '\d+' || echo "0")
+  # Use POSIX-compatible grep (no -P flag, which is unavailable on macOS)
+  FAILING_COUNT=$(echo "$OUTPUT" | grep -o '[0-9]* failing' | head -1 | grep -o '[0-9]*' || echo "0")
   if [ "$FAILING_COUNT" = "1" ] && echo "$OUTPUT" | grep -q "Uncaught error outside test suite" && echo "$OUTPUT" | grep -q "workerpool/src/WorkerHandler"; then
     echo ""
     echo "⚠ Suppressed known workerpool teardown error (all real tests passed)"

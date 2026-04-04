@@ -270,6 +270,49 @@ export function findSessionForExecution(
 }
 
 /**
+ * Describes the three tmux commands needed to deliver a message:
+ * escape (clear buffered input), text (send literal message), enter (submit).
+ */
+export interface TmuxMessageCommands {
+  escape: { cmd: string; args: string[] }
+  text: { cmd: string; args: string[] }
+  enter: { cmd: string; args: string[] }
+}
+
+/**
+ * Build the tmux command arrays for sending a message to a session.
+ * Returns the commands without executing them — useful for testing
+ * that the shell escaping logic builds correct arguments.
+ *
+ * Uses execFileSync-style argument arrays (no shell) so the message
+ * is passed directly as an argv argument, avoiding all shell escaping
+ * issues with parentheses, quotes, newlines, dollar signs, backticks, etc.
+ */
+export function buildTmuxMessageCommands(
+  sessionId: string,
+  message: string,
+  containerId?: string,
+): TmuxMessageCommands {
+  const escapeArgs = ['send-keys', '-t', sessionId, 'Escape']
+  const textArgs = ['send-keys', '-l', '-t', sessionId, message]
+  const enterArgs = ['send-keys', '-t', sessionId, 'Enter']
+
+  if (containerId) {
+    return {
+      escape: { cmd: 'docker', args: ['exec', containerId, 'tmux', ...escapeArgs] },
+      text: { cmd: 'docker', args: ['exec', containerId, 'tmux', ...textArgs] },
+      enter: { cmd: 'docker', args: ['exec', containerId, 'tmux', ...enterArgs] },
+    }
+  }
+
+  return {
+    escape: { cmd: 'tmux', args: escapeArgs },
+    text: { cmd: 'tmux', args: textArgs },
+    enter: { cmd: 'tmux', args: enterArgs },
+  }
+}
+
+/**
  * Send a text message to a tmux session via send-keys.
  * Sends the text first, then Enter separately with a small delay
  * to avoid race conditions where Enter arrives before text is rendered.
@@ -279,51 +322,20 @@ export function findSessionForExecution(
  * parentheses, quotes, newlines, dollar signs, backticks, etc.
  */
 export function sendTmuxMessage(sessionId: string, message: string, containerId?: string): void {
-  // Argument arrays for each tmux command — passed directly via execFileSync
-  // to bypass shell interpretation entirely.
-  const escapeArgs = ['send-keys', '-t', sessionId, 'Escape']
-  const textArgs = ['send-keys', '-l', '-t', sessionId, message]
-  const enterArgs = ['send-keys', '-t', sessionId, 'Enter']
+  const cmds = buildTmuxMessageCommands(sessionId, message, containerId)
+  const timeout = containerId ? 10000 : 5000
+  const stdio: ['pipe', 'pipe', 'pipe'] = ['pipe', 'pipe', 'pipe']
 
-  if (containerId) {
-    // Clear any buffered input first
-    execFileSync('docker', ['exec', containerId, 'tmux', ...escapeArgs], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10000,
-    })
-    // Wait for Escape to take effect before sending new text
-    execSync('sleep 0.2', { stdio: ['pipe', 'pipe', 'pipe'] })
-    // Send the text literally — execFileSync bypasses shell, so the message
-    // reaches tmux verbatim regardless of content (parens, quotes, newlines, etc.)
-    execFileSync('docker', ['exec', containerId, 'tmux', ...textArgs], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10000,
-    })
-    // Small delay before sending Enter to avoid race conditions
-    execSync('sleep 0.1', { stdio: ['pipe', 'pipe', 'pipe'] })
-    execFileSync('docker', ['exec', containerId, 'tmux', ...enterArgs], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10000,
-    })
-  } else {
-    // Clear any buffered input first
-    execFileSync('tmux', escapeArgs, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-    })
-    // Wait for Escape to take effect before sending new text
-    execSync('sleep 0.2', { stdio: ['pipe', 'pipe', 'pipe'] })
-    execFileSync('tmux', textArgs, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-    })
-    // Small delay before sending Enter
-    execSync('sleep 0.1', { stdio: ['pipe', 'pipe', 'pipe'] })
-    execFileSync('tmux', enterArgs, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
-    })
-  }
+  // Clear any buffered input first
+  execFileSync(cmds.escape.cmd, cmds.escape.args, { stdio, timeout })
+  // Wait for Escape to take effect before sending new text
+  execSync('sleep 0.2', { stdio })
+  // Send the text literally — execFileSync bypasses shell, so the message
+  // reaches tmux verbatim regardless of content (parens, quotes, newlines, etc.)
+  execFileSync(cmds.text.cmd, cmds.text.args, { stdio, timeout })
+  // Small delay before sending Enter to avoid race conditions
+  execSync('sleep 0.1', { stdio })
+  execFileSync(cmds.enter.cmd, cmds.enter.args, { stdio, timeout })
 }
 
 // =============================================================================
