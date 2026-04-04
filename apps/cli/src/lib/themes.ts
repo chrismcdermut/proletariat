@@ -130,10 +130,17 @@ export const BUILTIN_THEMES: BuiltinThemeDefinition[] = [
     id: 'cracked-engineers',
     name: 'cracked-engineers',
     displayName: 'Cracked Engineers',
-    description: 'AI researchers, engineers, and tech legends',
+    description: 'Computing pioneers, AI researchers, engineers, and tech legends',
     persistentDir: 'staff',
     ephemeralDir: 'temp',
     names: [
+      // Computing pioneers
+      'babbage', 'berners-lee', 'dijkstra', 'hamilton', 'hopper',
+      'jackson', 'johnson', 'knuth', 'lovelace', 'ritchie',
+      'thompson', 'turing', 'vaughan',
+      // Computing pioneers (nice-to-have)
+      'cerf', 'kay', 'kernighan', 'lamport', 'liskov', 'mccarthy',
+      'stallman', 'wozniak',
       // AI researchers
       'karpathy', 'lecun', 'sutskever',
       // Engineers & creators
