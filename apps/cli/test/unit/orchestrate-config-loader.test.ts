@@ -198,7 +198,7 @@ review:
       for (const hook of hooks) {
         // Conservative preset: safe actions are auto (Tier 1), destructive actions are human (Tier 3)
         // action_value is like "prlt hook fire on_ci_green --action merge-pr", extract the action name
-        const SAFE_ACTIONS = new Set(['move-ticket', 'notify', 'cleanup-container', 'health-check', 'rebase-conflicting-prs', 'spawn-review-agent'])
+        const SAFE_ACTIONS = new Set(['move-ticket', 'notify', 'cleanup-container', 'health-check', 'rebase-conflicting-prs', 'spawn-review-agent', 'gc-sweep'])
         const actionMatch = hook.action_value.match(/--action\s+(\S+)/)
         const actionName = actionMatch ? actionMatch[1] : hook.action_value
         const expectedMode = SAFE_ACTIONS.has(actionName) ? 'auto' : 'human'
