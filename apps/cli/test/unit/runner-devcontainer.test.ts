@@ -48,14 +48,17 @@ describe('Devcontainer Runner (TKT-140)', () => {
         expect(cmd).to.not.include('--dangerously-skip-permissions')
       })
 
-      it('should include -p flag for print output mode', () => {
-        const cmd = buildDevcontainerCommand(makeContext(), 'claude-code', promptFile, containerId, 'print')
+      it('should always include -p flag for container agents (PRLT-1240)', () => {
+        // -p (print) mode skips all onboarding prompts and exits cleanly
+        const cmd = buildDevcontainerCommand(makeContext(), 'claude-code', promptFile, containerId, 'interactive')
         expect(cmd).to.include('-p ')
       })
 
-      it('should NOT include -p flag for interactive output mode', () => {
-        const cmd = buildDevcontainerCommand(makeContext(), 'claude-code', promptFile, containerId, 'interactive')
-        expect(cmd).to.not.match(/ -p /)
+      it('should include -p flag regardless of output mode', () => {
+        const cmdPrint = buildDevcontainerCommand(makeContext(), 'claude-code', promptFile, containerId, 'print')
+        const cmdInteractive = buildDevcontainerCommand(makeContext(), 'claude-code', promptFile, containerId, 'interactive')
+        expect(cmdPrint).to.include('-p ')
+        expect(cmdInteractive).to.include('-p ')
       })
 
       it('should include --disallowedTools EnterPlanMode for background display', () => {
@@ -100,13 +103,10 @@ describe('Devcontainer Runner (TKT-140)', () => {
     })
 
     // =========================================================================
-    // PRLT-1119: Background display mode must use print output mode
+    // PRLT-1240: -p flag always present + background-specific flags
     // =========================================================================
-    describe('background display mode (PRLT-1119)', () => {
-      it('should include -p flag when outputMode is print for background display', () => {
-        // When spawner resolves outputMode='print' for background display,
-        // buildDevcontainerCommand must include the -p flag so claude doesn't
-        // hang waiting for TTY input.
+    describe('background display mode (PRLT-1119, PRLT-1240)', () => {
+      it('should include -p flag and --disallowedTools for background display', () => {
         const cmd = buildDevcontainerCommand(
           makeContext(), 'claude-code', promptFile, containerId,
           'print', 'danger', 'background'

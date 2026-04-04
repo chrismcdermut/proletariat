@@ -8,7 +8,6 @@
 import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import * as os from 'node:os'
 import {
   PermissionMode,
   ExecutorType,
@@ -19,8 +18,6 @@ import { readDevcontainerJson } from '../devcontainer.js'
 import { isClaudeExecutor } from './executor.js'
 import { getMachineId } from '../../telemetry/analytics.js'
 import {
-  detectCCVersionInContainer,
-  getCCUserPermissionSettings,
   getCCAppPermissionSettings,
 } from '../cc-version.js'
 
@@ -464,56 +461,14 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
   // NOTE: pnpm store-dir is now configured inside setup-prlt.sh (PRLT-1130)
   // to ensure it's set BEFORE pnpm install runs during workspace setup.
 
+  // PRLT-1240: Do NOT write ~/.claude.json — Claude Code owns that file and
+  // overwrites it on startup, clobbering any settings we write. Instead, we use
+  // -p (print) mode which skips all onboarding prompts entirely.
+  // We still write ~/.claude/settings.json (Claude does not clobber that).
   if (isClaudeExecutor(executor)) {
     try {
-      // PRLT-1240: Detect CC version in container for version-aware settings
-      const ccVersion = detectCCVersionInContainer(containerId)
-      console.debug(`[runners:docker] Detected Claude Code version: ${ccVersion || 'unknown'}`)
-
-      const hostClaudeJson = path.join(os.homedir(), '.claude.json')
-      let settings: Record<string, unknown> = {}
-      if (fs.existsSync(hostClaudeJson)) {
-        try {
-          settings = JSON.parse(fs.readFileSync(hostClaudeJson, 'utf-8'))
-        } catch {
-          console.debug('[runners:docker] Failed to parse host .claude.json, using empty settings')
-        }
-      }
-      if (permissionMode === 'danger') {
-        // PRLT-1240: Write version-aware permission settings to .claude.json
-        const permSettings = getCCUserPermissionSettings(ccVersion)
-        Object.assign(settings, permSettings)
-      }
-      settings.numStartups = settings.numStartups || 1
-      settings.hasCompletedOnboarding = true
-      settings.theme = settings.theme || 'dark'
-      if (!settings.tipsHistory || typeof settings.tipsHistory !== 'object') {
-        settings.tipsHistory = {}
-      }
-      const tips = settings.tipsHistory as Record<string, number>
-      tips['new-user-warmup'] = tips['new-user-warmup'] || 1
-      settings.effortCalloutDismissed = true
-      if (!settings.projects || typeof settings.projects !== 'object') {
-        settings.projects = {}
-      }
-      const projects = settings.projects as Record<string, Record<string, unknown>>
-      for (const projectPath of ['/workspace', '/']) {
-        if (!projects[projectPath]) {
-          projects[projectPath] = {}
-        }
-        projects[projectPath].hasTrustDialogAccepted = true
-        projects[projectPath].hasCompletedProjectOnboarding = true
-      }
-
-      const settingsJson = JSON.stringify(settings)
-      execSync(
-        `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
-        { input: settingsJson, stdio: ['pipe', 'pipe', 'pipe'] }
-      )
-      console.debug(`[runners:docker] Copied .claude.json settings to container (permissionMode=${permissionMode})`)
-
-      // PRLT-1240: Write version-aware app settings to settings.json
-      const appPermSettings = getCCAppPermissionSettings(ccVersion)
+      // Write app settings to settings.json (skipDangerousModePermissionPrompt etc.)
+      const appPermSettings = getCCAppPermissionSettings()
       const claudeSettings = JSON.stringify(appPermSettings)
       execSync(
         `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
@@ -522,13 +477,7 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
       console.debug(`[runners:docker] Wrote ~/.claude/settings.json to container`)
 
       // Write Claude Code lifecycle hooks (PRLT-1224, extends PRLT-1061)
-      // Start hook: move ticket to in-progress when agent session begins
-      // Stop hook: run session report (cleanup + safety net + ticket transition)
-      // SubagentStop hook: same session report for sub-agent sessions
-      // PreToolUse hook: enforce test coverage before push/PR (PRLT-1225)
-      // Uses $PRLT_AGENT_NAME and $PRLT_TICKET_ID shell variables set as container env vars
       const lifecycleHooks = buildClaudeLifecycleHooks()
-      // Merge lifecycle hooks into existing settings.json
       const mergedSettings = { ...JSON.parse(claudeSettings), ...lifecycleHooks }
       execSync(
         `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude/settings.json'`,
@@ -544,10 +493,10 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
       )
       console.debug(`[runners:docker] Wrote enforce-tests hook script to container`)
     } catch (error) {
-      console.debug('[runners:docker] Failed to copy Claude settings to container:', error)
+      console.debug('[runners:docker] Failed to write Claude settings to container:', error)
     }
   } else {
-    console.debug(`[runners:docker] Skipping .claude.json settings injection for ${executor} executor`)
+    console.debug(`[runners:docker] Skipping Claude settings injection for ${executor} executor`)
   }
 
   return true

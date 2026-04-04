@@ -1,7 +1,6 @@
 import { expect } from 'chai'
 
 import {
-  CC_DEFAULT_VERSION,
   CC_BREAKING_VERSION,
   parseCCVersionOutput,
   compareCCVersion,
@@ -14,23 +13,13 @@ import {
  * Unit tests for Claude Code version management (PRLT-1240)
  *
  * Verifies version detection, comparison, and version-aware permission settings
- * that prevent container agents from getting stuck at the bypass permissions prompt.
+ * for ~/.claude/settings.json. CC_DEFAULT_VERSION was removed — container agents
+ * now use -p (print) mode which skips all onboarding prompts.
  */
 describe('Claude Code Version Management (PRLT-1240)', () => {
   // ===========================================================================
   // Constants
   // ===========================================================================
-
-  describe('CC_DEFAULT_VERSION', () => {
-    it('should be a valid semver string', () => {
-      expect(CC_DEFAULT_VERSION).to.match(/^\d+\.\d+\.\d+$/)
-    })
-
-    it('should be pinned to a pre-breaking version', () => {
-      // The default version should be before the breaking change
-      expect(compareCCVersion(CC_DEFAULT_VERSION, CC_BREAKING_VERSION)).to.equal(-1)
-    })
-  })
 
   describe('CC_BREAKING_VERSION', () => {
     it('should be a valid semver string', () => {
