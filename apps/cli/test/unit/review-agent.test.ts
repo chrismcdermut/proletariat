@@ -156,26 +156,26 @@ describe('Reviewer Agents (PRLT-1226)', () => {
       }
     })
 
-    it('spawn-agent should still be confirm in supervised preset', () => {
+    it('spawn-agent should still be llm in supervised preset', () => {
       const supervised = getPreset('supervised')
       const spawnHooks = supervised.hooks.filter(h => h.action === 'spawn-agent')
 
       expect(spawnHooks.length).to.be.greaterThan(0)
       for (const hook of spawnHooks) {
-        expect(hook.mode).to.equal('confirm',
-          'spawn-agent should be confirm in supervised mode — implementation modifies code'
+        expect(hook.mode).to.equal('llm',
+          'spawn-agent should be llm in supervised mode — implementation modifies code'
         )
       }
     })
 
-    it('spawn-fix-agent should still be confirm in supervised preset', () => {
+    it('spawn-fix-agent should still be llm in supervised preset', () => {
       const supervised = getPreset('supervised')
       const fixHooks = supervised.hooks.filter(h => h.action === 'spawn-fix-agent')
 
       expect(fixHooks.length).to.be.greaterThan(0)
       for (const hook of fixHooks) {
-        expect(hook.mode).to.equal('confirm',
-          'spawn-fix-agent should be confirm in supervised mode — fixes modify code'
+        expect(hook.mode).to.equal('llm',
+          'spawn-fix-agent should be llm in supervised mode — fixes modify code'
         )
       }
     })

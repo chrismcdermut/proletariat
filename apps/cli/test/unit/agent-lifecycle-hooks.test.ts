@@ -233,12 +233,12 @@ describe('PRLT-1224: Layer 3 — Daemon preset lifecycle hooks', () => {
       }
     })
 
-    it('should require confirmation for agent spawn actions', () => {
+    it('should require LLM approval for agent spawn actions', () => {
       const preset = getPreset('supervised')
       const spawnHooks = preset.hooks.filter(h => h.action === 'spawn-agent' || h.action === 'respawn')
       for (const hook of spawnHooks) {
-        expect(hook.mode).to.equal('confirm',
-          `${hook.action} should require confirmation in supervised mode`)
+        expect(hook.mode).to.equal('llm',
+          `${hook.action} should require LLM approval in supervised mode`)
       }
     })
   })

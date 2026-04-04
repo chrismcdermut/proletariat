@@ -27,6 +27,7 @@ import { createTicketRefs } from './0018_create_ticket_refs.js'
 import { gcArtifactCleanup } from './0019_gc_artifact_cleanup.js'
 import { transitionMap } from './0020_transition_map.js'
 import { notificationSystem } from './0021_notification_system.js'
+import { hookModeTiers } from './0022_hook_mode_tiers.js'
 
 /**
  * Ordered list of all migrations.
@@ -54,4 +55,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   gcArtifactCleanup,
   transitionMap,
   notificationSystem,
+  hookModeTiers,
 ]

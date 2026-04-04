@@ -21,7 +21,7 @@ function createTestDb(): Database.Database {
   ensureHooksTable(db)
   // Add orchestrate columns
   try {
-    db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('auto', 'confirm', 'notify', 'off'))")
+    db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN mode TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('auto', 'confirm', 'notify', 'llm', 'human', 'off'))")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN project_id TEXT")
     db.exec("ALTER TABLE pmo_work_hooks ADD COLUMN source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('yaml', 'cli', 'preset'))")
@@ -397,10 +397,10 @@ describe('OrchestrateEngine', () => {
   // ===========================================================================
 
   describe('supervised mode integration', () => {
-    it('should execute auto hooks and queue confirm hooks for the same event', async () => {
-      // Simulate supervised preset: safe action (auto) + destructive action (confirm)
+    it('should execute auto hooks and queue llm hooks for the same event', async () => {
+      // Simulate supervised preset: safe action (auto) + destructive action (llm)
       insertHook(db, { name: 'safe-notify', event: 'on_agent_died', action: 'notify', mode: 'auto', priority: 1 })
-      insertHook(db, { name: 'dangerous-respawn', event: 'on_agent_died', action: 'respawn', mode: 'confirm', priority: 2 })
+      insertHook(db, { name: 'dangerous-respawn', event: 'on_agent_died', action: 'respawn', mode: 'llm', priority: 2 })
 
       const engine = new OrchestrateEngine({ db })
       const results = await engine.fireEvent('on_agent_died', {
@@ -414,9 +414,9 @@ describe('OrchestrateEngine', () => {
       expect(results[0].action).to.equal('notify')
       expect(results[0].success).to.be.true
       expect(results[0].skipped).to.be.undefined
-      // Second hook (confirm respawn) is queued
-      expect(results[1].awaitingConfirmation).to.be.true
-      expect(engine.getPendingConfirmations()).to.have.length(1)
+      // Second hook (llm respawn) is queued for LLM decision
+      expect(results[1].awaitingLlmDecision).to.be.true
+      expect(engine.getPendingLlmDecisions()).to.have.length(1)
     })
 
     it('off-mode hooks should never execute regardless of event count', async () => {

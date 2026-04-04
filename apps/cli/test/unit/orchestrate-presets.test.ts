@@ -10,9 +10,9 @@ import type { HookMode, PresetName } from '../../src/lib/orchestrate/types.js'
  *
  * Tests cover:
  * - Preset completeness and validity
- * - Aggressive: all auto
- * - Conservative: all confirm
- * - Supervised: safe=auto, destructive=confirm
+ * - Aggressive: all auto (Tier 1)
+ * - Conservative: safe=auto, destructive=human (Tier 3)
+ * - Supervised: safe=auto, destructive=llm (Tier 2)
  */
 
 const SAFE_ACTIONS = new Set([
@@ -84,10 +84,23 @@ describe('Orchestrate Presets', () => {
   // ===========================================================================
 
   describe('conservative', () => {
-    it('should set all hooks to confirm mode', () => {
+    it('should set safe actions to auto (Tier 1)', () => {
       const preset = getPreset('conservative')
-      for (const hook of preset.hooks) {
-        expect(hook.mode).to.equal('confirm', `Expected confirm for ${hook.event}→${hook.action}`)
+      const safeHooks = preset.hooks.filter(h => SAFE_ACTIONS.has(h.action))
+
+      expect(safeHooks.length).to.be.greaterThan(0, 'Should have at least one safe hook')
+      for (const hook of safeHooks) {
+        expect(hook.mode).to.equal('auto', `Expected auto for safe action ${hook.event}→${hook.action}`)
+      }
+    })
+
+    it('should set destructive actions to human mode (Tier 3)', () => {
+      const preset = getPreset('conservative')
+      const destructiveHooks = preset.hooks.filter(h => !SAFE_ACTIONS.has(h.action))
+
+      expect(destructiveHooks.length).to.be.greaterThan(0, 'Should have at least one destructive hook')
+      for (const hook of destructiveHooks) {
+        expect(hook.mode).to.equal('human', `Expected human for destructive action ${hook.event}→${hook.action}`)
       }
     })
   })
@@ -107,13 +120,13 @@ describe('Orchestrate Presets', () => {
       }
     })
 
-    it('should set destructive actions to confirm', () => {
+    it('should set destructive actions to llm mode (Tier 2)', () => {
       const preset = getPreset('supervised')
       const destructiveHooks = preset.hooks.filter(h => !SAFE_ACTIONS.has(h.action))
 
       expect(destructiveHooks.length).to.be.greaterThan(0, 'Should have at least one destructive hook')
       for (const hook of destructiveHooks) {
-        expect(hook.mode).to.equal('confirm', `Expected confirm for destructive action ${hook.event}→${hook.action}`)
+        expect(hook.mode).to.equal('llm', `Expected llm for destructive action ${hook.event}→${hook.action}`)
       }
     })
   })
@@ -146,7 +159,7 @@ describe('Orchestrate Presets', () => {
   describe('invariants', () => {
     it('code-modifying spawn actions MUST NOT be auto in supervised mode', () => {
       // Actions that spawn code-modifying agents: spawn-agent, respawn, spawn-fix-agent, resolve-conflict
-      // These actions internally call `prlt work start` with code-modifying actions and MUST require confirmation.
+      // These actions internally call `prlt work start` with code-modifying actions and MUST require LLM approval.
       // Exception: spawn-review-agent is safe (review agents are read-only, non-destructive).
       const unsafeSpawnActions = new Set(['spawn-agent', 'respawn', 'spawn-fix-agent', 'resolve-conflict'])
       const supervised = getPreset('supervised')
@@ -154,8 +167,8 @@ describe('Orchestrate Presets', () => {
       for (const hook of supervised.hooks) {
         if (unsafeSpawnActions.has(hook.action)) {
           expect(hook.mode).to.equal(
-            'confirm',
-            `Action "${hook.action}" (event: ${hook.event}) calls prlt work start — must be confirm mode in supervised preset, not ${hook.mode}`
+            'llm',
+            `Action "${hook.action}" (event: ${hook.event}) calls prlt work start — must be llm mode in supervised preset, not ${hook.mode}`
           )
         }
       }
@@ -172,13 +185,13 @@ describe('Orchestrate Presets', () => {
     })
 
     it('merge-pr MUST NOT be auto in supervised mode', () => {
-      // merge-pr is destructive (merges code) and should require confirmation
+      // merge-pr is destructive (merges code) and should require LLM approval
       const supervised = getPreset('supervised')
       const mergeHooks = supervised.hooks.filter(h => h.action === 'merge-pr')
 
       expect(mergeHooks.length).to.be.greaterThan(0, 'Should have at least one merge-pr hook')
       for (const hook of mergeHooks) {
-        expect(hook.mode).to.equal('confirm', `merge-pr should be confirm mode in supervised preset`)
+        expect(hook.mode).to.equal('llm', `merge-pr should be llm mode in supervised preset`)
       }
     })
 

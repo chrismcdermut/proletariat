@@ -2,10 +2,11 @@
  * Orchestrate Presets
  *
  * Pre-configured hook sets for common automation levels.
+ * Maps to the 3-tier supervision tree:
  *
- * - aggressive: auto-everything — no human needed
- * - conservative: confirm everything — human approves all
- * - supervised: auto for safe ops, confirm for destructive
+ * - aggressive: all auto (Tier 1) — no decision needed
+ * - supervised: safe=auto (Tier 1), destructive=llm (Tier 2)
+ * - conservative: safe=auto (Tier 1), destructive=human (Tier 3)
  */
 
 import type { HookMode, OrchestrateEvent, PresetName } from './types.js'
@@ -41,6 +42,7 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_agent_died', action: 'respawn', config: { max_retries: 2 } },
   { event: 'on_agent_died', action: 'notify' },
   { event: 'on_agent_idle', action: 'health-check' },
+  { event: 'on_agent_idle', action: 'gc-sweep' },
   // Review lifecycle
   { event: 'on_review_approved', action: 'notify' },
   { event: 'on_changes_requested', action: 'spawn-fix-agent' },
@@ -75,7 +77,7 @@ const SAFE_ACTIONS = new Set([
 export const PRESETS: Record<PresetName, PresetDefinition> = {
   aggressive: {
     name: 'aggressive',
-    description: 'Auto everything — no human needed',
+    description: 'Auto everything — Tier 1 only, no decisions needed',
     hooks: SHARED_HOOKS.map(h => ({
       ...h,
       mode: 'auto' as HookMode,
@@ -84,19 +86,19 @@ export const PRESETS: Record<PresetName, PresetDefinition> = {
 
   conservative: {
     name: 'conservative',
-    description: 'Confirm everything — human approves all actions',
+    description: 'Safe=auto (Tier 1), destructive=human (Tier 3)',
     hooks: SHARED_HOOKS.map(h => ({
       ...h,
-      mode: 'confirm' as HookMode,
+      mode: (SAFE_ACTIONS.has(h.action) ? 'auto' : 'human') as HookMode,
     })),
   },
 
   supervised: {
     name: 'supervised',
-    description: 'Auto for safe ops, confirm for destructive actions',
+    description: 'Safe=auto (Tier 1), destructive=llm (Tier 2)',
     hooks: SHARED_HOOKS.map(h => ({
       ...h,
-      mode: (SAFE_ACTIONS.has(h.action) ? 'auto' : 'confirm') as HookMode,
+      mode: (SAFE_ACTIONS.has(h.action) ? 'auto' : 'llm') as HookMode,
     })),
   },
 }

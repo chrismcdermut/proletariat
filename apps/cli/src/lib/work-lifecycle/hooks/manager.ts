@@ -4,7 +4,7 @@
  * The single hook execution system for the entire application.
  * Subscribes to work lifecycle events on the global EventBus and
  * executes matching hook configurations from the database with
- * mode-aware behavior (auto/confirm/notify/off).
+ * mode-aware behavior (auto/confirm/notify/llm/human/off).
  *
  * Used by both the interactive CLI (with default auto mode) and
  * the orchestrate daemon (with full mode/callback support).
@@ -26,7 +26,16 @@ import {
   type HookExecutionResult,
   type HookActionHandler,
   type WorkHookConfig,
+  type LlmDecision,
 } from './types.js'
+import {
+  modeToTier,
+  DEFAULT_LLM_TIMEOUT_MS,
+  type EscalationContext,
+  type EscalationReason,
+  type PendingLlmDecision,
+  type PendingHumanEscalation,
+} from '../../orchestrate/escalation.js'
 
 // =============================================================================
 // Options
@@ -44,6 +53,25 @@ export interface HookManagerOptions {
   onConfirm?: (hookName: string, event: string, action: string) => Promise<boolean>
   /** Callback for notifications (notify-mode hooks) */
   onNotify?: (hookName: string, event: string, action: string, result: HookExecutionResult) => void
+  /**
+   * Callback for LLM-mode hooks (Tier 2).
+   * Receives escalation context, returns LLM decision: approve/deny/escalate.
+   * If not provided, LLM decisions are queued in pendingLlmDecisions.
+   */
+  onLlmDecision?: (context: EscalationContext) => Promise<LlmDecision>
+  /**
+   * Callback for human-mode hooks (Tier 3).
+   * Called when a hook needs human approval — either directly (mode=human/confirm)
+   * or via escalation from LLM tier.
+   * Returns true to approve, false to deny.
+   * If not provided, human escalations are queued in pendingHumanEscalations.
+   */
+  onHumanEscalation?: (context: EscalationContext, reason: EscalationReason) => Promise<boolean>
+  /**
+   * Timeout in ms for LLM decisions before auto-escalating to human.
+   * Defaults to DEFAULT_LLM_TIMEOUT_MS (5 minutes).
+   */
+  llmTimeoutMs?: number
   /**
    * Built-in action handlers (e.g., merge-pr, spawn-agent).
    * When a hook's action resolves to a key in this map, the handler
@@ -80,8 +108,13 @@ export class HookManager {
   private log: (msg: string) => void
   private onConfirm?: (hookName: string, event: string, action: string) => Promise<boolean>
   private onNotify?: (hookName: string, event: string, action: string, result: HookExecutionResult) => void
+  private onLlmDecision?: (context: EscalationContext) => Promise<LlmDecision>
+  private onHumanEscalation?: (context: EscalationContext, reason: EscalationReason) => Promise<boolean>
+  private llmTimeoutMs: number
   private actionHandlers: Record<string, HookActionHandler>
   private _pendingConfirmations: PendingConfirmation[] = []
+  private _pendingLlmDecisions: PendingLlmDecision[] = []
+  private _pendingHumanEscalations: PendingHumanEscalation[] = []
 
   constructor(options: HookManagerOptions) {
     this.db = options.db
@@ -89,6 +122,9 @@ export class HookManager {
     this.log = options.log ?? (() => {})
     this.onConfirm = options.onConfirm
     this.onNotify = options.onNotify
+    this.onLlmDecision = options.onLlmDecision
+    this.onHumanEscalation = options.onHumanEscalation
+    this.llmTimeoutMs = options.llmTimeoutMs ?? DEFAULT_LLM_TIMEOUT_MS
     this.actionHandlers = options.actionHandlers ?? {}
   }
 
@@ -117,6 +153,8 @@ export class HookManager {
     }
     this.unsubscribers = []
     this._pendingConfirmations = []
+    this._pendingLlmDecisions = []
+    this._pendingHumanEscalations = []
   }
 
   /**
@@ -155,6 +193,125 @@ export class HookManager {
 
     const pending = this._pendingConfirmations.splice(index, 1)[0]
     this.log(`[hooks] Denied: ${pending.hookName} → ${pending.action}`)
+    return true
+  }
+
+  // ===========================================================================
+  // LLM Decision Queue (Tier 2)
+  // ===========================================================================
+
+  /**
+   * Get pending LLM decisions for hooks in llm mode.
+   */
+  getPendingLlmDecisions(): PendingLlmDecision[] {
+    return [...this._pendingLlmDecisions]
+  }
+
+  /**
+   * Approve a pending LLM decision and execute it.
+   */
+  async approveLlmDecision(index: number): Promise<HookExecutionResult | null> {
+    if (index < 0 || index >= this._pendingLlmDecisions.length) return null
+
+    const pending = this._pendingLlmDecisions.splice(index, 1)[0]
+    const result = this.executeActionByName(pending.action, pending.ctx, pending.config)
+
+    this.log(`[hooks] LLM approved: ${pending.hookName} → ${pending.action} (${result.success ? 'success' : 'failed'})`)
+    return { ...result, tier: 'llm' }
+  }
+
+  /**
+   * Deny a pending LLM decision.
+   */
+  denyLlmDecision(index: number): boolean {
+    if (index < 0 || index >= this._pendingLlmDecisions.length) return false
+
+    const pending = this._pendingLlmDecisions.splice(index, 1)[0]
+    this.log(`[hooks] LLM denied: ${pending.hookName} → ${pending.action}`)
+    return true
+  }
+
+  /**
+   * Escalate a pending LLM decision to human tier.
+   * Removes from LLM queue and adds to human escalation queue.
+   */
+  escalateLlmDecision(index: number): boolean {
+    if (index < 0 || index >= this._pendingLlmDecisions.length) return false
+
+    const pending = this._pendingLlmDecisions.splice(index, 1)[0]
+    this._pendingHumanEscalations.push({
+      hookName: pending.hookName,
+      event: pending.event,
+      action: pending.action,
+      ctx: pending.ctx,
+      config: pending.config,
+      queuedAt: Date.now(),
+      reason: 'llm_escalate',
+    })
+    this.log(`[hooks] LLM escalated to human: ${pending.hookName} → ${pending.action}`)
+    return true
+  }
+
+  /**
+   * Check for timed-out LLM decisions and auto-escalate them to human tier.
+   * Returns the number of decisions that were escalated.
+   */
+  escalateTimedOutLlmDecisions(): number {
+    const now = Date.now()
+    let escalated = 0
+    // Iterate in reverse to safely splice
+    for (let i = this._pendingLlmDecisions.length - 1; i >= 0; i--) {
+      const decision = this._pendingLlmDecisions[i]
+      if ((now - decision.queuedAt) >= decision.timeoutMs) {
+        this._pendingLlmDecisions.splice(i, 1)
+        this._pendingHumanEscalations.push({
+          hookName: decision.hookName,
+          event: decision.event,
+          action: decision.action,
+          ctx: decision.ctx,
+          config: decision.config,
+          queuedAt: decision.queuedAt,
+          reason: 'llm_timeout',
+        })
+        this.log(`[hooks] LLM timeout → escalated to human: ${decision.hookName} → ${decision.action}`)
+        escalated++
+      }
+    }
+    return escalated
+  }
+
+  // ===========================================================================
+  // Human Escalation Queue (Tier 3)
+  // ===========================================================================
+
+  /**
+   * Get pending human escalations.
+   */
+  getPendingHumanEscalations(): PendingHumanEscalation[] {
+    return [...this._pendingHumanEscalations]
+  }
+
+  /**
+   * Approve a pending human escalation and execute it.
+   */
+  async approveHumanEscalation(index: number): Promise<HookExecutionResult | null> {
+    if (index < 0 || index >= this._pendingHumanEscalations.length) return null
+
+    const pending = this._pendingHumanEscalations.splice(index, 1)[0]
+    const result = this.executeActionByName(pending.action, pending.ctx, pending.config)
+
+    this.log(`[hooks] Human approved: ${pending.hookName} → ${pending.action} (${result.success ? 'success' : 'failed'})`)
+    return { ...result, tier: 'human' }
+  }
+
+  /**
+   * Deny a pending human escalation.
+   */
+  denyHumanEscalation(index: number): boolean {
+    if (index < 0 || index >= this._pendingHumanEscalations.length) return false
+
+    const pending = this._pendingHumanEscalations.splice(index, 1)[0]
+    this.log(`[hooks] Human denied: ${pending.hookName} → ${pending.action}`)
     return true
   }
 
@@ -210,7 +367,7 @@ export class HookManager {
 
   /**
    * Handle an event by finding and executing all matching enabled hooks.
-   * Supports mode-aware execution: auto, confirm, notify, off.
+   * Supports mode-aware execution: auto, confirm, notify, llm, human, off.
    */
   private async handleEvent(eventName: string, eventData: Record<string, unknown>): Promise<HookExecutionResult[]> {
     const results: HookExecutionResult[] = []
@@ -239,7 +396,148 @@ export class HookManager {
           continue
         }
 
-        // --- confirm: require approval ---
+        // --- llm: route to LLM orchestrator (Tier 2) ---
+        if (mode === 'llm') {
+          const escalationCtx: EscalationContext = {
+            hookName: hook.name,
+            event: eventName,
+            action: actionName,
+            ctx,
+            config: hook.config ?? undefined,
+          }
+
+          if (this.onLlmDecision) {
+            const decision = await this.onLlmDecision(escalationCtx)
+
+            if (decision === 'deny') {
+              this.log(`[hooks] LLM denied: ${hook.name} → ${actionName}`)
+              results.push({
+                hookId: hook.id,
+                hookName: hook.name,
+                action: actionName,
+                success: true,
+                durationMs: 0,
+                skipped: true,
+                tier: 'llm',
+              })
+              continue
+            }
+
+            if (decision === 'escalate') {
+              // LLM escalated to human tier
+              this.log(`[hooks] LLM escalated to human: ${hook.name} → ${actionName}`)
+
+              if (this.onHumanEscalation) {
+                const humanApproved = await this.onHumanEscalation(escalationCtx, 'llm_escalate')
+                if (!humanApproved) {
+                  results.push({
+                    hookId: hook.id,
+                    hookName: hook.name,
+                    action: actionName,
+                    success: true,
+                    durationMs: 0,
+                    skipped: true,
+                    escalatedToHuman: true,
+                    tier: 'human',
+                  })
+                  continue
+                }
+                // Human approved — fall through to execution
+                const result = this.executeHookAction(hook, eventName, eventData, ctx)
+                results.push({ ...result, escalatedToHuman: true, tier: 'human' })
+                this.log(`[hooks] ${hook.name} → ${actionName}: ${result.success ? 'success' : `failed: ${result.error}`} (${result.durationMs}ms) [escalated to human]`)
+                continue
+              } else {
+                // No human handler — queue for human approval
+                this._pendingHumanEscalations.push({
+                  ...escalationCtx,
+                  queuedAt: Date.now(),
+                  reason: 'llm_escalate',
+                })
+                results.push({
+                  hookId: hook.id,
+                  hookName: hook.name,
+                  action: actionName,
+                  success: true,
+                  durationMs: 0,
+                  escalatedToHuman: true,
+                  awaitingConfirmation: true,
+                  tier: 'human',
+                })
+                continue
+              }
+            }
+
+            // decision === 'approve' — fall through to execution
+          } else {
+            // No LLM handler — queue for later LLM decision
+            this._pendingLlmDecisions.push({
+              ...escalationCtx,
+              queuedAt: Date.now(),
+              timeoutMs: this.llmTimeoutMs,
+            })
+            this.log(`[hooks] Queued for LLM decision: ${hook.name} → ${actionName}`)
+            results.push({
+              hookId: hook.id,
+              hookName: hook.name,
+              action: actionName,
+              success: true,
+              durationMs: 0,
+              awaitingLlmDecision: true,
+              tier: 'llm',
+            })
+            continue
+          }
+        }
+
+        // --- human: route to human (Tier 3) ---
+        if (mode === 'human') {
+          const escalationCtx: EscalationContext = {
+            hookName: hook.name,
+            event: eventName,
+            action: actionName,
+            ctx,
+            config: hook.config ?? undefined,
+          }
+
+          if (this.onHumanEscalation) {
+            const approved = await this.onHumanEscalation(escalationCtx, 'direct')
+            if (!approved) {
+              this.log(`[hooks] Human denied: ${hook.name} → ${actionName}`)
+              results.push({
+                hookId: hook.id,
+                hookName: hook.name,
+                action: actionName,
+                success: true,
+                durationMs: 0,
+                skipped: true,
+                tier: 'human',
+              })
+              continue
+            }
+            // Approved — fall through to execution
+          } else {
+            // No human handler — queue for later approval
+            this._pendingHumanEscalations.push({
+              ...escalationCtx,
+              queuedAt: Date.now(),
+              reason: 'direct',
+            })
+            this.log(`[hooks] Queued for human approval: ${hook.name} → ${actionName}`)
+            results.push({
+              hookId: hook.id,
+              hookName: hook.name,
+              action: actionName,
+              success: true,
+              durationMs: 0,
+              awaitingConfirmation: true,
+              tier: 'human',
+            })
+            continue
+          }
+        }
+
+        // --- confirm: require approval (legacy alias for human) ---
         if (mode === 'confirm') {
           if (this.onConfirm) {
             const approved = await this.onConfirm(hook.name, eventName, actionName)
@@ -252,6 +550,31 @@ export class HookManager {
                 success: true,
                 durationMs: 0,
                 skipped: true,
+                tier: 'human',
+              })
+              continue
+            }
+            // Approved — fall through to execution
+          } else if (this.onHumanEscalation) {
+            // Use human escalation callback as fallback for confirm mode
+            const escalationCtx: EscalationContext = {
+              hookName: hook.name,
+              event: eventName,
+              action: actionName,
+              ctx,
+              config: hook.config ?? undefined,
+            }
+            const approved = await this.onHumanEscalation(escalationCtx, 'direct')
+            if (!approved) {
+              this.log(`[hooks] Human denied (confirm mode): ${hook.name} → ${actionName}`)
+              results.push({
+                hookId: hook.id,
+                hookName: hook.name,
+                action: actionName,
+                success: true,
+                durationMs: 0,
+                skipped: true,
+                tier: 'human',
               })
               continue
             }
@@ -273,12 +596,13 @@ export class HookManager {
               success: true,
               durationMs: 0,
               awaitingConfirmation: true,
+              tier: 'human',
             })
             continue
           }
         }
 
-        // --- auto / notify / confirmed: execute ---
+        // --- auto / notify / confirmed / llm-approved / human-approved: execute ---
         const result = this.executeHookAction(hook, eventName, eventData, ctx)
         results.push(result)
 
