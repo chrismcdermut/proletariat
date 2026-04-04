@@ -14,6 +14,7 @@ import type { PendingLlmDecision } from '../../src/lib/orchestrate/escalation.js
 import type { LlmDecision } from '../../src/lib/work-lifecycle/hooks/types.js'
 import { hookModeTiers } from '../../src/lib/database/migrations/0022_hook_mode_tiers.js'
 import { orchestrateHooks } from '../../src/lib/database/migrations/0015_orchestrate_hooks.js'
+import { ALL_MIGRATIONS } from '../../src/lib/database/migrations/index.js'
 
 /**
  * Tests for the 3-tier supervision tree (PRLT-1204).
@@ -117,6 +118,20 @@ describe('PRLT-1204: 3-Tier Supervision Tree', () => {
       } finally {
         db.close()
       }
+    })
+
+    it('should have unique migration ID (regression: ID collision caused 26 smoke test failures)', () => {
+      // The hookModeTiers migration must have id '0022', not '0021'.
+      // When it had '0021' it collided with notificationSystem, causing
+      // UNIQUE constraint failures in openWorkspaceDatabase → runDrizzleMigrations.
+      expect(hookModeTiers.id).to.equal('0022')
+      expect(hookModeTiers.name).to.equal('hook_mode_tiers')
+    })
+
+    it('all migration IDs must be unique (regression guard)', () => {
+      const ids = ALL_MIGRATIONS.map(m => m.id)
+      const uniqueIds = new Set(ids)
+      expect(ids.length).to.equal(uniqueIds.size, `Duplicate migration IDs found: ${ids.filter((id, i) => ids.indexOf(id) !== i)}`)
     })
 
     it('should be idempotent (safe to run twice)', () => {
