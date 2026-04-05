@@ -26,6 +26,7 @@ import { type DatabaseDriver, openDriver } from './database/driver.js'
 
 export type MachineExecutionStatus = 'starting' | 'running' | 'completed' | 'failed' | 'stopped'
 export type MachineLifecycleState = 'healthy' | 'idle' | 'died' | 'completed'
+export type MachineCleanupPolicy = 'on-exit' | 'persistent' | 'on-error-keep'
 
 export interface MachineExecution {
   id: string
@@ -40,6 +41,8 @@ export interface MachineExecution {
   status: MachineExecutionStatus
   ticketId: string | undefined
   createPr: boolean
+  persistent: boolean
+  cleanupPolicy: MachineCleanupPolicy
   startedAt: Date
   completedAt: Date | undefined
   exitCode: number | undefined
@@ -66,6 +69,8 @@ interface ExecutionRow {
   status: string
   ticket_id: string | null
   create_pr: number
+  persistent: number
+  cleanup_policy: string
   started_at: number
   completed_at: number | null
   exit_code: number | null
@@ -97,6 +102,8 @@ function rowToExecution(row: ExecutionRow): MachineExecution {
     status: row.status as MachineExecutionStatus,
     ticketId: row.ticket_id || undefined,
     createPr: row.create_pr === 1,
+    persistent: row.persistent === 1,
+    cleanupPolicy: (row.cleanup_policy || 'on-exit') as MachineCleanupPolicy,
     startedAt: new Date(row.started_at),
     completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
     exitCode: row.exit_code ?? undefined,
@@ -149,6 +156,8 @@ export class MachineDB {
         status TEXT NOT NULL DEFAULT 'starting',
         ticket_id TEXT,
         create_pr INTEGER NOT NULL DEFAULT 0,
+        persistent INTEGER NOT NULL DEFAULT 0,
+        cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
         started_at INTEGER NOT NULL,
         completed_at INTEGER,
         exit_code INTEGER,
@@ -158,6 +167,7 @@ export class MachineDB {
       CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status);
       CREATE INDEX IF NOT EXISTS idx_executions_repo ON executions(repo_path);
       CREATE INDEX IF NOT EXISTS idx_executions_agent ON executions(agent_name);
+      CREATE INDEX IF NOT EXISTS idx_executions_persistent ON executions(persistent);
 
       CREATE TABLE IF NOT EXISTS agent_health (
         execution_id TEXT PRIMARY KEY REFERENCES executions(id) ON DELETE CASCADE,
@@ -166,6 +176,21 @@ export class MachineDB {
         retries INTEGER NOT NULL DEFAULT 0
       );
     `)
+
+    // Migrate existing databases that don't have the persistent columns
+    this.addColumnIfMissing('executions', 'persistent', 'INTEGER NOT NULL DEFAULT 0')
+    this.addColumnIfMissing('executions', 'cleanup_policy', "TEXT NOT NULL DEFAULT 'on-exit'")
+  }
+
+  /**
+   * Safely add a column if it doesn't exist (for schema migration).
+   */
+  private addColumnIfMissing(table: string, column: string, definition: string): void {
+    try {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+    } catch {
+      // Column already exists — ignore
+    }
   }
 
   // ===========================================================================
@@ -185,15 +210,19 @@ export class MachineDB {
     branch?: string
     ticketId?: string
     createPr?: boolean
+    persistent?: boolean
+    cleanupPolicy?: MachineCleanupPolicy
   }): MachineExecution {
     const id = `MRUN-${randomUUID().substring(0, 8).toUpperCase()}`
     const now = Date.now()
+    const persistent = params.persistent ?? false
+    const cleanupPolicy = params.cleanupPolicy ?? (persistent ? 'persistent' : 'on-exit')
 
     this.db.prepare(`
       INSERT INTO executions (
         id, prompt, repo_path, branch, agent_name, executor, environment,
-        status, ticket_id, create_pr, started_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?)
+        status, ticket_id, create_pr, persistent, cleanup_policy, started_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?)
     `).run(
       id,
       params.prompt,
@@ -204,6 +233,8 @@ export class MachineDB {
       params.environment || 'host',
       params.ticketId || null,
       params.createPr ? 1 : 0,
+      persistent ? 1 : 0,
+      cleanupPolicy,
       now,
     )
 
@@ -227,6 +258,7 @@ export class MachineDB {
     status?: MachineExecutionStatus
     repoPath?: string
     agentName?: string
+    persistent?: boolean
     limit?: number
   }): MachineExecution[] {
     let query = 'SELECT * FROM executions WHERE 1=1'
@@ -243,6 +275,10 @@ export class MachineDB {
     if (filter?.agentName) {
       query += ' AND agent_name = ?'
       params.push(filter.agentName)
+    }
+    if (filter?.persistent !== undefined) {
+      query += ' AND persistent = ?'
+      params.push(filter.persistent ? 1 : 0)
     }
 
     query += ' ORDER BY started_at DESC'
@@ -327,6 +363,57 @@ export class MachineDB {
    */
   deleteExecution(id: string): void {
     this.db.prepare('DELETE FROM executions WHERE id = ?').run(id)
+  }
+
+  // ===========================================================================
+  // Persistent Agents
+  // ===========================================================================
+
+  /**
+   * Get a persistent agent by name.
+   * Returns the most recent execution for this agent name where persistent=1.
+   * Used to detect if a named persistent agent already exists (for restart/reattach).
+   */
+  getPersistentAgent(agentName: string): MachineExecution | null {
+    const row = this.db.prepare<ExecutionRow>(
+      'SELECT * FROM executions WHERE agent_name = ? AND persistent = 1 ORDER BY started_at DESC LIMIT 1'
+    ).get(agentName)
+    return row ? rowToExecution(row) : null
+  }
+
+  /**
+   * List all persistent agents.
+   * Returns the most recent execution per unique agent name where persistent=1.
+   */
+  listPersistentAgents(): MachineExecution[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM executions
+       WHERE persistent = 1
+         AND id IN (
+           SELECT id FROM executions e2
+           WHERE e2.agent_name = executions.agent_name AND e2.persistent = 1
+           ORDER BY e2.started_at DESC
+           LIMIT 1
+         )
+       ORDER BY started_at DESC`
+    ).all() as unknown as ExecutionRow[]
+    return rows.map(rowToExecution)
+  }
+
+  /**
+   * Get all persistent agents that should be running but have died.
+   * These are candidates for automatic restart.
+   */
+  getDiedPersistentAgents(): MachineExecution[] {
+    const rows = this.db.prepare(
+      `SELECT e.* FROM executions e
+       LEFT JOIN agent_health h ON e.id = h.execution_id
+       WHERE e.persistent = 1
+         AND e.status IN ('failed', 'stopped')
+         AND (h.lifecycle_state IS NULL OR h.lifecycle_state = 'died')
+       ORDER BY e.started_at DESC`
+    ).all() as unknown as ExecutionRow[]
+    return rows.map(rowToExecution)
   }
 
   // ===========================================================================

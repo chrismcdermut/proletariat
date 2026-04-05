@@ -4,10 +4,17 @@
  * Spawns an agent without a ticket or HQ workspace.
  * Any directory, any repo, just a prompt.
  *
+ * Two modes:
+ *   Ephemeral (default): spawn, work, exit — like `docker run`
+ *   Persistent (--keep-alive): long-lived named agent that accumulates
+ *     context and responds to session pokes — like `docker run --name`
+ *     with a restart policy. Survives terminal/HQ restarts.
+ *
  * Usage:
  *   prlt work run --prompt "refactor auth module"
  *   prlt work run --dir ~/Projects/other-repo --prompt "fix the auth bug"
  *   prlt work run --repo https://github.com/org/repo --prompt "add tests"
+ *   prlt work run --name reviewer --keep-alive --prompt "you are the backend reviewer"
  */
 
 import { Flags } from '@oclif/core'
@@ -39,6 +46,8 @@ export default class WorkRun extends PromptCommand {
     '<%= config.bin %> <%= command.id %> --repo https://github.com/org/repo --prompt "add tests"',
     '<%= config.bin %> <%= command.id %> --prompt "add unit tests" --create-pr',
     '<%= config.bin %> <%= command.id %> --prompt "fix flaky test" --environment host',
+    '<%= config.bin %> <%= command.id %> --name reviewer --keep-alive --prompt "you are the backend reviewer"',
+    '<%= config.bin %> <%= command.id %> --name ci-watcher --keep-alive --prompt "monitor CI failures and fix them"',
   ]
 
   static flags = {
@@ -59,6 +68,11 @@ export default class WorkRun extends PromptCommand {
       description: 'Create a PR when work is ready (no ticket linking)',
       default: false,
     }),
+    'keep-alive': Flags.boolean({
+      char: 'k',
+      description: 'Persistent agent — survives restarts, accumulates context, responds to pokes',
+      default: false,
+    }),
     environment: Flags.string({
       char: 'e',
       description: 'Execution environment',
@@ -73,10 +87,9 @@ export default class WorkRun extends PromptCommand {
     mode: Flags.string({
       description: 'Display mode for agent output',
       options: ['terminal', 'background', 'foreground'],
-      default: 'foreground',
     }),
     name: Flags.string({
-      description: 'Agent name (auto-generated if not provided)',
+      description: 'Agent name (required for --keep-alive, auto-generated otherwise)',
     }),
     json: Flags.boolean({
       description: 'Output as JSON for AI agents/scripts',
@@ -92,6 +105,19 @@ export default class WorkRun extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(WorkRun)
     const jsonMode = shouldOutputJson(flags)
+    const keepAlive = flags['keep-alive']
+
+    // =========================================================================
+    // Validate persistent agent flags
+    // =========================================================================
+    if (keepAlive && !flags.name) {
+      const msg = '--keep-alive requires --name (persistent agents need a stable identity)'
+      if (jsonMode) {
+        outputErrorAsJson('INVALID_FLAGS', msg, createMetadata('work run', flags))
+        return
+      }
+      this.error(msg)
+    }
 
     // =========================================================================
     // Resolve working directory
@@ -108,7 +134,6 @@ export default class WorkRun extends PromptCommand {
     }
 
     if (flags.repo) {
-      // Clone the repo into a temp directory
       workDir = this.cloneRepo(flags.repo)
     } else if (flags.dir) {
       workDir = path.resolve(flags.dir)
@@ -125,46 +150,84 @@ export default class WorkRun extends PromptCommand {
     }
 
     // =========================================================================
-    // Generate agent name
+    // Resolve agent name and display mode
     // =========================================================================
     const agentName = flags.name || generateAgentName()
     const environment = flags.environment as ExecutionEnvironment
     const executor = flags.executor as ExecutorType
-    const displayMode = flags.mode as DisplayMode
+    // Persistent agents default to background mode (long-lived, reattach later)
+    const displayMode = (flags.mode || (keepAlive ? 'background' : 'foreground')) as DisplayMode
 
-    if (!jsonMode) {
-      this.log('')
-      this.log(styles.header('Ticketless Work'))
-      this.log(styles.muted(`Agent: ${agentName}`))
-      this.log(styles.muted(`Directory: ${workDir}`))
-      this.log(styles.muted(`Prompt: ${flags.prompt.substring(0, 80)}${flags.prompt.length > 80 ? '...' : ''}`))
-      this.log('')
-    }
-
-    // =========================================================================
-    // Create execution record in machine DB
-    // =========================================================================
     const machineDb = new MachineDB()
-    let execution
     try {
-      execution = machineDb.createExecution({
+      // =====================================================================
+      // Check for existing persistent agent (restart/reattach)
+      // =====================================================================
+      if (keepAlive) {
+        const existing = machineDb.getPersistentAgent(agentName)
+        if (existing && (existing.status === 'running' || existing.status === 'starting')) {
+          // Agent is already running — tell user to attach
+          if (jsonMode) {
+            this.log(JSON.stringify({
+              success: true,
+              executionId: existing.id,
+              agentName,
+              sessionId: existing.sessionId,
+              containerId: existing.containerId,
+              repoPath: existing.repoPath,
+              persistent: true,
+              alreadyRunning: true,
+            }))
+          } else {
+            this.log('')
+            this.log(styles.success(`Persistent agent "${agentName}" is already running (${existing.id})`))
+            if (existing.sessionId) {
+              this.log(styles.muted(`Attach: prlt session attach ${existing.sessionId}`))
+              this.log(styles.muted(`Poke:   prlt session poke ${existing.sessionId} "your message"`))
+            }
+            this.log('')
+          }
+          return
+        }
+
+        // Existing persistent agent is stopped/failed — restart it
+        if (existing && !jsonMode) {
+          this.log(styles.muted(`Restarting persistent agent "${agentName}" (previous: ${existing.id}, status: ${existing.status})`))
+        }
+      }
+
+      if (!jsonMode) {
+        this.log('')
+        this.log(styles.header(keepAlive ? 'Persistent Agent' : 'Ticketless Work'))
+        this.log(styles.muted(`Agent: ${agentName}${keepAlive ? ' (persistent)' : ''}`))
+        this.log(styles.muted(`Directory: ${workDir}`))
+        this.log(styles.muted(`Prompt: ${flags.prompt.substring(0, 80)}${flags.prompt.length > 80 ? '...' : ''}`))
+        this.log('')
+      }
+
+      // =====================================================================
+      // Create execution record in machine DB
+      // =====================================================================
+      const execution = machineDb.createExecution({
         prompt: flags.prompt,
         repoPath: workDir,
         agentName,
         executor,
         environment,
         createPr: flags['create-pr'],
+        persistent: keepAlive,
+        cleanupPolicy: keepAlive ? 'persistent' : 'on-exit',
       })
 
       if (!jsonMode) {
         this.log(styles.muted(`Execution: ${execution.id}`))
       }
 
-      // =========================================================================
+      // =====================================================================
       // Build execution context (no ticket, just prompt)
-      // =========================================================================
+      // =====================================================================
       const context: ExecutionContext = {
-        ticketId: execution.id,    // Use execution ID as pseudo ticket ID
+        ticketId: execution.id,
         ticketTitle: flags.prompt.substring(0, 60),
         ticketDescription: flags.prompt,
         agentName,
@@ -172,18 +235,17 @@ export default class WorkRun extends PromptCommand {
         worktreePath: workDir,
         branch: this.getCurrentBranch(workDir) || 'main',
         createPR: flags['create-pr'],
-        // Action context — the prompt is the action
         actionId: 'run',
         actionName: 'Run',
         actionPrompt: flags.prompt,
-        modifiesCode: true,
+        modifiesCode: !keepAlive, // Persistent agents may just be watchers/reviewers
         executionEnvironment: environment,
-        isEphemeral: true,
+        isEphemeral: !keepAlive,
       }
 
-      // =========================================================================
+      // =====================================================================
       // Launch execution
-      // =========================================================================
+      // =====================================================================
       if (!jsonMode) {
         this.log(styles.muted('Starting agent...'))
       }
@@ -194,14 +256,13 @@ export default class WorkRun extends PromptCommand {
       })
 
       if (result.success) {
-        // Update machine DB with process info
         machineDb.updateStatus(execution.id, 'running')
         machineDb.updateProcessInfo(execution.id, {
           containerId: result.containerId,
           sessionId: result.sessionId,
         })
 
-        // Also track in the global session store
+        // Track in global session store
         try {
           const sessionStore = new SessionStore()
           sessionStore.create({
@@ -215,7 +276,7 @@ export default class WorkRun extends PromptCommand {
           })
           sessionStore.close()
         } catch {
-          // Non-fatal — session store is best-effort
+          // Non-fatal
         }
 
         if (jsonMode) {
@@ -227,13 +288,20 @@ export default class WorkRun extends PromptCommand {
             containerId: result.containerId,
             repoPath: workDir,
             prompt: flags.prompt,
+            persistent: keepAlive,
           }))
         } else {
           this.log('')
           this.log(styles.success(`Agent ${agentName} started (${execution.id})`))
+          if (keepAlive) {
+            this.log(styles.muted('Mode: persistent (survives restarts, reattach anytime)'))
+          }
           if (result.sessionId) {
             this.log(styles.muted(`Session: ${result.sessionId}`))
             this.log(styles.muted(`Attach:  prlt session attach ${result.sessionId}`))
+            if (keepAlive) {
+              this.log(styles.muted(`Poke:    prlt session poke ${result.sessionId} "your message"`))
+            }
           }
           this.log('')
         }

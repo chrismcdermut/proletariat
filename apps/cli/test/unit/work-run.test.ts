@@ -245,6 +245,113 @@ describe('PRLT-1245: Ticketless work mode', () => {
   })
 
   // ===========================================================================
+  // Persistent agents (--keep-alive)
+  // ===========================================================================
+
+  describe('persistent agents (--keep-alive)', () => {
+    it('creates a persistent execution with stable name', () => {
+      const exec = db.createExecution({
+        prompt: 'you are the backend reviewer',
+        repoPath: '/repo',
+        agentName: 'reviewer',
+        persistent: true,
+      })
+
+      expect(exec.persistent).to.be.true
+      expect(exec.cleanupPolicy).to.equal('persistent')
+      expect(exec.agentName).to.equal('reviewer')
+    })
+
+    it('persistent agent survives status transitions and can be restarted', async () => {
+      // First run — starts and runs
+      const run1 = db.createExecution({
+        prompt: 'backend reviewer',
+        repoPath: '/repo',
+        agentName: 'reviewer',
+        persistent: true,
+      })
+      db.updateStatus(run1.id, 'running')
+      db.updateStatus(run1.id, 'stopped')
+
+      // Agent record persists — can be found by name
+      const found = db.getPersistentAgent('reviewer')
+      expect(found).to.not.be.null
+      expect(found!.status).to.equal('stopped')
+
+      // Tick so second run has later started_at
+      await new Promise<void>(resolve => setTimeout(resolve, 2))
+
+      // Second run — restart with new execution
+      const run2 = db.createExecution({
+        prompt: 'backend reviewer (restarted)',
+        repoPath: '/repo',
+        agentName: 'reviewer',
+        persistent: true,
+      })
+      db.updateStatus(run2.id, 'running')
+
+      // Most recent is the new one
+      const latest = db.getPersistentAgent('reviewer')
+      expect(latest!.id).to.equal(run2.id)
+      expect(latest!.status).to.equal('running')
+    })
+
+    it('detects already-running persistent agent (prevents double-spawn)', () => {
+      const exec = db.createExecution({
+        prompt: 'reviewer',
+        repoPath: '/repo',
+        agentName: 'reviewer',
+        persistent: true,
+      })
+      db.updateStatus(exec.id, 'running')
+
+      // Simulate: user runs `prlt work run --name reviewer --keep-alive` again
+      const existing = db.getPersistentAgent('reviewer')
+      expect(existing).to.not.be.null
+      expect(existing!.status).to.equal('running')
+      // Command would short-circuit here and tell user to attach
+    })
+
+    it('persistent and ephemeral agents coexist independently', () => {
+      db.createExecution({
+        prompt: 'long-lived reviewer',
+        repoPath: '/repo',
+        agentName: 'reviewer',
+        persistent: true,
+      })
+      db.createExecution({
+        prompt: 'quick fix',
+        repoPath: '/repo',
+        agentName: 'temp-worker',
+        persistent: false,
+      })
+
+      const all = db.listExecutions()
+      expect(all).to.have.lengthOf(2)
+
+      const persistent = db.listPersistentAgents()
+      expect(persistent).to.have.lengthOf(1)
+      expect(persistent[0].agentName).to.equal('reviewer')
+    })
+
+    it('tracks died persistent agents for restart candidates', () => {
+      const exec = db.createExecution({
+        prompt: 'ci-watcher',
+        repoPath: '/repo',
+        agentName: 'ci-watcher',
+        persistent: true,
+      })
+      db.updateStatus(exec.id, 'running')
+      db.updateStatus(exec.id, 'failed', 1, 'OOM')
+
+      const died = db.getDiedPersistentAgents()
+      expect(died).to.have.lengthOf(1)
+      expect(died[0].agentName).to.equal('ci-watcher')
+      expect(died[0].errorMessage).to.equal('OOM')
+    })
+  })
+
+  // ===========================================================================
   // Health tracking integration
   // ===========================================================================
 

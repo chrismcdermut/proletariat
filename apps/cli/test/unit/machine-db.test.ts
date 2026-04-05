@@ -377,6 +377,210 @@ describe('MachineDB', () => {
   })
 
   // ===========================================================================
+  // Persistent Agents
+  // ===========================================================================
+
+  describe('persistent agents', () => {
+    it('creates a persistent execution with cleanup_policy=persistent', () => {
+      const exec = db.createExecution({
+        prompt: 'you are the backend reviewer',
+        repoPath: '/repo',
+        agentName: 'reviewer',
+        persistent: true,
+      })
+
+      expect(exec.persistent).to.be.true
+      expect(exec.cleanupPolicy).to.equal('persistent')
+    })
+
+    it('defaults ephemeral executions to persistent=false, cleanup=on-exit', () => {
+      const exec = db.createExecution({
+        prompt: 'quick task',
+        repoPath: '/repo',
+        agentName: 'temp-agent',
+      })
+
+      expect(exec.persistent).to.be.false
+      expect(exec.cleanupPolicy).to.equal('on-exit')
+    })
+
+    it('allows explicit cleanup policy override', () => {
+      const exec = db.createExecution({
+        prompt: 'task',
+        repoPath: '/repo',
+        agentName: 'agent',
+        persistent: true,
+        cleanupPolicy: 'on-error-keep',
+      })
+
+      expect(exec.persistent).to.be.true
+      expect(exec.cleanupPolicy).to.equal('on-error-keep')
+    })
+
+    describe('getPersistentAgent()', () => {
+      it('finds a persistent agent by name', () => {
+        db.createExecution({
+          prompt: 'backend reviewer',
+          repoPath: '/repo',
+          agentName: 'reviewer',
+          persistent: true,
+        })
+
+        const found = db.getPersistentAgent('reviewer')
+        expect(found).to.not.be.null
+        expect(found!.agentName).to.equal('reviewer')
+        expect(found!.persistent).to.be.true
+      })
+
+      it('returns null for non-persistent agents with same name', () => {
+        db.createExecution({
+          prompt: 'ephemeral task',
+          repoPath: '/repo',
+          agentName: 'worker',
+          persistent: false,
+        })
+
+        const found = db.getPersistentAgent('worker')
+        expect(found).to.be.null
+      })
+
+      it('returns most recent execution for persistent agent', async () => {
+        db.createExecution({
+          prompt: 'first run',
+          repoPath: '/repo',
+          agentName: 'reviewer',
+          persistent: true,
+        })
+        await tick()
+        const e2 = db.createExecution({
+          prompt: 'second run (restarted)',
+          repoPath: '/repo',
+          agentName: 'reviewer',
+          persistent: true,
+        })
+
+        const found = db.getPersistentAgent('reviewer')
+        expect(found!.id).to.equal(e2.id)
+        expect(found!.prompt).to.equal('second run (restarted)')
+      })
+
+      it('returns null for non-existent agent', () => {
+        const found = db.getPersistentAgent('does-not-exist')
+        expect(found).to.be.null
+      })
+    })
+
+    describe('listPersistentAgents()', () => {
+      it('lists all persistent agents', () => {
+        db.createExecution({
+          prompt: 'reviewer prompt',
+          repoPath: '/repo',
+          agentName: 'reviewer',
+          persistent: true,
+        })
+        db.createExecution({
+          prompt: 'watcher prompt',
+          repoPath: '/repo',
+          agentName: 'ci-watcher',
+          persistent: true,
+        })
+        // Ephemeral — should NOT appear
+        db.createExecution({
+          prompt: 'quick fix',
+          repoPath: '/repo',
+          agentName: 'temp-worker',
+          persistent: false,
+        })
+
+        const agents = db.listPersistentAgents()
+        expect(agents).to.have.lengthOf(2)
+        const names = agents.map(a => a.agentName)
+        expect(names).to.include('reviewer')
+        expect(names).to.include('ci-watcher')
+      })
+
+      it('returns empty array when no persistent agents exist', () => {
+        db.createExecution({
+          prompt: 'ephemeral task',
+          repoPath: '/repo',
+          agentName: 'temp',
+        })
+
+        const agents = db.listPersistentAgents()
+        expect(agents).to.deep.equal([])
+      })
+    })
+
+    describe('getDiedPersistentAgents()', () => {
+      it('returns persistent agents that failed', () => {
+        const exec = db.createExecution({
+          prompt: 'reviewer',
+          repoPath: '/repo',
+          agentName: 'reviewer',
+          persistent: true,
+        })
+        db.updateStatus(exec.id, 'running')
+        db.updateStatus(exec.id, 'failed', 1, 'crashed')
+
+        const died = db.getDiedPersistentAgents()
+        expect(died).to.have.lengthOf(1)
+        expect(died[0].agentName).to.equal('reviewer')
+      })
+
+      it('excludes running persistent agents', () => {
+        const exec = db.createExecution({
+          prompt: 'reviewer',
+          repoPath: '/repo',
+          agentName: 'reviewer',
+          persistent: true,
+        })
+        db.updateStatus(exec.id, 'running')
+
+        const died = db.getDiedPersistentAgents()
+        expect(died).to.deep.equal([])
+      })
+
+      it('excludes ephemeral failed agents', () => {
+        const exec = db.createExecution({
+          prompt: 'temp task',
+          repoPath: '/repo',
+          agentName: 'temp',
+          persistent: false,
+        })
+        db.updateStatus(exec.id, 'failed', 1)
+
+        const died = db.getDiedPersistentAgents()
+        expect(died).to.deep.equal([])
+      })
+    })
+
+    describe('listExecutions persistent filter', () => {
+      it('filters by persistent flag', () => {
+        db.createExecution({
+          prompt: 'persistent task',
+          repoPath: '/repo',
+          agentName: 'reviewer',
+          persistent: true,
+        })
+        db.createExecution({
+          prompt: 'ephemeral task',
+          repoPath: '/repo',
+          agentName: 'temp',
+          persistent: false,
+        })
+
+        const persistentOnly = db.listExecutions({ persistent: true })
+        expect(persistentOnly).to.have.lengthOf(1)
+        expect(persistentOnly[0].agentName).to.equal('reviewer')
+
+        const ephemeralOnly = db.listExecutions({ persistent: false })
+        expect(ephemeralOnly).to.have.lengthOf(1)
+        expect(ephemeralOnly[0].agentName).to.equal('temp')
+      })
+    })
+  })
+
+  // ===========================================================================
   // getStaleExecutions()
   // ===========================================================================
 
