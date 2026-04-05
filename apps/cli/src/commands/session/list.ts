@@ -18,6 +18,7 @@ import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
+import { MachineDB } from '../../lib/machine-db.js'
 
 interface VerifiedSession {
   sessionId: string
@@ -76,6 +77,16 @@ export default class SessionList extends PromptCommand {
       hasWorkspace = false
     }
 
+    // =========================================================================
+    // Machine DB: cross-repo execution tracking (works from anywhere)
+    // =========================================================================
+    let machineDb: MachineDB | null = null
+    try {
+      machineDb = new MachineDB()
+    } catch {
+      // Machine DB not available — non-fatal
+    }
+
     try {
       // =========================================================================
       // DB-first: Query all executions from the database (source of truth)
@@ -86,6 +97,11 @@ export default class SessionList extends PromptCommand {
 
       // Refresh execution state so dead sessions aren't reported as running.
       executionStorage?.cleanupStaleExecutions()
+
+      // Also pull ticketless executions from machine DB
+      const machineActiveExecutions = machineDb?.getActiveExecutions() || []
+      // Track machine execution IDs already covered by workspace DB to avoid duplicates
+      const workspaceSessionIds = new Set(activeExecutions.map(e => e.sessionId).filter(Boolean))
 
       // Get tmux sessions for liveness verification
       const hostTmuxSessions = getHostTmuxSessionNames()
@@ -228,6 +244,58 @@ export default class SessionList extends PromptCommand {
       }
 
       // =========================================================================
+      // Machine DB: Add ticketless executions from machine.db
+      // These are cross-repo and work without a workspace.
+      // =========================================================================
+      for (const mExec of machineActiveExecutions) {
+        // Skip if already covered by workspace DB (dedupe by session ID)
+        if (mExec.sessionId && workspaceSessionIds.has(mExec.sessionId)) continue
+
+        const isContainer = mExec.environment === 'docker' || mExec.environment === 'devcontainer'
+        let exists = false
+        let actualSessionId = mExec.sessionId
+
+        if (isContainer && mExec.containerId) {
+          const containerStatus = checkContainerLiveness(mExec.containerId)
+          if (containerStatus === 'running') {
+            if (mExec.sessionId) {
+              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, mExec.containerId)
+              exists = containerSessions.includes(mExec.sessionId)
+            }
+            if (!exists) {
+              exists = true
+              actualSessionId = actualSessionId || `container:${mExec.containerId.substring(0, 12)}`
+            }
+          }
+        } else if (mExec.sessionId) {
+          exists = hostTmuxSessions.includes(mExec.sessionId)
+        }
+
+        if (exists && actualSessionId) {
+          if (isContainer && mExec.containerId) {
+            matchedContainerSessions.add(`${mExec.containerId}:${actualSessionId}`)
+          } else {
+            matchedHostSessions.add(actualSessionId)
+          }
+        }
+
+        if (!actualSessionId) continue
+
+        if (exists || flags.all) {
+          sessions.push({
+            sessionId: actualSessionId,
+            ticketId: mExec.ticketId || mExec.id,
+            agentName: mExec.agentName,
+            status: exists ? mExec.status : 'stale',
+            environment: isContainer ? 'container' : 'host',
+            containerId: mExec.containerId,
+            exists,
+            source: 'db',
+          })
+        }
+      }
+
+      // =========================================================================
       // Orphan discovery: only shown with --orphans flag
       // Orphan = tmux session matching prlt naming pattern but NOT tracked in DB
       // These are garbage to prune, not first-class sessions.
@@ -363,14 +431,15 @@ export default class SessionList extends PromptCommand {
       } else {
         this.log('')
         if (!hasWorkspace) {
-          this.log(styles.muted('Not in a workspace and no tracked sessions found.'))
+          this.log(styles.muted('No active sessions found.'))
           this.log('')
-          this.log(styles.muted('Run from a proletariat HQ directory to see tracked sessions,'))
-          this.log(styles.muted('or start work with: prlt work start <ticket-id>'))
+          this.log(styles.muted('Start ticketless work:  prlt work run --prompt "your task"'))
+          this.log(styles.muted('Start ticketed work:    prlt work start <ticket-id>  (requires HQ workspace)'))
         } else {
           this.log(styles.muted('No active sessions found.'))
           this.log('')
           this.log(styles.muted('Start work with: prlt work start <ticket-id>'))
+          this.log(styles.muted('Or ticketless:   prlt work run --prompt "your task"'))
           if (!flags.orphans) {
             this.log(styles.muted('Use --orphans to check for untracked tmux sessions.'))
           }
@@ -380,6 +449,7 @@ export default class SessionList extends PromptCommand {
 
     } finally {
       db?.close()
+      machineDb?.close()
     }
   }
 }
