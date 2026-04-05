@@ -10,11 +10,19 @@
  *     context and responds to session pokes — like `docker run --name`
  *     with a restart policy. Survives terminal/HQ restarts.
  *
+ * Workspace resolution (auto-detected):
+ *   Git repo (default)  → create worktree for isolation
+ *   Git repo + --no-worktree → work in-place
+ *   Non-git directory   → work in-place (auto-detected)
+ *   No --dir/--repo     → create temp workspace (headless mode)
+ *
  * Usage:
  *   prlt work run --prompt "refactor auth module"
  *   prlt work run --dir ~/Projects/other-repo --prompt "fix the auth bug"
  *   prlt work run --repo https://github.com/org/repo --prompt "add tests"
  *   prlt work run --name reviewer --keep-alive --prompt "you are the backend reviewer"
+ *   prlt work run --prompt "analyze this CSV data" --dir ~/data/exports
+ *   prlt work run --prompt "research best practices for X"   # headless, no directory
  */
 
 import { Flags } from '@oclif/core'
@@ -26,6 +34,7 @@ import { styles } from '../../lib/styles.js'
 import { generateAgentName } from '../../lib/agent-naming.js'
 import { MachineDB } from '../../lib/machine-db.js'
 import { SessionStore } from '../../lib/session-store.js'
+import { resolveWorkspace, type ResolvedWorkspace } from '../../lib/workspace-resolution.js'
 import {
   ExecutionContext,
   ExecutionEnvironment,
@@ -47,7 +56,9 @@ export default class WorkRun extends PromptCommand {
     '<%= config.bin %> <%= command.id %> --prompt "add unit tests" --create-pr',
     '<%= config.bin %> <%= command.id %> --prompt "fix flaky test" --environment host',
     '<%= config.bin %> <%= command.id %> --name reviewer --keep-alive --prompt "you are the backend reviewer"',
-    '<%= config.bin %> <%= command.id %> --name ci-watcher --keep-alive --prompt "monitor CI failures and fix them"',
+    '<%= config.bin %> <%= command.id %> --prompt "analyze this CSV data" --dir ~/data/exports',
+    '<%= config.bin %> <%= command.id %> --prompt "research best practices for auth"',
+    '<%= config.bin %> <%= command.id %> --dir ~/Projects/myapp --no-worktree --prompt "fix tests"',
   ]
 
   static flags = {
@@ -58,11 +69,15 @@ export default class WorkRun extends PromptCommand {
     }),
     dir: Flags.string({
       char: 'd',
-      description: 'Working directory (defaults to cwd)',
+      description: 'Working directory (auto-detects git vs non-git)',
     }),
     repo: Flags.string({
       char: 'r',
       description: 'Git repo URL to clone and work in',
+    }),
+    'no-worktree': Flags.boolean({
+      description: 'Work in-place instead of creating a git worktree (for git repos)',
+      default: false,
     }),
     'create-pr': Flags.boolean({
       description: 'Create a PR when work is ready (no ticket linking)',
@@ -120,10 +135,13 @@ export default class WorkRun extends PromptCommand {
     }
 
     // =========================================================================
-    // Resolve working directory
+    // Resolve agent name (needed before workspace resolution for naming)
     // =========================================================================
-    let workDir: string
+    const agentName = flags.name || generateAgentName()
 
+    // =========================================================================
+    // Resolve workspace (auto-detects git vs non-git)
+    // =========================================================================
     if (flags.dir && flags.repo) {
       const msg = 'Cannot specify both --dir and --repo'
       if (jsonMode) {
@@ -133,26 +151,54 @@ export default class WorkRun extends PromptCommand {
       this.error(msg)
     }
 
+    let workspace: ResolvedWorkspace
+
     if (flags.repo) {
-      workDir = this.cloneRepo(flags.repo)
+      // --repo: clone into temp dir (special case, not auto-detected)
+      const cloneDir = this.cloneRepo(flags.repo)
+      workspace = {
+        workDir: cloneDir,
+        sourceDir: cloneDir,
+        isGitRepo: true,
+        branch: this.getCurrentBranch(cloneDir),
+        mode: 'in-place',
+        isTemp: true,
+      }
     } else if (flags.dir) {
-      workDir = path.resolve(flags.dir)
-      if (!fs.existsSync(workDir)) {
-        const msg = `Directory does not exist: ${workDir}`
+      const resolvedDir = path.resolve(flags.dir)
+      if (!fs.existsSync(resolvedDir)) {
+        const msg = `Directory does not exist: ${resolvedDir}`
         if (jsonMode) {
           outputErrorAsJson('DIR_NOT_FOUND', msg, createMetadata('work run', flags))
           return
         }
         this.error(msg)
       }
+      workspace = resolveWorkspace({
+        dir: resolvedDir,
+        agentName,
+        noWorktree: flags['no-worktree'],
+      })
     } else {
-      workDir = process.cwd()
+      // No --dir, no --repo: use cwd if it's a git repo, otherwise headless
+      const cwd = process.cwd()
+      const cwdIsGit = this.isGitRepo(cwd)
+      if (cwdIsGit) {
+        workspace = resolveWorkspace({
+          dir: cwd,
+          agentName,
+          noWorktree: flags['no-worktree'],
+        })
+      } else {
+        // Non-git cwd or truly headless
+        workspace = resolveWorkspace({
+          dir: cwd,
+          agentName,
+        })
+      }
     }
 
-    // =========================================================================
-    // Resolve agent name and display mode
-    // =========================================================================
-    const agentName = flags.name || generateAgentName()
+    const workDir = workspace.workDir
     const environment = flags.environment as ExecutionEnvironment
     const executor = flags.executor as ExecutorType
     // Persistent agents default to background mode (long-lived, reattach later)
@@ -201,6 +247,13 @@ export default class WorkRun extends PromptCommand {
         this.log(styles.header(keepAlive ? 'Persistent Agent' : 'Ticketless Work'))
         this.log(styles.muted(`Agent: ${agentName}${keepAlive ? ' (persistent)' : ''}`))
         this.log(styles.muted(`Directory: ${workDir}`))
+        if (workspace.mode === 'worktree') {
+          this.log(styles.muted(`Source:  ${workspace.sourceDir} (worktree for isolation)`))
+        } else if (workspace.mode === 'headless') {
+          this.log(styles.muted(`Mode: headless (temp workspace for research/thinking)`))
+        } else if (!workspace.isGitRepo) {
+          this.log(styles.muted(`Mode: in-place (non-git directory)`))
+        }
         this.log(styles.muted(`Prompt: ${flags.prompt.substring(0, 80)}${flags.prompt.length > 80 ? '...' : ''}`))
         this.log('')
       }
@@ -233,12 +286,12 @@ export default class WorkRun extends PromptCommand {
         agentName,
         agentDir: workDir,
         worktreePath: workDir,
-        branch: this.getCurrentBranch(workDir) || 'main',
+        branch: workspace.branch || 'main',
         createPR: flags['create-pr'],
         actionId: 'run',
         actionName: 'Run',
         actionPrompt: flags.prompt,
-        modifiesCode: !keepAlive, // Persistent agents may just be watchers/reviewers
+        modifiesCode: workspace.isGitRepo && !keepAlive, // Non-git or persistent = no code mods expected
         executionEnvironment: environment,
         isEphemeral: !keepAlive,
       }
@@ -289,6 +342,8 @@ export default class WorkRun extends PromptCommand {
             repoPath: workDir,
             prompt: flags.prompt,
             persistent: keepAlive,
+            workspaceMode: workspace.mode,
+            isGitRepo: workspace.isGitRepo,
           }))
         } else {
           this.log('')
@@ -320,6 +375,21 @@ export default class WorkRun extends PromptCommand {
       }
     } finally {
       machineDb.close()
+    }
+  }
+
+  /**
+   * Check if a directory is a git repository.
+   */
+  private isGitRepo(dir: string): boolean {
+    try {
+      execSync('git rev-parse --git-dir', {
+        cwd: dir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      return true
+    } catch {
+      return false
     }
   }
 
