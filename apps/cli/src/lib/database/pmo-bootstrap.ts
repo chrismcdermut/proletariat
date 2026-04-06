@@ -20,6 +20,7 @@ import {
 } from './drizzle-schema.js'
 import {
   createRotatingBackup,
+  enableWALMode,
   quickCheckIntegrity,
   repairDatabase,
 } from './db-safety.js'
@@ -40,6 +41,8 @@ function openSafeDatabase(dbPath: string, caller: string): Database.Database {
     throwIfNativeBindingError(error, caller)
     throw error
   }
+
+  enableWALMode(db)
 
   // Quick integrity check — auto-repair if corrupt
   const integrity = quickCheckIntegrity(db)
@@ -63,6 +66,7 @@ function openSafeDatabase(dbPath: string, caller: string): Database.Database {
       throwIfNativeBindingError(error, `${caller} (post-repair)`)
       throw error
     }
+    enableWALMode(db)
   }
 
   return db

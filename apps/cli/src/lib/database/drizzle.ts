@@ -34,6 +34,7 @@ export function openDrizzleDatabase(dbPath: string): { db: DrizzleDB; sqliteDb: 
   }
 
   // Configure pragmas
+  sqliteDb.pragma('journal_mode = WAL')
   sqliteDb.pragma('foreign_keys = ON')
   sqliteDb.pragma('busy_timeout = 5000') // Wait up to 5 seconds if database is locked
 
