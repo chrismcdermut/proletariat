@@ -22,6 +22,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { MachineDB } from '../../lib/machine-db.js'
 
 // =============================================================================
 // Types
@@ -291,78 +292,110 @@ export default class SessionPoke extends PromptCommand {
   ): ResolvedSession | null {
     let executionStorage: ExecutionStorage | null = null
     let db: Database.Database | null = null
+    let machineDb: MachineDB | null = null
 
     try {
       const workspaceInfo = getWorkspaceInfo()
       db = openWorkspaceDatabase(workspaceInfo.path)
       executionStorage = new ExecutionStorage(db)
     } catch {
+      // Not in a workspace — non-fatal, fall through to machine DB
+    }
+
+    try {
+      machineDb = new MachineDB()
+    } catch {
+      // Machine DB not available — non-fatal
+    }
+
+    if (!executionStorage && !machineDb) {
       if (jsonMode) {
         outputErrorAsJson(
           'NOT_IN_WORKSPACE',
-          'Not in a workspace. Run from a proletariat HQ directory.',
+          'Not in a workspace and machine DB unavailable. Run from a proletariat HQ directory.',
           createMetadata('session poke', flags),
         )
       }
       this.log('')
-      this.log(styles.error('Not in a workspace. Run from a proletariat HQ directory.'))
+      this.log(styles.error('Not in a workspace and machine DB unavailable.'))
       this.log('')
       return null
     }
 
     try {
-      // Get active executions
-      const runningExecutions = executionStorage.listExecutions({ status: 'running' })
-      const startingExecutions = executionStorage.listExecutions({ status: 'starting' })
-      const activeExecutions = [...runningExecutions, ...startingExecutions]
+      // =========================================================================
+      // Stage 1: Workspace DB lookup (if available)
+      // =========================================================================
+      let match: { ticketId: string; agentName: string; sessionId?: string; containerId?: string; environment: string; id: string; status: string } | undefined
 
-      // Find matching execution by exact agent name or exact ticket ID
-      let match = activeExecutions.find(exec =>
-        exec.agentName === identifier || exec.ticketId === identifier,
-      )
+      if (executionStorage) {
+        const runningExecutions = executionStorage.listExecutions({ status: 'running' })
+        const startingExecutions = executionStorage.listExecutions({ status: 'starting' })
+        const activeExecutions = [...runningExecutions, ...startingExecutions]
 
-      // Orchestrator prefix matching: when identifier is "orchestrator",
-      // find executions with agentName "orchestrator" or "orchestrator-*"
-      if (!match && identifier === 'orchestrator') {
-        const orchestratorMatches = activeExecutions.filter(exec =>
-          exec.agentName === 'orchestrator' || exec.agentName.startsWith('orchestrator-'),
-        )
-
-        if (orchestratorMatches.length === 1) {
-          match = orchestratorMatches[0]
-        } else if (orchestratorMatches.length > 1) {
-          const names = orchestratorMatches.map(e => e.agentName).join(', ')
-          if (jsonMode) {
-            outputErrorAsJson(
-              'MULTIPLE_ORCHESTRATORS',
-              `Multiple orchestrators running: ${names}. Specify one directly.`,
-              createMetadata('session poke', flags),
-            )
-          }
-          this.log('')
-          this.log(styles.error(`Multiple orchestrators running: ${names}. Specify one directly.`))
-          this.log('')
-          return null
-        }
-      }
-
-      // PRLT-1077: Self-healing recovery for background-mode spawns.
-      // If no running/starting execution found, check recently-stopped executions
-      // whose tmux session is still alive (status was incorrectly set to 'stopped'
-      // because the CLI exited while the agent continued in the container).
-      if (!match) {
-        const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
-        const stoppedCandidate = stoppedExecutions.find(exec =>
+        match = activeExecutions.find(exec =>
           exec.agentName === identifier || exec.ticketId === identifier,
         )
 
-        if (stoppedCandidate?.sessionId) {
-          // Verify the tmux session is actually still alive
-          const sessionAlive = this.isSessionAlive(stoppedCandidate)
-          if (sessionAlive) {
-            // Recover: update status back to 'running' and use this execution
-            executionStorage.updateStatus(stoppedCandidate.id, 'running')
-            match = { ...stoppedCandidate, status: 'running' as const }
+        // Orchestrator prefix matching
+        if (!match && identifier === 'orchestrator') {
+          const orchestratorMatches = activeExecutions.filter(exec =>
+            exec.agentName === 'orchestrator' || exec.agentName.startsWith('orchestrator-'),
+          )
+
+          if (orchestratorMatches.length === 1) {
+            match = orchestratorMatches[0]
+          } else if (orchestratorMatches.length > 1) {
+            const names = orchestratorMatches.map(e => e.agentName).join(', ')
+            if (jsonMode) {
+              outputErrorAsJson(
+                'MULTIPLE_ORCHESTRATORS',
+                `Multiple orchestrators running: ${names}. Specify one directly.`,
+                createMetadata('session poke', flags),
+              )
+            }
+            this.log('')
+            this.log(styles.error(`Multiple orchestrators running: ${names}. Specify one directly.`))
+            this.log('')
+            return null
+          }
+        }
+
+        // PRLT-1077: Self-healing recovery for background-mode spawns.
+        if (!match) {
+          const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
+          const stoppedCandidate = stoppedExecutions.find(exec =>
+            exec.agentName === identifier || exec.ticketId === identifier,
+          )
+
+          if (stoppedCandidate?.sessionId) {
+            const sessionAlive = this.isSessionAlive(stoppedCandidate)
+            if (sessionAlive) {
+              executionStorage.updateStatus(stoppedCandidate.id, 'running')
+              match = { ...stoppedCandidate, status: 'running' as const }
+            }
+          }
+        }
+      }
+
+      // =========================================================================
+      // Stage 2: Machine DB lookup (cross-repo, ticketless work)
+      // =========================================================================
+      if (!match && machineDb) {
+        const machineActiveExecutions = machineDb.getActiveExecutions()
+        const machineMatch = machineActiveExecutions.find(exec =>
+          exec.agentName === identifier || exec.ticketId === identifier || exec.id === identifier,
+        )
+
+        if (machineMatch) {
+          match = {
+            id: machineMatch.id,
+            ticketId: machineMatch.ticketId || machineMatch.id,
+            agentName: machineMatch.agentName,
+            sessionId: machineMatch.sessionId,
+            containerId: machineMatch.containerId,
+            environment: machineMatch.environment,
+            status: machineMatch.status,
           }
         }
       }
@@ -385,6 +418,7 @@ export default class SessionPoke extends PromptCommand {
       return this.resolveSessionForExecution(match, jsonMode, flags)
     } finally {
       db?.close()
+      machineDb?.close()
     }
   }
 
