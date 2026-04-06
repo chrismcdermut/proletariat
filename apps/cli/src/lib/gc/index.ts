@@ -773,6 +773,228 @@ export function executeGC(
 }
 
 // =============================================================================
+// Ticket-Driven Cleanup
+// =============================================================================
+
+export interface TicketCleanupResult {
+  agentsCleaned: string[]
+  worktreesRemoved: string[]
+  agentDirsRemoved: string[]
+  errors: string[]
+}
+
+/**
+ * Clean up all worktrees and agent directories associated with a ticket.
+ *
+ * Called when a ticket moves to Done/completed status. Finds all agents
+ * that worked on the ticket via the agent_work table, gets their worktrees,
+ * and removes them.
+ */
+export function cleanupTicketWorktrees(
+  ticketId: string,
+  hqPath: string,
+  log?: (msg: string) => void,
+): TicketCleanupResult {
+  const result: TicketCleanupResult = {
+    agentsCleaned: [],
+    worktreesRemoved: [],
+    agentDirsRemoved: [],
+    errors: [],
+  }
+
+  let agentNames: string[]
+  try {
+    const { openWorkspaceDatabase } = require('../database/workspace.js')
+    const db = openWorkspaceDatabase(hqPath)
+    try {
+      const tableExists = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_work'"
+      ).get()
+      if (!tableExists) return result
+
+      const rows = db.prepare(
+        'SELECT DISTINCT agent_name FROM agent_work WHERE ticket_id = ? OR external_key = ?'
+      ).all(ticketId, ticketId) as { agent_name: string }[]
+      agentNames = rows.map(r => r.agent_name)
+    } finally {
+      db.close()
+    }
+  } catch {
+    return result
+  }
+
+  if (agentNames.length === 0) return result
+
+  log?.(`Found ${agentNames.length} agent(s) for ticket ${ticketId}: ${agentNames.join(', ')}`)
+
+  const { getAgentWorktrees } = require('../database/worktrees.js')
+  const reposPath = path.join(hqPath, 'repos')
+
+  for (const agentName of agentNames) {
+    try {
+      const worktrees = getAgentWorktrees(hqPath, agentName) as Array<{
+        worktree_path: string
+        repo_name: string
+      }>
+
+      for (const wt of worktrees) {
+        const worktreePath = path.isAbsolute(wt.worktree_path)
+          ? wt.worktree_path
+          : path.join(hqPath, wt.worktree_path)
+        const sourceRepoPath = path.join(reposPath, wt.repo_name)
+
+        log?.(`Removing worktree: ${worktreePath}`)
+        if (removeWorktree(worktreePath, sourceRepoPath)) {
+          result.worktreesRemoved.push(worktreePath)
+        } else {
+          result.errors.push(`Failed to remove worktree: ${worktreePath}`)
+        }
+
+        pruneWorktreeRefs(sourceRepoPath)
+      }
+
+      const agentsDir = path.join(hqPath, 'agents')
+      if (fs.existsSync(agentsDir)) {
+        for (const subdir of ['staff', 'temp']) {
+          const agentDir = path.join(agentsDir, subdir, agentName)
+          if (fs.existsSync(agentDir)) {
+            log?.(`Removing agent directory: ${agentDir}`)
+            removeAgentDir(agentDir)
+            result.agentDirsRemoved.push(agentDir)
+          }
+        }
+      }
+
+      recycleAgentNames(hqPath, [agentName])
+      markExecutionRecordsCleaned(hqPath, [agentName])
+      result.agentsCleaned.push(agentName)
+    } catch (error) {
+      result.errors.push(`Failed to clean agent ${agentName}: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  return result
+}
+
+// =============================================================================
+// Orphaned Worktree Detection
+// =============================================================================
+
+export interface OrphanedWorktree {
+  worktreePath: string
+  branch: string
+  agentName: string
+  repoName: string
+  sourceRepoPath: string
+}
+
+/**
+ * Find orphaned worktrees — worktrees in agents/ where no tmux session,
+ * running container, or active DB status exists for the agent.
+ */
+export function findOrphanedWorktrees(hqPath: string): OrphanedWorktree[] {
+  const orphans: OrphanedWorktree[] = []
+  const reposPath = path.join(hqPath, 'repos')
+  if (!fs.existsSync(reposPath)) return orphans
+
+  const activeSessions = getActiveTmuxSessions()
+  const runningAgents = getRunningAgentContainers()
+  const dbActiveAgents = getDbActiveAgents(hqPath)
+
+  let repoDirs: string[]
+  try {
+    repoDirs = fs.readdirSync(reposPath).filter(d =>
+      fs.statSync(path.join(reposPath, d)).isDirectory()
+    )
+  } catch {
+    return orphans
+  }
+
+  for (const repoName of repoDirs) {
+    const repoPath = path.join(reposPath, repoName)
+    const worktrees = listWorktrees(repoPath)
+
+    for (const wt of worktrees) {
+      if (wt.worktreePath === repoPath || wt.isPrunable) continue
+      if (!wt.branch) continue
+
+      const agentName = extractAgentName(wt.worktreePath, hqPath)
+      if (!agentName) continue
+
+      const hasSession = [...activeSessions].some(s => s.includes(agentName))
+      if (hasSession) continue
+      if (runningAgents.has(agentName)) continue
+      if (dbActiveAgents.has(agentName)) continue
+
+      orphans.push({
+        worktreePath: wt.worktreePath,
+        branch: wt.branch,
+        agentName,
+        repoName,
+        sourceRepoPath: repoPath,
+      })
+    }
+  }
+
+  return orphans
+}
+
+function getActiveTmuxSessions(): Set<string> {
+  const sessions = new Set<string>()
+  try {
+    const output = execSync(
+      'tmux list-sessions -F "#{session_name}" 2>/dev/null || true',
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 },
+    ).trim()
+    if (output) {
+      for (const s of output.split('\n')) {
+        if (s) sessions.add(s)
+      }
+    }
+  } catch {
+    // tmux not available
+  }
+  return sessions
+}
+
+function getRunningAgentContainers(): Set<string> {
+  const agents = new Set<string>()
+  try {
+    const output = execSync(
+      'docker ps --filter "name=prlt-agent-" --format "{{.Names}}" 2>/dev/null || true',
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 15000 },
+    ).trim()
+    if (output) {
+      for (const name of output.split('\n')) {
+        if (name) {
+          const agentName = name.replace(/^prlt-agent-/, '')
+          if (agentName) agents.add(agentName)
+        }
+      }
+    }
+  } catch {
+    // Docker not available
+  }
+  return agents
+}
+
+function getDbActiveAgents(hqPath: string): Set<string> {
+  const active = new Set<string>()
+  try {
+    const { getWorkspaceAgents } = require('../database/agents.js')
+    const agents = getWorkspaceAgents(hqPath, false) as Array<{ name: string; status: string }>
+    for (const a of agents) {
+      if (a.status === 'active' || a.status === 'running') {
+        active.add(a.name)
+      }
+    }
+  } catch {
+    // DB access may fail
+  }
+  return active
+}
+
+// =============================================================================
 // Daemon Integration — Grace Period Scheduler
 // =============================================================================
 

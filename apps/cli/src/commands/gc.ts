@@ -1,4 +1,6 @@
 import { Flags } from '@oclif/core'
+import { execFileSync } from 'node:child_process'
+import * as fs from 'node:fs'
 import { colors, format } from '../lib/colors.js'
 import { PromptCommand } from '../lib/prompt-command.js'
 import { machineOutputFlags } from '../lib/pmo/index.js'
@@ -10,6 +12,9 @@ import {
 import {
   collectGCCandidates,
   executeGC,
+  findOrphanedWorktrees,
+  recycleAgentNames,
+  markExecutionRecordsCleaned,
   type GCCandidate,
   type GCArtifactStatus,
 } from '../lib/gc/index.js'
@@ -152,6 +157,58 @@ export default class GC extends PromptCommand {
       log,
     })
 
+    // Detect orphaned worktrees (no tmux session, no running container, no active DB status)
+    const orphans = findOrphanedWorktrees(workspaceInfo.path)
+    const processedPaths = new Set(candidates.map(c => c.worktreePath))
+    const newOrphans = orphans.filter(o => !processedPaths.has(o.worktreePath))
+
+    if (newOrphans.length > 0) {
+      if (!jsonMode) {
+        this.log(colors.primary(`\nFound ${newOrphans.length} orphaned worktree(s) (no tmux session):`))
+        for (const o of newOrphans) {
+          this.log(colors.textMuted(`  ⚠ ${o.agentName} — ${o.branch}`))
+          this.log(colors.textMuted(`    worktree: ${o.worktreePath}`))
+        }
+        this.log('')
+      }
+
+      if (execute) {
+        for (const orphan of newOrphans) {
+          log(`Removing orphaned worktree: ${orphan.worktreePath}`)
+          try {
+            execFileSync('git', ['worktree', 'remove', orphan.worktreePath, '--force'], {
+              cwd: orphan.sourceRepoPath,
+              stdio: ['pipe', 'pipe', 'pipe'],
+            })
+            result.worktreesRemoved.push(orphan.worktreePath)
+          } catch {
+            try {
+              if (fs.existsSync(orphan.worktreePath)) {
+                fs.rmSync(orphan.worktreePath, { recursive: true, force: true })
+                result.worktreesRemoved.push(orphan.worktreePath)
+              }
+            } catch {
+              result.errors.push(`Failed to remove orphaned worktree: ${orphan.worktreePath}`)
+            }
+          }
+
+          if (orphan.agentName) {
+            try {
+              recycleAgentNames(workspaceInfo.path, [orphan.agentName])
+              markExecutionRecordsCleaned(workspaceInfo.path, [orphan.agentName])
+              if (!result.agentNamesRecycled.includes(orphan.agentName)) {
+                result.agentNamesRecycled.push(orphan.agentName)
+              }
+            } catch {
+              // Non-fatal
+            }
+          }
+        }
+      } else if (!jsonMode) {
+        this.log(colors.textMuted(`Use --execute to clean up orphaned worktrees.`))
+      }
+    }
+
     // Output results
     if (jsonMode) {
       outputSuccessAsJson(
@@ -159,6 +216,7 @@ export default class GC extends PromptCommand {
           message: `${execute ? 'Cleaned' : 'Would clean'} ${actionable.length} artifact(s)`,
           dryRun: !execute,
           candidates: formatCandidatesForJson(candidates),
+          orphanedWorktrees: newOrphans.length,
           result: {
             worktreesRemoved: result.worktreesRemoved.length,
             containersRemoved: result.containersRemoved.length,
@@ -221,6 +279,9 @@ export default class GC extends PromptCommand {
       for (const err of result.errors) {
         this.log(colors.warning(`  - ${err}`))
       }
+    }
+    if (newOrphans.length > 0 && !execute) {
+      this.log(colors.textMuted(`\n${newOrphans.length} orphaned worktree(s) detected (no tmux session). Use --execute to clean.`))
     }
   }
 }

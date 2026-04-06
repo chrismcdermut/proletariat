@@ -273,6 +273,25 @@ export default class TicketMove extends PMOCommand {
     const refreshResult = await provider.getTicket(ticketId!);
     const moved = (refreshResult.success && refreshResult.ticket) ? refreshResult.ticket : ticket;
 
+    // Auto-cleanup worktrees when ticket moves to Done/completed
+    if (moved.statusCategory === 'completed' && ticket.statusCategory !== 'completed') {
+      try {
+        const { cleanupTicketWorktrees } = await import('../../lib/gc/index.js');
+        const { getWorkspaceInfo } = await import('../../lib/agents/commands.js');
+        const workspaceInfo = getWorkspaceInfo()
+        const cleanupResult = cleanupTicketWorktrees(
+          ticketId!,
+          workspaceInfo.path,
+          jsonMode ? undefined : (msg: string) => this.log(styles.muted(`  🧹 ${msg}`)),
+        )
+        if (!jsonMode && cleanupResult.worktreesRemoved.length > 0) {
+          this.log(styles.muted(`  🧹 Cleaned ${cleanupResult.worktreesRemoved.length} worktree(s) for ${cleanupResult.agentsCleaned.length} agent(s)`))
+        }
+      } catch {
+        // Cleanup failure is non-fatal — don't block the move
+      }
+    }
+
     // Auto-export to board.md only for local PMO provider
     if (provider.name === 'pmo') {
       await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
