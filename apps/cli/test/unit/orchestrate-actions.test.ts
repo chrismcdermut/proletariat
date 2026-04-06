@@ -1,6 +1,15 @@
 import { expect } from 'chai'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { executeBuiltinAction, ACTION_HANDLERS, AGENT_SPAWN_TIMEOUT_MS } from '../../src/lib/orchestrate/actions.js'
 import type { OrchestrateEventContext } from '../../src/lib/orchestrate/types.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const ACTIONS_SOURCE = fs.readFileSync(
+  path.resolve(__dirname, '../../src/lib/orchestrate/actions.ts'),
+  'utf-8',
+)
 
 /**
  * Unit tests for orchestrate built-in actions.
@@ -192,14 +201,15 @@ describe('Orchestrate Built-in Actions', () => {
     // commands aren't available, but the error message contains the exact
     // command string, which we can validate against expected syntax.
 
-    it('merge-pr should use: prlt work ship <ticket> --pr <number> --yes', () => {
+    it('merge-pr should use: prlt work ship <ticket> --pr <number> (no --yes)', () => {
       const result = executeBuiltinAction('merge-pr', {
         event: 'on_ci_green',
         ticket: 'PRLT-100',
         pr: 42,
       })
       expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work ship PRLT-100 --pr 42 --yes')
+      expect(result.error).to.include('prlt work ship PRLT-100 --pr 42')
+      expect(result.error).to.not.include('--yes')
     })
 
     it('merge-pr should work with only PR (no ticket)', () => {
@@ -207,10 +217,13 @@ describe('Orchestrate Built-in Actions', () => {
         event: 'on_ci_green',
         pr: 55,
       })
-      expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work ship')
-      expect(result.error).to.include('--pr 55')
-      expect(result.error).to.include('--yes')
+      // Command may succeed if prlt is globally installed; validate on failure only
+      if (!result.success && result.error) {
+        expect(result.error).to.include('prlt work ship')
+        expect(result.error).to.include('--pr 55')
+        expect(result.error).to.not.include('--yes')
+      }
+      expect(result.action).to.equal('merge-pr')
     })
 
     it('spawn-agent should use: prlt work start <ticket> --yes --display background', () => {
@@ -240,13 +253,17 @@ describe('Orchestrate Built-in Actions', () => {
       expect(result.error).to.include('prlt work start PRLT-400 --action revise --yes --display background')
     })
 
-    it('spawn-review-agent should use: prlt work start <ticket> --action review --yes --display background', () => {
+    it('spawn-review-agent should use: prlt work start <ticket> --action review --yes --display background', function (this: Mocha.Context) {
+      this.timeout(AGENT_SPAWN_TIMEOUT_MS + 10_000)
       const result = executeBuiltinAction('spawn-review-agent', {
         event: 'on_pr_opened',
         ticket: 'PRLT-450',
       })
-      expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work start PRLT-450 --action review --yes --display background')
+      // Command may succeed if prlt is globally installed; validate on failure only
+      if (!result.success && result.error) {
+        expect(result.error).to.include('prlt work start PRLT-450 --action review --yes --display background')
+      }
+      expect(result.action).to.equal('spawn-review-agent')
     })
 
     it('health-check should use: prlt poke <agent> "..."', () => {
@@ -258,14 +275,18 @@ describe('Orchestrate Built-in Actions', () => {
       expect(result.error).to.include('prlt poke bold-turing')
     })
 
-    it('cleanup-container should use: prlt docker rm <target> --yes', () => {
+    it('cleanup-container should use: prlt docker stop <target> --force', () => {
       const result = executeBuiltinAction('cleanup-container', {
         event: 'on_agent_completed',
         agent: 'bold-turing',
       })
-      // cleanup-container uses `|| true` so it succeeds even when prlt is missing
       expect(result.action).to.equal('cleanup-container')
-      expect(result.success).to.be.true
+      // Command may succeed or fail depending on whether prlt/docker is available
+      if (!result.success && result.error) {
+        expect(result.error).to.include('prlt docker stop bold-turing --force')
+        expect(result.error).to.not.include('docker rm')
+        expect(result.error).to.not.include('--yes')
+      }
     })
 
     it('cleanup-container should prefer container over agent when both present', () => {
@@ -274,17 +295,23 @@ describe('Orchestrate Built-in Actions', () => {
         agent: 'bold-turing',
         container: 'prlt-container-abc',
       })
-      // cleanup-container uses `|| true` so it succeeds even when prlt is missing
       expect(result.action).to.equal('cleanup-container')
-      expect(result.success).to.be.true
+      if (!result.success && result.error) {
+        expect(result.error).to.include('prlt docker stop prlt-container-abc --force')
+      }
     })
 
-    it('rebase-conflicting-prs should use: prlt work rebase --all --yes', () => {
+    it('rebase-conflicting-prs should use: prlt work rebase --all (no --yes, no error suppression)', () => {
       const result = executeBuiltinAction('rebase-conflicting-prs', {
         event: 'on_pr_merged',
       })
-      // May succeed (if || true catches) or fail, but the command should be correct
       expect(result.action).to.equal('rebase-conflicting-prs')
+      // Command may succeed if prlt is globally installed; validate on failure only
+      if (!result.success && result.error) {
+        expect(result.error).to.include('prlt work rebase --all')
+        expect(result.error).to.not.include('--yes')
+        expect(result.error).to.not.include('2>/dev/null')
+      }
     })
 
     it('resolve-conflict should attempt poke then fallback to respawn with --action resolve', () => {
@@ -313,6 +340,58 @@ describe('Orchestrate Built-in Actions', () => {
         expect(result.error).to.not.include('--to')
         expect(result.error).to.not.include('--yes')
       }
+    })
+  })
+
+  // ===========================================================================
+  // Invalid Flag Regression (PRLT-1259)
+  // ===========================================================================
+
+  describe('no invalid flags on CLI commands (PRLT-1259)', () => {
+    // These tests read the source file directly to verify command strings,
+    // because prlt may be globally installed and commands may succeed,
+    // making error messages unavailable for inspection.
+
+    /**
+     * Extract the source code of a specific action handler from the source file.
+     * Finds the handler by looking for its assignment in the const declaration
+     * and captures everything up to the next top-level const or function.
+     */
+    function getHandlerSource(actionVarName: string): string {
+      const pattern = new RegExp(`const ${actionVarName}[:\\s].*?(?=\\nconst |\\nfunction |\\n// =)`, 's')
+      const match = ACTIONS_SOURCE.match(pattern)
+      expect(match, `Could not find handler "${actionVarName}" in source`).to.not.be.null
+      return match![0]
+    }
+
+    it('merge-pr must not pass --yes to prlt work ship', () => {
+      const src = getHandlerSource('mergePr')
+      // Should contain prlt work ship
+      expect(src).to.include('prlt')
+      expect(src).to.include('work')
+      expect(src).to.include('ship')
+      // Must NOT pass --yes (work ship does not have this flag)
+      expect(src).to.not.include('--yes')
+    })
+
+    it('rebase-conflicting-prs must not pass --yes to prlt work rebase', () => {
+      const src = getHandlerSource('rebaseConflictingPrs')
+      expect(src).to.include('prlt work rebase --all')
+      expect(src).to.not.include('--yes')
+    })
+
+    it('rebase-conflicting-prs must not suppress errors with 2>/dev/null || true', () => {
+      const src = getHandlerSource('rebaseConflictingPrs')
+      expect(src).to.not.include('2>/dev/null')
+      expect(src).to.not.include('|| true')
+    })
+
+    it('cleanup-container must use prlt docker stop --force, not prlt docker rm --yes', () => {
+      const src = getHandlerSource('cleanupContainer')
+      expect(src).to.include('prlt docker stop')
+      expect(src).to.include('--force')
+      expect(src).to.not.include('docker rm')
+      expect(src).to.not.include('--yes')
     })
   })
 
@@ -376,12 +455,12 @@ describe('Orchestrate Built-in Actions', () => {
     })
 
     it('actions should include meaningful error messages on failure', () => {
-      const result = executeBuiltinAction('merge-pr', {
+      // Use an action that always fails in test: move-ticket with a fake ticket
+      const result = executeBuiltinAction('move-ticket', {
         event: 'test',
-        ticket: 'TKT-1',
-        pr: 999,
+        ticket: 'TKT-NONEXISTENT-999',
       })
-      // Will fail because prlt is not available — the error should contain context
+      // move-ticket with a non-existent ticket should fail
       expect(result.success).to.be.false
       expect(result.error).to.be.a('string')
       expect(result.error!.length).to.be.greaterThan(0)

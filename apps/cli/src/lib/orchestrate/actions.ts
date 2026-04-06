@@ -44,8 +44,6 @@ const mergePr: ActionHandler = (ctx, config) => {
     const args: string[] = ['prlt', 'work', 'ship']
     if (ctx.ticket) args.push(ctx.ticket)
     if (ctx.pr) args.push('--pr', String(ctx.pr))
-    args.push('--yes') // Skip confirmation
-
     execSync(args.join(' '), { timeout: 120_000, stdio: 'pipe' })
     return { action: 'merge-pr', success: true, durationMs: Date.now() - start }
   } catch (err) {
@@ -121,7 +119,7 @@ function findWorkspaceDb(): string | null {
 const rebaseConflictingPrs: ActionHandler = (ctx) => {
   const start = Date.now()
   try {
-    execSync('prlt work rebase --all --yes 2>/dev/null || true', { timeout: 300_000, stdio: 'pipe' })
+    execSync('prlt work rebase --all', { timeout: 300_000, stdio: 'pipe' })
     return { action: 'rebase-conflicting-prs', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'rebase-conflicting-prs', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
@@ -208,7 +206,7 @@ const cleanupContainer: ActionHandler = (ctx) => {
     }
 
     const target = ctx.container || ctx.agent
-    execSync(`prlt docker rm ${target} --yes 2>/dev/null || true`, { timeout: 30_000, stdio: 'pipe' })
+    execSync(`prlt docker stop ${target} --force`, { timeout: 30_000, stdio: 'pipe' })
     return { action: 'cleanup-container', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'cleanup-container', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
