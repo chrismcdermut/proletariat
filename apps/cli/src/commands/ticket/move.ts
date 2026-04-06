@@ -58,6 +58,10 @@ export default class TicketMove extends PMOCommand {
       description: 'Skip confirmation prompt (bulk mode only)',
       default: false,
     }),
+    'no-cleanup': Flags.boolean({
+      description: 'Skip automatic worktree cleanup when moving to Done',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
@@ -278,13 +282,20 @@ export default class TicketMove extends PMOCommand {
       await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
     }
 
+    // Auto-cleanup worktrees when ticket transitions INTO completed status
+    const cleanupResult = await this.tryCleanupWorktrees(ticket, moved, flags);
+
     // JSON output mode - match MCP tool response shape
     if (jsonMode) {
-      this.log(JSON.stringify({
+      const jsonOutput: Record<string, unknown> = {
         success: true,
         ticket: formatTicket(moved),
         provider: moveResult.provider,
-      }, null, 2));
+      };
+      if (cleanupResult) {
+        jsonOutput.cleanup = cleanupResult;
+      }
+      this.log(JSON.stringify(jsonOutput, null, 2));
       return;
     }
 
@@ -298,6 +309,9 @@ export default class TicketMove extends PMOCommand {
     }
     if (moveResult.provider !== 'pmo') {
       this.log(styles.muted(`   Provider: ${moveResult.provider}`));
+    }
+    if (cleanupResult && cleanupResult.cleaned.length > 0) {
+      this.log(styles.muted(`   Cleaned up ${cleanupResult.cleaned.length} agent worktree(s)`));
     }
   }
 
@@ -384,6 +398,7 @@ export default class TicketMove extends PMOCommand {
     // Process sequentially for clear success/failure logging
     for (const ticketId of selectedTickets) {
       try {
+        const ticketBefore = allTickets.find(t => t.id === ticketId);
         // eslint-disable-next-line no-await-in-loop
         const provider = await this.resolveTicketProvider(ticketId, projectId);
         // eslint-disable-next-line no-await-in-loop
@@ -391,6 +406,17 @@ export default class TicketMove extends PMOCommand {
         if (result.success) {
           this.log(styles.success(`Moved ${ticketId} to ${targetColumn}`));
           successCount++;
+
+          // Trigger cleanup if moving to Done (bulk)
+          if (ticketBefore) {
+            // eslint-disable-next-line no-await-in-loop
+            const refreshResult = await provider.getTicket(ticketId);
+            const movedTicket = (refreshResult.success && refreshResult.ticket) ? refreshResult.ticket : null;
+            if (movedTicket) {
+              // eslint-disable-next-line no-await-in-loop
+              await this.tryCleanupWorktrees(ticketBefore, movedTicket, flags);
+            }
+          }
         } else {
           this.log(styles.error(`Failed to move ${ticketId}: ${result.error}`));
           failCount++;
@@ -411,6 +437,73 @@ export default class TicketMove extends PMOCommand {
     }
     if (failCount > 0) {
       this.log(styles.error(`Failed to move ${failCount} ticket(s)`));
+    }
+  }
+
+  /**
+   * Trigger worktree cleanup when a ticket transitions INTO the completed status category.
+   * Non-fatal: cleanup errors are logged but never block the ticket move.
+   *
+   * Skips cleanup if:
+   * - The ticket was already in the completed category (re-move within Done)
+   * - The --no-cleanup flag was passed
+   * - The moved ticket doesn't have statusCategory set (provider doesn't support it)
+   * - No workspace info is available
+   */
+  private async tryCleanupWorktrees(
+    before: Ticket,
+    after: Ticket,
+    flags: Record<string, unknown>,
+  ): Promise<{ cleaned: string[]; skipped: string[]; errors: string[] } | null> {
+    try {
+      // Only trigger on transitions INTO completed, not re-moves within completed
+      if (after.statusCategory !== 'completed' || before.statusCategory === 'completed') {
+        return null;
+      }
+
+      // Respect --no-cleanup flag
+      if (flags['no-cleanup']) {
+        return null;
+      }
+
+      // Dynamic import to avoid loading GC dependencies for non-cleanup moves
+      const { cleanupTicketWorktrees } = await import('../../lib/gc/index.js');
+      const { getWorkspaceInfo } = await import('../../lib/agents/commands.js');
+
+      let hqPath: string;
+      try {
+        hqPath = getWorkspaceInfo().path;
+      } catch {
+        return null; // Not in a workspace — skip cleanup
+      }
+
+      // Try both internal ID and external key
+      const ticketId = after.id;
+      const externalKey = after.metadata?.external_key;
+
+      // Clean up by internal ticket ID
+      const result = cleanupTicketWorktrees(
+        ticketId,
+        hqPath,
+        (msg) => this.log(styles.muted(`   [cleanup] ${msg}`)),
+      );
+
+      // Also try external key if different from internal ID
+      if (externalKey && externalKey !== ticketId) {
+        const extResult = cleanupTicketWorktrees(
+          externalKey,
+          hqPath,
+          (msg) => this.log(styles.muted(`   [cleanup] ${msg}`)),
+        );
+        result.cleaned.push(...extResult.cleaned);
+        result.skipped.push(...extResult.skipped);
+        result.errors.push(...extResult.errors);
+      }
+
+      return result;
+    } catch {
+      // Non-fatal — cleanup should never block the ticket move
+      return null;
     }
   }
 

@@ -323,7 +323,7 @@ function deleteLocalBranch(branch: string, cwd: string): boolean {
 /**
  * Remove a git worktree.
  */
-function removeWorktree(worktreePath: string, sourceRepoPath: string): boolean {
+export function removeWorktree(worktreePath: string, sourceRepoPath: string): boolean {
   try {
     execSync(`git worktree remove "${worktreePath}" --force`, {
       cwd: sourceRepoPath,
@@ -770,6 +770,266 @@ export function executeGC(
   }
 
   return result
+}
+
+// =============================================================================
+// Ticket-Driven Worktree Cleanup
+// =============================================================================
+
+export interface TicketCleanupResult {
+  /** Agent names that were cleaned up */
+  cleaned: string[]
+  /** Agent names that were skipped (still alive) */
+  skipped: string[]
+  /** Errors encountered (non-fatal) */
+  errors: string[]
+}
+
+/**
+ * Clean up worktrees for all agents associated with a ticket.
+ *
+ * Queries the agent_work table by both ticket_id (TKT-xxx) and external_key (PRLT-xxx)
+ * to find all agents that worked on the ticket. For each agent that is NOT still alive,
+ * runs the cascading cleanup (worktree removal, container removal, branch pruning, etc.).
+ *
+ * This function is non-fatal: cleanup failures never block the caller.
+ * Agents that are still alive (running container or active DB status) are skipped
+ * to prevent data loss from mid-operation cleanup.
+ */
+export function cleanupTicketWorktrees(
+  ticketId: string,
+  hqPath: string,
+  log?: (msg: string) => void,
+): TicketCleanupResult {
+  const result: TicketCleanupResult = {
+    cleaned: [],
+    skipped: [],
+    errors: [],
+  }
+
+  try {
+    // Find all agent names that worked on this ticket
+    const agentNames = findAgentNamesForTicket(ticketId, hqPath)
+    if (agentNames.length === 0) {
+      log?.(`No agents found for ticket ${ticketId}`)
+      return result
+    }
+
+    log?.(`Found ${agentNames.length} agent(s) for ticket ${ticketId}: ${agentNames.join(', ')}`)
+
+    // Build container lookup for isAgentAlive checks
+    const containers = listAgentContainers()
+    const containerByAgent = new Map<string, ContainerInfo>()
+    for (const c of containers) {
+      containerByAgent.set(c.agentName, c)
+    }
+
+    for (const agentName of agentNames) {
+      try {
+        const container = containerByAgent.get(agentName) ?? null
+
+        // P0 safety check: skip agents that are still alive
+        if (isAgentAlive(agentName, hqPath, container)) {
+          log?.(`Agent "${agentName}" is still alive — skipping cleanup`)
+          result.skipped.push(agentName)
+          continue
+        }
+
+        log?.(`Cleaning up agent "${agentName}"`)
+
+        // Get agent worktrees from database
+        const { getAgentWorktrees } = require('../database/worktrees.js')
+        const worktrees = getAgentWorktrees(hqPath, agentName) as Array<{
+          agent_name: string
+          repo_name: string
+          worktree_path: string
+          branch: string
+        }>
+
+        // Resolve agent directory
+        const { getAgent } = require('../database/agents.js')
+        const agentRecord = getAgent(hqPath, agentName) as { worktree_path?: string } | null
+        const agentDir = agentRecord?.worktree_path
+          ? path.join(hqPath, agentRecord.worktree_path)
+          : undefined
+
+        // Clean up each worktree
+        for (const wt of worktrees) {
+          const fullWorktreePath = path.isAbsolute(wt.worktree_path)
+            ? wt.worktree_path
+            : path.join(hqPath, wt.worktree_path)
+          const sourceRepoPath = path.join(hqPath, 'repos', wt.repo_name)
+
+          if (removeWorktree(fullWorktreePath, sourceRepoPath)) {
+            log?.(`Removed worktree: ${fullWorktreePath}`)
+          }
+
+          // Prune worktree refs
+          try {
+            execSync('git worktree prune', {
+              cwd: sourceRepoPath,
+              stdio: ['pipe', 'pipe', 'pipe'],
+            })
+          } catch {
+            // Non-fatal
+          }
+        }
+
+        // Remove agent directory if it exists
+        if (agentDir && fs.existsSync(agentDir)) {
+          try {
+            fs.rmSync(agentDir, { recursive: true, force: true })
+            log?.(`Removed agent directory: ${agentDir}`)
+          } catch {
+            // Non-fatal
+          }
+        }
+
+        // Mark execution records as cleaned and recycle agent name
+        markExecutionRecordsCleaned(hqPath, [agentName])
+        recycleAgentNames(hqPath, [agentName])
+
+        result.cleaned.push(agentName)
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        result.errors.push(`Failed to clean agent "${agentName}": ${msg}`)
+        log?.(`Error cleaning agent "${agentName}": ${msg}`)
+      }
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    result.errors.push(`Failed to find agents for ticket: ${msg}`)
+    log?.(`Error finding agents for ticket ${ticketId}: ${msg}`)
+  }
+
+  return result
+}
+
+/**
+ * Find all agent names that worked on a ticket.
+ * Queries by both internal ticket_id (TKT-xxx) and external_key (PRLT-xxx).
+ */
+function findAgentNamesForTicket(ticketId: string, hqPath: string): string[] {
+  try {
+    const { openWorkspaceDatabase } = require('../database/workspace.js')
+    const db = openWorkspaceDatabase(hqPath)
+    try {
+      // Check if agent_work table exists
+      const tableExists = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_work'"
+      ).get()
+      if (!tableExists) return []
+
+      // Query by both ticket_id and external_key
+      const rows = db.prepare(
+        `SELECT DISTINCT agent_name FROM agent_work WHERE ticket_id = ? OR external_key = ?`
+      ).all(ticketId, ticketId) as Array<{ agent_name: string }>
+
+      return rows.map(r => r.agent_name)
+    } finally {
+      db.close()
+    }
+  } catch {
+    return []
+  }
+}
+
+// =============================================================================
+// Orphaned Worktree Discovery (for `prlt gc`)
+// =============================================================================
+
+/**
+ * Find orphaned worktrees — worktrees whose agents have no active tmux session.
+ * Unlike `collectGCCandidates` which checks PR status, this function checks
+ * whether the agent is still running (useful for post-kill cleanup).
+ */
+export function findOrphanedWorktrees(hqPath: string): Array<{
+  worktreePath: string
+  branch: string
+  agentName: string
+  repoName: string
+  sourceRepoPath: string
+}> {
+  const orphans: Array<{
+    worktreePath: string
+    branch: string
+    agentName: string
+    repoName: string
+    sourceRepoPath: string
+  }> = []
+
+  const reposPath = path.join(hqPath, 'repos')
+  if (!fs.existsSync(reposPath)) return orphans
+
+  let repoDirs: string[]
+  try {
+    repoDirs = fs.readdirSync(reposPath).filter(d => {
+      try { return fs.statSync(path.join(reposPath, d)).isDirectory() } catch { return false }
+    })
+  } catch {
+    return orphans
+  }
+
+  // Build set of active tmux session names
+  const activeSessions = new Set<string>()
+  try {
+    const output = execSync(
+      'tmux list-sessions -F "#{session_name}" 2>/dev/null || true',
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 },
+    ).trim()
+    if (output) {
+      for (const s of output.split('\n')) {
+        if (s) activeSessions.add(s)
+      }
+    }
+  } catch {
+    // tmux not available — all worktrees are orphaned
+  }
+
+  // Build container lookup
+  const containers = listAgentContainers()
+  const containerByAgent = new Map<string, ContainerInfo>()
+  for (const c of containers) {
+    containerByAgent.set(c.agentName, c)
+  }
+
+  for (const repoName of repoDirs) {
+    const repoPath = path.join(reposPath, repoName)
+    const worktrees = listWorktrees(repoPath)
+
+    for (const wt of worktrees) {
+      if (wt.worktreePath === repoPath || wt.isPrunable) continue
+      if (!wt.branch) continue
+
+      const agentName = extractAgentName(wt.worktreePath, hqPath)
+      if (!agentName) continue
+
+      // Check if agent is alive (container running or DB status active)
+      const container = containerByAgent.get(agentName) ?? null
+      if (isAgentAlive(agentName, hqPath, container)) continue
+
+      // Check if any tmux session matches this agent (exact match on agent name)
+      let hasSession = false
+      for (const sessionName of activeSessions) {
+        // Session names end with the agent name: {ticketId}-{action}-{agentName}
+        if (sessionName.endsWith(`-${agentName}`)) {
+          hasSession = true
+          break
+        }
+      }
+      if (hasSession) continue
+
+      orphans.push({
+        worktreePath: wt.worktreePath,
+        branch: wt.branch,
+        agentName,
+        repoName,
+        sourceRepoPath: repoPath,
+      })
+    }
+  }
+
+  return orphans
 }
 
 // =============================================================================
