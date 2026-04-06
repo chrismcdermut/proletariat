@@ -5,6 +5,7 @@ import * as os from 'node:os'
 import Database from 'better-sqlite3'
 import {
   enableWALMode,
+  configureConnection,
   createRotatingBackup,
   createManualBackup,
   checkIntegrity,
@@ -49,6 +50,106 @@ describe('db-safety', () => {
       enableWALMode(db)
       const mode = db.pragma('journal_mode', { simple: true })
       expect(mode).to.equal('wal')
+
+      db.close()
+    })
+  })
+
+  // =========================================================================
+  // PRLT-1264: configureConnection — centralized pragma setup
+  // =========================================================================
+  describe('configureConnection (PRLT-1264)', () => {
+    it('should enable WAL mode by default', () => {
+      const dbPath = path.join(tmpDir, 'configure-wal.db')
+      const db = createTestDb(dbPath)
+
+      configureConnection(db)
+      const mode = db.pragma('journal_mode', { simple: true })
+      expect(mode).to.equal('wal')
+
+      db.close()
+    })
+
+    it('should set synchronous = NORMAL by default', () => {
+      const dbPath = path.join(tmpDir, 'configure-sync.db')
+      const db = createTestDb(dbPath)
+
+      configureConnection(db)
+      const sync = db.pragma('synchronous', { simple: true })
+      // synchronous NORMAL = 1
+      expect(sync).to.equal(1)
+
+      db.close()
+    })
+
+    it('should enable foreign keys by default', () => {
+      const dbPath = path.join(tmpDir, 'configure-fk.db')
+      const db = createTestDb(dbPath)
+
+      configureConnection(db)
+      const fk = db.pragma('foreign_keys', { simple: true })
+      expect(fk).to.equal(1)
+
+      db.close()
+    })
+
+    it('should set busy_timeout to 5000ms by default', () => {
+      const dbPath = path.join(tmpDir, 'configure-timeout.db')
+      const db = createTestDb(dbPath)
+
+      configureConnection(db)
+      const timeout = db.pragma('busy_timeout', { simple: true })
+      expect(timeout).to.equal(5000)
+
+      db.close()
+    })
+
+    it('should respect custom busy_timeout', () => {
+      const dbPath = path.join(tmpDir, 'configure-custom-timeout.db')
+      const db = createTestDb(dbPath)
+
+      configureConnection(db, { busyTimeout: 10000 })
+      const timeout = db.pragma('busy_timeout', { simple: true })
+      expect(timeout).to.equal(10000)
+
+      db.close()
+    })
+
+    it('should skip WAL and synchronous for readonly connections', () => {
+      const dbPath = path.join(tmpDir, 'configure-readonly.db')
+      const dbSetup = createTestDb(dbPath)
+      dbSetup.close()
+
+      const db = new Database(dbPath, { readonly: true })
+      configureConnection(db, { readonly: true })
+
+      // readonly connections cannot change journal_mode, so it stays at default
+      // The important thing is that it doesn't throw
+      const fk = db.pragma('foreign_keys', { simple: true })
+      expect(fk).to.equal(1)
+
+      db.close()
+    })
+
+    it('should allow disabling foreign keys', () => {
+      const dbPath = path.join(tmpDir, 'configure-no-fk.db')
+      const db = createTestDb(dbPath)
+
+      configureConnection(db, { foreignKeys: false })
+      const fk = db.pragma('foreign_keys', { simple: true })
+      expect(fk).to.equal(0)
+
+      db.close()
+    })
+
+    it('should allow disabling WAL mode', () => {
+      const dbPath = path.join(tmpDir, 'configure-no-wal.db')
+      const db = createTestDb(dbPath)
+
+      configureConnection(db, { wal: false })
+      const mode = db.pragma('journal_mode', { simple: true })
+      // With wal: false, journal_mode stays at the default (delete or memory)
+      expect(mode).to.not.equal('wal')
 
       db.close()
     })

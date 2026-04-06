@@ -15,6 +15,7 @@
 import Database from 'better-sqlite3'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { configureConnection } from './db-safety.js'
 
 const CREDENTIALS_TABLE = 'credentials'
 
@@ -70,9 +71,7 @@ function openCredentialDb(workspacePath: string): Database.Database {
   }
 
   const credDb = new Database(dbPath)
-  credDb.pragma('journal_mode = WAL')
-  credDb.pragma('foreign_keys = ON')
-  credDb.pragma('busy_timeout = 5000')
+  configureConnection(credDb)
 
   credDb.exec(`
     CREATE TABLE IF NOT EXISTS ${CREDENTIALS_TABLE} (

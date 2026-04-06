@@ -12,6 +12,7 @@ import Database from 'better-sqlite3'
 import * as path from 'node:path'
 import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
 import { type DatabaseDriver, BetterSqlite3Driver } from '../../database/driver.js'
+import { configureConnection } from '../../database/db-safety.js'
 import { isReadOnlyHQMount } from '../../container.js'
 import {
   AcceptanceCriterion,
@@ -101,7 +102,7 @@ export class SQLiteStorage implements PMOStorage {
 
     // Open database — read-only in container environments to prevent SQLITE_READONLY crashes
     this.db = new Database(dbPath, readOnly ? { readonly: true } : undefined)
-    this.db.pragma('foreign_keys = ON')
+    configureConnection(this.db, { readonly: readOnly })
 
     // Create DatabaseDriver abstraction
     this.driver = new BetterSqlite3Driver(this.db)

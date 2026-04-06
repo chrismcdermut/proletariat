@@ -22,6 +22,7 @@ import type { DatabaseDriver } from './driver.js'
 import { BetterSqlite3Driver } from './driver.js'
 import {
   enableWALMode,
+  configureConnection,
   createRotatingBackup,
   quickCheckIntegrity,
   repairDatabase,
@@ -136,13 +137,8 @@ export function openWorkspaceDatabase(workspacePath: string, options?: { readonl
     throw error
   }
 
-  if (!readOnly) {
-    // Enable WAL mode — allows concurrent readers with one writer,
-    // significantly more resistant to corruption than journal_mode=delete
-    enableWALMode(db)
-  }
-  db.pragma('foreign_keys = ON')
-  db.pragma('busy_timeout = 5000')
+  // Configure connection pragmas — WAL mode, busy timeout, foreign keys (PRLT-1264)
+  configureConnection(db, { readonly: readOnly })
 
   if (!readOnly) {
     // Quick integrity check on startup
@@ -168,9 +164,7 @@ export function openWorkspaceDatabase(workspacePath: string, options?: { readonl
         throwIfNativeBindingError(error, 'openWorkspaceDatabase (post-repair)')
         throw error
       }
-      enableWALMode(db)
-      db.pragma('foreign_keys = ON')
-      db.pragma('busy_timeout = 5000')
+      configureConnection(db)
     }
 
     runDrizzleMigrations(db, ALL_MIGRATIONS)
@@ -224,8 +218,7 @@ export function createWorkspaceDatabase(
     throw error
   }
 
-  enableWALMode(db)
-  db.pragma('foreign_keys = ON')
+  configureConnection(db)
   runDrizzleMigrations(db, ALL_MIGRATIONS)
 
   const ddb = createDrizzleConnection(db)

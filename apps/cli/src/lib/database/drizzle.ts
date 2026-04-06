@@ -9,6 +9,7 @@ import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import Database from 'better-sqlite3'
 import * as schema from './drizzle-schema.js'
 import { throwIfNativeBindingError } from './native-validation.js'
+import { configureConnection } from './db-safety.js'
 
 export type DrizzleDB = BetterSQLite3Database<typeof schema>
 
@@ -33,9 +34,8 @@ export function openDrizzleDatabase(dbPath: string): { db: DrizzleDB; sqliteDb: 
     throw error
   }
 
-  // Configure pragmas
-  sqliteDb.pragma('foreign_keys = ON')
-  sqliteDb.pragma('busy_timeout = 5000') // Wait up to 5 seconds if database is locked
+  // Configure pragmas — WAL mode for concurrent access safety (PRLT-1264)
+  configureConnection(sqliteDb)
 
   const db = drizzle(sqliteDb, { schema })
 
