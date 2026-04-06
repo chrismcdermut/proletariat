@@ -2,7 +2,7 @@ import { Command, Flags } from '@oclif/core';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import { styles } from '../../lib/styles.js';
-import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js';
+import { requireGhCli } from '../../lib/pr/index.js';
 import {
   isMachineOutput,
   outputSuccessAsJson,
@@ -73,21 +73,8 @@ export default class FeedbackList extends Command {
       this.error(message);
     };
 
-    // Check if gh CLI is installed
-    if (!isGHInstalled()) {
-      return handleError(
-        'GH_NOT_INSTALLED',
-        'GitHub CLI (gh) is not installed. Install it with: brew install gh'
-      );
-    }
-
-    // Check if gh is authenticated
-    if (!isGHAuthenticated()) {
-      return handleError(
-        'GH_NOT_AUTHENTICATED',
-        'GitHub CLI is not authenticated. Run: gh auth login'
-      );
-    }
+    // Check gh CLI (differentiated not-installed vs not-authenticated)
+    if (!requireGhCli(handleError)) return;
 
     // Build the gh issue list command
     const args = [

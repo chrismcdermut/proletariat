@@ -7,8 +7,7 @@ import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
 import {
-  isGHInstalled,
-  isGHAuthenticated,
+  checkGhCliStatus,
   getCurrentBranch,
   getDefaultBaseBranch,
   hasBranchBeenPushed,
@@ -311,8 +310,8 @@ export default class WorkReady extends PMOCommand {
   private async shouldOfferPRCreation(
     jsonModeConfig: { flags: Record<string, unknown>; commandName: string } | null
   ): Promise<boolean> {
-    // Check if gh CLI is available
-    if (!isGHInstalled() || !isGHAuthenticated()) {
+    // Check if gh CLI is available (installed AND authenticated)
+    if (!checkGhCliStatus().available) {
       return false;
     }
 

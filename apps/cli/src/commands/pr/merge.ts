@@ -6,8 +6,7 @@ import {
 import { getWorkColumnSetting, findColumnByName } from '../../lib/work-lifecycle/settings.js';
 import { styles } from '../../lib/styles.js';
 import {
-  isGHInstalled,
-  isGHAuthenticated,
+  requireGhCli,
   getPRByNumber,
   listOpenPRs,
   mergePR,
@@ -87,14 +86,8 @@ export default class PRMerge extends PMOCommand {
       this.error(message);
     };
 
-    // Check gh CLI
-    if (!isGHInstalled()) {
-      return handleError('GH_NOT_INSTALLED', 'GitHub CLI (gh) is not installed. Install it from https://cli.github.com/');
-    }
-
-    if (!isGHAuthenticated()) {
-      return handleError('GH_NOT_AUTHENTICATED', 'GitHub CLI is not authenticated. Run "gh auth login" first.');
-    }
+    // Check gh CLI (differentiated not-installed vs not-authenticated)
+    if (!requireGhCli(handleError)) return;
 
     // Resolve repo cwd for gh CLI commands (may not be in a git repo)
     const repoCwd = this.resolveRepoCwd();

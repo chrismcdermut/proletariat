@@ -7,8 +7,7 @@ import { styles } from '../../lib/styles.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
 import {
-  isGHInstalled,
-  isGHAuthenticated,
+  requireGhCli,
   getPRByNumber,
   getPRForBranch,
   getPRChecks,
@@ -134,14 +133,8 @@ export default class WorkShip extends PMOCommand {
       this.error(message);
     };
 
-    // Check gh CLI
-    if (!isGHInstalled()) {
-      return handleError('GH_NOT_INSTALLED', 'GitHub CLI (gh) is not installed. Install it from https://cli.github.com/');
-    }
-
-    if (!isGHAuthenticated()) {
-      return handleError('GH_NOT_AUTHENTICATED', 'GitHub CLI is not authenticated. Run "gh auth login" first.');
-    }
+    // Check gh CLI (differentiated not-installed vs not-authenticated)
+    if (!requireGhCli(handleError)) return;
 
     // Get workspace info
     let workspaceInfo;

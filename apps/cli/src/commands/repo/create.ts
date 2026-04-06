@@ -7,8 +7,7 @@ import { colors, format } from '../../lib/colors.js';
 import { findHQRoot, isInGitRepo } from '../../lib/repos/index.js';
 import { hasGitHubRemote } from '../../lib/repos/git.js';
 import {
-  isGHInstalled,
-  isGHAuthenticated,
+  requireGhCli,
   getGHUsername,
 } from '../../lib/pr/index.js';
 import {
@@ -160,20 +159,8 @@ export default class Create extends PromptCommand {
       this.error(message);
     };
 
-    // Check prerequisites
-    if (!isGHInstalled()) {
-      return handleError(
-        'GH_NOT_INSTALLED',
-        'GitHub CLI (gh) is not installed. Install with: brew install gh'
-      );
-    }
-
-    if (!isGHAuthenticated()) {
-      return handleError(
-        'GH_NOT_AUTHENTICATED',
-        'Not authenticated with GitHub. Run: gh auth login'
-      );
-    }
+    // Check prerequisites (differentiated not-installed vs not-authenticated)
+    if (!requireGhCli(handleError)) return;
 
     // Must be in a git repo
     if (!isInGitRepo()) {

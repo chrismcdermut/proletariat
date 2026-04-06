@@ -5,8 +5,7 @@ import {
 } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
 import {
-  isGHInstalled,
-  isGHAuthenticated,
+  checkGhCliStatus,
   getPRByNumber,
   getPRChecks,
 } from '../../lib/pr/index.js';
@@ -133,10 +132,11 @@ export default class PRStatus extends PMOCommand {
       return;
     }
 
-    // Check gh CLI for live status
-    if (!isGHInstalled() || !isGHAuthenticated()) {
+    // Check gh CLI for live status (differentiated not-installed vs not-authenticated)
+    const ghStatus = checkGhCliStatus();
+    if (!ghStatus.available) {
       this.log(styles.muted('   PR URL:'), ticket.metadata.pr_url);
-      this.log(styles.muted('   (Install and authenticate `gh` CLI for live status)'));
+      this.log(styles.muted(`   (${ghStatus.message} ${ghStatus.fix})`));
       return;
     }
 
