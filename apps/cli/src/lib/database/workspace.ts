@@ -21,7 +21,6 @@ import { eq } from 'drizzle-orm'
 import type { DatabaseDriver } from './driver.js'
 import { BetterSqlite3Driver } from './driver.js'
 import {
-  enableWALMode,
   configureConnection,
   createRotatingBackup,
   quickCheckIntegrity,
