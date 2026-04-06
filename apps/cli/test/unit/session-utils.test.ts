@@ -6,6 +6,8 @@ import {
   sessionMatchesExecution,
   findSessionForExecution,
   findContainerSessionsByPrefix,
+  discoverSessionId,
+  resolveSessionForExecution,
   KNOWN_ACTIONS,
 } from '../../src/lib/execution/session-utils.js'
 
@@ -331,6 +333,200 @@ describe('Session Utils', () => {
           agentName: 'agent42',
         })
       })
+    })
+  })
+
+  // ===========================================================================
+  // Unified Session Resolution (PRLT-1263)
+  // ===========================================================================
+
+  describe('discoverSessionId', () => {
+    it('should return existing sessionId when already set', () => {
+      const exec = {
+        ticketId: 'TKT-123',
+        agentName: 'altman',
+        sessionId: 'TKT-123-Implement-altman',
+        environment: 'host',
+      }
+      const result = discoverSessionId(exec, [], new Map())
+      expect(result).to.equal('TKT-123-Implement-altman')
+    })
+
+    it('should discover session from host tmux sessions when sessionId is undefined', () => {
+      const exec = {
+        ticketId: 'TKT-456',
+        agentName: 'bezos',
+        environment: 'host',
+      }
+      const hostSessions = ['TKT-456-Implement-bezos', 'TKT-789-Review-gates']
+      const result = discoverSessionId(exec, hostSessions, new Map())
+      expect(result).to.equal('TKT-456-Implement-bezos')
+    })
+
+    it('should return null when no matching host session found', () => {
+      const exec = {
+        ticketId: 'TKT-456',
+        agentName: 'bezos',
+        environment: 'host',
+      }
+      const hostSessions = ['TKT-789-Review-gates']
+      const result = discoverSessionId(exec, hostSessions, new Map())
+      expect(result).to.be.null
+    })
+
+    it('should discover session from container tmux sessions', () => {
+      const exec = {
+        ticketId: 'TKT-100',
+        agentName: 'page',
+        containerId: 'abc123',
+        environment: 'docker',
+      }
+      const containerMap = new Map([
+        ['abc123', ['TKT-100-Implement-page']],
+      ])
+      const result = discoverSessionId(exec, [], containerMap)
+      expect(result).to.equal('TKT-100-Implement-page')
+    })
+
+    it('should return null when no matching container session found', () => {
+      const exec = {
+        ticketId: 'TKT-100',
+        agentName: 'page',
+        containerId: 'abc123',
+        environment: 'docker',
+      }
+      const containerMap = new Map([
+        ['abc123', ['TKT-200-Implement-other']],
+      ])
+      const result = discoverSessionId(exec, [], containerMap)
+      expect(result).to.be.null
+    })
+
+    it('should handle container prefix matching', () => {
+      const exec = {
+        ticketId: 'TKT-100',
+        agentName: 'page',
+        containerId: 'abc123',
+        environment: 'devcontainer',
+      }
+      const containerMap = new Map([
+        ['abc123def456', ['TKT-100-work-page']],
+      ])
+      const result = discoverSessionId(exec, [], containerMap)
+      expect(result).to.equal('TKT-100-work-page')
+    })
+  })
+
+  describe('resolveSessionForExecution', () => {
+    it('should resolve host session with existing sessionId', () => {
+      const exec = {
+        ticketId: 'TKT-123',
+        agentName: 'altman',
+        sessionId: 'TKT-123-Implement-altman',
+        environment: 'host',
+      }
+      const result = resolveSessionForExecution(exec, [], new Map())
+      expect(result).to.deep.equal({
+        sessionId: 'TKT-123-Implement-altman',
+        ticketId: 'TKT-123',
+        agentName: 'altman',
+        environment: 'host',
+        containerId: undefined,
+      })
+    })
+
+    it('should resolve host session by discovering from tmux', () => {
+      const exec = {
+        ticketId: 'TKT-456',
+        agentName: 'bezos',
+        environment: 'host',
+      }
+      const hostSessions = ['TKT-456-Review-bezos']
+      const result = resolveSessionForExecution(exec, hostSessions, new Map())
+      expect(result).to.deep.equal({
+        sessionId: 'TKT-456-Review-bezos',
+        ticketId: 'TKT-456',
+        agentName: 'bezos',
+        environment: 'host',
+        containerId: undefined,
+      })
+    })
+
+    it('should return null when no session can be found', () => {
+      const exec = {
+        ticketId: 'TKT-999',
+        agentName: 'nonexistent',
+        environment: 'host',
+      }
+      const result = resolveSessionForExecution(exec, [], new Map())
+      expect(result).to.be.null
+    })
+
+    it('should resolve container session', () => {
+      const exec = {
+        ticketId: 'TKT-100',
+        agentName: 'page',
+        containerId: 'container1',
+        environment: 'docker',
+      }
+      const containerMap = new Map([
+        ['container1', ['TKT-100-Implement-page']],
+      ])
+      const result = resolveSessionForExecution(exec, [], containerMap)
+      expect(result).to.deep.equal({
+        sessionId: 'TKT-100-Implement-page',
+        ticketId: 'TKT-100',
+        agentName: 'page',
+        environment: 'container',
+        containerId: 'container1',
+      })
+    })
+
+    it('should set environment to container when containerId is present', () => {
+      const exec = {
+        ticketId: 'TKT-200',
+        agentName: 'gates',
+        sessionId: 'TKT-200-work-gates',
+        containerId: 'c1',
+        environment: 'devcontainer',
+      }
+      const result = resolveSessionForExecution(exec, [], new Map())
+      expect(result?.environment).to.equal('container')
+      expect(result?.containerId).to.equal('c1')
+    })
+
+    it('should set environment to host when no containerId', () => {
+      const exec = {
+        ticketId: 'TKT-200',
+        agentName: 'gates',
+        sessionId: 'TKT-200-work-gates',
+        environment: 'host',
+      }
+      const result = resolveSessionForExecution(exec, [], new Map())
+      expect(result?.environment).to.equal('host')
+      expect(result?.containerId).to.be.undefined
+    })
+
+    it('should produce same result regardless of whether sessionId is pre-set or discovered', () => {
+      // This test verifies that poke and list get consistent results:
+      // whether sessionId comes from DB or is discovered from tmux
+      const execWithSession = {
+        ticketId: 'TKT-300',
+        agentName: 'musk',
+        sessionId: 'TKT-300-Fix-musk',
+        environment: 'host',
+      }
+      const execWithoutSession = {
+        ticketId: 'TKT-300',
+        agentName: 'musk',
+        environment: 'host',
+      }
+      const hostSessions = ['TKT-300-Fix-musk']
+
+      const resultWithSession = resolveSessionForExecution(execWithSession, hostSessions, new Map())
+      const resultWithoutSession = resolveSessionForExecution(execWithoutSession, hostSessions, new Map())
+
+      expect(resultWithSession).to.deep.equal(resultWithoutSession)
     })
   })
 })
