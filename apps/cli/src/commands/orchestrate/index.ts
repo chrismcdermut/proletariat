@@ -31,6 +31,7 @@ import {
   syncHooksFromYaml,
   applyPreset,
   PRESET_NAMES,
+  createLlmDecisionHandler,
 } from '../../lib/orchestrate/index.js'
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
@@ -143,14 +144,20 @@ export default class Orchestrate extends PromptCommand {
       // Readline interface for interactive confirmations in daemon mode
       let rl: readline.Interface | null = null
 
+      // Create the LLM decision handler for tier-2 hooks.
+      // This is the bridge between the deterministic daemon (tier 1) and human (tier 3).
+      const logFn = (msg: string) => {
+        if (verbose || jsonMode) {
+          this.log(msg)
+        }
+      }
+      const llmDecisionHandler = createLlmDecisionHandler({ log: logFn })
+
       // Create the orchestrate engine
       const engine = new OrchestrateEngine({
         db,
-        log: (msg) => {
-          if (verbose || jsonMode) {
-            this.log(msg)
-          }
-        },
+        log: logFn,
+        onLlmDecision: llmDecisionHandler,
         onConfirm: async (hookName, event, action) => {
           // In JSON mode, output as JSON and auto-deny (external system should handle).
           // Use console.log instead of outputSuccessAsJson to avoid ExitError killing the daemon.

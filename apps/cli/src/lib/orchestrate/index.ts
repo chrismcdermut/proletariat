@@ -57,3 +57,15 @@ export type { PollerOptions } from './poller.js'
 
 export { SimplePoller } from './simple-poller.js'
 export type { SimplePollerOptions, PollChange, PollResult } from './simple-poller.js'
+
+export {
+  createLlmDecisionHandler,
+  buildDecisionPrompt,
+  parseDecisionResponse,
+  gatherDecisionContext,
+  fetchPrDiff,
+  fetchTicketDescription,
+  fetchTestOutput,
+  invokeClaudeLlm,
+} from './llm-agent.js'
+export type { DecisionContext, LlmAgentOptions } from './llm-agent.js'
