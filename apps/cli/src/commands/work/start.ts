@@ -2097,7 +2097,9 @@ export default class WorkStart extends PMOCommand {
       // Resolution order: explicit flags > workspace config default > interactive prompt
       let createPR = false
       let prModeSource = 'default' // Track where PR mode was resolved from for display
-      const ghAvailable = isGHInstalled() && isGHAuthenticated()
+      const ghInstalled = isGHInstalled()
+      const ghAuthenticated = ghInstalled && isGHAuthenticated()
+      const ghAvailable = ghInstalled && ghAuthenticated
       const configPrDefault = getCreatePrDefault(db)
 
       if (flags['create-pr']) {
@@ -2150,7 +2152,9 @@ export default class WorkStart extends PMOCommand {
           prModeSource = 'interactive prompt'
         }
       } else {
-        prModeSource = 'default (gh CLI not available)'
+        prModeSource = ghInstalled
+          ? 'default (gh auth required — run `gh auth login`)'
+          : 'default (gh CLI not installed)'
       }
 
       // R1: Show clear PR mode in preflight summary
