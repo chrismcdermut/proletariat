@@ -1,18 +1,18 @@
 import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
-import { execSync } from 'node:child_process'
 import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { ExecutionStorage } from '../../lib/execution/index.js'
 import {
-  getHostTmuxSessionNames,
-  getContainerTmuxSessionMap,
-  findContainerSessionsByPrefix,
-  findSessionForExecution,
+  type ResolvedSession,
   captureTmuxPane,
   sendTmuxMessage,
+  isSessionAlive,
+  resolveSessionForExecution,
+  getHostTmuxSessionNames,
+  getContainerTmuxSessionMap,
 } from '../../lib/execution/session-utils.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
@@ -22,18 +22,6 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
-
-// =============================================================================
-// Types
-// =============================================================================
-
-interface ResolvedSession {
-  sessionId: string
-  ticketId: string
-  agentName: string
-  environment: 'host' | 'container'
-  containerId?: string
-}
 
 // =============================================================================
 // Command
@@ -282,7 +270,7 @@ export default class SessionPoke extends PromptCommand {
 
   /**
    * Resolve an agent identifier (name or ticket ID) to a running session.
-   * Looks up active executions and matches tmux sessions.
+   * Uses the shared session resolution path from session-utils.
    */
   private resolveAgentSession(
     identifier: string,
@@ -311,7 +299,7 @@ export default class SessionPoke extends PromptCommand {
     }
 
     try {
-      // Get active executions
+      // Get active executions (same query as session list)
       const runningExecutions = executionStorage.listExecutions({ status: 'running' })
       const startingExecutions = executionStorage.listExecutions({ status: 'starting' })
       const activeExecutions = [...runningExecutions, ...startingExecutions]
@@ -347,9 +335,7 @@ export default class SessionPoke extends PromptCommand {
       }
 
       // PRLT-1077: Self-healing recovery for background-mode spawns.
-      // If no running/starting execution found, check recently-stopped executions
-      // whose tmux session is still alive (status was incorrectly set to 'stopped'
-      // because the CLI exited while the agent continued in the container).
+      // Uses shared isSessionAlive() — same logic as session list's recovery path.
       if (!match) {
         const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
         const stoppedCandidate = stoppedExecutions.find(exec =>
@@ -357,10 +343,7 @@ export default class SessionPoke extends PromptCommand {
         )
 
         if (stoppedCandidate?.sessionId) {
-          // Verify the tmux session is actually still alive
-          const sessionAlive = this.isSessionAlive(stoppedCandidate)
-          if (sessionAlive) {
-            // Recover: update status back to 'running' and use this execution
+          if (isSessionAlive(stoppedCandidate)) {
             executionStorage.updateStatus(stoppedCandidate.id, 'running')
             match = { ...stoppedCandidate, status: 'running' as const }
           }
@@ -382,91 +365,29 @@ export default class SessionPoke extends PromptCommand {
         return null
       }
 
-      return this.resolveSessionForExecution(match, jsonMode, flags)
+      // Use shared session resolution — same discovery logic as session list
+      const hostTmuxSessions = getHostTmuxSessionNames()
+      const containerTmuxSessions = getContainerTmuxSessionMap()
+      const resolved = resolveSessionForExecution(match, hostTmuxSessions, containerTmuxSessions)
+
+      if (!resolved) {
+        if (jsonMode) {
+          outputErrorAsJson(
+            'SESSION_NOT_FOUND',
+            `Could not find tmux session for agent "${match.agentName}" (${match.ticketId}). The session may not have started yet.`,
+            createMetadata('session poke', flags),
+          )
+        }
+        this.log('')
+        this.log(styles.error(`Could not find tmux session for agent "${match.agentName}" (${match.ticketId}).`))
+        this.log(styles.muted('The session may not have started yet.'))
+        this.log('')
+        return null
+      }
+
+      return resolved
     } finally {
       db?.close()
-    }
-  }
-
-  /**
-   * Resolve the tmux session for a specific execution record.
-   */
-  private resolveSessionForExecution(
-    exec: { ticketId: string; agentName: string; sessionId?: string; containerId?: string; environment: string },
-    jsonMode: boolean,
-    flags: Record<string, unknown>,
-  ): ResolvedSession | null {
-    const isContainer = !!exec.containerId
-    let actualSessionId = exec.sessionId
-    let containerId = isContainer ? exec.containerId : undefined
-
-    // If sessionId is NULL, try to discover it from tmux
-    if (!exec.sessionId) {
-      if (isContainer && exec.containerId) {
-        const containerTmuxSessions = getContainerTmuxSessionMap()
-        const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-        const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
-        if (match) {
-          actualSessionId = match
-          containerId = exec.containerId
-        }
-      } else {
-        const hostTmuxSessions = getHostTmuxSessionNames()
-        const match = findSessionForExecution(exec.ticketId, exec.agentName, hostTmuxSessions)
-        if (match) {
-          actualSessionId = match
-        }
-      }
-    }
-
-    if (!actualSessionId) {
-      if (jsonMode) {
-        outputErrorAsJson(
-          'SESSION_NOT_FOUND',
-          `Could not find tmux session for agent "${exec.agentName}" (${exec.ticketId}). The session may not have started yet.`,
-          createMetadata('session poke', flags),
-        )
-      }
-      this.log('')
-      this.log(styles.error(`Could not find tmux session for agent "${exec.agentName}" (${exec.ticketId}).`))
-      this.log(styles.muted('The session may not have started yet.'))
-      this.log('')
-      return null
-    }
-
-    return {
-      sessionId: actualSessionId,
-      ticketId: exec.ticketId,
-      agentName: exec.agentName,
-      environment: isContainer ? 'container' : 'host',
-      containerId,
-    }
-  }
-
-  /**
-   * PRLT-1077: Check if a tmux session is still alive for an execution.
-   * Used to recover executions incorrectly marked as stopped when the
-   * agent outlives the CLI process (background-mode spawns).
-   */
-  private isSessionAlive(exec: { sessionId?: string; containerId?: string; environment: string }): boolean {
-    if (!exec.sessionId) return false
-
-    try {
-      if ((exec.environment === 'devcontainer' || exec.environment === 'docker') && exec.containerId) {
-        execSync(
-          `docker exec ${exec.containerId} tmux has-session -t "${exec.sessionId}"`,
-          { stdio: 'pipe', timeout: 5000 },
-        )
-        return true
-      } else {
-        execSync(
-          `tmux has-session -t "${exec.sessionId}"`,
-          { stdio: 'pipe', timeout: 5000 },
-        )
-        return true
-      }
-    } catch {
-      return false
     }
   }
 }
