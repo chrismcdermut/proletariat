@@ -10,10 +10,9 @@ import * as path from 'node:path'
 import yaml from 'js-yaml'
 import type Database from 'better-sqlite3'
 import { WorkHookStorage } from '../work-lifecycle/hooks/storage.js'
-import type { HookableEvent, HookActionType } from '../work-lifecycle/hooks/types.js'
+import { type HookableEvent, HOOKABLE_EVENTS } from '../work-lifecycle/hooks/types.js'
 import type {
   HooksYaml,
-  HookYamlEntry,
   WorkflowYaml,
   OrchestrateEvent,
   HookMode,
@@ -55,37 +54,6 @@ export function loadWorkflowYaml(hqPath: string): WorkflowYaml | null {
 // =============================================================================
 // Hook Sync
 // =============================================================================
-
-/**
- * Map an OrchestrateEvent + action string into an existing HookableEvent + HookActionType.
- * For built-in actions, we use 'shell' type with a `prlt` command as the action value.
- */
-function mapToHookConfig(
-  event: OrchestrateEvent,
-  entry: HookYamlEntry,
-): { event: HookableEvent; actionType: HookActionType; actionValue: string } | null {
-  // Map orchestrate events to hookable events where possible
-  const eventMap: Partial<Record<OrchestrateEvent, HookableEvent>> = {
-    'work:started': 'work:started',
-    'work:status_changed': 'work:status_changed',
-    'work:pr_created': 'work:pr_created',
-    'work:completed': 'work:completed',
-    'agent:spawned': 'agent:spawned',
-    'agent:stopped': 'agent:stopped',
-  }
-
-  const hookEvent = eventMap[event]
-
-  // For events without a direct mapping, store as shell hook with prlt hook fire
-  const resolvedEvent = hookEvent ?? 'work:status_changed'
-  const actionValue = `prlt hook fire ${event} --action ${entry.action}`
-
-  return {
-    event: resolvedEvent,
-    actionType: 'shell',
-    actionValue,
-  }
-}
 
 /**
  * Sync hooks from a parsed YAML config into the database.
@@ -189,19 +157,16 @@ export function applyPreset(db: Database.Database, presetName: PresetName): numb
 }
 
 /**
- * Map orchestrate event to the closest hookable event.
- * For new orchestrate events, use a fallback.
+ * Map orchestrate event to hookable event.
+ * All orchestrate events that are valid HookableEvents pass through as-is.
+ * Throws if the event has no valid mapping — never silently misroute.
  */
 function mapOrchestrateToHookable(event: OrchestrateEvent): HookableEvent {
-  const directMap: Partial<Record<OrchestrateEvent, HookableEvent>> = {
-    'work:started': 'work:started',
-    'work:status_changed': 'work:status_changed',
-    'work:pr_created': 'work:pr_created',
-    'work:completed': 'work:completed',
-    'agent:spawned': 'agent:spawned',
-    'agent:stopped': 'agent:stopped',
+  const hookableSet = new Set<string>(HOOKABLE_EVENTS)
+  if (hookableSet.has(event)) {
+    return event as HookableEvent
   }
-  return directMap[event] ?? 'work:status_changed'
+  throw new Error(`Orchestrate event "${event}" has no valid HookableEvent mapping`)
 }
 
 /**

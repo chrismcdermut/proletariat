@@ -10,7 +10,8 @@ import {
   exportHooksToYaml,
 } from '../../src/lib/orchestrate/config-loader.js'
 import Database from 'better-sqlite3'
-import { ensureHooksTable } from '../../src/lib/work-lifecycle/hooks/storage.js'
+import { ensureHooksTable, WorkHookStorage } from '../../src/lib/work-lifecycle/hooks/storage.js'
+import { PRESETS } from '../../src/lib/orchestrate/presets.js'
 
 /**
  * Unit tests for orchestrate config loader.
@@ -224,6 +225,98 @@ review:
 
       const yamlHooks = db.prepare("SELECT * FROM pmo_work_hooks WHERE source = 'yaml'").all()
       expect(yamlHooks).to.have.length(1)
+    })
+  })
+
+  // ===========================================================================
+  // Regression: PRLT-1257 — event mapping must preserve correct event names
+  // ===========================================================================
+
+  describe('PRLT-1257: event mapping regression', () => {
+    it('should store each preset hook with its correct event name, never work:status_changed fallback', () => {
+      applyPreset(db, 'aggressive')
+
+      const hooks = db.prepare("SELECT event, action_value FROM pmo_work_hooks WHERE source = 'preset'")
+        .all() as Array<{ event: string; action_value: string }>
+
+      // No hook should have been silently misrouted to work:status_changed
+      // unless the preset actually defines a work:status_changed hook
+      const presetEvents = new Set(PRESETS.aggressive.hooks.map(h => h.event))
+      const hasWorkStatusChanged = presetEvents.has('work:status_changed')
+
+      for (const hook of hooks) {
+        // Extract the original event from the action_value: "prlt hook fire <event> --action ..."
+        const match = hook.action_value.match(/prlt hook fire (\S+) --action/)
+        expect(match, `Could not parse event from action_value: ${hook.action_value}`).to.not.be.null
+        const originalEvent = match![1]
+
+        // The stored event MUST match the original event from the preset
+        expect(hook.event).to.equal(originalEvent,
+          `Hook for event "${originalEvent}" was stored as "${hook.event}" — misrouted!`)
+      }
+
+      // Verify we actually have hooks for orchestrate events (not just work:* events)
+      const storedEvents = new Set(hooks.map(h => h.event))
+      if (!hasWorkStatusChanged) {
+        expect(storedEvents.has('work:status_changed')).to.be.false
+      }
+      expect(storedEvents.has('on_ci_green')).to.be.true
+      expect(storedEvents.has('on_pr_opened')).to.be.true
+      expect(storedEvents.has('on_ticket_ready')).to.be.true
+      expect(storedEvents.has('on_agent_died')).to.be.true
+      expect(storedEvents.has('on_agent_completed')).to.be.true
+    })
+
+    it('should fire on_ci_green with aggressive preset — hook manager finds hook by correct event', () => {
+      applyPreset(db, 'aggressive')
+      const storage = new WorkHookStorage(db)
+
+      // Query hooks for on_ci_green event — this is what hook manager does at runtime
+      const ciGreenHooks = storage.list({ event: 'on_ci_green' as any })
+
+      // Before the fix, this returned empty because all hooks were stored as work:status_changed
+      expect(ciGreenHooks.length).to.be.greaterThan(0)
+      expect(ciGreenHooks[0].event).to.equal('on_ci_green')
+      expect(ciGreenHooks[0].actionValue).to.include('merge-pr')
+    })
+
+    it('should preserve correct event for all preset event types across all presets', () => {
+      for (const presetName of ['aggressive', 'conservative', 'supervised'] as const) {
+        // Clear and re-apply
+        try { db.exec("DELETE FROM pmo_work_hooks WHERE source = 'preset'") } catch { /* */ }
+        applyPreset(db, presetName)
+
+        const hooks = db.prepare("SELECT event, action_value FROM pmo_work_hooks WHERE source = 'preset'")
+          .all() as Array<{ event: string; action_value: string }>
+
+        for (const hook of hooks) {
+          const match = hook.action_value.match(/prlt hook fire (\S+) --action/)
+          expect(match).to.not.be.null
+          expect(hook.event).to.equal(match![1],
+            `${presetName} preset: event "${match![1]}" misrouted to "${hook.event}"`)
+        }
+      }
+    })
+
+    it('should store YAML-synced hooks with their correct event names', () => {
+      const hooksYaml = {
+        on_ci_green: [{ action: 'merge-pr', mode: 'auto' as const }],
+        on_agent_died: [{ action: 'notify', mode: 'auto' as const }],
+        on_ticket_ready: [{ action: 'spawn-agent', mode: 'confirm' as const }],
+      }
+      syncHooksFromYaml(db, hooksYaml)
+
+      const hooks = db.prepare("SELECT event, action_value FROM pmo_work_hooks WHERE source = 'yaml'")
+        .all() as Array<{ event: string; action_value: string }>
+
+      expect(hooks).to.have.length(3)
+
+      const eventMap = new Map(hooks.map(h => [h.event, h.action_value]))
+      expect(eventMap.has('on_ci_green')).to.be.true
+      expect(eventMap.has('on_agent_died')).to.be.true
+      expect(eventMap.has('on_ticket_ready')).to.be.true
+      // None should be misrouted to work:status_changed
+      expect(eventMap.has('work:status_changed')).to.be.false
     })
   })
 
