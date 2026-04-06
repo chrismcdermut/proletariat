@@ -372,7 +372,7 @@ export function buildClaudeLifecycleHooks(): Record<string, unknown> {
           hooks: [
             {
               type: 'command' as const,
-              command: 'prlt session report --agent "$PRLT_AGENT_NAME" --status exited 2>/dev/null || true',
+              command: '/home/node/.claude/hooks/hook-wrapper.sh prlt session report --agent "$PRLT_AGENT_NAME" --status exited 2>/dev/null || true',
             },
           ],
         },
@@ -383,7 +383,7 @@ export function buildClaudeLifecycleHooks(): Record<string, unknown> {
           hooks: [
             {
               type: 'command' as const,
-              command: 'prlt session report --agent "$PRLT_AGENT_NAME" --status exited 2>/dev/null || true',
+              command: '/home/node/.claude/hooks/hook-wrapper.sh prlt session report --agent "$PRLT_AGENT_NAME" --status exited 2>/dev/null || true',
             },
           ],
         },
@@ -403,6 +403,50 @@ export function buildClaudeLifecycleHooks(): Record<string, unknown> {
       ],
     },
   }
+}
+
+/**
+ * TKT-009: Build the hook-wrapper.sh script content.
+ * Validates JSON on stdin before passing to the wrapped command.
+ * Prevents crashes when Claude Code sends malformed data on abnormal termination.
+ */
+export function buildHookWrapperScript(): string {
+  return `#!/bin/bash
+# TKT-009: Hook wrapper — validates JSON on stdin before passing to the command.
+# Prevents parse crashes on abnormal session termination (tmux kill-session).
+
+set -euo pipefail
+
+INPUT=\$(cat 2>/dev/null || true)
+
+if [ -z "\$INPUT" ]; then
+  INPUT='{"hook_wrapper":"fallback","reason":"empty_stdin"}'
+fi
+
+validate_json() {
+  if command -v jq >/dev/null 2>&1; then
+    echo "\$INPUT" | jq '.' >/dev/null 2>&1
+  elif command -v python3 >/dev/null 2>&1; then
+    echo "\$INPUT" | python3 -c 'import sys,json; json.load(sys.stdin)' 2>/dev/null
+  else
+    case "\$INPUT" in
+      '{'*|'['*) return 0 ;;
+      *) return 1 ;;
+    esac
+  fi
+}
+
+if ! validate_json; then
+  ESCAPED=\$(echo "\$INPUT" | head -c 200 | sed 's/\\\\\\\\/\\\\\\\\\\\\\\\\/g; s/"/\\\\\\"/g; s/\\t/\\\\t/g' | tr '\\n' ' ')
+  INPUT="{\\"hook_wrapper\\":\\"fallback\\",\\"reason\\":\\"invalid_json\\",\\"raw_truncated\\":\\"\$ESCAPED\\"}"
+fi
+
+if [ \$# -eq 0 ]; then
+  echo "\$INPUT"
+else
+  echo "\$INPUT" | exec "\$@"
+fi
+`
 }
 
 /**
@@ -485,10 +529,18 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
       )
       console.debug(`[runners:docker] Configured Claude Code lifecycle hooks for agent containers`)
 
+      // TKT-009: Write the hook-wrapper script into the container
+      const hookWrapperScript = buildHookWrapperScript()
+      execSync(
+        `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude/hooks && cat > /home/node/.claude/hooks/hook-wrapper.sh && chmod +x /home/node/.claude/hooks/hook-wrapper.sh'`,
+        { input: hookWrapperScript, stdio: ['pipe', 'pipe', 'pipe'] }
+      )
+      console.debug(`[runners:docker] Wrote hook-wrapper script to container`)
+
       // PRLT-1225: Write the enforce-tests hook script into the container
       const enforceTestsScript = buildEnforceTestsHookScript()
       execSync(
-        `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude/hooks && cat > /home/node/.claude/hooks/enforce-tests.sh && chmod +x /home/node/.claude/hooks/enforce-tests.sh'`,
+        `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude/hooks/enforce-tests.sh && chmod +x /home/node/.claude/hooks/enforce-tests.sh'`,
         { input: enforceTestsScript, stdio: ['pipe', 'pipe', 'pipe'] }
       )
       console.debug(`[runners:docker] Wrote enforce-tests hook script to container`)

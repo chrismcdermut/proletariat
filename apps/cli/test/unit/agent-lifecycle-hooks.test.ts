@@ -3,6 +3,7 @@ import {
   buildClaudeLifecycleHooks,
   buildClaudeStopHookConfig,
   buildEnforceTestsHookScript,
+  buildHookWrapperScript,
 } from '../../src/lib/execution/runners/docker-management.js'
 import { buildPrompt, buildTicketOperationsGuidance, buildTestEnforcementGuidance } from '../../src/lib/execution/runners/prompt-builder.js'
 import { PRESETS, getPreset } from '../../src/lib/orchestrate/presets.js'
@@ -50,7 +51,7 @@ describe('PRLT-1224: Layer 1 — Claude Code lifecycle hooks', () => {
       expect(startHook.hooks[0].command).to.include('PRLT_TICKET_ID')
     })
 
-    it('should include Stop hook that calls session report', () => {
+    it('should include Stop hook that calls session report via hook-wrapper', () => {
       const config = buildClaudeLifecycleHooks() as {
         hooks: Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>>
       }
@@ -58,11 +59,12 @@ describe('PRLT-1224: Layer 1 — Claude Code lifecycle hooks', () => {
       expect(config.hooks.Stop).to.be.an('array').with.lengthOf(1)
 
       const stopHook = config.hooks.Stop[0]
+      expect(stopHook.hooks[0].command).to.include('hook-wrapper.sh')
       expect(stopHook.hooks[0].command).to.include('prlt session report')
       expect(stopHook.hooks[0].command).to.include('--status exited')
     })
 
-    it('should include SubagentStop hook for sub-agent lifecycle', () => {
+    it('should include SubagentStop hook via hook-wrapper for sub-agent lifecycle', () => {
       const config = buildClaudeLifecycleHooks() as {
         hooks: Record<string, Array<{ matcher: string; hooks: Array<{ type: string; command: string }> }>>
       }
@@ -70,6 +72,7 @@ describe('PRLT-1224: Layer 1 — Claude Code lifecycle hooks', () => {
       expect(config.hooks.SubagentStop).to.be.an('array').with.lengthOf(1)
 
       const subagentHook = config.hooks.SubagentStop[0]
+      expect(subagentHook.hooks[0].command).to.include('hook-wrapper.sh')
       expect(subagentHook.hooks[0].command).to.include('prlt session report')
     })
 
@@ -112,6 +115,46 @@ describe('PRLT-1224: Layer 1 — Claude Code lifecycle hooks', () => {
       const legacy = buildClaudeStopHookConfig()
       const modern = buildClaudeLifecycleHooks()
       expect(legacy).to.deep.equal(modern)
+    })
+  })
+
+  describe('buildHookWrapperScript (TKT-009)', () => {
+    let script: string
+
+    before(() => {
+      script = buildHookWrapperScript()
+    })
+
+    it('should start with a shebang', () => {
+      expect(script).to.match(/^#!/)
+      expect(script).to.include('#!/bin/bash')
+    })
+
+    it('should read stdin with fallback on failure', () => {
+      expect(script).to.include('cat 2>/dev/null || true')
+    })
+
+    it('should provide fallback JSON for empty stdin', () => {
+      expect(script).to.include('empty_stdin')
+      expect(script).to.include('hook_wrapper')
+    })
+
+    it('should validate JSON using jq when available', () => {
+      expect(script).to.include('jq')
+    })
+
+    it('should fall back to python3 for JSON validation', () => {
+      expect(script).to.include('python3')
+      expect(script).to.include('json.load')
+    })
+
+    it('should substitute fallback JSON for invalid input', () => {
+      expect(script).to.include('invalid_json')
+      expect(script).to.include('raw_truncated')
+    })
+
+    it('should pass validated JSON to the wrapped command via exec', () => {
+      expect(script).to.include('exec "$@"')
     })
   })
 })
