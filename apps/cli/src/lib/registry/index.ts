@@ -96,7 +96,6 @@ export function openMachineRegistry(): DatabaseDriver {
 
   try {
     const driver = openDriver(dbPath, { foreignKeys: false, busyTimeout: 3000 })
-    driver.pragma('journal_mode = WAL')
     driver.exec(REGISTRY_SCHEMA)
     return driver
   } catch (error) {

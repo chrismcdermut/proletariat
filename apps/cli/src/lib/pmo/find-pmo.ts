@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { openDriver } from '../database/driver.js';
+import { configureConnection } from '../database/db-safety.js';
 import { isValidHQ } from '../workspace.js';
 import { isReadOnlyHQMount } from '../container.js';
 import { throwIfNativeBindingError } from '../database/native-validation.js';
@@ -85,7 +86,7 @@ export function bootstrapPMOSchema(dbPath: string, hqPath: string): boolean {
 
   try {
     const db = new Database(dbPath);
-    db.pragma('foreign_keys = ON');
+    configureConnection(db);
 
     try {
       // Create PMO tables, seed built-in data, validate schema

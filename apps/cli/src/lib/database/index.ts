@@ -141,6 +141,8 @@ export {
 // Database safety (WAL, backup, integrity, repair)
 export {
   enableWALMode,
+  configureConnection,
+  type ConfigureConnectionOptions,
   createRotatingBackup,
   createManualBackup,
   checkIntegrity,

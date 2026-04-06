@@ -10,6 +10,7 @@
  */
 
 import Database from 'better-sqlite3'
+import { configureConnection } from './db-safety.js'
 
 // =============================================================================
 // Driver Interface
@@ -159,17 +160,11 @@ export function wrapDatabase(db: Database.Database): DatabaseDriver {
 export function openDriver(dbPath: string, options?: { foreignKeys?: boolean; busyTimeout?: number; readonly?: boolean }): DatabaseDriver {
   const readOnly = options?.readonly ?? false
   const db = new Database(dbPath, readOnly ? { readonly: true } : undefined)
-  if (!readOnly) {
-    db.pragma('journal_mode = WAL')
-  }
-  if (options?.foreignKeys !== false) {
-    db.pragma('foreign_keys = ON')
-  }
-  if (options?.busyTimeout !== undefined) {
-    db.pragma(`busy_timeout = ${options.busyTimeout}`)
-  } else {
-    db.pragma('busy_timeout = 5000')
-  }
+  configureConnection(db, {
+    readonly: readOnly,
+    foreignKeys: options?.foreignKeys,
+    busyTimeout: options?.busyTimeout,
+  })
   return new BetterSqlite3Driver(db)
 }
 

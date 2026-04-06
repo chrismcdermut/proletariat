@@ -19,6 +19,7 @@ import {
   workspaceSettings as workspaceSettingsTable,
 } from './drizzle-schema.js'
 import {
+  configureConnection,
   createRotatingBackup,
   quickCheckIntegrity,
   repairDatabase,
@@ -41,7 +42,9 @@ function openSafeDatabase(dbPath: string, caller: string): Database.Database {
     throw error
   }
 
-  // Quick integrity check — auto-repair if corrupt
+  // Quick integrity check — auto-repair if corrupt.
+  // Note: configureConnection is called AFTER the integrity check because
+  // pragmas (journal_mode, synchronous) will throw on a corrupt database.
   const integrity = quickCheckIntegrity(db)
   if (!integrity.ok) {
     db.close()
@@ -64,6 +67,9 @@ function openSafeDatabase(dbPath: string, caller: string): Database.Database {
       throw error
     }
   }
+
+  // Configure connection pragmas — WAL mode, busy timeout, etc. (PRLT-1264)
+  configureConnection(db)
 
   return db
 }

@@ -29,6 +29,55 @@ export function enableWALMode(db: Database.Database): void {
   db.pragma('journal_mode = WAL')
 }
 
+export interface ConfigureConnectionOptions {
+  /** Enable WAL journal mode (default: true for read-write, false for readonly) */
+  wal?: boolean
+  /** Enable foreign key constraints (default: true) */
+  foreignKeys?: boolean
+  /** Busy timeout in ms (default: 5000) */
+  busyTimeout?: number
+  /** Whether the connection is read-only (default: false) */
+  readonly?: boolean
+}
+
+/**
+ * Apply standard SQLite pragmas for safe concurrent access.
+ *
+ * Sets:
+ * - journal_mode = WAL (unless readonly) — concurrent readers + one writer
+ * - synchronous = NORMAL (unless readonly) — safe with WAL, faster than FULL
+ * - foreign_keys = ON — referential integrity
+ * - busy_timeout = 5000ms — wait instead of failing on lock contention
+ *
+ * Call this on every new database connection to ensure consistent behavior
+ * across all database access paths.
+ *
+ * See: PRLT-1264
+ */
+export function configureConnection(db: Database.Database, options?: ConfigureConnectionOptions): void {
+  const readonly = options?.readonly ?? false
+
+  if (!readonly) {
+    const enableWal = options?.wal ?? true
+    if (enableWal) {
+      db.pragma('journal_mode = WAL')
+    }
+    // synchronous = NORMAL is safe with WAL mode and avoids the overhead
+    // of syncing to disk on every transaction commit. Data integrity is
+    // maintained because the WAL file is always synced on checkpoint.
+    db.pragma('synchronous = NORMAL')
+  }
+
+  if (options?.foreignKeys === false) {
+    db.pragma('foreign_keys = OFF')
+  } else {
+    db.pragma('foreign_keys = ON')
+  }
+
+  const busyTimeout = options?.busyTimeout ?? 5000
+  db.pragma(`busy_timeout = ${busyTimeout}`)
+}
+
 /**
  * Get the backups directory for a given database path.
  * The backups directory is always a sibling `backups/` directory
