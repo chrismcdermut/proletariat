@@ -10,8 +10,9 @@ import {
   getContainerTmuxSessionMap,
   flattenContainerSessions,
   findContainerSessionsByPrefix,
-  findSessionForExecution,
+  discoverSessionId,
   isContainerEnvironment,
+  isSessionAlive,
   checkContainerLiveness,
 } from '../../lib/execution/session-utils.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
@@ -118,7 +119,8 @@ export default class SessionList extends PromptCommand {
         const isContainer = isContainerEnvironment(exec.environment)
         let exists = false
         let containerId: string | undefined
-        let actualSessionId = exec.sessionId
+        // Use shared discoverSessionId for NULL sessionId cases (same path as poke)
+        let actualSessionId = discoverSessionId(exec, hostTmuxSessions, containerTmuxSessions) || exec.sessionId
 
         if (isContainer && exec.containerId) {
           // =====================================================================
@@ -129,17 +131,10 @@ export default class SessionList extends PromptCommand {
           const containerStatus = checkContainerLiveness(exec.containerId)
 
           if (containerStatus === 'running') {
-            // Container is alive — check for tmux session inside it
-            if (!exec.sessionId) {
+            if (actualSessionId) {
+              // Verify the discovered/known session is actually alive
               const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-              const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
-              if (match) {
-                actualSessionId = match
-                exists = true
-              }
-            } else {
-              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-              exists = containerSessions.includes(exec.sessionId)
+              exists = containerSessions.includes(actualSessionId)
             }
 
             // Even if tmux session isn't found, the container is running —
@@ -154,14 +149,8 @@ export default class SessionList extends PromptCommand {
           // =====================================================================
           // Host/sandbox execution: verify tmux session exists on host
           // =====================================================================
-          if (!exec.sessionId) {
-            const match = findSessionForExecution(exec.ticketId, exec.agentName, hostTmuxSessions)
-            if (match) {
-              actualSessionId = match
-              exists = true
-            }
-          } else {
-            exists = hostTmuxSessions.includes(exec.sessionId)
+          if (actualSessionId) {
+            exists = hostTmuxSessions.includes(actualSessionId)
           }
         }
 
@@ -196,29 +185,16 @@ export default class SessionList extends PromptCommand {
       }
 
       // PRLT-1077: Self-healing recovery for background-mode spawns.
-      // Check stopped executions whose tmux sessions are still alive — they were
-      // incorrectly marked as stopped when the CLI exited but the agent continued.
+      // Uses shared isSessionAlive() — same check as session poke's recovery path.
       if (executionStorage) {
         const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
         for (const exec of stoppedExecutions) {
           const isContainer = isContainerEnvironment(exec.environment)
           if (!exec.sessionId) continue
 
-          let sessionAlive = false
-          let containerId: string | undefined
+          const containerId = isContainer ? exec.containerId : undefined
 
-          if (isContainer && exec.containerId) {
-            containerId = exec.containerId
-            const containerStatus = checkContainerLiveness(exec.containerId)
-            if (containerStatus === 'running') {
-              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-              sessionAlive = containerSessions.includes(exec.sessionId)
-            }
-          } else {
-            sessionAlive = hostTmuxSessions.includes(exec.sessionId)
-          }
-
-          if (sessionAlive) {
+          if (isSessionAlive(exec)) {
             // Recover: update status back to 'running'
             executionStorage.updateStatus(exec.id, 'running')
 

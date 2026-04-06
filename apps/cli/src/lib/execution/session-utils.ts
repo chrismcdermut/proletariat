@@ -2,11 +2,41 @@
  * Session Utilities
  *
  * Shared utilities for tmux session naming, parsing, and discovery.
- * Used by session/list.ts, session/attach.ts, session/health.ts, and session/peek.ts commands.
+ * Used by session/list.ts, session/attach.ts, session/health.ts, session/poke.ts, and session/peek.ts commands.
  */
 
 import { execSync, execFileSync } from 'node:child_process'
 import type { ExecutionEnvironment } from './types.js'
+
+// =============================================================================
+// Shared Session Resolution Types
+// =============================================================================
+
+/**
+ * A resolved session — the result of looking up an execution and discovering
+ * its live tmux session. Used by session poke, attach, exec, and any command
+ * that needs to interact with a specific agent's session.
+ */
+export interface ResolvedSession {
+  sessionId: string
+  ticketId: string
+  agentName: string
+  environment: 'host' | 'container'
+  containerId?: string
+}
+
+/**
+ * Minimal execution record for session resolution.
+ * Shared subset of AgentWork used by the resolution functions so they
+ * don't depend on the full AgentWork type.
+ */
+export interface ExecutionRecord {
+  ticketId: string
+  agentName: string
+  sessionId?: string
+  containerId?: string
+  environment: string
+}
 
 /**
  * Capture the last N lines from a tmux pane.
@@ -473,5 +503,102 @@ export function checkContainerHealth(containerId: string): 'healthy' | 'unhealth
     return null
   } catch {
     return null
+  }
+}
+
+// =============================================================================
+// Unified Session Resolution
+// =============================================================================
+// These functions provide a single resolution path used by both session poke
+// and session list (and any future command that needs to resolve sessions).
+
+/**
+ * Check if a tmux session is still alive for an execution.
+ * Supports both host and container-based sessions.
+ *
+ * Used for PRLT-1077 self-healing recovery: when an agent outlives the CLI
+ * process (background-mode spawns), the execution may be incorrectly marked
+ * as stopped while the tmux session is still running.
+ */
+export function isSessionAlive(exec: { sessionId?: string; containerId?: string; environment: string }): boolean {
+  if (!exec.sessionId) return false
+
+  try {
+    if ((exec.environment === 'devcontainer' || exec.environment === 'docker') && exec.containerId) {
+      execSync(
+        `docker exec ${exec.containerId} tmux has-session -t "${exec.sessionId}"`,
+        { stdio: 'pipe', timeout: 5000 },
+      )
+      return true
+    } else {
+      execSync(
+        `tmux has-session -t "${exec.sessionId}"`,
+        { stdio: 'pipe', timeout: 5000 },
+      )
+      return true
+    }
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Discover the tmux session ID for an execution that may have a NULL sessionId.
+ * Looks up running tmux sessions on host or inside the execution's container
+ * and matches by ticket ID + agent name.
+ *
+ * If the execution already has a sessionId, returns it directly.
+ *
+ * This is the unified resolution path used by both session poke and session list.
+ *
+ * @returns The resolved session ID, or null if no matching session found
+ */
+export function discoverSessionId(
+  exec: ExecutionRecord,
+  hostTmuxSessions?: string[],
+  containerTmuxSessions?: Map<string, string[]>,
+): string | null {
+  // If sessionId is already set, return it
+  if (exec.sessionId) return exec.sessionId
+
+  const isContainer = !!exec.containerId
+
+  if (isContainer && exec.containerId) {
+    // Container-based: look up tmux sessions inside the container
+    const containerMap = containerTmuxSessions ?? getContainerTmuxSessionMap()
+    const containerSessions = findContainerSessionsByPrefix(containerMap, exec.containerId)
+    return findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
+  } else {
+    // Host-based: look up tmux sessions on the host
+    const hostSessions = hostTmuxSessions ?? getHostTmuxSessionNames()
+    return findSessionForExecution(exec.ticketId, exec.agentName, hostSessions)
+  }
+}
+
+/**
+ * Resolve a full ResolvedSession for an execution record.
+ * Combines session discovery with environment classification.
+ *
+ * Used by session poke and any command that needs a ResolvedSession
+ * to interact with an agent's tmux session.
+ *
+ * @returns ResolvedSession or null if no session could be found
+ */
+export function resolveSessionForExecution(
+  exec: ExecutionRecord,
+  hostTmuxSessions?: string[],
+  containerTmuxSessions?: Map<string, string[]>,
+): ResolvedSession | null {
+  const isContainer = !!exec.containerId
+  const actualSessionId = discoverSessionId(exec, hostTmuxSessions, containerTmuxSessions)
+
+  if (!actualSessionId) return null
+
+  return {
+    sessionId: actualSessionId,
+    ticketId: exec.ticketId,
+    agentName: exec.agentName,
+    environment: isContainer ? 'container' : 'host',
+    containerId: isContainer ? exec.containerId : undefined,
   }
 }
