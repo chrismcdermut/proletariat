@@ -10,6 +10,8 @@ import {
 import {
   collectGCCandidates,
   executeGC,
+  findOrphanedWorktrees,
+  removeWorktree,
   type GCCandidate,
   type GCArtifactStatus,
 } from '../lib/gc/index.js'
@@ -44,6 +46,10 @@ export default class GC extends PromptCommand {
     }),
     'purge-db': Flags.boolean({
       description: 'DELETE old execution records from database (default: mark as gc_cleaned only)',
+      default: false,
+    }),
+    orphans: Flags.boolean({
+      description: 'Also find and clean orphaned worktrees (agents with no running session)',
       default: false,
     }),
   }
@@ -151,6 +157,33 @@ export default class GC extends PromptCommand {
       purgeDb: flags['purge-db'],
       log,
     })
+
+    // Orphan worktree cleanup (--orphans flag)
+    let orphansRemoved = 0
+    if (flags.orphans) {
+      const orphans = findOrphanedWorktrees(workspaceInfo.path)
+      if (orphans.length > 0) {
+        if (!jsonMode) {
+          this.log(colors.primary(`\nFound ${orphans.length} orphaned worktree(s):`))
+        }
+        for (const orphan of orphans) {
+          if (execute) {
+            log(`Removing orphaned worktree: ${orphan.worktreePath} (agent: ${orphan.agentName})`)
+            if (removeWorktree(orphan.worktreePath, orphan.sourceRepoPath)) {
+              result.worktreesRemoved.push(orphan.worktreePath)
+              orphansRemoved++
+            } else {
+              result.errors.push(`Failed to remove orphaned worktree: ${orphan.worktreePath}`)
+            }
+          } else {
+            log(`[dry-run] Would remove orphaned worktree: ${orphan.worktreePath} (agent: ${orphan.agentName})`)
+            orphansRemoved++
+          }
+        }
+      } else if (!jsonMode) {
+        this.log(colors.textMuted('\nNo orphaned worktrees found.'))
+      }
+    }
 
     // Output results
     if (jsonMode) {
