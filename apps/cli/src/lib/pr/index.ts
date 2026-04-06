@@ -89,6 +89,83 @@ export function isGHTokenInEnv(): boolean {
 }
 
 // =============================================================================
+// GitHub CLI Status (differentiated not-installed vs not-authenticated)
+// =============================================================================
+
+export interface GhCliUnavailable {
+  available: false;
+  installed: boolean;
+  authenticated: false;
+  code: 'GH_NOT_INSTALLED' | 'GH_NOT_AUTHENTICATED';
+  message: string;
+  fix: string;
+}
+
+export interface GhCliAvailable {
+  available: true;
+  installed: true;
+  authenticated: true;
+}
+
+export type GhCliStatus = GhCliAvailable | GhCliUnavailable;
+
+export interface GhCliChecks {
+  installed?: () => boolean;
+  authenticated?: () => boolean;
+}
+
+/**
+ * Check GitHub CLI status with differentiated not-installed vs not-authenticated results.
+ *
+ * Accepts optional check functions for testing. Defaults to the real
+ * `isGHInstalled` and `isGHAuthenticated` checks against the host system.
+ */
+export function checkGhCliStatus(checks: GhCliChecks = {}): GhCliStatus {
+  const installedCheck = checks.installed ?? isGHInstalled;
+  const authenticatedCheck = checks.authenticated ?? isGHAuthenticated;
+
+  if (!installedCheck()) {
+    return {
+      available: false,
+      installed: false,
+      authenticated: false,
+      code: 'GH_NOT_INSTALLED',
+      message: 'GitHub CLI (gh) is not installed.',
+      fix: 'Install it from https://cli.github.com/',
+    };
+  }
+  if (!authenticatedCheck()) {
+    return {
+      available: false,
+      installed: true,
+      authenticated: false,
+      code: 'GH_NOT_AUTHENTICATED',
+      message: 'GitHub CLI is not authenticated.',
+      fix: 'Run "gh auth login" to authenticate.',
+    };
+  }
+  return { available: true, installed: true, authenticated: true };
+}
+
+/**
+ * Check that gh CLI is installed and authenticated, calling handleError with
+ * differentiated error code/message if not. Returns true if gh is ready.
+ *
+ * Accepts optional check functions for testing.
+ */
+export function requireGhCli(
+  handleError: (code: string, message: string) => void,
+  checks: GhCliChecks = {}
+): boolean {
+  const status = checkGhCliStatus(checks);
+  if (!status.available) {
+    handleError(status.code, `${status.message} ${status.fix}`);
+    return false;
+  }
+  return true;
+}
+
+// =============================================================================
 // Git Identity Detection
 // =============================================================================
 

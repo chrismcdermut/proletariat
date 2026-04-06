@@ -19,8 +19,7 @@ import {
 import { trackPrimitiveExecuted } from '../../lib/telemetry/analytics.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import {
-  isGHInstalled,
-  isGHAuthenticated,
+  checkGhCliStatus,
   closePR,
   getPRForBranch,
   getPRByNumber,
@@ -131,7 +130,7 @@ export default class WorkDrop extends PromptCommand {
       let prClosed = false
       let prNumber: number | undefined
 
-      if (isGHInstalled() && isGHAuthenticated()) {
+      if (checkGhCliStatus().available) {
         // Try to find PR from execution branch or ticket metadata
         let prInfo = null
 

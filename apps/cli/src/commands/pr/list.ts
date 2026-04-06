@@ -5,8 +5,7 @@ import {
 } from '../../lib/pmo/index.js';
 import { styles, divider } from '../../lib/styles.js';
 import {
-  isGHInstalled,
-  isGHAuthenticated,
+  requireGhCli,
   listOpenPRs,
   getPRChecks,
   PRInfo,
@@ -83,14 +82,8 @@ export default class PRList extends PMOCommand {
       return handleError('PMO_NOT_FOUND', 'No workspace found. Run "prlt new" to create one.');
     }
 
-    // Check gh CLI
-    if (!isGHInstalled()) {
-      return handleError('GH_NOT_INSTALLED', 'GitHub CLI (gh) is not installed. Install it from https://cli.github.com/');
-    }
-
-    if (!isGHAuthenticated()) {
-      return handleError('GH_NOT_AUTHENTICATED', 'GitHub CLI is not authenticated. Run "gh auth login" first.');
-    }
+    // Check gh CLI (differentiated not-installed vs not-authenticated)
+    if (!requireGhCli(handleError)) return;
 
     // Get all tickets with linked PRs from database
     const allTickets = await this.storage.listTickets(flags.project);
