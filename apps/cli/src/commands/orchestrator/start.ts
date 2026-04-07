@@ -1,7 +1,13 @@
 import { Flags } from '@oclif/core'
 import { execSync } from 'node:child_process'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { RuntimeCommand, machineOutputFlags } from '../../lib/runtime-command.js'
-import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
+import {
+  getHeadquartersNameFromPath,
+  getRegisteredHeadquarters,
+  type RegisteredHeadquarters,
+} from '../../lib/machine-config.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
@@ -145,6 +151,119 @@ export function extractOrchestratorNameFromSession(sessionName: string, hqName: 
 
   const extracted = sessionName.slice(prefix.length)
   return extracted.length > 0 ? extracted : null
+}
+
+/**
+ * Information about an orchestrator session, including its HQ context.
+ */
+export interface OrchestratorSessionInfo {
+  /** Full session id (tmux session name or docker container name). */
+  sessionId: string
+  /** Orchestrator name (e.g. 'main', 'reviewer'). */
+  orchestratorName: string
+  /** Resolved HQ name from the registry, or null if not matched. */
+  hqName: string | null
+  /** Resolved HQ path from the registry, or null if not matched. */
+  hqPath: string | null
+  /** Whether this session runs in a Docker container (true) or host tmux (false). */
+  isDocker: boolean
+}
+
+/**
+ * Parse an orchestrator session id (tmux/container name) into its parts by
+ * matching against the set of registered headquarters. Returns the HQ
+ * with the longest matching sanitized-name prefix to handle nested HQs.
+ *
+ * If no registered HQ matches, returns hqName/hqPath as null and treats
+ * everything after the `prlt-orchestrator-` prefix as the orchestrator name.
+ */
+export function parseOrchestratorSessionId(
+  sessionId: string,
+  registeredHqs: Array<Pick<RegisteredHeadquarters, 'name' | 'path'>>,
+): { hqName: string | null; hqPath: string | null; orchestratorName: string } {
+  const globalPrefix = 'prlt-orchestrator-'
+  if (!sessionId.startsWith(globalPrefix)) {
+    return { hqName: null, hqPath: null, orchestratorName: sessionId }
+  }
+
+  // Try to match against registered HQs (longest sanitized-name prefix wins).
+  let best: { hqName: string; hqPath: string; orchestratorName: string } | null = null
+
+  for (const hq of registeredHqs) {
+    const sanitized = sanitizeName(hq.name) || 'default'
+    const prefix = `${globalPrefix}${sanitized}-`
+    if (!sessionId.startsWith(prefix)) continue
+
+    const orchestratorName = sessionId.slice(prefix.length)
+    if (orchestratorName.length === 0) continue
+
+    if (!best || sanitized.length > (sanitizeName(best.hqName) || 'default').length) {
+      best = { hqName: hq.name, hqPath: hq.path, orchestratorName }
+    }
+  }
+
+  if (best) {
+    return best
+  }
+
+  // No registered HQ matched. Return the suffix as the orchestrator name with
+  // unknown HQ context — this can happen for sessions belonging to an
+  // unregistered or pruned HQ.
+  return {
+    hqName: null,
+    hqPath: null,
+    orchestratorName: sessionId.slice(globalPrefix.length),
+  }
+}
+
+/**
+ * Enrich an orchestrator session id with HQ context resolved from the
+ * machine-level registry. Always returns a valid OrchestratorSessionInfo,
+ * with hqName/hqPath set to null when the session cannot be mapped back
+ * to a known HQ.
+ */
+export function enrichOrchestratorSession(
+  sessionId: string,
+  isDocker: boolean,
+  registeredHqs?: Array<Pick<RegisteredHeadquarters, 'name' | 'path'>>,
+): OrchestratorSessionInfo {
+  const hqs = registeredHqs ?? getRegisteredHeadquarters()
+  const parsed = parseOrchestratorSessionId(sessionId, hqs)
+  return {
+    sessionId,
+    orchestratorName: parsed.orchestratorName,
+    hqName: parsed.hqName,
+    hqPath: parsed.hqPath,
+    isDocker,
+  }
+}
+
+/**
+ * Replace the user's home directory with `~` for compact display.
+ */
+export function formatHomePath(input: string): string {
+  const home = process.env.HOME || os.homedir()
+  if (!home) return input
+  if (input === home) return '~'
+  if (input.startsWith(home + path.sep)) {
+    return '~' + input.slice(home.length)
+  }
+  return input
+}
+
+/**
+ * Build the human-readable label for an orchestrator session in pickers and
+ * status output. Format: `{name} (running, {context}[, Docker])`.
+ *
+ * Examples:
+ *   main      (running, ~/Projects/backend)
+ *   backend   (running, ~/Projects/proletariat-hq, Docker)
+ *   reviewer  (running, host)  // when HQ context can't be resolved
+ */
+export function formatOrchestratorSessionLabel(info: OrchestratorSessionInfo): string {
+  const context = info.hqPath ? formatHomePath(info.hqPath) : 'host'
+  const dockerSuffix = info.isDocker ? ', Docker' : ''
+  return `${info.orchestratorName} (running, ${context}${dockerSuffix})`
 }
 
 export function collectReservedOrchestratorNames(

@@ -27,8 +27,10 @@ import {
   findHQOrchestratorSessions,
   findHQOrchestratorContainers,
   findRunningOrchestratorContainers,
-  extractOrchestratorNameFromSession,
   getOrchestratorContainerId,
+  enrichOrchestratorSession,
+  formatOrchestratorSessionLabel,
+  type OrchestratorSessionInfo,
 } from './start.js'
 
 /**
@@ -113,6 +115,13 @@ export default class OrchestratorAttach extends PromptCommand {
     let sessionName: string | undefined
     const hqPath = findHQRoot(process.cwd())
 
+    // Discover ALL orchestrator sessions (host + Docker), enriched with HQ context.
+    // Used for both the picker and the "session not found" error message.
+    const allRunningSessions: OrchestratorSessionInfo[] = [
+      ...findRunningOrchestratorSessions(hostSessions).map(s => enrichOrchestratorSession(s, false)),
+      ...findRunningOrchestratorContainers().map(c => enrichOrchestratorSession(c, true)),
+    ]
+
     if (hqPath) {
       const hqName = getHeadquartersNameFromPath(hqPath)
 
@@ -131,49 +140,32 @@ export default class OrchestratorAttach extends PromptCommand {
             sessionName = undefined
           }
         }
+
+        if (!sessionName) {
+          // Named session does not exist — surface available sessions in the error.
+          this.reportNamedSessionNotFound(flags.name, allRunningSessions, flags, jsonMode)
+          return
+        }
       } else {
         // No --name: discover ALL orchestrators in this HQ (host tmux + Docker)
-        const hqSessions = findHQOrchestratorSessions(hostSessions, hqName)
-        const hqContainers = findHQOrchestratorContainers(hqName)
-
-        const allSessions = [
-          ...hqSessions.map(s => ({ name: extractOrchestratorNameFromSession(s, hqName) || s, value: s, isDocker: false })),
-          ...hqContainers.map(c => ({ name: extractOrchestratorNameFromSession(c, hqName) || c, value: c, isDocker: true })),
+        const hqInfos: OrchestratorSessionInfo[] = [
+          ...findHQOrchestratorSessions(hostSessions, hqName).map(s => enrichOrchestratorSession(s, false)),
+          ...findHQOrchestratorContainers(hqName).map(c => enrichOrchestratorSession(c, true)),
         ]
 
-        if (allSessions.length === 1) {
-          sessionName = allSessions[0].value
-          isDockerSession = allSessions[0].isDocker
+        if (hqInfos.length === 1) {
+          sessionName = hqInfos[0].sessionId
+          isDockerSession = hqInfos[0].isDocker
           if (isDockerSession) {
             dockerContainerId = getOrchestratorContainerId(sessionName) || undefined
           }
-        } else if (allSessions.length > 1) {
-          const sessionChoices = allSessions.map(s => ({
-            name: `${s.name}${s.isDocker ? ' (Docker)' : ''}`,
-            value: s.value,
-            command: `prlt orchestrator attach --name "${s.name}" --json`,
-          }))
-          const selectMessage = 'Multiple orchestrator sessions found. Select one to attach:'
-
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'session', selectMessage, sessionChoices),
-              createMetadata('orchestrator attach', flags),
-            )
-            return
-          }
-
-          const { session } = await this.prompt<{ session: string }>([{
-            type: 'list',
-            name: 'session',
-            message: selectMessage,
-            choices: sessionChoices,
-          }])
-          sessionName = session
-          const matched = allSessions.find(s => s.value === session)
-          if (matched?.isDocker) {
-            isDockerSession = true
-            dockerContainerId = getOrchestratorContainerId(session) || undefined
+        } else if (hqInfos.length > 1) {
+          const picked = await this.pickOrchestratorSession(hqInfos, flags, jsonMode, 'attach')
+          if (!picked) return
+          sessionName = picked.sessionId
+          isDockerSession = picked.isDocker
+          if (isDockerSession) {
+            dockerContainerId = getOrchestratorContainerId(sessionName) || undefined
           }
         }
         // If 0 found, fall through to global discovery below
@@ -182,15 +174,7 @@ export default class OrchestratorAttach extends PromptCommand {
 
     // If not in HQ or session not found, discover running orchestrator sessions globally
     if (!sessionName) {
-      const runningSessions = findRunningOrchestratorSessions(hostSessions)
-      const runningContainers = findRunningOrchestratorContainers()
-
-      const allSessions = [
-        ...runningSessions.map(s => ({ name: s, value: s, isDocker: false })),
-        ...runningContainers.map(c => ({ name: `${c} (Docker)`, value: c, isDocker: true })),
-      ]
-
-      if (allSessions.length === 0) {
+      if (allRunningSessions.length === 0) {
         if (jsonMode) {
           outputErrorAsJson(
             'NOT_RUNNING',
@@ -204,40 +188,45 @@ export default class OrchestratorAttach extends PromptCommand {
         this.log(styles.muted('Start it with: prlt orchestrator start'))
         this.log('')
         return
-      } else if (allSessions.length === 1) {
-        sessionName = allSessions[0].value
-        isDockerSession = allSessions[0].isDocker
+      }
+
+      // Global --name lookup: when called outside an HQ with --name, match by
+      // orchestrator name across all running sessions.
+      if (flags.name) {
+        const matches = allRunningSessions.filter(s => s.orchestratorName === flags.name)
+        if (matches.length === 0) {
+          this.reportNamedSessionNotFound(flags.name, allRunningSessions, flags, jsonMode)
+          return
+        }
+        if (matches.length === 1) {
+          sessionName = matches[0].sessionId
+          isDockerSession = matches[0].isDocker
+          if (isDockerSession) {
+            dockerContainerId = getOrchestratorContainerId(sessionName) || undefined
+          }
+        } else {
+          // Multiple matches across HQs — let the user disambiguate.
+          const picked = await this.pickOrchestratorSession(matches, flags, jsonMode, 'attach')
+          if (!picked) return
+          sessionName = picked.sessionId
+          isDockerSession = picked.isDocker
+          if (isDockerSession) {
+            dockerContainerId = getOrchestratorContainerId(sessionName) || undefined
+          }
+        }
+      } else if (allRunningSessions.length === 1) {
+        sessionName = allRunningSessions[0].sessionId
+        isDockerSession = allRunningSessions[0].isDocker
         if (isDockerSession) {
           dockerContainerId = getOrchestratorContainerId(sessionName) || undefined
         }
       } else {
-        // Multiple sessions — let user pick
-        const sessionChoices = allSessions.map(s => ({
-          name: s.name,
-          value: s.value,
-          command: `prlt orchestrator attach --name "${s.value}" --json`,
-        }))
-        const selectMessage = 'Multiple orchestrator sessions found. Select one to attach:'
-
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'session', selectMessage, sessionChoices),
-            createMetadata('orchestrator attach', flags),
-          )
-          return
-        }
-
-        const { session } = await this.prompt<{ session: string }>([{
-          type: 'list',
-          name: 'session',
-          message: selectMessage,
-          choices: sessionChoices,
-        }])
-        sessionName = session
-        const matched = allSessions.find(s => s.value === session)
-        if (matched?.isDocker) {
-          isDockerSession = true
-          dockerContainerId = getOrchestratorContainerId(session) || undefined
+        const picked = await this.pickOrchestratorSession(allRunningSessions, flags, jsonMode, 'attach')
+        if (!picked) return
+        sessionName = picked.sessionId
+        isDockerSession = picked.isDocker
+        if (isDockerSession) {
+          dockerContainerId = getOrchestratorContainerId(sessionName) || undefined
         }
       }
     }
@@ -322,6 +311,84 @@ export default class OrchestratorAttach extends PromptCommand {
     } else {
       this.attachInCurrentTerminal(useControlMode, sessionName)
     }
+  }
+
+  /**
+   * Show a picker for orchestrator sessions and return the selected one.
+   * In JSON mode, emits a prompt config and returns null (caller should bail).
+   */
+  private async pickOrchestratorSession(
+    infos: OrchestratorSessionInfo[],
+    flags: Record<string, unknown>,
+    jsonMode: boolean,
+    action: 'attach' | 'stop',
+  ): Promise<OrchestratorSessionInfo | null> {
+    const sessionChoices = infos.map(info => ({
+      name: formatOrchestratorSessionLabel(info),
+      value: info.sessionId,
+      command: `prlt orchestrator ${action} --name "${info.orchestratorName}" --json`,
+    }))
+    const selectMessage =
+      action === 'attach'
+        ? 'Select orchestrator to attach to:'
+        : 'Select orchestrator to stop:'
+
+    if (jsonMode) {
+      outputPromptAsJson(
+        buildPromptConfig('list', 'session', selectMessage, sessionChoices),
+        createMetadata(`orchestrator ${action}`, flags),
+      )
+      return null
+    }
+
+    const { session } = await this.prompt<{ session: string }>([{
+      type: 'list',
+      name: 'session',
+      message: selectMessage,
+      choices: sessionChoices,
+    }])
+
+    return infos.find(info => info.sessionId === session) || null
+  }
+
+  /**
+   * Surface a "session not found" error that lists available sessions and
+   * their HQ context, so the user can pick a valid name without guessing.
+   */
+  private reportNamedSessionNotFound(
+    requestedName: string,
+    available: OrchestratorSessionInfo[],
+    flags: Record<string, unknown>,
+    jsonMode: boolean,
+  ): void {
+    const availableSummary = available.length === 0
+      ? 'No orchestrator sessions are currently running.'
+      : `Available sessions:\n${available.map(info => `  - ${formatOrchestratorSessionLabel(info)}`).join('\n')}`
+
+    const message = `Orchestrator session "${requestedName}" not found. ${availableSummary}`
+
+    if (jsonMode) {
+      outputErrorAsJson(
+        'SESSION_NOT_FOUND',
+        message,
+        createMetadata('orchestrator attach', flags),
+      )
+      return
+    }
+
+    this.log('')
+    this.log(styles.warning(`Orchestrator session "${requestedName}" not found.`))
+    if (available.length === 0) {
+      this.log(styles.muted('No orchestrator sessions are currently running.'))
+      this.log(styles.muted('Start one with: prlt orchestrator start'))
+    } else {
+      this.log('')
+      this.log(styles.muted('Available sessions:'))
+      for (const info of available) {
+        this.log(styles.muted(`  - ${formatOrchestratorSessionLabel(info)}`))
+      }
+    }
+    this.log('')
   }
 
   private attachInCurrentTerminal(_useControlMode: boolean, sessionName: string): void {

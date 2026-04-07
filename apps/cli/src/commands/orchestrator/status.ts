@@ -18,8 +18,9 @@ import {
   findHQOrchestratorSessions,
   findHQOrchestratorContainers,
   findRunningOrchestratorContainers,
-  extractOrchestratorNameFromSession,
   getOrchestratorContainerId,
+  enrichOrchestratorSession,
+  formatHomePath,
 } from './start.js'
 
 export default class OrchestratorStatus extends PromptCommand {
@@ -134,8 +135,28 @@ export default class OrchestratorStatus extends PromptCommand {
       const hqContainers = findHQOrchestratorContainers(hqName)
 
       const allSessions = [
-        ...hqSessions.map(s => ({ sessionId: s, name: extractOrchestratorNameFromSession(s, hqName) || s, environment: 'host' as const, containerId: null as string | null })),
-        ...hqContainers.map(c => ({ sessionId: c, name: extractOrchestratorNameFromSession(c, hqName) || c, environment: 'docker' as const, containerId: getOrchestratorContainerId(c) })),
+        ...hqSessions.map(s => {
+          const info = enrichOrchestratorSession(s, false)
+          return {
+            sessionId: s,
+            name: info.orchestratorName,
+            hqName: info.hqName,
+            hqPath: info.hqPath,
+            environment: 'host' as const,
+            containerId: null as string | null,
+          }
+        }),
+        ...hqContainers.map(c => {
+          const info = enrichOrchestratorSession(c, true)
+          return {
+            sessionId: c,
+            name: info.orchestratorName,
+            hqName: info.hqName,
+            hqPath: info.hqPath,
+            environment: 'docker' as const,
+            containerId: getOrchestratorContainerId(c),
+          }
+        }),
       ]
 
       if (jsonMode) {
@@ -154,7 +175,9 @@ export default class OrchestratorStatus extends PromptCommand {
         this.log(styles.success(`${allSessions.length} orchestrator session(s) running:`))
         for (const s of allSessions) {
           const envLabel = s.environment === 'docker' ? ' (Docker)' : ''
-          this.log(styles.muted(`   ${s.name}${envLabel} (${s.sessionId})`))
+          const context = s.hqPath ? formatHomePath(s.hqPath) : 'host'
+          this.log(styles.muted(`   ${s.name}${envLabel}  (running, ${context})`))
+          this.log(styles.muted(`     Session: ${s.sessionId}`))
           this.log(styles.muted(`     Attach: prlt orchestrator attach --name ${s.name}`))
           if (flags.peek) {
             let output: string | null = null
@@ -180,8 +203,26 @@ export default class OrchestratorStatus extends PromptCommand {
     const runningContainers = findRunningOrchestratorContainers()
 
     const allSessions = [
-      ...runningSessions.map(s => ({ name: s, environment: 'host' as const })),
-      ...runningContainers.map(c => ({ name: `${c} (Docker)`, environment: 'docker' as const })),
+      ...runningSessions.map(s => {
+        const info = enrichOrchestratorSession(s, false)
+        return {
+          sessionId: s,
+          name: info.orchestratorName,
+          hqName: info.hqName,
+          hqPath: info.hqPath,
+          environment: 'host' as const,
+        }
+      }),
+      ...runningContainers.map(c => {
+        const info = enrichOrchestratorSession(c, true)
+        return {
+          sessionId: c,
+          name: info.orchestratorName,
+          hqName: info.hqName,
+          hqPath: info.hqPath,
+          environment: 'docker' as const,
+        }
+      }),
     ]
 
     if (jsonMode) {
@@ -199,10 +240,13 @@ export default class OrchestratorStatus extends PromptCommand {
     } else {
       this.log(styles.success(`${allSessions.length} orchestrator session(s) running:`))
       for (const s of allSessions) {
-        this.log(styles.muted(`   ${s.name}`))
+        const envLabel = s.environment === 'docker' ? ' (Docker)' : ''
+        const context = s.hqPath ? formatHomePath(s.hqPath) : 'host'
+        this.log(styles.muted(`   ${s.name}${envLabel}  (running, ${context})`))
+        this.log(styles.muted(`     Session: ${s.sessionId}`))
         if (flags.peek && s.environment === 'host') {
           // Can only peek at host sessions with captureTmuxPane
-          const output = captureTmuxPane(s.name, flags.lines)
+          const output = captureTmuxPane(s.sessionId, flags.lines)
           if (output) {
             this.log(styles.muted('─'.repeat(60)))
             this.log(output)
