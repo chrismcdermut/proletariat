@@ -41,12 +41,12 @@ describe('JSON Envelope Contract Tests (TKT-1006)', () => {
   // Schema Stability: Type Discriminators
   // ===========================================================================
   describe('envelope type discriminators', () => {
-    it('should have exactly 6 envelope types', () => {
-      expect(JSON_ENVELOPE_TYPES).to.have.length(6);
+    it('should have exactly 7 envelope types', () => {
+      expect(JSON_ENVELOPE_TYPES).to.have.length(7);
     });
 
     it('should include all canonical envelope types', () => {
-      const expected = ['prompt', 'success', 'error', 'dry-run', 'confirmation_needed', 'execution_result'];
+      const expected = ['prompt', 'success', 'error', 'dry-run', 'confirmation_needed', 'execution_result', 'validation_error'];
       for (const type of expected) {
         expect(JSON_ENVELOPE_TYPES).to.include(type);
       }
@@ -54,7 +54,7 @@ describe('JSON Envelope Contract Tests (TKT-1006)', () => {
 
     it('should not have unexpected envelope types', () => {
       for (const type of JSON_ENVELOPE_TYPES) {
-        expect(['prompt', 'success', 'error', 'dry-run', 'confirmation_needed', 'execution_result']).to.include(type);
+        expect(['prompt', 'success', 'error', 'dry-run', 'confirmation_needed', 'execution_result', 'validation_error']).to.include(type);
       }
     });
   });
@@ -87,6 +87,12 @@ describe('JSON Envelope Contract Tests (TKT-1006)', () => {
 
     it('execution_result type should require type, result, metadata', () => {
       expect(JSON_ENVELOPE_REQUIRED_FIELDS.execution_result).to.deep.equal(['type', 'result', 'metadata']);
+    });
+
+    it('validation_error type should require type, command, reason, message, missing, schema, metadata', () => {
+      expect(JSON_ENVELOPE_REQUIRED_FIELDS.validation_error).to.deep.equal(
+        ['type', 'command', 'reason', 'message', 'missing', 'schema', 'metadata']
+      );
     });
   });
 
@@ -219,6 +225,26 @@ describe('JSON Envelope Contract Tests (TKT-1006)', () => {
       const errors = validateJsonEnvelope(envelope);
       expect(errors).to.be.empty;
     });
+
+    it('should validate a well-formed validation_error envelope', () => {
+      const envelope = {
+        type: 'validation_error' as const,
+        command: 'work run',
+        reason: 'missing_required_flags',
+        message: 'Missing required flag prompt',
+        missing: ['prompt'],
+        schema: {
+          prompt: {
+            type: 'input' as const,
+            required: true,
+            description: 'Work prompt',
+          },
+        },
+        metadata: createMetadata('work run', { json: true }),
+      };
+      const errors = validateJsonEnvelope(envelope);
+      expect(errors).to.be.empty;
+    });
   });
 
   // ===========================================================================
@@ -293,6 +319,45 @@ describe('JSON Envelope Contract Tests (TKT-1006)', () => {
         metadata: { command: 'test', flags: {} },
       });
       expect(errors).to.include('confirm_command must be a non-empty string');
+    });
+
+    it('should reject validation_error without command', () => {
+      const errors = validateJsonEnvelope({
+        type: 'validation_error',
+        command: '',
+        reason: 'missing_required_flags',
+        message: 'Missing flag',
+        missing: ['x'],
+        schema: {},
+        metadata: { command: 'test', flags: {} },
+      });
+      expect(errors).to.include('command must be a non-empty string');
+    });
+
+    it('should reject validation_error with non-array missing', () => {
+      const errors = validateJsonEnvelope({
+        type: 'validation_error',
+        command: 'foo',
+        reason: 'missing_required_flags',
+        message: 'msg',
+        missing: 'not-an-array',
+        schema: {},
+        metadata: { command: 'foo', flags: {} },
+      });
+      expect(errors).to.include('missing must be an array');
+    });
+
+    it('should reject validation_error with null schema', () => {
+      const errors = validateJsonEnvelope({
+        type: 'validation_error',
+        command: 'foo',
+        reason: 'missing_required_flags',
+        message: 'msg',
+        missing: ['x'],
+        schema: null,
+        metadata: { command: 'foo', flags: {} },
+      });
+      expect(errors).to.include('schema must be a non-null object');
     });
 
     it('should reject metadata without command', () => {
