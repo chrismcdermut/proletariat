@@ -21,7 +21,15 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Update npm for OIDC trusted publishing
-        run: npm install -g npm@10.9.2
+        # OIDC trusted publishing requires npm 11.5.2+. npm 10.9.2 predates this
+        # feature, so even though OIDC is configured on the npm registry, the
+        # client falls back to the placeholder NODE_AUTH_TOKEN that
+        # actions/setup-node@v4 injects (which corresponds to a revoked
+        # NPM_TOKEN secret) and fails. 11.5.2 is the earliest 11.x with OIDC
+        # support, and we avoid newer 11.x releases that may ship with the
+        # broken promise-retry bundling that affected npm@latest. See PRLT-1267
+        # and PRLT-1266.
+        run: npm install -g npm@11.5.2
 
       - name: Get pnpm store directory
         id: pnpm-cache
