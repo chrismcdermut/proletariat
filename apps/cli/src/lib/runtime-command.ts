@@ -162,11 +162,13 @@ export abstract class RuntimeCommand extends PromptCommand {
 
   /**
    * oclif catch hook — called when an error occurs.
-   * Ensures cleanup even on errors.
+   * Ensures cleanup, then delegates to PromptCommand.catch so the
+   * validation-first JSON error layer (PRLT-1269) can intercept oclif
+   * parse errors and reformat them as structured envelopes.
    */
   async catch(error: Error & { exitCode?: number }): Promise<void> {
     await this.cleanup();
-    throw error;
+    return super.catch(error);
   }
 
   /**
