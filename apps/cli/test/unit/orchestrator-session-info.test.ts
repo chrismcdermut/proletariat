@@ -1,12 +1,17 @@
 import { expect } from 'chai'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   parseOrchestratorSessionId,
   enrichOrchestratorSession,
+  enrichOrchestratorSessionFromMachineDb,
+  findMachineOrchestratorExecution,
   formatOrchestratorSessionLabel,
   formatHomePath,
   type OrchestratorSessionInfo,
 } from '../../src/commands/orchestrator/start.js'
+import { MachineDB } from '../../src/lib/machine-db.js'
 
 /**
  * PRLT-1271: Orchestrator session enrichment helpers.
@@ -142,6 +147,207 @@ describe('PRLT-1271: orchestrator session info helpers', () => {
       // formatHomePath would naively use '/' as the separator.
       const homedirPath = process.env.HOME + path.sep + 'a'
       expect(formatHomePath(homedirPath)).to.equal('~' + path.sep + 'a')
+    })
+  })
+
+  describe('findMachineOrchestratorExecution', () => {
+    let tmpDir: string
+    let dbPath: string
+    let db: MachineDB
+
+    beforeEach(() => {
+      tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-orch-session-info-')))
+      dbPath = path.join(tmpDir, 'machine.db')
+      db = new MachineDB(dbPath)
+    })
+
+    afterEach(() => {
+      db.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    })
+
+    it('finds a running orchestrator by sessionId', () => {
+      const exec = db.createExecution({
+        prompt: 'orchestrator: main',
+        repoPath: '/projects/backend',
+        agentName: 'orchestrator-main',
+        persistent: true,
+      })
+      db.updateStatus(exec.id, 'running')
+      db.updateProcessInfo(exec.id, { sessionId: 'prlt-orchestrator-backend-main' })
+
+      const found = findMachineOrchestratorExecution(db, 'prlt-orchestrator-backend-main')
+      expect(found).to.not.be.null
+      expect(found!.repoPath).to.equal('/projects/backend')
+      expect(found!.agentName).to.equal('orchestrator-main')
+    })
+
+    it('returns null when no matching orchestrator exists', () => {
+      const exec = db.createExecution({
+        prompt: 'worker',
+        repoPath: '/projects/backend',
+        agentName: 'worker', // NOT an orchestrator — must be ignored
+      })
+      db.updateStatus(exec.id, 'running')
+      db.updateProcessInfo(exec.id, { sessionId: 'some-session' })
+
+      const found = findMachineOrchestratorExecution(db, 'some-session')
+      expect(found).to.be.null
+    })
+
+    it('matches by containerId for Docker sessions', () => {
+      const exec = db.createExecution({
+        prompt: 'orchestrator: reviewer',
+        repoPath: '/projects/frontend',
+        agentName: 'orchestrator-reviewer',
+        environment: 'docker',
+      })
+      db.updateStatus(exec.id, 'running')
+      db.updateProcessInfo(exec.id, {
+        sessionId: 'prlt-orchestrator-frontend-reviewer',
+        containerId: 'abc123def456',
+      })
+
+      // Match by container id even if session id does not match.
+      const found = findMachineOrchestratorExecution(db, 'some-other-id', 'abc123def456')
+      expect(found).to.not.be.null
+      expect(found!.repoPath).to.equal('/projects/frontend')
+    })
+
+    it('ignores non-orchestrator agents with matching session ids', () => {
+      // Create a worker agent with the SAME sessionId as an orchestrator would
+      // use — findMachineOrchestratorExecution must filter by agent name.
+      const worker = db.createExecution({
+        prompt: 'worker',
+        repoPath: '/projects/backend',
+        agentName: 'worker',
+      })
+      db.updateStatus(worker.id, 'running')
+      db.updateProcessInfo(worker.id, { sessionId: 'prlt-orchestrator-backend-main' })
+
+      const found = findMachineOrchestratorExecution(db, 'prlt-orchestrator-backend-main')
+      expect(found).to.be.null
+    })
+
+    it('ignores completed/stopped orchestrator executions', () => {
+      const exec = db.createExecution({
+        prompt: 'orchestrator: main',
+        repoPath: '/projects/backend',
+        agentName: 'orchestrator-main',
+      })
+      db.updateStatus(exec.id, 'running')
+      db.updateProcessInfo(exec.id, { sessionId: 'prlt-orchestrator-backend-main' })
+      db.updateStatus(exec.id, 'stopped')
+
+      const found = findMachineOrchestratorExecution(db, 'prlt-orchestrator-backend-main')
+      expect(found).to.be.null
+    })
+  })
+
+  describe('enrichOrchestratorSessionFromMachineDb', () => {
+    let tmpDir: string
+    let dbPath: string
+    let db: MachineDB
+
+    beforeEach(() => {
+      tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-orch-enrich-')))
+      dbPath = path.join(tmpDir, 'machine.db')
+      db = new MachineDB(dbPath)
+    })
+
+    afterEach(() => {
+      db.close()
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    })
+
+    it('uses machine.db repo_path as the authoritative hqPath', () => {
+      // HQ basename matches an unrelated registered HQ, but machine.db
+      // overrides it with the actual originating repo path.
+      const exec = db.createExecution({
+        prompt: 'orchestrator: main',
+        repoPath: '/actual/originating/path',
+        agentName: 'orchestrator-main',
+      })
+      db.updateStatus(exec.id, 'running')
+      db.updateProcessInfo(exec.id, { sessionId: 'prlt-orchestrator-backend-main' })
+
+      const info = enrichOrchestratorSessionFromMachineDb(
+        'prlt-orchestrator-backend-main',
+        false,
+        db,
+        undefined,
+        [{ name: 'backend', path: '/stale/wrong/path' }],
+      )
+
+      expect(info.hqPath).to.equal('/actual/originating/path')
+      expect(info.orchestratorName).to.equal('main')
+    })
+
+    it('derives orchestrator name from the agent_name column', () => {
+      const exec = db.createExecution({
+        prompt: 'orchestrator: reviewer',
+        repoPath: '/repo',
+        agentName: 'orchestrator-reviewer',
+      })
+      db.updateStatus(exec.id, 'running')
+      db.updateProcessInfo(exec.id, { sessionId: 'some-opaque-session-id' })
+
+      const info = enrichOrchestratorSessionFromMachineDb(
+        'some-opaque-session-id',
+        false,
+        db,
+      )
+      expect(info.orchestratorName).to.equal('reviewer')
+    })
+
+    it('falls back to registry enrichment when machine.db has no record', () => {
+      const info = enrichOrchestratorSessionFromMachineDb(
+        'prlt-orchestrator-backend-main',
+        false,
+        db, // empty — no matching execution
+        undefined,
+        [{ name: 'backend', path: '/projects/backend' }],
+      )
+
+      expect(info.hqPath).to.equal('/projects/backend')
+      expect(info.hqName).to.equal('backend')
+      expect(info.orchestratorName).to.equal('main')
+    })
+
+    it('falls back to registry enrichment when machine.db is null', () => {
+      const info = enrichOrchestratorSessionFromMachineDb(
+        'prlt-orchestrator-backend-main',
+        false,
+        null,
+        undefined,
+        [{ name: 'backend', path: '/projects/backend' }],
+      )
+
+      expect(info.hqPath).to.equal('/projects/backend')
+      expect(info.orchestratorName).to.equal('main')
+    })
+
+    it('preserves the Docker flag when enriching', () => {
+      const exec = db.createExecution({
+        prompt: 'orchestrator: main',
+        repoPath: '/projects/dockerized',
+        agentName: 'orchestrator-main',
+        environment: 'docker',
+      })
+      db.updateStatus(exec.id, 'running')
+      db.updateProcessInfo(exec.id, {
+        sessionId: 'prlt-orchestrator-dockerized-main',
+        containerId: 'abc123',
+      })
+
+      const info = enrichOrchestratorSessionFromMachineDb(
+        'prlt-orchestrator-dockerized-main',
+        true,
+        db,
+        'abc123',
+      )
+      expect(info.isDocker).to.equal(true)
+      expect(info.hqPath).to.equal('/projects/dockerized')
     })
   })
 

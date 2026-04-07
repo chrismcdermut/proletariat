@@ -32,6 +32,7 @@ import {
 } from '../../lib/execution/runners.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { MachineDB, type MachineExecution } from '../../lib/machine-db.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
   loadExecutionConfig,
@@ -234,6 +235,82 @@ export function enrichOrchestratorSession(
     orchestratorName: parsed.orchestratorName,
     hqName: parsed.hqName,
     hqPath: parsed.hqPath,
+    isDocker,
+  }
+}
+
+/**
+ * Look up an orchestrator session in machine.db by its session id (for host
+ * tmux sessions) or container id (for Docker sessions). Returns the matching
+ * execution row if one exists, or null.
+ *
+ * Machine.db is the source of truth for the HQ path an orchestrator was
+ * started from — prefix-parsing only gives us the HQ name, which can be
+ * ambiguous across multiple registered HQs with the same basename.
+ */
+export function findMachineOrchestratorExecution(
+  machineDb: Pick<MachineDB, 'listExecutions'>,
+  sessionId: string,
+  containerId?: string,
+): MachineExecution | null {
+  // Pull all running + starting orchestrator executions. The set is small
+  // enough that client-side filtering is fine.
+  const active = [
+    ...machineDb.listExecutions({ status: 'running' }),
+    ...machineDb.listExecutions({ status: 'starting' }),
+  ]
+  const orchestrators = active.filter(e => e.agentName.startsWith('orchestrator-'))
+
+  // Prefer an exact session id match (covers host tmux sessions).
+  const bySession = orchestrators.find(e => e.sessionId === sessionId)
+  if (bySession) return bySession
+
+  // For Docker sessions the tmux "session id" and the container name are
+  // equal by construction (see buildOrchestratorContainerName), but fall back
+  // to matching by the short container id as well.
+  if (containerId) {
+    const byContainer = orchestrators.find(e => e.containerId === containerId)
+    if (byContainer) return byContainer
+  }
+
+  return null
+}
+
+/**
+ * Enrich an orchestrator session id with HQ context using machine.db as the
+ * primary source and the machine registry as fallback.
+ *
+ * Machine.db gives us the exact `repo_path` the orchestrator was launched
+ * from, which is more reliable than sanitized-name prefix matching.
+ */
+export function enrichOrchestratorSessionFromMachineDb(
+  sessionId: string,
+  isDocker: boolean,
+  machineDb: Pick<MachineDB, 'listExecutions'> | null,
+  containerId?: string,
+  registeredHqs?: Array<Pick<RegisteredHeadquarters, 'name' | 'path'>>,
+): OrchestratorSessionInfo {
+  const base = enrichOrchestratorSession(sessionId, isDocker, registeredHqs)
+
+  if (!machineDb) return base
+
+  const execution = findMachineOrchestratorExecution(machineDb, sessionId, containerId)
+  if (!execution) return base
+
+  // Derive orchestrator name from the agent_name column
+  // (format: 'orchestrator-{name}'), falling back to whatever prefix-parsing
+  // produced if the agent name is malformed.
+  const orchestratorName = execution.agentName.startsWith('orchestrator-')
+    ? execution.agentName.slice('orchestrator-'.length) || base.orchestratorName
+    : base.orchestratorName
+
+  return {
+    sessionId,
+    orchestratorName,
+    // Machine.db doesn't store HQ name separately — reuse whatever the
+    // registry matched, so we can still keep a human-readable name handy.
+    hqName: base.hqName,
+    hqPath: execution.repoPath,
     isDocker,
   }
 }
@@ -818,6 +895,36 @@ export default class OrchestratorStart extends RuntimeCommand {
         } catch {
           // Non-fatal: poke won't work but orchestrator is running
         }
+      }
+
+      // PRLT-1271: Also record the orchestrator in machine.db so that
+      // `prlt orchestrator attach/status/stop` can discover sessions from
+      // anywhere on the machine, not just from inside the originating HQ.
+      // Persistent + cleanup policy mirrors how `prlt work run` persists
+      // long-lived agents.
+      let machineDb: MachineDB | null = null
+      try {
+        machineDb = new MachineDB()
+        const machineExec = machineDb.createExecution({
+          prompt: actionPrompt || `orchestrator: ${orchestratorName}`,
+          repoPath: hqPath,
+          agentName: `orchestrator-${orchestratorName}`,
+          executor: selectedExecutor,
+          environment,
+          ticketId: 'ORCH',
+          persistent: true,
+          cleanupPolicy: 'persistent',
+        })
+        machineDb.updateStatus(machineExec.id, 'running')
+        machineDb.updateProcessInfo(machineExec.id, {
+          sessionId: result.sessionId || sessionName,
+          containerId: result.containerId,
+        })
+      } catch {
+        // Non-fatal: machine-wide discovery will fall back to registry
+        // prefix matching for this session.
+      } finally {
+        machineDb?.close()
       }
 
       if (jsonMode) {

@@ -16,19 +16,16 @@ import {
 import { styles } from '../../lib/styles.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { MachineDB } from '../../lib/machine-db.js'
 import {
-  buildOrchestratorSessionName,
-  buildOrchestratorContainerName,
   findRunningOrchestratorSessions,
-  findHQOrchestratorSessions,
-  findHQOrchestratorContainers,
   findRunningOrchestratorContainers,
   getOrchestratorContainerId,
-  enrichOrchestratorSession,
+  enrichOrchestratorSessionFromMachineDb,
+  findMachineOrchestratorExecution,
   formatOrchestratorSessionLabel,
   type OrchestratorSessionInfo,
 } from './start.js'
-import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
 
 export default class OrchestratorStop extends PromptCommand {
   static description = 'Stop the running orchestrator'
@@ -54,115 +51,79 @@ export default class OrchestratorStop extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStop)
     const jsonMode = shouldOutputJson(flags)
-    const hostSessions = getHostTmuxSessionNames()
+
+    // PRLT-1271: machine-wide discovery — `prlt orchestrator stop` must work
+    // from anywhere on the machine and show every running orchestrator's
+    // originating HQ, not just the ones in the current HQ.
+    const allRunningSessions = this.discoverMachineWideSessions()
+
+    // Current HQ is only used to disambiguate `--name` matches when multiple
+    // HQs have a session with the same orchestrator name.
+    const hqPath = findHQRoot(process.cwd())
 
     // Track whether the resolved session is in a Docker container
     let isDockerSession = false
-
-    // Resolve session name: try HQ-scoped first, fall back to discovery
     let sessionName: string | undefined
     let orchestratorName: string | undefined
-    const hqPath = findHQRoot(process.cwd())
+    let resolvedHqPath: string | null | undefined
 
-    // Discover ALL orchestrator sessions (host + Docker), enriched with HQ context.
-    // Used for both the picker and the "session not found" error message.
-    const allRunningSessions: OrchestratorSessionInfo[] = [
-      ...findRunningOrchestratorSessions(hostSessions).map(s => enrichOrchestratorSession(s, false)),
-      ...findRunningOrchestratorContainers().map(c => enrichOrchestratorSession(c, true)),
-    ]
-
-    if (hqPath) {
-      const hqName = getHeadquartersNameFromPath(hqPath)
-
-      if (flags.name) {
-        // Explicit --name: look for that specific orchestrator (host tmux first, then Docker)
-        sessionName = buildOrchestratorSessionName(hqName, flags.name)
-        orchestratorName = flags.name
-        if (!hostSessions.includes(sessionName)) {
-          // Check Docker
-          const containerName = buildOrchestratorContainerName(hqName, flags.name)
-          const containerId = getOrchestratorContainerId(containerName)
-          if (containerId) {
-            sessionName = containerName
-            isDockerSession = true
-          } else {
-            sessionName = undefined
-          }
-        }
-
-        if (!sessionName) {
-          this.reportNamedSessionNotFound(flags.name, allRunningSessions, flags, jsonMode)
-          return
-        }
-      } else {
-        // No --name: discover ALL orchestrators in this HQ (host + Docker)
-        const hqInfos: OrchestratorSessionInfo[] = [
-          ...findHQOrchestratorSessions(hostSessions, hqName).map(s => enrichOrchestratorSession(s, false)),
-          ...findHQOrchestratorContainers(hqName).map(c => enrichOrchestratorSession(c, true)),
-        ]
-
-        if (hqInfos.length === 1) {
-          sessionName = hqInfos[0].sessionId
-          orchestratorName = hqInfos[0].orchestratorName
-          isDockerSession = hqInfos[0].isDocker
-        } else if (hqInfos.length > 1) {
-          const picked = await this.pickOrchestratorSession(hqInfos, flags, jsonMode)
-          if (!picked) return
-          sessionName = picked.sessionId
-          orchestratorName = picked.orchestratorName
-          isDockerSession = picked.isDocker
-        }
-        // If 0 found, fall through to global discovery below
+    if (allRunningSessions.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson(
+          'NOT_RUNNING',
+          'Orchestrator is not running.',
+          createMetadata('orchestrator stop', flags),
+        )
+        return
       }
+      this.log('')
+      this.log(styles.muted('Orchestrator is not running.'))
+      this.log('')
+      return
     }
 
-    // If not in HQ or session not found, discover running orchestrator sessions globally
-    if (!sessionName) {
-      if (allRunningSessions.length === 0) {
-        if (jsonMode) {
-          outputErrorAsJson(
-            'NOT_RUNNING',
-            'Orchestrator is not running.',
-            createMetadata('orchestrator stop', flags),
-          )
-          return
-        }
-        this.log('')
-        this.log(styles.muted('Orchestrator is not running.'))
-        this.log('')
+    if (flags.name) {
+      let matches = allRunningSessions.filter(s => s.orchestratorName === flags.name)
+
+      if (matches.length === 0) {
+        this.reportNamedSessionNotFound(flags.name, allRunningSessions, flags, jsonMode)
         return
       }
 
-      // Global --name lookup: when called outside an HQ with --name, match by
-      // orchestrator name across all running sessions.
-      if (flags.name) {
-        const matches = allRunningSessions.filter(s => s.orchestratorName === flags.name)
-        if (matches.length === 0) {
-          this.reportNamedSessionNotFound(flags.name, allRunningSessions, flags, jsonMode)
-          return
+      // Prefer current HQ's match when ambiguous, to preserve existing
+      // single-HQ habits.
+      if (matches.length > 1 && hqPath) {
+        const inCurrentHq = matches.filter(s => s.hqPath === hqPath)
+        if (inCurrentHq.length === 1) {
+          matches = inCurrentHq
         }
-        if (matches.length === 1) {
-          sessionName = matches[0].sessionId
-          orchestratorName = matches[0].orchestratorName
-          isDockerSession = matches[0].isDocker
-        } else {
-          const picked = await this.pickOrchestratorSession(matches, flags, jsonMode)
-          if (!picked) return
-          sessionName = picked.sessionId
-          orchestratorName = picked.orchestratorName
-          isDockerSession = picked.isDocker
-        }
-      } else if (allRunningSessions.length === 1) {
-        sessionName = allRunningSessions[0].sessionId
-        orchestratorName = allRunningSessions[0].orchestratorName
-        isDockerSession = allRunningSessions[0].isDocker
+      }
+
+      if (matches.length === 1) {
+        sessionName = matches[0].sessionId
+        orchestratorName = matches[0].orchestratorName
+        isDockerSession = matches[0].isDocker
+        resolvedHqPath = matches[0].hqPath
       } else {
-        const picked = await this.pickOrchestratorSession(allRunningSessions, flags, jsonMode)
+        const picked = await this.pickOrchestratorSession(matches, flags, jsonMode)
         if (!picked) return
         sessionName = picked.sessionId
         orchestratorName = picked.orchestratorName
         isDockerSession = picked.isDocker
+        resolvedHqPath = picked.hqPath
       }
+    } else if (allRunningSessions.length === 1) {
+      sessionName = allRunningSessions[0].sessionId
+      orchestratorName = allRunningSessions[0].orchestratorName
+      isDockerSession = allRunningSessions[0].isDocker
+      resolvedHqPath = allRunningSessions[0].hqPath
+    } else {
+      const picked = await this.pickOrchestratorSession(allRunningSessions, flags, jsonMode)
+      if (!picked) return
+      sessionName = picked.sessionId
+      orchestratorName = picked.orchestratorName
+      isDockerSession = picked.isDocker
+      resolvedHqPath = picked.hqPath
     }
 
     if (!sessionName) {
@@ -208,11 +169,15 @@ export default class OrchestratorStop extends PromptCommand {
       this.error(`Failed to stop orchestrator: ${error instanceof Error ? error.message : error}`)
     }
 
-    // Update execution record to stopped (only if in HQ)
-    if (hqPath) {
+    // Update execution record in workspace.db — use the HQ the orchestrator
+    // was actually started from (resolved via machine.db), not the current
+    // working directory, so stops issued from a different HQ still clean up
+    // the right record.
+    const hqPathForCleanup = resolvedHqPath || hqPath
+    if (hqPathForCleanup) {
       let db: Database.Database | null = null
       try {
-        db = openWorkspaceDatabase(hqPath)
+        db = openWorkspaceDatabase(hqPathForCleanup)
         const executionStorage = new ExecutionStorage(db)
         // Match new format: orchestrator-{name}
         const agentNameToMatch = orchestratorName ? `orchestrator-${orchestratorName}` : undefined
@@ -234,6 +199,25 @@ export default class OrchestratorStop extends PromptCommand {
       }
     }
 
+    // Also update the machine.db record so `prlt orchestrator status` no
+    // longer shows this session as running.
+    let machineDb: MachineDB | null = null
+    try {
+      machineDb = new MachineDB()
+      const exec = findMachineOrchestratorExecution(
+        machineDb,
+        sessionName,
+        isDockerSession ? sessionName : undefined,
+      )
+      if (exec) {
+        machineDb.updateStatus(exec.id, 'stopped')
+      }
+    } catch {
+      // Non-fatal
+    } finally {
+      machineDb?.close()
+    }
+
     if (jsonMode) {
       outputSuccessAsJson({
         sessionId: sessionName,
@@ -245,6 +229,42 @@ export default class OrchestratorStop extends PromptCommand {
     this.log('')
     this.log(styles.success('Orchestrator stopped.'))
     this.log('')
+  }
+
+  /**
+   * Discover every running orchestrator session on the machine (host tmux +
+   * Docker), enriched with HQ context from machine.db. Works from anywhere —
+   * no HQ workspace required.
+   */
+  private discoverMachineWideSessions(): OrchestratorSessionInfo[] {
+    const hostSessions = getHostTmuxSessionNames()
+    const hostOrchestrators = findRunningOrchestratorSessions(hostSessions)
+    const containerOrchestrators = findRunningOrchestratorContainers()
+
+    let machineDb: MachineDB | null = null
+    try {
+      machineDb = new MachineDB()
+    } catch {
+      // Machine DB not available — fall back to registry-only enrichment.
+    }
+
+    try {
+      const hostInfos = hostOrchestrators.map(sessionId =>
+        enrichOrchestratorSessionFromMachineDb(sessionId, false, machineDb),
+      )
+      const containerInfos = containerOrchestrators.map(containerName => {
+        const containerId = getOrchestratorContainerId(containerName) || undefined
+        return enrichOrchestratorSessionFromMachineDb(
+          containerName,
+          true,
+          machineDb,
+          containerId,
+        )
+      })
+      return [...hostInfos, ...containerInfos]
+    } finally {
+      machineDb?.close()
+    }
   }
 
   /**
