@@ -24,12 +24,15 @@ jobs:
         # OIDC trusted publishing requires npm 11.5.2+. npm 10.9.2 predates this
         # feature, so even though OIDC is configured on the npm registry, the
         # client falls back to the placeholder NODE_AUTH_TOKEN that
-        # actions/setup-node@v4 injects (which corresponds to a revoked
-        # NPM_TOKEN secret) and fails. 11.5.2 is the earliest 11.x with OIDC
-        # support, and we avoid newer 11.x releases that may ship with the
-        # broken promise-retry bundling that affected npm@latest. See PRLT-1267
-        # and PRLT-1266.
-        run: npm install -g npm@11.5.2
+        # actions/setup-node@v4 injects (corresponding to a revoked NPM_TOKEN
+        # secret) and fails with 404. See PRLT-1267.
+        #
+        # Pinned to 11.11.1: latest known-good version per local bisect.
+        # 11.5.2 through 11.11.1 all have OIDC trusted publishing AND have
+        # promise-retry bundled correctly. 11.12.0 introduced the bundling
+        # regression that breaks `npm install -g` on GitHub runners (the
+        # original PRLT-1266 incident); 11.12.1 is also broken.
+        run: npm install -g npm@11.11.1
 
       - name: Get pnpm store directory
         id: pnpm-cache
