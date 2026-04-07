@@ -14,19 +14,13 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
-import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import {
-  buildOrchestratorSessionName,
-  buildOrchestratorContainerName,
-  findRunningOrchestratorSessions,
-  findHQOrchestratorSessions,
-  findHQOrchestratorContainers,
-  findRunningOrchestratorContainers,
-  extractOrchestratorNameFromSession,
-  getOrchestratorContainerId,
-} from './start.js'
-import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
+  collectAllSessions,
+  groupSessionsByHQ,
+  tildifyPath,
+  type UnifiedSession,
+} from '../../lib/session/renderer.js'
 
 export default class OrchestratorStop extends PromptCommand {
   static description = 'Stop the running orchestrator'
@@ -40,7 +34,16 @@ export default class OrchestratorStop extends PromptCommand {
     ...machineOutputFlags,
     name: Flags.string({
       char: 'n',
-      description: 'Name of the orchestrator session to stop (default: main)',
+      description: 'Name of the orchestrator to stop (matches agentName)',
+    }),
+    here: Flags.boolean({
+      description: 'Filter to orchestrators in the current HQ only',
+      default: false,
+      exclusive: ['hq'],
+    }),
+    hq: Flags.string({
+      description: 'Filter to orchestrators in a specific HQ path',
+      exclusive: ['here'],
     }),
     force: Flags.boolean({
       char: 'f',
@@ -52,137 +55,110 @@ export default class OrchestratorStop extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStop)
     const jsonMode = shouldOutputJson(flags)
-    const hostSessions = getHostTmuxSessionNames()
 
-    // Track whether the resolved session is in a Docker container
-    let isDockerSession = false
-
-    // Resolve session name: try HQ-scoped first, fall back to discovery
-    let sessionName: string | undefined
-    let orchestratorName: string | undefined
-    const hqPath = findHQRoot(process.cwd())
-
-    if (hqPath) {
-      const hqName = getHeadquartersNameFromPath(hqPath)
-
-      if (flags.name) {
-        // Explicit --name: look for that specific orchestrator (host tmux first, then Docker)
-        sessionName = buildOrchestratorSessionName(hqName, flags.name)
-        orchestratorName = flags.name
-        if (!hostSessions.includes(sessionName)) {
-          // Check Docker
-          const containerName = buildOrchestratorContainerName(hqName, flags.name)
-          const containerId = getOrchestratorContainerId(containerName)
-          if (containerId) {
-            sessionName = containerName
-            isDockerSession = true
-          } else {
-            sessionName = undefined
-          }
-        }
-      } else {
-        // No --name: discover ALL orchestrators in this HQ (host + Docker)
-        const hqSessions = findHQOrchestratorSessions(hostSessions, hqName)
-        const hqContainers = findHQOrchestratorContainers(hqName)
-
-        const allSessions = [
-          ...hqSessions.map(s => ({ name: extractOrchestratorNameFromSession(s, hqName) || s, value: s, isDocker: false })),
-          ...hqContainers.map(c => ({ name: extractOrchestratorNameFromSession(c, hqName) || c, value: c, isDocker: true })),
-        ]
-
-        if (allSessions.length === 1) {
-          sessionName = allSessions[0].value
-          orchestratorName = allSessions[0].name
-          isDockerSession = allSessions[0].isDocker
-        } else if (allSessions.length > 1) {
-          const sessionChoices = allSessions.map(s => ({
-            name: `${s.name}${s.isDocker ? ' (Docker)' : ''}`,
-            value: s.value,
-            command: `prlt orchestrator stop --name "${s.name}" --force --json`,
-          }))
-          const selectMessage = 'Multiple orchestrator sessions found. Select one to stop:'
-
-          if (jsonMode) {
-            outputPromptAsJson(
-              buildPromptConfig('list', 'session', selectMessage, sessionChoices),
-              createMetadata('orchestrator stop', flags),
-            )
-            return
-          }
-
-          const { session } = await this.prompt<{ session: string }>([{
-            type: 'list',
-            name: 'session',
-            message: selectMessage,
-            choices: sessionChoices,
-          }])
-          sessionName = session
-          const matched = allSessions.find(s => s.value === session)
-          orchestratorName = matched?.name
-          isDockerSession = matched?.isDocker || false
-        }
-        // If 0 found, fall through to global discovery below
-      }
+    // Resolve HQ filter
+    let hqPathFilter: string | undefined
+    if (flags.here) {
+      const cwdHq = findHQRoot(process.cwd())
+      if (cwdHq) hqPathFilter = cwdHq
+    } else if (flags.hq) {
+      hqPathFilter = flags.hq
     }
 
-    // If not in HQ or session not found, discover running orchestrator sessions globally
-    if (!sessionName) {
-      const runningSessions = findRunningOrchestratorSessions(hostSessions)
-      const runningContainers = findRunningOrchestratorContainers()
+    // Always query machine-wide for orchestrators.
+    let orchestrators = collectAllSessions({
+      hqPathFilter,
+      roleFilter: 'orchestrator',
+      includeAll: false,
+    })
 
-      const allSessions = [
-        ...runningSessions.map(s => ({ name: s, value: s, isDocker: false })),
-        ...runningContainers.map(c => ({ name: `${c} (Docker)`, value: c, isDocker: true })),
-      ]
+    // Optional --name filter
+    if (flags.name) {
+      const needle = flags.name.toLowerCase()
+      orchestrators = orchestrators.filter(
+        s =>
+          s.agentName.toLowerCase() === needle ||
+          s.agentName.toLowerCase().includes(needle) ||
+          s.sessionId.toLowerCase().includes(needle),
+      )
+    }
 
-      if (allSessions.length === 0) {
-        if (jsonMode) {
-          outputErrorAsJson(
-            'NOT_RUNNING',
-            'Orchestrator is not running.',
-            createMetadata('orchestrator stop', flags),
-          )
-          return
-        }
-        this.log('')
-        this.log(styles.muted('Orchestrator is not running.'))
-        this.log('')
+    if (orchestrators.length === 0) {
+      if (jsonMode) {
+        outputErrorAsJson(
+          'NOT_RUNNING',
+          'Orchestrator is not running.',
+          createMetadata('orchestrator stop', flags),
+        )
         return
-      } else if (allSessions.length === 1) {
-        sessionName = allSessions[0].value
-        isDockerSession = allSessions[0].isDocker
-      } else {
-        // Multiple sessions — let user pick
-        const sessionChoices = allSessions.map(s => ({
-          name: s.name,
-          value: s.value,
-          command: `prlt orchestrator stop --name "${s.value}" --force --json`,
-        }))
-        const selectMessage = 'Multiple orchestrator sessions found. Select one to stop:'
-
-        if (jsonMode) {
-          outputPromptAsJson(
-            buildPromptConfig('list', 'session', selectMessage, sessionChoices),
-            createMetadata('orchestrator stop', flags),
-          )
-          return
-        }
-
-        const { session } = await this.prompt<{ session: string }>([{
-          type: 'list',
-          name: 'session',
-          message: selectMessage,
-          choices: sessionChoices,
-        }])
-        sessionName = session
-        const matched = allSessions.find(s => s.value === session)
-        isDockerSession = matched?.isDocker || false
       }
-    }
-
-    if (!sessionName) {
+      this.log('')
+      this.log(styles.muted('Orchestrator is not running.'))
+      this.log('')
       return
     }
+
+    // Pick a single orchestrator. Prefer current-HQ when multiple exist.
+    let picked: UnifiedSession | undefined
+    if (orchestrators.length === 1) {
+      picked = orchestrators[0]
+    } else {
+      const grouped = groupSessionsByHQ(orchestrators)
+      const ordered: UnifiedSession[] = [...grouped.here, ...grouped.elsewhere]
+
+      const selectMessage = 'Multiple orchestrator sessions found. Select one to stop:'
+      const sessionChoices = ordered.map(s => {
+        const hqLabel = s.hqPath ? tildifyPath(s.hqPath) : '(no HQ)'
+        const tag = s.environment === 'container' ? ' (Docker)' : ''
+        return {
+          name: `${s.agentName}${tag} — ${hqLabel}`,
+          value: s.sessionId,
+          command: `prlt orchestrator stop --name "${s.agentName}" --force --json`,
+        }
+      })
+
+      if (jsonMode) {
+        outputPromptAsJson(
+          buildPromptConfig('list', 'session', selectMessage, sessionChoices),
+          createMetadata('orchestrator stop', flags),
+        )
+        return
+      }
+
+      // Print a grouped preview banner above the picker.
+      if (grouped.currentHq) {
+        this.log('')
+        this.log(
+          styles.header(
+            `Current HQ: ${tildifyPath(grouped.currentHq)} (${grouped.here.length} orchestrator${grouped.here.length === 1 ? '' : 's'})`,
+          ),
+        )
+      }
+      if (grouped.elsewhere.length > 0) {
+        this.log(
+          styles.muted(
+            `Other locations: ${grouped.elsewhere.length} orchestrator${grouped.elsewhere.length === 1 ? '' : 's'}`,
+          ),
+        )
+      }
+
+      const { session } = await this.prompt<{ session: string }>([{
+        type: 'list',
+        name: 'session',
+        message: selectMessage,
+        choices: sessionChoices,
+      }])
+      picked = ordered.find(s => s.sessionId === session)
+    }
+
+    if (!picked) {
+      return
+    }
+
+    const sessionName: string = picked.sessionId
+    const isDockerSession = picked.environment === 'container'
+    const orchestratorName: string | undefined = picked.agentName
+    const hqPath: string | null = picked.hqPath ?? findHQRoot(process.cwd())
 
     // Confirm unless --force
     if (!flags.force && !jsonMode) {
