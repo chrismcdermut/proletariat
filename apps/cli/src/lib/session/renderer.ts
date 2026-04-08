@@ -61,6 +61,13 @@ export type SessionStatus =
   | 'failed'
 
 /**
+ * Where a session record came from.
+ *   - `db`: tracked in workspace.db or machine.db
+ *   - `discovered`: found via tmux/Docker prefix scan (orphan)
+ */
+export type SessionSource = 'db' | 'discovered'
+
+/**
  * A unified session record representing one running agent on the machine.
  *
  * Sessions originate from three sources:
@@ -87,6 +94,8 @@ export interface UnifiedSession {
   containerId?: string
   /** Whether the runtime is verified alive */
   exists: boolean
+  /** Where the record was sourced from (backward compat field) */
+  source: SessionSource
   /** When this session started (best effort) */
   startedAt?: Date
   /** Last heartbeat (workers only) */
@@ -313,6 +322,7 @@ function collectFromWorkspaceDb(
         environment: isContainer ? 'container' : 'host',
         containerId: exec.containerId,
         exists,
+        source: 'db',
         startedAt: exec.startedAt,
         lastHeartbeat: exec.lastHeartbeat,
         lifecycleState: exec.lifecycleState,
@@ -417,6 +427,7 @@ function collectFromMachineDb(
         environment: isContainer ? 'container' : 'host',
         containerId: exec.containerId,
         exists,
+        source: 'db',
         startedAt: exec.startedAt,
         hqPath: matchedHq?.hqPath,
         hqName: matchedHq?.hqName,
@@ -487,6 +498,7 @@ function collectOrchestrators(
       role: 'orchestrator',
       environment: 'host',
       exists: true,
+      source: 'discovered',
       hqPath: attribution?.hqPath,
       hqName: attribution?.hqName,
       repoPath: attribution?.hqPath,
@@ -509,6 +521,7 @@ function collectOrchestrators(
       environment: 'container',
       containerId,
       exists: true,
+      source: 'discovered',
       hqPath: attribution?.hqPath,
       hqName: attribution?.hqName,
       repoPath: attribution?.hqPath,
@@ -537,11 +550,38 @@ export function collectAllSessions(options: CollectOptions = {}): UnifiedSession
   const snapshot = captureRuntimeSnapshot()
   const registered = getRegisteredHeadquarters().filter(hq => fs.existsSync(hq.path))
 
+  // Include the current cwd HQ even when it isn't in the machine registry
+  // (e.g. e2e tests that set up a throwaway HQ without registering it).
+  const cwdHq = findHQRoot(process.cwd())
+  const hqsToQuery: RegisteredHeadquarters[] = [...registered]
+  if (cwdHq) {
+    let cwdNormalized: string
+    try {
+      cwdNormalized = normalizePath(cwdHq)
+    } catch {
+      cwdNormalized = cwdHq
+    }
+    const alreadyRegistered = registered.some(hq => {
+      try {
+        return normalizePath(hq.path) === cwdNormalized
+      } catch {
+        return hq.path === cwdNormalized
+      }
+    })
+    if (!alreadyRegistered) {
+      hqsToQuery.push({
+        name: getHeadquartersNameFromPath(cwdHq),
+        path: cwdHq,
+        registeredAt: new Date().toISOString(),
+      })
+    }
+  }
+
   const seenSessionIds = new Set<string>()
   const all: UnifiedSession[] = []
 
   // 1) Per-HQ workspace databases (workers + locally tracked orchestrators).
-  for (const hq of registered) {
+  for (const hq of hqsToQuery) {
     const hqName = getHeadquartersNameFromPath(hq.path)
     const fromHq = collectFromWorkspaceDb(hq.path, hqName, snapshot, options.includeAll === true)
     for (const s of fromHq) {
@@ -553,7 +593,7 @@ export function collectAllSessions(options: CollectOptions = {}): UnifiedSession
   // 2) machine.db ticketless / cross-repo executions
   const fromMachine = collectFromMachineDb(
     snapshot,
-    registered,
+    hqsToQuery,
     seenSessionIds,
     options.includeAll === true,
   )
@@ -563,7 +603,7 @@ export function collectAllSessions(options: CollectOptions = {}): UnifiedSession
   }
 
   // 3) Discovered orchestrator tmux/Docker sessions not yet covered by a DB
-  const discoveredOrchestrators = collectOrchestrators(snapshot, registered, seenSessionIds)
+  const discoveredOrchestrators = collectOrchestrators(snapshot, hqsToQuery, seenSessionIds)
   for (const s of discoveredOrchestrators) {
     if (s.sessionId) seenSessionIds.add(s.sessionId)
     all.push(s)

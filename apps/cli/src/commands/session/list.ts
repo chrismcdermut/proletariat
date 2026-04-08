@@ -47,6 +47,11 @@ export default class SessionList extends PromptCommand {
       description: 'Include stopped/completed sessions (default excludes them)',
       default: false,
     }),
+    grouped: Flags.boolean({
+      description:
+        'In --json mode, emit the grouped { sessions, grouped } object instead of the flat array',
+      default: false,
+    }),
   }
 
   protected getPMOOptions() {
@@ -63,7 +68,18 @@ export default class SessionList extends PromptCommand {
       const cwdHq = findHQRoot(process.cwd())
       if (!cwdHq) {
         if (jsonMode) {
-          this.log(JSON.stringify({ sessions: [], grouped: { current_hq: null, here: [], elsewhere: [] } }, null, 2))
+          // Backward-compat: emit a flat (empty) array unless --grouped was requested.
+          if (flags.grouped) {
+            this.log(
+              JSON.stringify(
+                { sessions: [], grouped: { current_hq: null, here: [], elsewhere: [] } },
+                null,
+                2,
+              ),
+            )
+          } else {
+            this.log('[]')
+          }
           return
         }
         this.log('')
@@ -86,20 +102,27 @@ export default class SessionList extends PromptCommand {
     const grouped = groupSessionsByHQ(sessions)
 
     if (jsonMode) {
-      this.log(
-        JSON.stringify(
-          {
-            sessions: sessions.map(toJsonSession),
-            grouped: {
-              current_hq: grouped.currentHq ? tildifyPath(grouped.currentHq) : null,
-              here: grouped.here.map(toJsonSession),
-              elsewhere: grouped.elsewhere.map(toJsonSession),
+      // Default shape is a flat array for backward compatibility with
+      // existing agents and e2e tests. Pass --grouped to get the new
+      // { sessions, grouped: { current_hq, here, elsewhere } } shape.
+      if (flags.grouped) {
+        this.log(
+          JSON.stringify(
+            {
+              sessions: sessions.map(toJsonSession),
+              grouped: {
+                current_hq: grouped.currentHq ? tildifyPath(grouped.currentHq) : null,
+                here: grouped.here.map(toJsonSession),
+                elsewhere: grouped.elsewhere.map(toJsonSession),
+              },
             },
-          },
-          null,
-          2,
-        ),
-      )
+            null,
+            2,
+          ),
+        )
+      } else {
+        this.log(JSON.stringify(sessions.map(toJsonSession), null, 2))
+      }
       return
     }
 
@@ -183,6 +206,7 @@ function toJsonSession(s: UnifiedSession): Record<string, unknown> {
     environment: s.environment,
     containerId: s.containerId ?? null,
     exists: s.exists,
+    source: s.source,
     hqPath: s.hqPath ?? null,
     hqName: s.hqName ?? null,
     repoPath: s.repoPath ?? null,

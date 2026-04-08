@@ -27,6 +27,7 @@ describe('Session Renderer (PRLT-1272)', () => {
     role: overrides.role ?? 'worker',
     environment: overrides.environment ?? 'host',
     exists: overrides.exists ?? true,
+    source: overrides.source ?? 'db',
     hqPath: overrides.hqPath,
     hqName: overrides.hqName,
     repoPath: overrides.repoPath,
