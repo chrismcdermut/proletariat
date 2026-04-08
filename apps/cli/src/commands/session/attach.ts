@@ -3,26 +3,24 @@ import { execSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
-import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
-import { ExecutionStorage, loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
+import { loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
 import { detectTerminalApp } from '../orchestrator/attach.js'
-import {
-  findContainerSessionsByPrefix,
-  findSessionForExecution,
-  isContainerEnvironment,
-  checkContainerLiveness,
-  getHostTmuxSessionNames,
-  getContainerTmuxSessionMap,
-} from '../../lib/execution/session-utils.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import {
+  collectAllSessions,
+  groupSessionsByHQ,
+  tildifyPath,
+  type UnifiedSession,
+} from '../../lib/session/renderer.js'
+import { findHQRoot } from '../../lib/workspace.js'
 
 interface SessionChoice {
   name: string           // Session name (for display)
@@ -31,7 +29,7 @@ interface SessionChoice {
   containerId?: string
   ticketId: string
   agentName: string
-  source: 'db'  // Sessions always come from DB now
+  hqName?: string
 }
 
 export default class SessionAttach extends PMOCommand {
@@ -66,6 +64,15 @@ export default class SessionAttach extends PMOCommand {
       char: 't',
       description: 'Terminal app to use for --new-tab (iTerm, Terminal, Ghostty)',
     }),
+    here: Flags.boolean({
+      description: 'Filter picker to sessions in the current HQ only',
+      default: false,
+      exclusive: ['hq'],
+    }),
+    hq: Flags.string({
+      description: 'Filter picker to sessions in a specific HQ path',
+      exclusive: ['here'],
+    }),
   }
 
   protected getPMOOptions() {
@@ -87,8 +94,20 @@ export default class SessionAttach extends PMOCommand {
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
 
-    // Get all available sessions (DB-driven only — no orphan discovery)
-    const sessions = this.getVerifiedSessions()
+    // Resolve HQ filter from --here / --hq
+    let hqPathFilter: string | undefined
+    if (flags.here) {
+      const cwdHq = findHQRoot(process.cwd())
+      if (cwdHq) hqPathFilter = cwdHq
+    } else if (flags.hq) {
+      hqPathFilter = flags.hq
+    }
+
+    // Always query machine-wide so sessions in other HQs are visible.
+    const allSessions = collectAllSessions({ hqPathFilter, includeAll: false })
+    const sessions: SessionChoice[] = allSessions
+      .filter(s => s.exists)
+      .map(toSessionChoice)
 
     if (sessions.length === 0) {
       if (jsonMode) {
@@ -123,13 +142,40 @@ export default class SessionAttach extends PMOCommand {
         this.error(`Session "${args.session}" not found. Run "prlt session list" to see available sessions.`)
       }
     } else {
-      // Use selectFromList helper for session selection
+      // Group sessions by HQ for the picker so the current HQ bubbles up first.
+      const grouped = groupSessionsByHQ(allSessions.filter(s => s.exists))
+      const orderedUnified: UnifiedSession[] = [...grouped.here, ...grouped.elsewhere]
+      const orderedChoices = orderedUnified.map(toSessionChoice)
+
+      const labelFor = (u: UnifiedSession): string => {
+        const hqLabel = u.hqPath ? tildifyPath(u.hqPath) : '(no HQ)'
+        const tag = u.environment === 'container' ? 'container' : 'host'
+        return `${u.agentName.padEnd(18)} ${u.ticketId.padEnd(14)} ${tag.padEnd(10)} ${hqLabel}`
+      }
+
+      // Print a grouped preview banner above the picker so the user can see
+      // which sessions belong to the current HQ vs other locations.
+      if (!jsonMode) {
+        if (grouped.currentHq) {
+          this.log('')
+          this.log(
+            styles.header(
+              `Current HQ: ${tildifyPath(grouped.currentHq)} (${grouped.here.length} session${grouped.here.length === 1 ? '' : 's'})`,
+            ),
+          )
+        }
+        if (grouped.elsewhere.length > 0) {
+          const elsewhereLabel = `Other locations: ${grouped.elsewhere.length} session${grouped.elsewhere.length === 1 ? '' : 's'}`
+          this.log(styles.muted(elsewhereLabel))
+        }
+      }
+
       const selected = await this.selectFromList({
         message: 'Select a session to attach to:',
-        items: sessions,
-        getName: (s) => `${s.sessionId} (${s.ticketId}) - ${s.agentName} [${s.type}]`,
-        getValue: (s) => s.sessionId,
-        getCommand: (s) => `prlt session attach "${s.sessionId}" --json`,
+        items: orderedUnified,
+        getName: labelFor,
+        getValue: (u) => u.sessionId,
+        getCommand: (u) => `prlt session attach "${u.sessionId}" --json`,
         jsonMode: jsonMode ? { flags, commandName: 'session attach' } : null,
       })
 
@@ -137,7 +183,7 @@ export default class SessionAttach extends PMOCommand {
         return
       }
 
-      selectedSession = sessions.find(s => s.sessionId === selected)
+      selectedSession = orderedChoices.find(s => s.sessionId === selected)
     }
 
     if (!selectedSession) {
@@ -183,98 +229,6 @@ export default class SessionAttach extends PMOCommand {
     }
   }
 
-  /**
-   * Get verified sessions from DB that have live runtimes.
-   * DB-driven approach: Start with executions, verify liveness against runtime.
-   * Does NOT discover orphan tmux sessions — only returns DB-tracked sessions.
-   */
-  private getVerifiedSessions(): SessionChoice[] {
-    const sessions: SessionChoice[] = []
-
-    let executionStorage: ExecutionStorage | null = null
-    let db: Database.Database | null = null
-
-    try {
-      const workspaceInfo = getWorkspaceInfo()
-      db = openWorkspaceDatabase(workspaceInfo.path)
-      executionStorage = new ExecutionStorage(db)
-    } catch {
-      // Not in workspace
-      return sessions
-    }
-
-    try {
-      // Get tmux sessions for verification
-      const hostTmuxSessions = getHostTmuxSessionNames()
-      const containerTmuxSessions = getContainerTmuxSessionMap()
-
-      // Get active executions from DB
-      const activeExecutions = [
-        ...(executionStorage.listExecutions({ status: 'running' }) || []),
-        ...(executionStorage.listExecutions({ status: 'starting' }) || []),
-      ]
-
-      for (const exec of activeExecutions) {
-        const isContainer = isContainerEnvironment(exec.environment)
-        let exists = false
-        let containerId: string | undefined
-        let actualSessionId = exec.sessionId
-
-        if (isContainer && exec.containerId) {
-          // Container execution: check Docker liveness, then tmux inside
-          containerId = exec.containerId
-          const containerStatus = checkContainerLiveness(exec.containerId)
-
-          if (containerStatus === 'running') {
-            if (!exec.sessionId) {
-              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-              const match = findSessionForExecution(exec.ticketId, exec.agentName, containerSessions)
-              if (match) {
-                actualSessionId = match
-                exists = true
-              }
-            } else {
-              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-              exists = containerSessions.includes(exec.sessionId)
-            }
-
-            // Container running but no tmux session — still attachable via docker exec
-            if (!exists && containerStatus === 'running') {
-              exists = true
-              actualSessionId = actualSessionId || `container:${exec.containerId.substring(0, 12)}`
-            }
-          }
-        } else {
-          // Host/sandbox execution: verify tmux session exists
-          if (!exec.sessionId) {
-            const match = findSessionForExecution(exec.ticketId, exec.agentName, hostTmuxSessions)
-            if (match) {
-              actualSessionId = match
-              exists = true
-            }
-          } else {
-            exists = hostTmuxSessions.includes(exec.sessionId)
-          }
-        }
-
-        if (exists && actualSessionId) {
-          sessions.push({
-            name: actualSessionId,
-            sessionId: actualSessionId,
-            type: isContainer ? 'container' : 'host',
-            containerId,
-            ticketId: exec.ticketId,
-            agentName: exec.agentName,
-            source: 'db',
-          })
-        }
-      }
-    } finally {
-      db?.close()
-    }
-
-    return sessions
-  }
 
   /**
    * Attach to session in current terminal
@@ -454,5 +408,21 @@ exec $SHELL
       const msg = error instanceof Error ? error.message : String(error)
       this.error(`Failed to open terminal tab with ${terminalApp}: ${msg}`)
     }
+  }
+}
+
+/**
+ * Convert a UnifiedSession (machine-wide collector format) into the SessionChoice
+ * shape used by this command's attach helpers.
+ */
+function toSessionChoice(s: UnifiedSession): SessionChoice {
+  return {
+    name: s.sessionId,
+    sessionId: s.sessionId,
+    type: s.environment === 'container' ? 'container' : 'host',
+    containerId: s.containerId,
+    ticketId: s.ticketId,
+    agentName: s.agentName,
+    hqName: s.hqName,
   }
 }

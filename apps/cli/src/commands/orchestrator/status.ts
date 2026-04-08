@@ -7,26 +7,25 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
-import { getHostTmuxSessionNames, captureTmuxPane } from '../../lib/execution/session-utils.js'
-import { findHQRoot } from '../../lib/workspace.js'
-import { getHeadquartersNameFromPath } from '../../lib/machine-config.js'
+import { captureTmuxPane } from '../../lib/execution/session-utils.js'
 import { execSync } from 'node:child_process'
 import {
-  buildOrchestratorSessionName,
-  buildOrchestratorContainerName,
-  findRunningOrchestratorSessions,
-  findHQOrchestratorSessions,
-  findHQOrchestratorContainers,
-  findRunningOrchestratorContainers,
-  extractOrchestratorNameFromSession,
-  getOrchestratorContainerId,
-} from './start.js'
+  collectAllSessions,
+  groupSessionsByHQ,
+  bucketElsewhereByHq,
+  tildifyPath,
+  type UnifiedSession,
+} from '../../lib/session/renderer.js'
+import { findHQRoot } from '../../lib/workspace.js'
 
 export default class OrchestratorStatus extends PromptCommand {
-  static description = 'Check if the orchestrator is running'
+  static description =
+    'Check orchestrator sessions across the entire machine, grouped by HQ.'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --here',
+    '<%= config.bin %> <%= command.id %> --hq ~/Projects/backend-hq',
     '<%= config.bin %> <%= command.id %> --peek',
     '<%= config.bin %> <%= command.id %> --peek --lines 50',
   ]
@@ -35,10 +34,19 @@ export default class OrchestratorStatus extends PromptCommand {
     ...machineOutputFlags,
     name: Flags.string({
       char: 'n',
-      description: 'Name of the orchestrator session to check (default: main)',
+      description: 'Filter to a single orchestrator by name (matches agentName)',
+    }),
+    here: Flags.boolean({
+      description: 'Filter to orchestrators in the current HQ only',
+      default: false,
+      exclusive: ['hq'],
+    }),
+    hq: Flags.string({
+      description: 'Filter to orchestrators in a specific HQ path',
+      exclusive: ['here'],
     }),
     peek: Flags.boolean({
-      description: 'Show recent output from the orchestrator',
+      description: 'Show recent output from each orchestrator',
       default: false,
     }),
     lines: Flags.integer({
@@ -64,153 +72,131 @@ export default class OrchestratorStatus extends PromptCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStatus)
     const jsonMode = shouldOutputJson(flags)
-    const hostSessions = getHostTmuxSessionNames()
 
-    // Resolve session name: try HQ-scoped first, fall back to discovery
-    const hqPath = findHQRoot(process.cwd())
-
-    if (hqPath) {
-      const hqName = getHeadquartersNameFromPath(hqPath)
-
-      if (flags.name) {
-        // Explicit --name: check that specific orchestrator (host tmux + Docker)
-        const sessionName = buildOrchestratorSessionName(hqName, flags.name)
-        const isHostRunning = hostSessions.includes(sessionName)
-
-        const containerName = buildOrchestratorContainerName(hqName, flags.name)
-        const dockerContainerId = getOrchestratorContainerId(containerName)
-        const isDockerRunning = !!dockerContainerId
-
-        const isRunning = isHostRunning || isDockerRunning
-        const environment = isDockerRunning ? 'docker' : 'host'
-
-        let recentOutput: string | null = null
-        if (isRunning && flags.peek) {
-          if (isDockerRunning && dockerContainerId) {
-            recentOutput = this.captureDockerTmuxPane(dockerContainerId, containerName, flags.lines)
-          } else {
-            recentOutput = captureTmuxPane(sessionName, flags.lines)
-          }
-        }
-
-        if (jsonMode) {
-          outputSuccessAsJson({
-            running: isRunning,
-            sessionId: isRunning ? (isDockerRunning ? containerName : sessionName) : null,
-            containerId: dockerContainerId || null,
-            environment,
-            name: flags.name,
-            ...(recentOutput !== null && { recentOutput }),
-          }, createMetadata('orchestrator status', flags as Record<string, unknown>))
-          return
-        }
-
-        this.log('')
-        if (isRunning) {
-          this.log(styles.success(`Orchestrator "${flags.name}" is running${isDockerRunning ? ' (Docker)' : ''}`))
-          this.log(styles.muted(`   Session: ${isDockerRunning ? containerName : sessionName}`))
-          if (dockerContainerId) {
-            this.log(styles.muted(`   Container: ${dockerContainerId}`))
-          }
-          this.log(styles.muted(`   Attach: prlt orchestrator attach --name ${flags.name}`))
-
-          if (recentOutput) {
-            this.log('')
-            this.log(styles.header('Recent output:'))
-            this.log(styles.muted('─'.repeat(60)))
-            this.log(recentOutput)
-            this.log(styles.muted('─'.repeat(60)))
-          }
-        } else {
-          this.log(styles.muted(`Orchestrator "${flags.name}" is not running.`))
-          this.log(styles.muted('Start it with: prlt orchestrator start'))
-        }
-        this.log('')
-        return
-      }
-
-      // No --name: show status for ALL orchestrators in this HQ (host + Docker)
-      const hqSessions = findHQOrchestratorSessions(hostSessions, hqName)
-      const hqContainers = findHQOrchestratorContainers(hqName)
-
-      const allSessions = [
-        ...hqSessions.map(s => ({ sessionId: s, name: extractOrchestratorNameFromSession(s, hqName) || s, environment: 'host' as const, containerId: null as string | null })),
-        ...hqContainers.map(c => ({ sessionId: c, name: extractOrchestratorNameFromSession(c, hqName) || c, environment: 'docker' as const, containerId: getOrchestratorContainerId(c) })),
-      ]
-
-      if (jsonMode) {
-        outputSuccessAsJson({
-          running: allSessions.length > 0,
-          sessions: allSessions,
-        }, createMetadata('orchestrator status', flags as Record<string, unknown>))
-        return
-      }
-
-      this.log('')
-      if (allSessions.length === 0) {
-        this.log(styles.muted('No orchestrator sessions running.'))
-        this.log(styles.muted('Start one with: prlt orchestrator start'))
-      } else {
-        this.log(styles.success(`${allSessions.length} orchestrator session(s) running:`))
-        for (const s of allSessions) {
-          const envLabel = s.environment === 'docker' ? ' (Docker)' : ''
-          this.log(styles.muted(`   ${s.name}${envLabel} (${s.sessionId})`))
-          this.log(styles.muted(`     Attach: prlt orchestrator attach --name ${s.name}`))
-          if (flags.peek) {
-            let output: string | null = null
-            if (s.environment === 'docker' && s.containerId) {
-              output = this.captureDockerTmuxPane(s.containerId, s.sessionId, flags.lines)
-            } else {
-              output = captureTmuxPane(s.sessionId, flags.lines)
-            }
-            if (output) {
-              this.log(styles.muted('─'.repeat(60)))
-              this.log(output)
-              this.log(styles.muted('─'.repeat(60)))
-            }
-          }
-        }
-      }
-      this.log('')
-      return
+    // Resolve HQ filter
+    let hqPathFilter: string | undefined
+    if (flags.here) {
+      const cwdHq = findHQRoot(process.cwd())
+      if (cwdHq) hqPathFilter = cwdHq
+    } else if (flags.hq) {
+      hqPathFilter = flags.hq
     }
 
-    // Not in HQ — discover all running orchestrator sessions globally (host + Docker)
-    const runningSessions = findRunningOrchestratorSessions(hostSessions)
-    const runningContainers = findRunningOrchestratorContainers()
+    // Always query machine-wide for orchestrator role.
+    let orchestrators = collectAllSessions({
+      hqPathFilter,
+      roleFilter: 'orchestrator',
+      includeAll: false,
+    })
 
-    const allSessions = [
-      ...runningSessions.map(s => ({ name: s, environment: 'host' as const })),
-      ...runningContainers.map(c => ({ name: `${c} (Docker)`, environment: 'docker' as const })),
-    ]
+    // Optional --name filter (substring match against agentName/sessionId)
+    if (flags.name) {
+      const needle = flags.name.toLowerCase()
+      orchestrators = orchestrators.filter(
+        s =>
+          s.agentName.toLowerCase().includes(needle) ||
+          s.sessionId.toLowerCase().includes(needle),
+      )
+    }
+
+    const grouped = groupSessionsByHQ(orchestrators)
 
     if (jsonMode) {
-      outputSuccessAsJson({
-        running: allSessions.length > 0,
-        sessions: allSessions,
-      }, createMetadata('orchestrator status', flags as Record<string, unknown>))
+      outputSuccessAsJson(
+        {
+          running: orchestrators.length > 0,
+          sessions: orchestrators.map(toJsonOrchestrator),
+          grouped: {
+            current_hq: grouped.currentHq ? tildifyPath(grouped.currentHq) : null,
+            here: grouped.here.map(toJsonOrchestrator),
+            elsewhere: grouped.elsewhere.map(toJsonOrchestrator),
+          },
+        },
+        createMetadata('orchestrator status', flags as Record<string, unknown>),
+      )
       return
     }
 
     this.log('')
-    if (allSessions.length === 0) {
+    if (orchestrators.length === 0) {
       this.log(styles.muted('No orchestrator sessions running.'))
       this.log(styles.muted('Start one with: prlt orchestrator start'))
-    } else {
-      this.log(styles.success(`${allSessions.length} orchestrator session(s) running:`))
-      for (const s of allSessions) {
-        this.log(styles.muted(`   ${s.name}`))
-        if (flags.peek && s.environment === 'host') {
-          // Can only peek at host sessions with captureTmuxPane
-          const output = captureTmuxPane(s.name, flags.lines)
-          if (output) {
-            this.log(styles.muted('─'.repeat(60)))
-            this.log(output)
-            this.log(styles.muted('─'.repeat(60)))
-          }
+      this.log('')
+      return
+    }
+
+    // Render current HQ
+    if (grouped.currentHq) {
+      this.log(
+        styles.header(
+          `Current HQ: ${tildifyPath(grouped.currentHq)} (${grouped.here.length} orchestrator${grouped.here.length === 1 ? '' : 's'})`,
+        ),
+      )
+      if (grouped.here.length === 0) {
+        this.log(styles.muted('  (none)'))
+      } else {
+        this.renderOrchestratorRows(grouped.here, flags.peek, flags.lines, /* dim */ false)
+      }
+      this.log('')
+    }
+
+    // Render elsewhere
+    if (grouped.elsewhere.length > 0) {
+      this.log(
+        styles.muted(
+          `Other locations (${grouped.elsewhere.length} orchestrator${grouped.elsewhere.length === 1 ? '' : 's'})`,
+        ),
+      )
+      const buckets = bucketElsewhereByHq(grouped.elsewhere)
+      for (const bucket of buckets) {
+        const hqLabel = bucket.hqPath ? tildifyPath(bucket.hqPath) : '(no HQ)'
+        this.log(styles.muted(`  ${bucket.hqName} — ${hqLabel}`))
+        this.renderOrchestratorRows(bucket.sessions, flags.peek, flags.lines, /* dim */ true)
+      }
+      this.log('')
+    }
+  }
+
+  private renderOrchestratorRows(
+    sessions: UnifiedSession[],
+    peek: boolean,
+    lines: number,
+    dim: boolean,
+  ): void {
+    for (const s of sessions) {
+      const envLabel = s.environment === 'container' ? ' (Docker)' : ''
+      const line = `   ${s.agentName}${envLabel} (${s.sessionId})`
+      this.log(dim ? styles.muted(line) : styles.muted(line))
+      const attachCmd = s.agentName === 'main'
+        ? '     Attach: prlt orchestrator attach'
+        : `     Attach: prlt orchestrator attach --name ${s.agentName}`
+      this.log(styles.muted(attachCmd))
+
+      if (peek) {
+        let output: string | null = null
+        if (s.environment === 'container' && s.containerId) {
+          output = this.captureDockerTmuxPane(s.containerId, s.sessionId, lines)
+        } else {
+          output = captureTmuxPane(s.sessionId, lines)
+        }
+        if (output) {
+          this.log(styles.muted('─'.repeat(60)))
+          this.log(output)
+          this.log(styles.muted('─'.repeat(60)))
         }
       }
     }
-    this.log('')
+  }
+}
+
+function toJsonOrchestrator(s: UnifiedSession): Record<string, unknown> {
+  return {
+    sessionId: s.sessionId,
+    name: s.agentName,
+    environment: s.environment === 'container' ? 'docker' : 'host',
+    containerId: s.containerId ?? null,
+    hqPath: s.hqPath ?? null,
+    hqName: s.hqName ?? null,
+    status: s.status,
   }
 }

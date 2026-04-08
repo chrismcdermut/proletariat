@@ -1,57 +1,55 @@
 import { Flags } from '@oclif/core'
-import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { openWorkspaceDatabase } from '../../lib/database/index.js'
-import { ExecutionStorage } from '../../lib/execution/index.js'
-import {
-  parseSessionName,
-  getHostTmuxSessionNames,
-  getContainerTmuxSessionMap,
-  flattenContainerSessions,
-  findContainerSessionsByPrefix,
-  discoverSessionId,
-  isContainerEnvironment,
-  isSessionAlive,
-  checkContainerLiveness,
-} from '../../lib/execution/session-utils.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
-import { MachineDB } from '../../lib/machine-db.js'
-
-interface VerifiedSession {
-  sessionId: string
-  ticketId: string
-  agentName: string
-  status: string
-  environment: 'host' | 'container'
-  containerId?: string
-  exists: boolean  // Whether the runtime (tmux session / Docker container) is alive
-  source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
-  lastHeartbeat?: Date  // Last heartbeat timestamp from DB
-  lifecycleState?: string  // Lifecycle state from DB (healthy, idle, died, completed)
-}
+import {
+  collectAllSessions,
+  groupSessionsByHQ,
+  bucketElsewhereByHq,
+  formatRelativeAge,
+  tildifyPath,
+  type SessionRole,
+  type UnifiedSession,
+} from '../../lib/session/renderer.js'
+import { findHQRoot } from '../../lib/workspace.js'
 
 export default class SessionList extends PromptCommand {
-  static description = 'List active agent sessions (DB-first: shows tracked executions with runtime liveness)'
+  static description =
+    'List active agent sessions across the entire machine, grouped by current HQ vs other locations.'
 
   static examples = [
     '<%= config.bin %> <%= command.id %>',
+    '<%= config.bin %> <%= command.id %> --here',
+    '<%= config.bin %> <%= command.id %> --hq ~/Projects/backend-hq',
+    '<%= config.bin %> <%= command.id %> --role orchestrator',
     '<%= config.bin %> <%= command.id %> --all',
-    '<%= config.bin %> <%= command.id %> --orphans',
   ]
 
   static flags = {
     ...machineOutputFlags,
+    here: Flags.boolean({
+      description: 'Filter to sessions in the current HQ only',
+      default: false,
+      exclusive: ['hq'],
+    }),
+    hq: Flags.string({
+      description: 'Filter to sessions in a specific HQ path',
+      exclusive: ['here'],
+    }),
+    role: Flags.string({
+      description: 'Filter by session role',
+      options: ['orchestrator', 'worker', 'headless'],
+    }),
     all: Flags.boolean({
       char: 'a',
-      description: 'Show all sessions including stale DB records (dead runtime)',
+      description: 'Include stopped/completed sessions (default excludes them)',
       default: false,
     }),
-    orphans: Flags.boolean({
-      description: 'Also show orphan tmux sessions not tracked in the DB (garbage to prune)',
+    grouped: Flags.boolean({
+      description:
+        'In --json mode, emit the grouped { sessions, grouped } object instead of the flat array',
       default: false,
     }),
   }
@@ -64,368 +62,199 @@ export default class SessionList extends PromptCommand {
     const { flags } = await this.parse(SessionList)
     const jsonMode = shouldOutputJson(flags)
 
-    // Get workspace info for execution records
-    let executionStorage: ExecutionStorage | null = null
-    let db: Database.Database | null = null
-    let hasWorkspace = true
-
-    try {
-      const workspaceInfo = getWorkspaceInfo()
-      db = openWorkspaceDatabase(workspaceInfo.path)
-      executionStorage = new ExecutionStorage(db)
-    } catch {
-      // Not in a workspace, but we can still discover tmux sessions
-      hasWorkspace = false
-    }
-
-    // =========================================================================
-    // Machine DB: cross-repo execution tracking (works from anywhere)
-    // =========================================================================
-    let machineDb: MachineDB | null = null
-    try {
-      machineDb = new MachineDB()
-    } catch {
-      // Machine DB not available — non-fatal
-    }
-
-    try {
-      // =========================================================================
-      // DB-first: Query all executions from the database (source of truth)
-      // =========================================================================
-      const runningExecutions = executionStorage?.listExecutions({ status: 'running' }) || []
-      const startingExecutions = executionStorage?.listExecutions({ status: 'starting' }) || []
-      const activeExecutions = [...runningExecutions, ...startingExecutions]
-
-      // Refresh execution state so dead sessions aren't reported as running.
-      executionStorage?.cleanupStaleExecutions()
-
-      // Also pull ticketless executions from machine DB
-      const machineActiveExecutions = machineDb?.getActiveExecutions() || []
-      // Track machine execution IDs already covered by workspace DB to avoid duplicates
-      const workspaceSessionIds = new Set(activeExecutions.map(e => e.sessionId).filter(Boolean))
-
-      // Get tmux sessions for liveness verification
-      const hostTmuxSessions = getHostTmuxSessionNames()
-      const containerTmuxSessions = getContainerTmuxSessionMap()
-
-      // Track which tmux sessions we've matched to DB records (for orphan detection)
-      const matchedHostSessions = new Set<string>()
-      const matchedContainerSessions = new Set<string>()
-
-      // Build verified session list from DB records
-      const sessions: VerifiedSession[] = []
-
-      for (const exec of activeExecutions) {
-        const isContainer = isContainerEnvironment(exec.environment)
-        let exists = false
-        let containerId: string | undefined
-        // Use shared discoverSessionId for NULL sessionId cases (same path as poke)
-        let actualSessionId = discoverSessionId(exec, hostTmuxSessions, containerTmuxSessions) || exec.sessionId
-
-        if (isContainer && exec.containerId) {
-          // =====================================================================
-          // Container-based execution: check Docker container liveness first,
-          // then verify tmux session inside the container
-          // =====================================================================
-          containerId = exec.containerId
-          const containerStatus = checkContainerLiveness(exec.containerId)
-
-          if (containerStatus === 'running') {
-            if (actualSessionId) {
-              // Verify the discovered/known session is actually alive
-              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, exec.containerId)
-              exists = containerSessions.includes(actualSessionId)
-            }
-
-            // Even if tmux session isn't found, the container is running —
-            // the agent may be alive without a tmux session (direct mode)
-            if (!exists && containerStatus === 'running') {
-              exists = true
-              actualSessionId = actualSessionId || `container:${exec.containerId.substring(0, 12)}`
-            }
-          }
-          // If container is not running, exists remains false (stale)
-        } else {
-          // =====================================================================
-          // Host/sandbox execution: verify tmux session exists on host
-          // =====================================================================
-          if (actualSessionId) {
-            exists = hostTmuxSessions.includes(actualSessionId)
-          }
-        }
-
-        // Track matched sessions to detect orphans later
-        if (exists && actualSessionId) {
-          if (isContainer && containerId) {
-            matchedContainerSessions.add(`${containerId}:${actualSessionId}`)
+    // Resolve HQ filter
+    let hqPathFilter: string | undefined
+    if (flags.here) {
+      const cwdHq = findHQRoot(process.cwd())
+      if (!cwdHq) {
+        if (jsonMode) {
+          // Backward-compat: emit a flat (empty) array unless --grouped was requested.
+          if (flags.grouped) {
+            this.log(
+              JSON.stringify(
+                { sessions: [], grouped: { current_hq: null, here: [], elsewhere: [] } },
+                null,
+                2,
+              ),
+            )
           } else {
-            matchedHostSessions.add(actualSessionId)
+            this.log('[]')
           }
+          return
         }
-
-        // Skip entries with no session ID at all (truly has no session)
-        if (!actualSessionId) continue
-
-        // Only include active sessions by default.
-        // Use --all to include stale DB records (exists=false).
-        if (exists || flags.all) {
-          sessions.push({
-            sessionId: actualSessionId,
-            ticketId: exec.ticketId,
-            agentName: exec.agentName,
-            status: exists ? exec.status : 'stale',
-            environment: isContainer ? 'container' : 'host',
-            containerId,
-            exists,
-            source: 'db',
-            lastHeartbeat: exec.lastHeartbeat,
-            lifecycleState: exec.lifecycleState,
-          })
-        }
-      }
-
-      // PRLT-1077: Self-healing recovery for background-mode spawns.
-      // Uses shared isSessionAlive() — same check as session poke's recovery path.
-      if (executionStorage) {
-        const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
-        for (const exec of stoppedExecutions) {
-          const isContainer = isContainerEnvironment(exec.environment)
-          if (!exec.sessionId) continue
-
-          const containerId = isContainer ? exec.containerId : undefined
-
-          if (isSessionAlive(exec)) {
-            // Recover: update status back to 'running'
-            executionStorage.updateStatus(exec.id, 'running')
-
-            // Track as matched so it's not reported as orphan
-            if (isContainer && containerId) {
-              matchedContainerSessions.add(`${containerId}:${exec.sessionId}`)
-            } else {
-              matchedHostSessions.add(exec.sessionId)
-            }
-
-            sessions.push({
-              sessionId: exec.sessionId,
-              ticketId: exec.ticketId,
-              agentName: exec.agentName,
-              status: 'running',
-              environment: isContainer ? 'container' : 'host',
-              containerId,
-              exists: true,
-              source: 'db',
-            })
-          }
-        }
-      }
-
-      // =========================================================================
-      // Machine DB: Add ticketless executions from machine.db
-      // These are cross-repo and work without a workspace.
-      // =========================================================================
-      for (const mExec of machineActiveExecutions) {
-        // Skip if already covered by workspace DB (dedupe by session ID)
-        if (mExec.sessionId && workspaceSessionIds.has(mExec.sessionId)) continue
-
-        const isContainer = mExec.environment === 'docker' || mExec.environment === 'devcontainer'
-        let exists = false
-        let actualSessionId = mExec.sessionId
-
-        if (isContainer && mExec.containerId) {
-          const containerStatus = checkContainerLiveness(mExec.containerId)
-          if (containerStatus === 'running') {
-            if (mExec.sessionId) {
-              const containerSessions = findContainerSessionsByPrefix(containerTmuxSessions, mExec.containerId)
-              exists = containerSessions.includes(mExec.sessionId)
-            }
-            if (!exists) {
-              exists = true
-              actualSessionId = actualSessionId || `container:${mExec.containerId.substring(0, 12)}`
-            }
-          }
-        } else if (mExec.sessionId) {
-          exists = hostTmuxSessions.includes(mExec.sessionId)
-        }
-
-        if (exists && actualSessionId) {
-          if (isContainer && mExec.containerId) {
-            matchedContainerSessions.add(`${mExec.containerId}:${actualSessionId}`)
-          } else {
-            matchedHostSessions.add(actualSessionId)
-          }
-        }
-
-        if (!actualSessionId) continue
-
-        if (exists || flags.all) {
-          sessions.push({
-            sessionId: actualSessionId,
-            ticketId: mExec.ticketId || mExec.id,
-            agentName: mExec.agentName,
-            status: exists ? mExec.status : 'stale',
-            environment: isContainer ? 'container' : 'host',
-            containerId: mExec.containerId,
-            exists,
-            source: 'db',
-          })
-        }
-      }
-
-      // =========================================================================
-      // Orphan discovery: only shown with --orphans flag
-      // Orphan = tmux session matching prlt naming pattern but NOT tracked in DB
-      // These are garbage to prune, not first-class sessions.
-      // =========================================================================
-      if (flags.orphans) {
-        // Flatten all container sessions for orphan detection
-        const allContainerSessions = flattenContainerSessions(containerTmuxSessions)
-
-        // Host orphan sessions
-        for (const sessionName of hostTmuxSessions) {
-          if (matchedHostSessions.has(sessionName)) continue
-
-          const parsed = parseSessionName(sessionName)
-          if (parsed) {
-            sessions.push({
-              sessionId: sessionName,
-              ticketId: parsed.ticketId,
-              agentName: parsed.agentName,
-              status: 'orphan',
-              environment: 'host',
-              exists: true,
-              source: 'discovered',
-            })
-          }
-        }
-
-        // Container orphan sessions
-        for (const { sessionName, containerId } of allContainerSessions) {
-          if (matchedContainerSessions.has(`${containerId}:${sessionName}`)) continue
-
-          const parsed = parseSessionName(sessionName)
-          if (parsed) {
-            sessions.push({
-              sessionId: sessionName,
-              ticketId: parsed.ticketId,
-              agentName: parsed.agentName,
-              status: 'orphan',
-              environment: 'container',
-              containerId,
-              exists: true,
-              source: 'discovered',
-            })
-          }
-        }
-      }
-
-      if (jsonMode) {
-        this.log(JSON.stringify(sessions, null, 2))
+        this.log('')
+        this.log(styles.warning('--here requires being inside an HQ workspace.'))
+        this.log('')
         return
       }
+      hqPathFilter = cwdHq
+    } else if (flags.hq) {
+      hqPathFilter = flags.hq
+    }
 
-      if (sessions.length > 0) {
-        this.log('')
-        this.log(styles.header('Active Sessions'))
-        this.log('='.repeat(90))
+    // Always query machine-wide; filters are applied inside collectAllSessions.
+    const sessions = collectAllSessions({
+      hqPathFilter,
+      roleFilter: flags.role as SessionRole | undefined,
+      includeAll: flags.all,
+    })
 
+    const grouped = groupSessionsByHQ(sessions)
+
+    if (jsonMode) {
+      // Default shape is a flat array for backward compatibility with
+      // existing agents and e2e tests. Pass --grouped to get the new
+      // { sessions, grouped: { current_hq, here, elsewhere } } shape.
+      if (flags.grouped) {
         this.log(
-          styles.muted(
-            '  ' +
-            visualPadEnd('Session', 34) +
-            visualPadEnd('Ticket', 12) +
-            visualPadEnd('Agent', 18) +
-            visualPadEnd('Type', 15) +
-            'Status'
-          )
+          JSON.stringify(
+            {
+              sessions: sessions.map(toJsonSession),
+              grouped: {
+                current_hq: grouped.currentHq ? tildifyPath(grouped.currentHq) : null,
+                here: grouped.here.map(toJsonSession),
+                elsewhere: grouped.elsewhere.map(toJsonSession),
+              },
+            },
+            null,
+            2,
+          ),
         )
-        this.log('  ' + '-'.repeat(88))
-
-        for (const session of sessions) {
-          const typeIcon = session.environment === 'container' ? 'container' : 'host'
-          const statusColor = session.status === 'running' ? styles.success :
-                             session.status === 'starting' ? styles.warning :
-                             session.status === 'stale' ? styles.error :
-                             session.status === 'orphan' ? styles.warning : styles.muted
-
-          // For orphan sessions, append source indicator
-          // For sessions with died lifecycle state, append warning
-          let statusText = session.source === 'discovered' ? `${session.status}*` : session.status
-          if (session.lifecycleState === 'died') {
-            statusText = 'died'
-          }
-
-          // Truncate long session names to fit column
-          const displaySession = session.sessionId.length > 32
-            ? session.sessionId.substring(0, 29) + '...'
-            : session.sessionId
-
-          this.log(
-            '  ' +
-            visualPadEnd(displaySession, 34) +
-            visualPadEnd(session.ticketId, 12) +
-            visualPadEnd(session.agentName, 18) +
-            visualPadEnd(typeIcon, 15) +
-            statusColor(statusText)
-          )
-        }
-
-        this.log('')
-        this.log('='.repeat(90))
-
-        // Show attach command example
-        const firstSession = sessions.find(s => s.exists)
-        if (firstSession) {
-          this.log(styles.muted('\nCommands:'))
-          this.log(styles.muted(`  prlt session attach ${firstSession.sessionId}    Attach to session`))
-          this.log('')
-        }
-
-        // Show stale sessions warning
-        const staleSessions = sessions.filter(s => !s.exists)
-        if (staleSessions.length > 0) {
-          this.log(styles.warning(`\n  ${staleSessions.length} stale session(s) in DB without live runtime.`))
-          this.log(styles.muted('   Run `prlt work stop <work-id>` to clean up.'))
-          this.log('')
-        }
-
-        // Show died/unresponsive sessions warning
-        const diedSessions = sessions.filter(s => s.lifecycleState === 'died')
-        if (diedSessions.length > 0) {
-          this.log(styles.error(`\n  ${diedSessions.length} agent(s) detected as unresponsive (heartbeat timeout).`))
-          this.log(styles.muted('   These agents were auto-terminated. Run `prlt session watch --once` for details.'))
-          this.log('')
-        }
-
-        // Show orphan sessions note (only visible with --orphans flag)
-        const orphanSessions = sessions.filter(s => s.source === 'discovered')
-        if (orphanSessions.length > 0) {
-          this.log(styles.muted(`\n  ${orphanSessions.length} orphan session(s) found (marked with *).`))
-          this.log(styles.muted('   These are NOT tracked in the DB. Run `prlt session prune` to clean up.'))
-          this.log('')
-        }
-
       } else {
-        this.log('')
-        if (!hasWorkspace) {
-          this.log(styles.muted('No active sessions found.'))
-          this.log('')
-          this.log(styles.muted('Start ticketless work:  prlt work run --prompt "your task"'))
-          this.log(styles.muted('Start ticketed work:    prlt work start <ticket-id>  (requires HQ workspace)'))
-        } else {
-          this.log(styles.muted('No active sessions found.'))
-          this.log('')
-          this.log(styles.muted('Start work with: prlt work start <ticket-id>'))
-          this.log(styles.muted('Or ticketless:   prlt work run --prompt "your task"'))
-          if (!flags.orphans) {
-            this.log(styles.muted('Use --orphans to check for untracked tmux sessions.'))
-          }
-        }
-        this.log('')
+        this.log(JSON.stringify(sessions.map(toJsonSession), null, 2))
       }
+      return
+    }
 
-    } finally {
-      db?.close()
-      machineDb?.close()
+    if (sessions.length === 0) {
+      this.log('')
+      this.log(styles.muted('No active sessions found on this machine.'))
+      this.log('')
+      this.log(styles.muted('Start work with: prlt work start <ticket-id>'))
+      this.log(styles.muted('Or ticketless:   prlt work run --prompt "your task"'))
+      this.log('')
+      return
+    }
+
+    this.log('')
+
+    // Render "Current HQ" section
+    if (grouped.currentHq) {
+      const label = `Current HQ: ${tildifyPath(grouped.currentHq)} (${grouped.here.length} session${grouped.here.length === 1 ? '' : 's'})`
+      this.log(styles.header(label))
+      if (grouped.here.length === 0) {
+        this.log(styles.muted('  (none)'))
+      } else {
+        renderSessionRows(this.log.bind(this), grouped.here)
+      }
+      this.log('')
+    }
+
+    // Render "Other locations" section
+    if (grouped.elsewhere.length > 0) {
+      this.log(
+        styles.muted(
+          `Other locations (${grouped.elsewhere.length} session${grouped.elsewhere.length === 1 ? '' : 's'})`,
+        ),
+      )
+      const buckets = bucketElsewhereByHq(grouped.elsewhere)
+      for (const bucket of buckets) {
+        const hqLabel = bucket.hqPath ? tildifyPath(bucket.hqPath) : '(no HQ)'
+        this.log(styles.muted(`  ${bucket.hqName} — ${hqLabel}`))
+        renderSessionRows(this.log.bind(this), bucket.sessions, /* dim */ true)
+      }
+      this.log('')
+    }
+
+    // Stale + died warnings (across all sessions)
+    const stale = sessions.filter(s => !s.exists)
+    if (stale.length > 0) {
+      this.log(
+        styles.warning(
+          `  ${stale.length} stale session(s) in DB without live runtime.`,
+        ),
+      )
+      this.log(styles.muted('   Run `prlt work stop <work-id>` to clean up.'))
+      this.log('')
+    }
+
+    const died = sessions.filter(s => s.lifecycleState === 'died')
+    if (died.length > 0) {
+      this.log(
+        styles.error(
+          `  ${died.length} agent(s) detected as unresponsive (heartbeat timeout).`,
+        ),
+      )
+      this.log(
+        styles.muted(
+          '   These agents were auto-terminated. Run `prlt session watch --once` for details.',
+        ),
+      )
+      this.log('')
     }
   }
+}
+
+function toJsonSession(s: UnifiedSession): Record<string, unknown> {
+  return {
+    id: s.id,
+    sessionId: s.sessionId,
+    ticketId: s.ticketId,
+    agentName: s.agentName,
+    role: s.role,
+    status: s.status,
+    environment: s.environment,
+    containerId: s.containerId ?? null,
+    exists: s.exists,
+    source: s.source,
+    hqPath: s.hqPath ?? null,
+    hqName: s.hqName ?? null,
+    repoPath: s.repoPath ?? null,
+    startedAt: s.startedAt?.toISOString() ?? null,
+    lastHeartbeat: s.lastHeartbeat?.toISOString() ?? null,
+    lifecycleState: s.lifecycleState ?? null,
+  }
+}
+
+function renderSessionRows(
+  log: (msg: string) => void,
+  sessions: UnifiedSession[],
+  dim = false,
+): void {
+  for (const s of sessions) {
+    const statusColor =
+      s.status === 'running' || s.status === 'starting'
+        ? styles.success
+        : s.status === 'idle'
+          ? styles.warning
+          : s.status === 'stale' || s.status === 'died' || s.status === 'failed'
+            ? styles.error
+            : styles.muted
+
+    const displayName = truncateName(s.agentName, 16)
+    const ticket = truncateName(s.ticketId, 14)
+    const age = formatRelativeAge(s.startedAt)
+
+    const row =
+      '  ○ ' +
+      visualPadEnd(displayName, 18) +
+      visualPadEnd(ticket, 16) +
+      visualPadEnd(statusColor(s.status), 20) +
+      styles.muted(age)
+
+    log(dim ? styles.muted(stripColor(row)) : row)
+  }
+}
+
+function truncateName(name: string, max: number): string {
+  if (!name) return ''
+  if (name.length <= max) return name
+  return name.slice(0, max - 1) + '…'
+}
+
+// chalk strings already include ANSI codes; for the dim "elsewhere" rendering
+// we render the row text without inner colors so the dim style applies cleanly.
+function stripColor(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1B\[[0-9;]*m/g, '')
 }
