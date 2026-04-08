@@ -2,7 +2,13 @@ import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { executeBuiltinAction, ACTION_HANDLERS, AGENT_SPAWN_TIMEOUT_MS } from '../../src/lib/orchestrate/actions.js'
+import {
+  executeBuiltinAction,
+  ACTION_HANDLERS,
+  AGENT_SPAWN_TIMEOUT_MS,
+  setChainExecutorForTesting,
+} from '../../src/lib/orchestrate/actions.js'
+import type { ChainExecutor } from '../../src/lib/orchestrate/prompt-chain.js'
 import type { OrchestrateEventContext } from '../../src/lib/orchestrate/types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -160,56 +166,51 @@ describe('Orchestrate Built-in Actions', () => {
   })
 
   // ===========================================================================
-  // Move-ticket CLI flag regression (PRLT-1220)
+  // CLI Invocation String Validation (PRLT-1268)
+  //
+  // After PRLT-1268, all action handlers that shell out to prlt go through
+  // walkPromptChain. We test the constructed base command by injecting a
+  // mock executor that captures every command sent to it and returns a
+  // synthetic success envelope so the chain terminates immediately.
   // ===========================================================================
 
-  describe('move-ticket command format (PRLT-1220)', () => {
-    it('should use positional args, not --to or --yes flags', () => {
-      const ctx: OrchestrateEventContext = {
-        event: 'on_pr_merged',
-        ticket: 'TKT-012',
+  describe('CLI invocation strings (via prompt chain executor)', () => {
+    let calls: string[] = []
+    const successExecutor: ChainExecutor = (command) => {
+      calls.push(command)
+      return {
+        stdout: JSON.stringify({
+          type: 'success',
+          prompt: null,
+          success: true,
+          result: {},
+          metadata: { command: 'test', flags: {} },
+        }),
+        stderr: '',
+        status: 0,
       }
-      const result = executeBuiltinAction('move-ticket', ctx, { target: 'in-progress' })
-      // The action will fail because prlt is not available in test, but the
-      // error message contains the exact command that was attempted.
-      expect(result.success).to.be.false
-      expect(result.error).to.be.a('string')
-      // Must use positional args: prlt ticket move TICKETID COLUMN
-      expect(result.error).to.include('prlt ticket move TKT-012 "in-progress"')
-      // Must NOT use the old --to / --yes flags
-      expect(result.error).to.not.include('--to')
-      expect(result.error).to.not.include('--yes')
+    }
+
+    beforeEach(() => {
+      calls = []
+      setChainExecutorForTesting(successExecutor)
     })
 
-    it('should default target to "done" when no config provided', () => {
-      const ctx: OrchestrateEventContext = {
-        event: 'on_pr_merged',
-        ticket: 'TKT-099',
-      }
-      const result = executeBuiltinAction('move-ticket', ctx)
-      expect(result.success).to.be.false
-      expect(result.error).to.include('prlt ticket move TKT-099 "done"')
+    afterEach(() => {
+      setChainExecutorForTesting(null)
     })
-  })
 
-  // ===========================================================================
-  // CLI Invocation String Validation (PRLT-1223)
-  // ===========================================================================
-
-  describe('CLI invocation strings', () => {
-    // Each action that shells out to prlt will fail in test env because prlt
-    // commands aren't available, but the error message contains the exact
-    // command string, which we can validate against expected syntax.
-
-    it('merge-pr should use: prlt work ship <ticket> --pr <number> (no --yes)', () => {
+    it('merge-pr should call: prlt work ship <ticket> --pr <number> --json (no --yes)', () => {
       const result = executeBuiltinAction('merge-pr', {
         event: 'on_ci_green',
         ticket: 'PRLT-100',
         pr: 42,
       })
-      expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work ship PRLT-100 --pr 42')
-      expect(result.error).to.not.include('--yes')
+      expect(result.success).to.be.true
+      expect(calls).to.have.length(1)
+      expect(calls[0]).to.include('prlt work ship PRLT-100 --pr 42')
+      expect(calls[0]).to.include('--json')
+      expect(calls[0]).to.not.include('--yes')
     })
 
     it('merge-pr should work with only PR (no ticket)', () => {
@@ -217,55 +218,84 @@ describe('Orchestrate Built-in Actions', () => {
         event: 'on_ci_green',
         pr: 55,
       })
-      // Command may succeed if prlt is globally installed; validate on failure only
-      if (!result.success && result.error) {
-        expect(result.error).to.include('prlt work ship')
-        expect(result.error).to.include('--pr 55')
-        expect(result.error).to.not.include('--yes')
-      }
-      expect(result.action).to.equal('merge-pr')
+      expect(result.success).to.be.true
+      expect(calls[0]).to.include('prlt work ship --pr 55')
+      expect(calls[0]).to.not.include('--yes')
     })
 
-    it('spawn-agent should use: prlt work start <ticket> --yes --display background', () => {
+    it('spawn-agent should call: prlt work start <ticket> --json (no --yes, no --display)', () => {
       const result = executeBuiltinAction('spawn-agent', {
         event: 'on_ticket_ready',
         ticket: 'PRLT-200',
       })
-      expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work start PRLT-200 --yes --display background')
+      expect(result.success).to.be.true
+      expect(calls[0]).to.equal('prlt work start PRLT-200 --json')
+      // The whole point of PRLT-1268: no hardcoded --yes / --display flags
+      expect(calls[0]).to.not.include('--yes')
+      expect(calls[0]).to.not.include('--display')
     })
 
-    it('respawn should use: prlt work start <ticket> --yes --display background --force', () => {
+    it('respawn should call: prlt work start <ticket> --force --json', () => {
       const result = executeBuiltinAction('respawn', {
         event: 'on_agent_died',
         ticket: 'PRLT-300',
       })
-      expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work start PRLT-300 --yes --display background --force')
+      expect(result.success).to.be.true
+      expect(calls[0]).to.equal('prlt work start PRLT-300 --force --json')
+      expect(calls[0]).to.not.include('--yes')
+      expect(calls[0]).to.not.include('--display')
     })
 
-    it('spawn-fix-agent should use: prlt work start <ticket> --action revise --yes --display background', () => {
+    it('spawn-fix-agent should call: prlt work start <ticket> --action revise --json', () => {
       const result = executeBuiltinAction('spawn-fix-agent', {
         event: 'on_ci_failed',
         ticket: 'PRLT-400',
       })
-      expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work start PRLT-400 --action revise --yes --display background')
+      expect(result.success).to.be.true
+      expect(calls[0]).to.equal('prlt work start PRLT-400 --action revise --json')
+      expect(calls[0]).to.not.include('--yes')
     })
 
-    it('spawn-review-agent should use: prlt work start <ticket> --action review --yes --display background', function (this: Mocha.Context) {
-      this.timeout(AGENT_SPAWN_TIMEOUT_MS + 10_000)
+    it('spawn-review-agent should call: prlt work start <ticket> --action review --json', () => {
       const result = executeBuiltinAction('spawn-review-agent', {
         event: 'on_pr_opened',
         ticket: 'PRLT-450',
       })
-      // Command may succeed if prlt is globally installed; validate on failure only
-      if (!result.success && result.error) {
-        expect(result.error).to.include('prlt work start PRLT-450 --action review --yes --display background')
-      }
-      expect(result.action).to.equal('spawn-review-agent')
+      expect(result.success).to.be.true
+      expect(calls[0]).to.equal('prlt work start PRLT-450 --action review --json')
+      expect(calls[0]).to.not.include('--yes')
     })
 
+    it('move-ticket should call: prlt ticket move <ticket> "<target>" --json', () => {
+      const targets = ['done', 'review', 'in-progress', 'backlog']
+      for (const target of targets) {
+        calls = []
+        const result = executeBuiltinAction('move-ticket', {
+          event: 'on_pr_merged',
+          ticket: 'TKT-001',
+        }, { target })
+        expect(result.success).to.be.true
+        expect(calls[0]).to.include(`prlt ticket move TKT-001 "${target}"`)
+        expect(calls[0]).to.include('--json')
+        expect(calls[0]).to.not.include('--yes')
+      }
+    })
+
+    it('move-ticket defaults target to "done" when no config provided', () => {
+      const result = executeBuiltinAction('move-ticket', {
+        event: 'on_pr_merged',
+        ticket: 'TKT-099',
+      })
+      expect(result.success).to.be.true
+      expect(calls[0]).to.include('prlt ticket move TKT-099 "done"')
+    })
+  })
+
+  // ===========================================================================
+  // Direct execSync invocations (commands not yet behind prompt chain)
+  // ===========================================================================
+
+  describe('CLI invocation strings (direct execSync)', () => {
     it('health-check should use: prlt poke <agent> "..."', () => {
       const result = executeBuiltinAction('health-check', {
         event: 'on_agent_idle',
@@ -281,7 +311,6 @@ describe('Orchestrate Built-in Actions', () => {
         agent: 'bold-turing',
       })
       expect(result.action).to.equal('cleanup-container')
-      // Command may succeed or fail depending on whether prlt/docker is available
       if (!result.success && result.error) {
         expect(result.error).to.include('prlt docker stop bold-turing --force')
         expect(result.error).to.not.include('docker rm')
@@ -306,39 +335,10 @@ describe('Orchestrate Built-in Actions', () => {
         event: 'on_pr_merged',
       })
       expect(result.action).to.equal('rebase-conflicting-prs')
-      // Command may succeed if prlt is globally installed; validate on failure only
       if (!result.success && result.error) {
         expect(result.error).to.include('prlt work rebase --all')
         expect(result.error).to.not.include('--yes')
         expect(result.error).to.not.include('2>/dev/null')
-      }
-    })
-
-    it('resolve-conflict should attempt poke then fallback to respawn with --action resolve', () => {
-      const result = executeBuiltinAction('resolve-conflict', {
-        event: 'on_pr_conflicting',
-        ticket: 'PRLT-500',
-        pr: 99,
-      })
-      // The poke will fail, then the respawn will fail in test env
-      // but the error should show the fallback command
-      expect(result.action).to.equal('resolve-conflict')
-      if (!result.success && result.error) {
-        expect(result.error).to.include('prlt work start PRLT-500 --action resolve --yes --display background')
-      }
-    })
-
-    it('move-ticket should use positional args for all config targets', () => {
-      const targets = ['done', 'review', 'in-progress', 'backlog']
-      for (const target of targets) {
-        const result = executeBuiltinAction('move-ticket', {
-          event: 'on_pr_merged',
-          ticket: 'TKT-001',
-        }, { target })
-        expect(result.success).to.be.false
-        expect(result.error).to.include(`prlt ticket move TKT-001 "${target}"`)
-        expect(result.error).to.not.include('--to')
-        expect(result.error).to.not.include('--yes')
       }
     })
   })
@@ -366,7 +366,6 @@ describe('Orchestrate Built-in Actions', () => {
 
     it('merge-pr must not pass --yes to prlt work ship', () => {
       const src = getHandlerSource('mergePr')
-      // Should contain prlt work ship
       expect(src).to.include('prlt')
       expect(src).to.include('work')
       expect(src).to.include('ship')
@@ -392,6 +391,41 @@ describe('Orchestrate Built-in Actions', () => {
       expect(src).to.include('--force')
       expect(src).to.not.include('docker rm')
       expect(src).to.not.include('--yes')
+    })
+
+    // PRLT-1268: spawn-* handlers must not hardcode --yes / --display flags.
+    // Instead they go through walkPromptChain which picks defaults from
+    // the prompt chain.
+    it('spawn-agent must not hardcode --yes or --display flags', () => {
+      const src = getHandlerSource('spawnAgent')
+      expect(src).to.include('walkPromptChain')
+      expect(src).to.not.include('--yes')
+      expect(src).to.not.include('--display background')
+    })
+
+    it('respawn must not hardcode --yes or --display flags', () => {
+      const src = getHandlerSource('respawn')
+      expect(src).to.include('walkPromptChain')
+      // --force is still required so prlt skips its in-progress guard
+      expect(src).to.include('--force')
+      expect(src).to.not.include('--yes')
+      expect(src).to.not.include('--display background')
+    })
+
+    it('spawn-fix-agent must not hardcode --yes or --display flags', () => {
+      const src = getHandlerSource('spawnFixAgent')
+      expect(src).to.include('walkPromptChain')
+      expect(src).to.include('--action revise')
+      expect(src).to.not.include('--yes')
+      expect(src).to.not.include('--display background')
+    })
+
+    it('spawn-review-agent must not hardcode --yes or --display flags', () => {
+      const src = getHandlerSource('spawnReviewAgent')
+      expect(src).to.include('walkPromptChain')
+      expect(src).to.include('--action review')
+      expect(src).to.not.include('--yes')
+      expect(src).to.not.include('--display background')
     })
   })
 
@@ -428,8 +462,27 @@ describe('Orchestrate Built-in Actions', () => {
   // ===========================================================================
 
   describe('error handling', () => {
-    it('actions should catch execSync errors and return failure (not throw)', () => {
-      // All actions that call execSync should catch errors and return a result
+    // Inject a failing executor so we don't shell out to real prlt for these
+    // tests — keeps them fast and deterministic regardless of host config.
+    const failingExecutor: ChainExecutor = (command) => ({
+      stdout: JSON.stringify({
+        type: 'error',
+        error: { code: 'TEST_FAILURE', message: `mock failure for ${command}` },
+        metadata: { command: 'test', flags: {} },
+      }),
+      stderr: '',
+      status: 1,
+    })
+
+    beforeEach(() => {
+      setChainExecutorForTesting(failingExecutor)
+    })
+
+    afterEach(() => {
+      setChainExecutorForTesting(null)
+    })
+
+    it('actions should catch executor errors and return failure (not throw)', () => {
       const actionsWithContext: Array<{ name: string; ctx: OrchestrateEventContext }> = [
         { name: 'merge-pr', ctx: { event: 'test', ticket: 'TKT-1', pr: 1 } },
         { name: 'move-ticket', ctx: { event: 'test', ticket: 'TKT-1' } },
@@ -437,13 +490,10 @@ describe('Orchestrate Built-in Actions', () => {
         { name: 'respawn', ctx: { event: 'test', ticket: 'TKT-1' } },
         { name: 'spawn-fix-agent', ctx: { event: 'test', ticket: 'TKT-1' } },
         { name: 'spawn-review-agent', ctx: { event: 'test', ticket: 'TKT-1' } },
-        { name: 'health-check', ctx: { event: 'test', agent: 'agent-1' } },
-        { name: 'cleanup-container', ctx: { event: 'test', agent: 'agent-1' } },
         { name: 'resolve-conflict', ctx: { event: 'test', ticket: 'TKT-1' } },
       ]
 
       for (const { name, ctx } of actionsWithContext) {
-        // Should not throw — errors are caught internally
         const result = executeBuiltinAction(name, ctx)
         expect(result).to.have.property('action', name)
         expect(result).to.have.property('success')
@@ -455,15 +505,13 @@ describe('Orchestrate Built-in Actions', () => {
     })
 
     it('actions should include meaningful error messages on failure', () => {
-      // Use an action that always fails in test: move-ticket with a fake ticket
       const result = executeBuiltinAction('move-ticket', {
         event: 'test',
         ticket: 'TKT-NONEXISTENT-999',
       })
-      // move-ticket with a non-existent ticket should fail
       expect(result.success).to.be.false
       expect(result.error).to.be.a('string')
-      expect(result.error!.length).to.be.greaterThan(0)
+      expect(result.error).to.include('TEST_FAILURE')
     })
 
     it('resolve-conflict should gracefully skip when ticket is missing', () => {

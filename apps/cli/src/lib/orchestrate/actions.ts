@@ -21,8 +21,30 @@ import {
   type CascadeTarget,
 } from '../gc/cascade.js'
 import { getEventBus } from '../events/event-bus.js'
+import {
+  walkPromptChain,
+  resolveActionDefaults,
+  defaultChainExecutor,
+  type ChainExecutor,
+} from './prompt-chain.js'
 
 type ActionHandler = (ctx: OrchestrateEventContext, config?: Record<string, unknown>) => OrchestrateActionResult
+
+/**
+ * Module-level chain executor — overridable for tests via setChainExecutorForTesting().
+ * Production code uses defaultChainExecutor (spawnSync).
+ */
+let chainExecutor: ChainExecutor = defaultChainExecutor
+
+/**
+ * Test-only seam for swapping out the prlt CLI executor used by walkPromptChain.
+ * Pass `null` to restore the default spawnSync executor.
+ *
+ * This avoids monkey-patching child_process across the test suite.
+ */
+export function setChainExecutorForTesting(executor: ChainExecutor | null): void {
+  chainExecutor = executor || defaultChainExecutor
+}
 
 /**
  * Timeout for actions that spawn agents via `prlt work start`.
@@ -33,21 +55,33 @@ export const AGENT_SPAWN_TIMEOUT_MS = 180_000
 
 /**
  * Merge a PR via `prlt work ship`.
+ *
+ * Walks the JSON prompt chain so that any prompts emitted by `prlt work ship`
+ * (e.g. merge method, delete-branch confirmation) are answered with the
+ * configured defaults instead of hanging.
  */
 const mergePr: ActionHandler = (ctx, config) => {
   const start = Date.now()
-  try {
-    if (!ctx.ticket && !ctx.pr) {
-      return { action: 'merge-pr', success: false, error: 'No ticket or PR number in context', durationMs: Date.now() - start }
-    }
+  if (!ctx.ticket && !ctx.pr) {
+    return { action: 'merge-pr', success: false, error: 'No ticket or PR number in context', durationMs: Date.now() - start }
+  }
 
-    const args: string[] = ['prlt', 'work', 'ship']
-    if (ctx.ticket) args.push(ctx.ticket)
-    if (ctx.pr) args.push('--pr', String(ctx.pr))
-    execSync(args.join(' '), { timeout: 120_000, stdio: 'pipe' })
-    return { action: 'merge-pr', success: true, durationMs: Date.now() - start }
-  } catch (err) {
-    return { action: 'merge-pr', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  const args: string[] = ['prlt', 'work', 'ship']
+  if (ctx.ticket) args.push(ctx.ticket)
+  if (ctx.pr) args.push('--pr', String(ctx.pr))
+
+  const result = walkPromptChain({
+    baseCommand: args.join(' '),
+    defaults: resolveActionDefaults('merge-pr', config),
+    timeoutMs: 120_000,
+    executor: chainExecutor,
+  })
+
+  return {
+    action: 'merge-pr',
+    success: result.success,
+    error: result.error,
+    durationMs: Date.now() - start,
   }
 }
 
@@ -55,23 +89,33 @@ const mergePr: ActionHandler = (ctx, config) => {
  * Move a ticket to a target status.
  *
  * Resolves intent-like targets (e.g. 'done', 'review') through the workflow
- * configuration so users with custom column names get the right mapping.
+ * configuration so users with custom column names get the right mapping,
+ * then walks any JSON prompts emitted by `prlt ticket move`.
  */
 const moveTicket: ActionHandler = (ctx, config) => {
   const start = Date.now()
-  try {
-    let target = (config?.target as string) || 'done'
-    if (!ctx.ticket) {
-      return { action: 'move-ticket', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
-    }
+  if (!ctx.ticket) {
+    return { action: 'move-ticket', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
+  }
 
-    // Resolve the target through workflow config (e.g. 'done' → 'Shipped')
-    target = resolveTargetFromWorkspace(target)
+  // Pull the configured target (defaults are merged in resolveActionDefaults
+  // below, but we still need to resolve it through workflow settings here so
+  // intent-like targets like 'done' map to the user's actual column name).
+  const requestedTarget = (config?.target as string) || 'done'
+  const resolvedTarget = resolveTargetFromWorkspace(requestedTarget)
 
-    execSync(`prlt ticket move ${ctx.ticket} "${target}"`, { timeout: 30_000, stdio: 'pipe' })
-    return { action: 'move-ticket', success: true, durationMs: Date.now() - start }
-  } catch (err) {
-    return { action: 'move-ticket', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  const result = walkPromptChain({
+    baseCommand: `prlt ticket move ${ctx.ticket} "${resolvedTarget}"`,
+    defaults: resolveActionDefaults('move-ticket', config),
+    timeoutMs: 30_000,
+    executor: chainExecutor,
+  })
+
+  return {
+    action: 'move-ticket',
+    success: result.success,
+    error: result.error,
+    durationMs: Date.now() - start,
   }
 }
 
@@ -127,36 +171,59 @@ const rebaseConflictingPrs: ActionHandler = (ctx) => {
 }
 
 /**
- * Spawn an agent for a ticket.
+ * Spawn an agent for a ticket by walking the JSON prompt chain.
+ *
+ * `prlt work start` emits multiple JSON prompts (environment, display,
+ * permission-mode, PR creation, etc.) — hardcoding flags is brittle because
+ * adding any new prompt breaks the chain. Instead, we walk the chain and pick
+ * a configured default for every prompt name we encounter. Defaults can be
+ * overridden per hook via `args.defaults` config.
  */
-const spawnAgent: ActionHandler = (ctx) => {
+const spawnAgent: ActionHandler = (ctx, config) => {
   const start = Date.now()
-  try {
-    if (!ctx.ticket) {
-      return { action: 'spawn-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
-    }
+  if (!ctx.ticket) {
+    return { action: 'spawn-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
+  }
 
-    execSync(`prlt work start ${ctx.ticket} --yes --display background`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
-    return { action: 'spawn-agent', success: true, durationMs: Date.now() - start }
-  } catch (err) {
-    return { action: 'spawn-agent', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  const result = walkPromptChain({
+    baseCommand: `prlt work start ${ctx.ticket}`,
+    defaults: resolveActionDefaults('spawn-agent', config),
+    timeoutMs: AGENT_SPAWN_TIMEOUT_MS,
+    executor: chainExecutor,
+  })
+
+  return {
+    action: 'spawn-agent',
+    success: result.success,
+    error: result.error,
+    durationMs: Date.now() - start,
   }
 }
 
 /**
  * Respawn a failed/died agent.
+ *
+ * Same as spawn-agent but passes --force so prlt skips its
+ * "work already in progress" guard.
  */
 const respawn: ActionHandler = (ctx, config) => {
   const start = Date.now()
-  try {
-    if (!ctx.ticket) {
-      return { action: 'respawn', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
-    }
+  if (!ctx.ticket) {
+    return { action: 'respawn', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
+  }
 
-    execSync(`prlt work start ${ctx.ticket} --yes --display background --force`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
-    return { action: 'respawn', success: true, durationMs: Date.now() - start }
-  } catch (err) {
-    return { action: 'respawn', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  const result = walkPromptChain({
+    baseCommand: `prlt work start ${ctx.ticket} --force`,
+    defaults: resolveActionDefaults('spawn-agent', config),
+    timeoutMs: AGENT_SPAWN_TIMEOUT_MS,
+    executor: chainExecutor,
+  })
+
+  return {
+    action: 'respawn',
+    success: result.success,
+    error: result.error,
+    durationMs: Date.now() - start,
   }
 }
 
@@ -214,38 +281,56 @@ const cleanupContainer: ActionHandler = (ctx) => {
 }
 
 /**
- * Spawn a fix agent after CI failure.
+ * Spawn a fix agent after CI failure. Uses --action revise so the agent
+ * launches into the revise role prompt; everything else (environment,
+ * display, permission mode, …) comes from prompt-chain defaults.
  */
-const spawnFixAgent: ActionHandler = (ctx) => {
+const spawnFixAgent: ActionHandler = (ctx, config) => {
   const start = Date.now()
-  try {
-    if (!ctx.ticket) {
-      return { action: 'spawn-fix-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
-    }
+  if (!ctx.ticket) {
+    return { action: 'spawn-fix-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
+  }
 
-    execSync(`prlt work start ${ctx.ticket} --action revise --yes --display background`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
-    return { action: 'spawn-fix-agent', success: true, durationMs: Date.now() - start }
-  } catch (err) {
-    return { action: 'spawn-fix-agent', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  const result = walkPromptChain({
+    baseCommand: `prlt work start ${ctx.ticket} --action revise`,
+    defaults: resolveActionDefaults('spawn-fix-agent', config),
+    timeoutMs: AGENT_SPAWN_TIMEOUT_MS,
+    executor: chainExecutor,
+  })
+
+  return {
+    action: 'spawn-fix-agent',
+    success: result.success,
+    error: result.error,
+    durationMs: Date.now() - start,
   }
 }
 
 /**
  * Spawn a review agent for a PR.
- * Review agents are non-destructive — they read the diff and post comments.
- * Uses --action review to launch in read-only mode with the review role prompt.
+ *
+ * Review agents are non-destructive — they read the diff and post comments,
+ * so they default to host environment (faster, no container spin-up) and
+ * safe permission mode. --action review pins the read-only role prompt.
  */
-const spawnReviewAgent: ActionHandler = (ctx) => {
+const spawnReviewAgent: ActionHandler = (ctx, config) => {
   const start = Date.now()
-  try {
-    if (!ctx.ticket) {
-      return { action: 'spawn-review-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
-    }
+  if (!ctx.ticket) {
+    return { action: 'spawn-review-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
+  }
 
-    execSync(`prlt work start ${ctx.ticket} --action review --yes --display background`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
-    return { action: 'spawn-review-agent', success: true, durationMs: Date.now() - start }
-  } catch (err) {
-    return { action: 'spawn-review-agent', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  const result = walkPromptChain({
+    baseCommand: `prlt work start ${ctx.ticket} --action review`,
+    defaults: resolveActionDefaults('spawn-review-agent', config),
+    timeoutMs: AGENT_SPAWN_TIMEOUT_MS,
+    executor: chainExecutor,
+  })
+
+  return {
+    action: 'spawn-review-agent',
+    success: result.success,
+    error: result.error,
+    durationMs: Date.now() - start,
   }
 }
 
@@ -269,30 +354,39 @@ const healthCheck: ActionHandler = (ctx) => {
 /**
  * Resolve a merge conflict on a PR by poking the running agent or respawning a stopped one.
  * If the agent is running, it gets poked with a rebase instruction.
- * If the agent is stopped, it gets respawned with --action resolve.
+ * If the agent is stopped, it gets respawned via the JSON prompt chain
+ * with --action resolve.
  * No action is taken on PRs with no associated ticket.
  */
-const resolveConflict: ActionHandler = (ctx) => {
+const resolveConflict: ActionHandler = (ctx, config) => {
   const start = Date.now()
+  if (!ctx.ticket) {
+    return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start, skipped: true }
+  }
+
+  // Try poking the running agent first. `prlt session poke` is a fire-and-
+  // forget command that doesn't have a JSON prompt chain — using execSync
+  // directly here is intentional.
   try {
-    if (!ctx.ticket) {
-      return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start, skipped: true }
-    }
-
-    // Try poking the running agent first
-    try {
-      const pokeMsg = 'Your PR has merge conflicts. Please rebase on main and resolve the conflicts.'
-      execSync(`prlt session poke ${ctx.ticket} "${pokeMsg}"`, { timeout: 30_000, stdio: 'pipe' })
-      return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start }
-    } catch {
-      // Poke failed — agent is likely not running, respawn it
-    }
-
-    // Respawn the agent with resolve action
-    execSync(`prlt work start ${ctx.ticket} --action resolve --yes --display background`, { timeout: AGENT_SPAWN_TIMEOUT_MS, stdio: 'pipe' })
+    const pokeMsg = 'Your PR has merge conflicts. Please rebase on main and resolve the conflicts.'
+    execSync(`prlt session poke ${ctx.ticket} "${pokeMsg}"`, { timeout: 30_000, stdio: 'pipe' })
     return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start }
-  } catch (err) {
-    return { action: 'resolve-conflict', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+  } catch {
+    // Poke failed — agent is likely not running, respawn it via prompt chain
+  }
+
+  const result = walkPromptChain({
+    baseCommand: `prlt work start ${ctx.ticket} --action resolve`,
+    defaults: resolveActionDefaults('resolve-conflict', config),
+    timeoutMs: AGENT_SPAWN_TIMEOUT_MS,
+    executor: chainExecutor,
+  })
+
+  return {
+    action: 'resolve-conflict',
+    success: result.success,
+    error: result.error,
+    durationMs: Date.now() - start,
   }
 }
 
