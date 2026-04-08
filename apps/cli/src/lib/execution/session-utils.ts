@@ -459,8 +459,11 @@ export function getContainerTmuxServerStatus(containerId: string): TmuxServerSta
 /**
  * Check if an execution environment is container-based.
  * Both 'devcontainer' and 'docker' environments run inside Docker containers.
+ *
+ * Accepts any string so callers can pass rows from machine.db (whose
+ * `environment` is typed as `string`, not the branded `ExecutionEnvironment`).
  */
-export function isContainerEnvironment(env: ExecutionEnvironment): boolean {
+export function isContainerEnvironment(env: ExecutionEnvironment | string): boolean {
   return env === 'devcontainer' || env === 'docker'
 }
 

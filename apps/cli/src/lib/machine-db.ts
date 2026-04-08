@@ -359,6 +359,29 @@ export class MachineDB {
   }
 
   /**
+   * Get all active executions where the agent name starts with the given
+   * prefix. Used by `prlt orchestrator status/attach/stop` to find all
+   * orchestrator executions (`orchestrator-{name}`) machine-wide.
+   */
+  getActiveByAgentPrefix(prefix: string): MachineExecution[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM executions WHERE status IN ('starting', 'running') AND agent_name LIKE ? ORDER BY started_at DESC"
+    ).all(`${prefix}%`) as unknown as ExecutionRow[]
+    return rows.map(rowToExecution)
+  }
+
+  /**
+   * Find an execution by session ID (unique across the machine).
+   * Returns the most recently started match, or null.
+   */
+  findBySessionId(sessionId: string): MachineExecution | null {
+    const row = this.db.prepare<ExecutionRow>(
+      'SELECT * FROM executions WHERE session_id = ? ORDER BY started_at DESC LIMIT 1'
+    ).get(sessionId)
+    return row ? rowToExecution(row) : null
+  }
+
+  /**
    * Delete an execution record.
    */
   deleteExecution(id: string): void {
