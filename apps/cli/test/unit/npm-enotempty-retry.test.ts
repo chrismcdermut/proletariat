@@ -3,20 +3,125 @@ import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import {
+  backupNpmPackageDir,
+  discardNpmPackageBackup,
   getNpmGlobalModulesDir,
+  restoreNpmPackageBackup,
   runNpmInstallWithRetry,
 } from '../../src/lib/update-check.js'
 
-describe('npm ENOTEMPTY retry (PRLT-1228)', () => {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a fake `<prefix>/lib/node_modules` layout in a temp directory so
+ * retry/backup logic can be exercised without touching the user's real
+ * globally installed prlt package.
+ */
+function createFakeNpmPrefix(): {
+  modulesDir: string
+  binDir: string
+  packageDir: string
+  cleanup: () => void
+} {
+  const prefix = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-fake-npm-')))
+  const modulesDir = path.join(prefix, 'lib', 'node_modules')
+  const binDir = path.join(prefix, 'bin')
+  const packageDir = path.join(modulesDir, '@proletariat', 'cli')
+
+  fs.mkdirSync(modulesDir, { recursive: true })
+  fs.mkdirSync(binDir, { recursive: true })
+
+  return {
+    modulesDir,
+    binDir,
+    packageDir,
+    cleanup: () => {
+      if (fs.existsSync(prefix)) {
+        fs.rmSync(prefix, { recursive: true, force: true })
+      }
+    },
+  }
+}
+
+/**
+ * Populate a fake @proletariat/cli package dir + bin symlink to match the
+ * layout produced by a real `npm install -g @proletariat/cli`.
+ */
+function installFakePrlt(packageDir: string, binDir: string): void {
+  fs.mkdirSync(path.join(packageDir, 'bin'), { recursive: true })
+  fs.writeFileSync(
+    path.join(packageDir, 'bin', 'run.js'),
+    '#!/usr/bin/env node\nconsole.log("fake prlt");\n',
+  )
+  fs.writeFileSync(
+    path.join(packageDir, 'package.json'),
+    JSON.stringify({ name: '@proletariat/cli', version: '0.0.0' }),
+  )
+  const binPath = path.join(binDir, 'prlt')
+  fs.symlinkSync('../lib/node_modules/@proletariat/cli/bin/run.js', binPath)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('npm ENOTEMPTY retry (PRLT-1228, PRLT-1276)', () => {
   describe('getNpmGlobalModulesDir', () => {
     it('returns a path ending in lib/node_modules when npm is available', () => {
-      const result = getNpmGlobalModulesDir()
-      expect(result).to.not.be.null
-      expect(result!).to.match(/lib\/node_modules$/)
+      // No override — exercises the real code path. We don't care about the
+      // exact value, only that it ends with the expected suffix.
+      const previous = process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      delete process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      try {
+        const result = getNpmGlobalModulesDir()
+        expect(result).to.not.be.null
+        expect(result!).to.match(/lib\/node_modules$/)
+      } finally {
+        if (previous !== undefined) {
+          process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = previous
+        }
+      }
+    })
+
+    it('honours PRLT_NPM_MODULES_DIR_OVERRIDE for tests', () => {
+      const previous = process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = '/tmp/fake-modules'
+      try {
+        expect(getNpmGlobalModulesDir()).to.equal('/tmp/fake-modules')
+      } finally {
+        if (previous === undefined) {
+          delete process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+        } else {
+          process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = previous
+        }
+      }
     })
   })
 
   describe('runNpmInstallWithRetry', () => {
+    let fake: ReturnType<typeof createFakeNpmPrefix>
+    let previousOverride: string | undefined
+
+    beforeEach(() => {
+      fake = createFakeNpmPrefix()
+      previousOverride = process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      // Point backup/restore helpers at our fake npm prefix so these tests
+      // do NOT clobber the user's real globally installed prlt package
+      // (the PRLT-1276 bug we're fixing).
+      process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = fake.modulesDir
+    })
+
+    afterEach(() => {
+      if (previousOverride === undefined) {
+        delete process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      } else {
+        process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = previousOverride
+      }
+      fake.cleanup()
+    })
+
     it('succeeds when the command succeeds on first try', () => {
       expect(() => runNpmInstallWithRetry('true')).to.not.throw()
     })
@@ -26,11 +131,12 @@ describe('npm ENOTEMPTY retry (PRLT-1228)', () => {
     })
 
     it('retries when ENOTEMPTY is detected in stderr', () => {
-      // Create a temp script that fails with ENOTEMPTY on first call, succeeds on retry.
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prlt-retry-test-'))
-      const markerFile = path.join(tmpDir, 'attempt')
-      const scriptFile = path.join(tmpDir, 'test-install.sh')
+      installFakePrlt(fake.packageDir, fake.binDir)
 
+      // Script that fails with ENOTEMPTY on first call, succeeds on retry.
+      const markerFile = path.join(os.tmpdir(), `prlt-retry-marker-${process.pid}`)
+      try { fs.unlinkSync(markerFile) } catch { /* noop */ }
+      const scriptFile = path.join(os.tmpdir(), `prlt-retry-script-${process.pid}.sh`)
       fs.writeFileSync(scriptFile, [
         '#!/bin/bash',
         `if [ ! -f "${markerFile}" ]; then`,
@@ -43,49 +149,41 @@ describe('npm ENOTEMPTY retry (PRLT-1228)', () => {
       ].join('\n'))
       fs.chmodSync(scriptFile, '755')
 
+      const originalLog = console.log
+      const originalError = console.error
+      console.log = () => { /* suppress */ }
+      console.error = () => { /* suppress */ }
+
       try {
-        // Suppress console output during test
-        const originalLog = console.log
-        const originalError = console.error
-        console.log = () => {}
-        console.error = () => {}
-
-        let threw = false
-        try {
-          runNpmInstallWithRetry(`bash "${scriptFile}"`)
-        } catch {
-          threw = true
-        }
-
+        expect(() => runNpmInstallWithRetry(`bash "${scriptFile}"`)).to.not.throw()
+      } finally {
         console.log = originalLog
         console.error = originalError
-
-        // The marker file should exist — proving the first attempt ran and detected ENOTEMPTY
-        expect(fs.existsSync(markerFile)).to.be.true
-
-        // If cleanup of the npm dir succeeded (user has write access), the retry
-        // succeeds and threw=false. If cleanup failed (root-owned npm dir in CI),
-        // the original error is re-thrown. Either way, the ENOTEMPTY detection worked.
-      } finally {
-        fs.rmSync(tmpDir, { recursive: true, force: true })
+        try { fs.unlinkSync(markerFile) } catch { /* noop */ }
+        try { fs.unlinkSync(scriptFile) } catch { /* noop */ }
       }
+
+      // First attempt must have run (produced the marker) and the backup
+      // must have been discarded after retry success.
+      expect(fs.existsSync(path.dirname(fake.packageDir))).to.be.true
+      const siblings = fs.readdirSync(path.dirname(fake.packageDir))
+      expect(siblings.some(n => n.startsWith('cli.prlt-backup-'))).to.be.false
     })
 
-    it('detects ENOTEMPTY in stderr and attempts cleanup', () => {
-      // Verify the ENOTEMPTY detection path is triggered by checking console output.
-      // A command that always fails with ENOTEMPTY should trigger the cleanup message.
+    it('logs ENOTEMPTY detection and cleanup message', () => {
       const logs: string[] = []
       const originalLog = console.log
-      console.log = (...args: unknown[]) => {
-        logs.push(args.map(String).join(' '))
-      }
+      const originalError = console.error
+      console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')) }
+      console.error = () => { /* suppress */ }
 
       try {
         runNpmInstallWithRetry('bash -c \'echo "ENOTEMPTY: directory not empty" >&2; exit 1\'')
       } catch {
-        // Expected to throw since the retry also fails
+        // Expected — retry also fails
       } finally {
         console.log = originalLog
+        console.error = originalError
       }
 
       const output = logs.join('\n')
@@ -96,9 +194,7 @@ describe('npm ENOTEMPTY retry (PRLT-1228)', () => {
     it('does not attempt cleanup for non-ENOTEMPTY errors', () => {
       const logs: string[] = []
       const originalLog = console.log
-      console.log = (...args: unknown[]) => {
-        logs.push(args.map(String).join(' '))
-      }
+      console.log = (...args: unknown[]) => { logs.push(args.map(String).join(' ')) }
 
       try {
         runNpmInstallWithRetry('bash -c \'echo "NETWORK_ERROR" >&2; exit 1\'')
@@ -109,21 +205,256 @@ describe('npm ENOTEMPTY retry (PRLT-1228)', () => {
       }
 
       const output = logs.join('\n')
-      // Should NOT contain the ENOTEMPTY retry message
       expect(output).to.not.include('ENOTEMPTY')
       expect(output).to.not.include('known npm bug')
     })
 
     it('throws when ENOTEMPTY retry also fails', () => {
-      // A command that always fails with ENOTEMPTY — retry will also fail
       expect(() => {
         runNpmInstallWithRetry('bash -c \'echo "ENOTEMPTY: directory not empty" >&2; exit 1\'')
       }).to.throw()
     })
 
     it('handles missing stderr gracefully', () => {
-      // A command that fails without writing to stderr
       expect(() => runNpmInstallWithRetry('false')).to.throw()
+    })
+  })
+
+  // =========================================================================
+  // Regression tests for PRLT-1276 — prlt binary wiped from PATH
+  // =========================================================================
+  describe('PRLT-1276: backup/restore prevents orphaned bin symlinks', () => {
+    let fake: ReturnType<typeof createFakeNpmPrefix>
+    let previousOverride: string | undefined
+    let originalLog: typeof console.log
+    let originalError: typeof console.error
+
+    beforeEach(() => {
+      fake = createFakeNpmPrefix()
+      previousOverride = process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = fake.modulesDir
+      originalLog = console.log
+      originalError = console.error
+      console.log = () => { /* suppress */ }
+      console.error = () => { /* suppress */ }
+    })
+
+    afterEach(() => {
+      console.log = originalLog
+      console.error = originalError
+      if (previousOverride === undefined) {
+        delete process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      } else {
+        process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = previousOverride
+      }
+      fake.cleanup()
+    })
+
+    it('restores the package directory when the ENOTEMPTY retry fails', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+
+      // Fingerprint to prove the restored dir is really the original
+      const marker = path.join(fake.packageDir, 'original-marker.txt')
+      fs.writeFileSync(marker, 'original content')
+
+      // Both attempts fail with ENOTEMPTY — no clean slate is ever achieved
+      const failCmd = 'bash -c \'echo "ENOTEMPTY: directory not empty, rename" >&2; exit 1\''
+
+      expect(() => runNpmInstallWithRetry(failCmd)).to.throw()
+
+      // PRLT-1276: the old package dir MUST still exist after the failure
+      expect(fs.existsSync(fake.packageDir), 'package dir should be restored').to.be.true
+      expect(fs.existsSync(marker), 'original content should be restored').to.be.true
+      expect(fs.readFileSync(marker, 'utf-8')).to.equal('original content')
+
+      // The backup sibling must have been cleaned up by the restore
+      const siblings = fs.readdirSync(path.dirname(fake.packageDir))
+      expect(siblings.some(n => n.startsWith('cli.prlt-backup-'))).to.be.false
+    })
+
+    it('restores the bin symlink if it was removed during the failed retry', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+      const binPath = path.join(fake.binDir, 'prlt')
+      const originalTarget = fs.readlinkSync(binPath)
+
+      // Simulate the real PRLT-1276 sequence:
+      //   1. First `npm install -g` fails with ENOTEMPTY (bin symlink still intact)
+      //   2. Retry fails AND npm removes the bin symlink before giving up
+      // The script uses a marker file to tell first-call from retry-call.
+      const markerFile = path.join(os.tmpdir(), `prlt-retry-bin-${process.pid}`)
+      try { fs.unlinkSync(markerFile) } catch { /* noop */ }
+      const scriptFile = path.join(os.tmpdir(), `prlt-retry-bin-script-${process.pid}.sh`)
+      fs.writeFileSync(scriptFile, [
+        '#!/bin/bash',
+        `if [ ! -f "${markerFile}" ]; then`,
+        `  touch "${markerFile}"`,
+        '  # First call: simulate ENOTEMPTY during initial install',
+        '  echo "ENOTEMPTY: directory not empty, rename" >&2',
+        '  exit 1',
+        'else',
+        '  # Retry call: remove the bin symlink, then fail',
+        `  rm -f "${binPath}"`,
+        '  echo "some other failure" >&2',
+        '  exit 1',
+        'fi',
+      ].join('\n'))
+      fs.chmodSync(scriptFile, '755')
+
+      try {
+        expect(() => runNpmInstallWithRetry(`bash "${scriptFile}"`)).to.throw()
+      } finally {
+        try { fs.unlinkSync(markerFile) } catch { /* noop */ }
+        try { fs.unlinkSync(scriptFile) } catch { /* noop */ }
+      }
+
+      // The bin symlink must be back in place pointing at the same target
+      const stat = fs.lstatSync(binPath)
+      expect(stat.isSymbolicLink(), 'restored bin should be a symlink').to.be.true
+      expect(fs.readlinkSync(binPath)).to.equal(originalTarget)
+      // And it must resolve (not dangle) because the package dir was restored too
+      expect(fs.existsSync(binPath), 'bin symlink should resolve to existing target').to.be.true
+    })
+
+    it('does not leave a dangling symlink when retry fails (the PRLT-1276 symptom)', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+      const binPath = path.join(fake.binDir, 'prlt')
+
+      // Exactly the failure observed: ENOTEMPTY first, then retry fails for
+      // another reason (network timeout, nvm switch, etc.).
+      const flakyCmd = 'bash -c \'echo "ENOTEMPTY: directory not empty" >&2; exit 1\''
+      expect(() => runNpmInstallWithRetry(flakyCmd)).to.throw()
+
+      // The symlink must exist AND resolve to an existing file (not dangle)
+      expect(fs.existsSync(binPath), 'bin symlink exists').to.be.true
+      // fs.existsSync(...) follows symlinks, so it returns false for dangling
+      // links. Doubly verify by stat-ing the resolved target.
+      const resolved = fs.realpathSync(binPath)
+      expect(fs.existsSync(resolved), 'symlink target exists (not dangling)').to.be.true
+    })
+
+    it('cleans up the backup when the retry succeeds', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+
+      // First call returns ENOTEMPTY, second call succeeds AND writes a
+      // fresh package.json (emulating a successful npm install).
+      const markerFile = path.join(os.tmpdir(), `prlt-retry-marker2-${process.pid}`)
+      try { fs.unlinkSync(markerFile) } catch { /* noop */ }
+      const scriptFile = path.join(os.tmpdir(), `prlt-retry-script2-${process.pid}.sh`)
+      fs.writeFileSync(scriptFile, [
+        '#!/bin/bash',
+        `if [ ! -f "${markerFile}" ]; then`,
+        `  touch "${markerFile}"`,
+        '  echo "ENOTEMPTY: directory not empty, rename" >&2',
+        '  exit 1',
+        'fi',
+        // Simulate a successful install creating a new package dir
+        `mkdir -p "${fake.packageDir}"`,
+        `echo '{"name":"@proletariat/cli","version":"9.9.9"}' > "${fake.packageDir}/package.json"`,
+        'exit 0',
+      ].join('\n'))
+      fs.chmodSync(scriptFile, '755')
+
+      try {
+        runNpmInstallWithRetry(`bash "${scriptFile}"`)
+      } finally {
+        try { fs.unlinkSync(markerFile) } catch { /* noop */ }
+        try { fs.unlinkSync(scriptFile) } catch { /* noop */ }
+      }
+
+      // The new install must be in place and the backup must be gone
+      const pkg = JSON.parse(fs.readFileSync(path.join(fake.packageDir, 'package.json'), 'utf-8'))
+      expect(pkg.version).to.equal('9.9.9')
+      const siblings = fs.readdirSync(path.dirname(fake.packageDir))
+      expect(siblings.some(n => n.startsWith('cli.prlt-backup-'))).to.be.false
+    })
+  })
+
+  // =========================================================================
+  // Unit tests for backup/restore helpers in isolation
+  // =========================================================================
+  describe('backupNpmPackageDir / restoreNpmPackageBackup', () => {
+    let fake: ReturnType<typeof createFakeNpmPrefix>
+    let previousOverride: string | undefined
+
+    beforeEach(() => {
+      fake = createFakeNpmPrefix()
+      previousOverride = process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = fake.modulesDir
+    })
+
+    afterEach(() => {
+      if (previousOverride === undefined) {
+        delete process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      } else {
+        process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = previousOverride
+      }
+      fake.cleanup()
+    })
+
+    it('returns a backup with empty backupPath when package dir does not exist', () => {
+      const info = backupNpmPackageDir()
+      expect(info).to.not.be.null
+      expect(info!.backupPath).to.equal('')
+      expect(info!.originalPath).to.equal(fake.packageDir)
+    })
+
+    it('captures bin symlinks even when package dir does not exist', () => {
+      // Create a stray bin symlink without the package dir — restore should
+      // still re-create it if it disappears.
+      const binPath = path.join(fake.binDir, 'prlt')
+      fs.symlinkSync('../lib/node_modules/@proletariat/cli/bin/run.js', binPath)
+
+      const info = backupNpmPackageDir()
+      expect(info).to.not.be.null
+      expect(info!.binSymlinks).to.have.lengthOf(1)
+      expect(info!.binSymlinks[0].path).to.equal(binPath)
+    })
+
+    it('atomically renames the package dir to a backup path', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+
+      const info = backupNpmPackageDir()
+      expect(info).to.not.be.null
+      expect(info!.backupPath).to.not.equal('')
+      expect(fs.existsSync(info!.backupPath)).to.be.true
+      expect(fs.existsSync(fake.packageDir)).to.be.false
+    })
+
+    it('restoreNpmPackageBackup restores the package dir via rename', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+      fs.writeFileSync(path.join(fake.packageDir, 'marker.txt'), 'hi')
+
+      const info = backupNpmPackageDir()!
+      expect(fs.existsSync(fake.packageDir)).to.be.false
+
+      const ok = restoreNpmPackageBackup(info)
+      expect(ok).to.be.true
+      expect(fs.existsSync(fake.packageDir)).to.be.true
+      expect(fs.readFileSync(path.join(fake.packageDir, 'marker.txt'), 'utf-8')).to.equal('hi')
+    })
+
+    it('restoreNpmPackageBackup clears partial new install before restoring', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+      const info = backupNpmPackageDir()!
+
+      // Simulate a partial failed install that wrote SOME new content
+      fs.mkdirSync(fake.packageDir, { recursive: true })
+      fs.writeFileSync(path.join(fake.packageDir, 'partial.txt'), 'garbage')
+
+      const ok = restoreNpmPackageBackup(info)
+      expect(ok).to.be.true
+      // Partial content should be gone, original content restored
+      expect(fs.existsSync(path.join(fake.packageDir, 'partial.txt'))).to.be.false
+      expect(fs.existsSync(path.join(fake.packageDir, 'bin', 'run.js'))).to.be.true
+    })
+
+    it('discardNpmPackageBackup removes the backup dir', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+      const info = backupNpmPackageDir()!
+      expect(fs.existsSync(info.backupPath)).to.be.true
+
+      discardNpmPackageBackup(info)
+      expect(fs.existsSync(info.backupPath)).to.be.false
     })
   })
 })
