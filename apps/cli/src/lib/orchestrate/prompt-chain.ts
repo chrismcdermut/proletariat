@@ -361,6 +361,21 @@ export function walkPromptChain(opts: WalkPromptChainOptions): WalkPromptChainRe
  * Keys are prompt names (FlagResolver flagName). Values are the choice value
  * to pick. See `apps/cli/src/commands/work/start.ts` for the prompts a
  * `prlt work start` chain may emit.
+ *
+ * IMPORTANT: every value here must match a real choice emitted by the
+ * corresponding FlagResolver prompt. If a prompt adds/renames choices, this
+ * map must be updated in lockstep. See `orchestrate-default-prompt-choices`
+ * tests for the live-chain guard.
+ *
+ * Verified prompt choice values (mirror apps/cli/src/commands/work/start.ts):
+ *   - environment:     devcontainer | host | cancel
+ *   - display:         terminal | foreground | background
+ *   - permission-mode: danger | safe
+ *   - tokenAction:     continue | cancel | host
+ *   - dockerAction:    host | cancel
+ *   - authAction:      oauth | apikey | host | cancel
+ *   - saveDefault:     'true' | 'false'   (FlagResolver stringifies booleans)
+ *   - prChoice:        yes | no           (NOT create/no-pr — see PRLT-1274)
  */
 export const DEFAULT_PROMPT_CHOICES = {
   'spawn-agent': {
@@ -370,7 +385,7 @@ export const DEFAULT_PROMPT_CHOICES = {
     'permission-mode': 'danger',
     tokenAction: 'continue',
     dockerAction: 'host',
-    prChoice: 'create',
+    prChoice: 'yes',
     saveDefault: 'true',
     authAction: 'oauth',
   },
@@ -380,7 +395,7 @@ export const DEFAULT_PROMPT_CHOICES = {
     display: 'background',
     selectedDisplay: 'background',
     'permission-mode': 'safe',
-    prChoice: 'no-pr',
+    prChoice: 'no',
     saveDefault: 'true',
   },
   'spawn-fix-agent': {
@@ -390,7 +405,7 @@ export const DEFAULT_PROMPT_CHOICES = {
     'permission-mode': 'danger',
     tokenAction: 'continue',
     dockerAction: 'host',
-    prChoice: 'create',
+    prChoice: 'yes',
     saveDefault: 'true',
     authAction: 'oauth',
   },
@@ -401,7 +416,7 @@ export const DEFAULT_PROMPT_CHOICES = {
     'permission-mode': 'danger',
     tokenAction: 'continue',
     dockerAction: 'host',
-    prChoice: 'create',
+    prChoice: 'yes',
     saveDefault: 'true',
     authAction: 'oauth',
   },

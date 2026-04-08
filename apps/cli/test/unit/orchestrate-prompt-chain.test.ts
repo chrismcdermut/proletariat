@@ -473,3 +473,244 @@ describe('resolveActionDefaults', () => {
     )
   })
 })
+
+/**
+ * PRLT-1274 — defaults map must name real choice values.
+ *
+ * The defaults map is only useful if every entry maps to a value that the
+ * corresponding prompt actually offers. Previously `prChoice` defaulted to
+ * `'create'`/`'no-pr'` even though the real `prlt work start` prompt emits
+ * `yes`/`no`, which caused walkPromptChain to fail with
+ * `Prompt "prChoice" has no choice with value "create"` the first time a
+ * real chain was walked in production.
+ *
+ * This block pins the valid choice values for every prompt the action
+ * handlers can encounter and verifies the defaults map against them, plus a
+ * scripted live-chain simulation that drives the real `prlt work start`
+ * prompt sequence through walkPromptChain to verify the defaults walk
+ * successfully end-to-end.
+ *
+ * When adding a new prompt to any prlt command that an orchestrate action
+ * handler walks, add its valid values here and extend the defaults map in
+ * lockstep.
+ */
+describe('DEFAULT_PROMPT_CHOICES value validity (PRLT-1274)', () => {
+  // Authoritative list of valid choice values per prompt name, mirroring
+  // the FlagResolver prompts in `apps/cli/src/commands/work/start.ts`,
+  // `work/ship.ts`, and `ticket/move.ts`. FlagResolver stringifies all
+  // choice values for JSON mode (see resolver.ts line 353), so booleans
+  // appear here as the strings 'true'/'false'.
+  const VALID_CHOICES: Record<string, ReadonlySet<string>> = {
+    // work start — environment selection
+    environment: new Set(['devcontainer', 'host', 'cancel']),
+    // work start — display mode (FlagResolver path)
+    display: new Set(['terminal', 'foreground', 'background']),
+    // work start — display mode (legacy inquirer path, same values)
+    selectedDisplay: new Set(['terminal', 'foreground', 'background']),
+    // work start — permissions mode
+    'permission-mode': new Set(['danger', 'safe']),
+    // work start — GitHub token missing action
+    tokenAction: new Set(['continue', 'cancel', 'host']),
+    // work start — Docker daemon not running action
+    dockerAction: new Set(['host', 'cancel']),
+    // work start — auth method selection (oauth + apikey + escape hatches)
+    authAction: new Set(['oauth', 'apikey', 'host', 'cancel']),
+    // work start — save auth choice as workspace default (boolean → string)
+    saveDefault: new Set(['true', 'false']),
+    // work start — PR creation choice (yes/no, NOT create/no-pr — PRLT-1274)
+    prChoice: new Set(['yes', 'no']),
+    // work start — branch reuse choice (only fires in non-JSON path today,
+    // but list it so defaults stay in sync if the JSON path grows it)
+    branchChoice: new Set(['create', 'enter', 'search']),
+    // work ship — merge method
+    method: new Set(['merge', 'squash', 'rebase']),
+    // work ship — delete source branch after merge (boolean → string)
+    'delete-branch': new Set(['true', 'false']),
+    // ticket move — target is free-form (resolveWorkflowTarget walks it),
+    // but 'done' is always an accepted intent alias
+    target: new Set(['done', 'review', 'in-progress', 'backlog']),
+  }
+
+  // Every concrete prompt default under every action entry must resolve to
+  // a value in the matching VALID_CHOICES set.
+  for (const [actionName, defaultsMap] of Object.entries(DEFAULT_PROMPT_CHOICES)) {
+    describe(`${actionName}`, () => {
+      for (const [promptName, value] of Object.entries(defaultsMap)) {
+        it(`defaults prompt "${promptName}" to a real choice value`, () => {
+          const valid = VALID_CHOICES[promptName]
+          expect(
+            valid,
+            `No VALID_CHOICES entry for prompt "${promptName}" — if you added a new prompt to a prlt command, list its valid values in the test above and add a matching default in DEFAULT_PROMPT_CHOICES.`,
+          ).to.not.be.undefined
+          expect(
+            valid!.has(value),
+            `${actionName}.${promptName} default "${value}" is not in the real prompt's choices [${[...valid!].join(', ')}]. See PRLT-1274 — this exact mismatch took down live orchestrator runs once already.`,
+          ).to.be.true
+        })
+      }
+    })
+  }
+
+  it('walks the real `prlt work start` prompt chain successfully with spawn-agent defaults', () => {
+    // This simulates the prompt sequence that a containerized `prlt work
+    // start TKT-1` emits in JSON mode when Docker is running and credentials
+    // are present: environment → permission-mode → prChoice → success.
+    // If any default misses a choice value, walkPromptChain returns a
+    // `no choice with value "X"` error and this test fails loudly.
+    let i = 0
+    const responses: ChainExecutorResult[] = [
+      // Step 1: environment prompt
+      jsonResult({
+        type: 'prompt',
+        prompt: {
+          type: 'list',
+          name: 'environment',
+          message: 'Where should the agent run?',
+          choices: [
+            { value: 'devcontainer', command: 'prlt work start TKT-1 --environment devcontainer --json' },
+            { value: 'host', command: 'prlt work start TKT-1 --run-on-host --json' },
+            { value: 'cancel', command: '' },
+          ],
+        },
+      }, 2),
+      // Step 2: permission-mode prompt
+      jsonResult({
+        type: 'prompt',
+        prompt: {
+          type: 'list',
+          name: 'permission-mode',
+          message: 'Permission mode for claude:',
+          choices: [
+            { value: 'danger', command: 'prlt work start TKT-1 --environment devcontainer --permission-mode danger --json' },
+            { value: 'safe', command: 'prlt work start TKT-1 --environment devcontainer --permission-mode safe --json' },
+          ],
+        },
+      }, 2),
+      // Step 3: prChoice prompt (the one PRLT-1274 was about)
+      jsonResult({
+        type: 'prompt',
+        prompt: {
+          type: 'list',
+          name: 'prChoice',
+          message: 'Create a pull request when work is ready?',
+          choices: [
+            { value: 'yes', command: 'prlt work start TKT-1 --environment devcontainer --permission-mode danger --create-pr --json' },
+            { value: 'no', command: 'prlt work start TKT-1 --environment devcontainer --permission-mode danger --json' },
+          ],
+        },
+      }, 2),
+      // Step 4: terminal success
+      jsonResult({ type: 'success', prompt: null, success: true, result: { workId: 'W1' } }),
+    ]
+    const calls: string[] = []
+    const exec: ChainExecutor = (command) => {
+      calls.push(command)
+      if (i >= responses.length) {
+        throw new Error(`no response for call ${i + 1} (cmd: ${command})`)
+      }
+      return responses[i++]
+    }
+
+    const result = walkPromptChain({
+      baseCommand: 'prlt work start TKT-1',
+      defaults: resolveActionDefaults('spawn-agent'),
+      executor: exec,
+    })
+
+    expect(result.success).to.be.true
+    expect(result.iterations).to.equal(4)
+    // The chain must have walked through --create-pr, proving prChoice=yes
+    // was selected and matched a real choice.
+    expect(calls[3]).to.include('--create-pr')
+  })
+
+  it('walks the `spawn-review-agent` chain selecting no-PR via prChoice=no', () => {
+    // Review agents set modifiesCode=false which would normally skip prChoice
+    // entirely, but we guard the default anyway in case a future code path
+    // re-emits the prompt for review-style actions.
+    let i = 0
+    const responses: ChainExecutorResult[] = [
+      jsonResult({
+        type: 'prompt',
+        prompt: {
+          type: 'list',
+          name: 'environment',
+          choices: [
+            { value: 'devcontainer', command: 'prlt work start TKT-1 --action review --environment devcontainer --json' },
+            { value: 'host', command: 'prlt work start TKT-1 --action review --run-on-host --json' },
+          ],
+        },
+      }, 2),
+      jsonResult({
+        type: 'prompt',
+        prompt: {
+          type: 'list',
+          name: 'permission-mode',
+          choices: [
+            { value: 'danger', command: 'prlt work start TKT-1 --action review --run-on-host --permission-mode danger --json' },
+            { value: 'safe', command: 'prlt work start TKT-1 --action review --run-on-host --permission-mode safe --json' },
+          ],
+        },
+      }, 2),
+      jsonResult({
+        type: 'prompt',
+        prompt: {
+          type: 'list',
+          name: 'prChoice',
+          choices: [
+            { value: 'yes', command: 'prlt work start TKT-1 --action review --run-on-host --permission-mode safe --create-pr --json' },
+            { value: 'no', command: 'prlt work start TKT-1 --action review --run-on-host --permission-mode safe --json' },
+          ],
+        },
+      }, 2),
+      jsonResult({ type: 'success', prompt: null, success: true, result: {} }),
+    ]
+    const calls: string[] = []
+    const exec: ChainExecutor = (command) => {
+      calls.push(command)
+      return responses[i++]
+    }
+
+    const result = walkPromptChain({
+      baseCommand: 'prlt work start TKT-1 --action review',
+      defaults: resolveActionDefaults('spawn-review-agent'),
+      executor: exec,
+    })
+
+    expect(result.success).to.be.true
+    // Review agents default to host, safe, no-PR
+    expect(calls[1]).to.include('--run-on-host')
+    expect(calls[2]).to.include('--permission-mode safe')
+    // prChoice=no → no --create-pr in the final call
+    expect(calls[3]).to.not.include('--create-pr')
+  })
+
+  it('emits a clear error if a prChoice default ever regresses to an invalid value', () => {
+    // Regression harness: if someone flips prChoice back to 'create' in the
+    // defaults map, the scripted chain fails with the exact production error
+    // message observed in PRLT-1274.
+    const exec: ChainExecutor = () =>
+      jsonResult({
+        type: 'prompt',
+        prompt: {
+          type: 'list',
+          name: 'prChoice',
+          choices: [
+            { value: 'yes', command: 'prlt work start TKT-1 --create-pr --json' },
+            { value: 'no', command: 'prlt work start TKT-1 --json' },
+          ],
+        },
+      }, 2)
+
+    const result = walkPromptChain({
+      baseCommand: 'prlt work start TKT-1',
+      defaults: { prChoice: 'create' }, // the old, broken default
+      executor: exec,
+    })
+
+    expect(result.success).to.be.false
+    expect(result.error).to.include('prChoice')
+    expect(result.error).to.include('create')
+    expect(result.error).to.include('yes, no')
+  })
+})
