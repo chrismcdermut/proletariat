@@ -15,6 +15,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import { MachineDB } from '../../lib/machine-db.js'
 import {
   collectAllSessions,
   groupSessionsByHQ,
@@ -223,6 +224,28 @@ export default class OrchestratorStop extends PromptCommand {
       } finally {
         db?.close()
       }
+    }
+
+    // PRLT-1275: Update the machine.db mirror row so cross-HQ consumers
+    // (e.g. prlt session list from /tmp, the renderer) see the orchestrator
+    // as stopped. Non-fatal — machine.db is secondary.
+    try {
+      const machineDb = new MachineDB()
+      try {
+        const match = machineDb.findBySessionId(sessionName)
+        if (match) {
+          machineDb.updateStatus(match.id, 'stopped')
+        } else if (orchestratorName) {
+          const rows = machineDb.getActiveByAgentPrefix(`orchestrator-${orchestratorName}`)
+          for (const row of rows) {
+            machineDb.updateStatus(row.id, 'stopped')
+          }
+        }
+      } finally {
+        machineDb.close()
+      }
+    } catch {
+      // Non-fatal
     }
 
     if (jsonMode) {

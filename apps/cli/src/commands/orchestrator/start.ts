@@ -26,6 +26,11 @@ import {
 } from '../../lib/execution/runners.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
+import {
+  createMirrorExecution,
+  updateMirrorExecution,
+  closeMirrorExecution,
+} from '../../lib/machine-db-mirror.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
   loadExecutionConfig,
@@ -700,6 +705,27 @@ export default class OrchestratorStart extends RuntimeCommand {
           // Non-fatal: poke won't work but orchestrator is running
         }
       }
+
+      // PRLT-1275: Register the orchestrator in machine.db so it is
+      // discoverable machine-wide. `prlt orchestrator status/attach/stop`
+      // invoked from any directory can then enumerate orchestrators running
+      // in every HQ via the unified renderer (PRLT-1272). Non-fatal on
+      // failure — machine.db is secondary.
+      const mirrorHandle = createMirrorExecution({
+        ticketId: 'ORCH',
+        agentName: `orchestrator-${orchestratorName}`,
+        executor: selectedExecutor,
+        environment,
+        repoPath: hqPath,
+        persistent: true,
+        prompt: actionPrompt || `Orchestrator "${orchestratorName}" in ${hqName}`,
+      })
+      updateMirrorExecution(mirrorHandle, {
+        status: 'running',
+        sessionId: result.sessionId || sessionName,
+        containerId: result.containerId,
+      })
+      closeMirrorExecution(mirrorHandle)
 
       if (jsonMode) {
         outputSuccessAsJson({

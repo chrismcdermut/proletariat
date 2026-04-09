@@ -48,6 +48,12 @@ import {
 } from '../../lib/execution/types.js'
 import { runExecution, isDockerRunning, isGitHubTokenAvailable, isDevcontainerCliInstalled, dockerCredentialsExist, getDockerCredentialInfo, isClaudeExecutor, getExecutorDisplayName } from '../../lib/execution/runners.js'
 import { ExecutionStorage, ContainerStorage } from '../../lib/execution/storage.js'
+import {
+  createMirrorExecution,
+  updateMirrorExecution,
+  closeMirrorExecution,
+  type MirrorHandle,
+} from '../../lib/machine-db-mirror.js'
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getAuthMethod, saveAuthMethod, getCreatePrDefault, getVerifyCiDefault, getMirrorToPmoDefault, getCleanupPolicy } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath, buildWorkspaceRepos } from '../../lib/execution/context.js'
@@ -651,6 +657,10 @@ export default class WorkStart extends PMOCommand {
     // Open database for execution storage
     const db = openWorkspaceDatabase(workspaceInfo.path)
     const executionStorage = new ExecutionStorage(db)
+
+    // PRLT-1275: Machine.db mirror handle (hoisted so the catch block can
+    // always close it). Populated once the execution row is created.
+    let mirrorHandle: MirrorHandle | null = null
 
     try {
       // Handle batch mode (--all)
@@ -2459,6 +2469,20 @@ export default class WorkStart extends PMOCommand {
         externalUrl: ticketExternalMetadata.url,
       })
 
+      // PRLT-1275: Mirror to machine.db so the execution is discoverable
+      // machine-wide (from other HQs, from /tmp, etc). Non-fatal on failure —
+      // workspace.db is authoritative for ticketed work.
+      mirrorHandle = createMirrorExecution({
+        ticketId: ticket.id,
+        agentName: assignedAgent,
+        executor,
+        environment,
+        repoPath: workspaceInfo.path,
+        branch,
+        persistent: cleanupPolicy === 'persistent',
+        prompt: `${ticket.id}: ${ticket.title}`,
+      })
+
       if (!jsonMode) {
         this.log(styles.muted(`   Work ID: ${execution.id}`))
         this.log('')
@@ -2558,6 +2582,13 @@ export default class WorkStart extends PMOCommand {
           containerId: result.containerId,
           sessionId: result.sessionId,
           logPath: result.logPath,
+        })
+
+        // PRLT-1275: Mirror status/process info to machine.db.
+        updateMirrorExecution(mirrorHandle, {
+          status: 'running',
+          sessionId: result.sessionId,
+          containerId: result.containerId,
         })
 
         // Track container in containers table (for devcontainer environment)
@@ -2684,6 +2715,10 @@ export default class WorkStart extends PMOCommand {
         }
       } else {
         executionStorage.updateStatus(execution.id, 'failed')
+        updateMirrorExecution(mirrorHandle, {
+          status: 'failed',
+          errorMessage: result.error,
+        })
 
         // Track primitive spawn failure
         trackPrimitiveExecuted({
@@ -2751,8 +2786,10 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
+      closeMirrorExecution(mirrorHandle)
       db.close()
     } catch (error) {
+      closeMirrorExecution(mirrorHandle)
       db.close()
       throw error
     }
@@ -3419,6 +3456,19 @@ export default class WorkStart extends PMOCommand {
       externalUrl: ticketExternalMetadata.url,
     })
 
+    // PRLT-1275: Mirror to machine.db so the execution is discoverable
+    // machine-wide. Non-fatal on failure.
+    const mirrorHandle = createMirrorExecution({
+      ticketId: ticket.id,
+      agentName,
+      executor,
+      environment,
+      repoPath: workspaceInfo.path,
+      branch,
+      persistent: cleanupPolicy === 'persistent',
+      prompt: `${ticket.id}: ${ticket.title}`,
+    })
+
     // Note: Ticket status update moved to after successful spawn
 
     // Load execution config
@@ -3435,6 +3485,7 @@ export default class WorkStart extends PMOCommand {
       sessionManager: environment === 'devcontainer' ? batchSessionManager : undefined,
     })
 
+    try {
     if (result.success) {
       executionStorage.updateStatus(execution.id, 'running')
       executionStorage.updateProcessInfo(execution.id, {
@@ -3442,6 +3493,11 @@ export default class WorkStart extends PMOCommand {
         containerId: result.containerId,
         sessionId: result.sessionId,
         logPath: result.logPath,
+      })
+      updateMirrorExecution(mirrorHandle, {
+        status: 'running',
+        sessionId: result.sessionId,
+        containerId: result.containerId,
       })
 
       // Register in machine-wide agent registry
@@ -3476,6 +3532,10 @@ export default class WorkStart extends PMOCommand {
       this.log(styles.success(`   ✓ ${ticket.id} started (${execution.id})`))
     } else {
       executionStorage.updateStatus(execution.id, 'failed')
+      updateMirrorExecution(mirrorHandle, {
+        status: 'failed',
+        errorMessage: result.error,
+      })
       // Include diagnostic details in the error message
       const spawnError = result.error || 'Unknown error'
       const diag = runPreflightChecks({
@@ -3491,6 +3551,9 @@ export default class WorkStart extends PMOCommand {
         throw new Error(`${spawnError} [${details}]`)
       }
       throw new Error(spawnError)
+    }
+    } finally {
+      closeMirrorExecution(mirrorHandle)
     }
   }
 }
