@@ -385,14 +385,30 @@ export function isNewerVersion(current: string, latest: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// npm ENOTEMPTY workaround
+// npm ENOTEMPTY workaround (PRLT-1228, PRLT-1276)
 // ---------------------------------------------------------------------------
+
+/**
+ * Environment variable override for the npm global `lib/node_modules` path.
+ * Tests set this to a temp directory so retry logic can be exercised without
+ * clobbering the user's real globally installed prlt package.
+ */
+const NPM_MODULES_DIR_OVERRIDE_ENV = 'PRLT_NPM_MODULES_DIR_OVERRIDE'
 
 /**
  * Get the npm global node_modules directory.
  * Returns null if it cannot be determined.
+ *
+ * Honours the `PRLT_NPM_MODULES_DIR_OVERRIDE` env var for tests so the
+ * backup/restore logic in {@link runNpmInstallWithRetry} can be exercised
+ * against a temp directory instead of the user's real npm prefix.
  */
 export function getNpmGlobalModulesDir(): string | null {
+  const override = process.env[NPM_MODULES_DIR_OVERRIDE_ENV]
+  if (override) {
+    return override
+  }
+
   try {
     const prefix = execSync('npm prefix -g', {
       encoding: 'utf-8',
@@ -406,24 +422,156 @@ export function getNpmGlobalModulesDir(): string | null {
 }
 
 /**
- * Remove the existing @proletariat/cli directory from npm global node_modules.
- * This prevents ENOTEMPTY errors during `npm install -g`, which is a known npm
- * bug where renaming the old package directory fails.
- *
- * Safe to call even if the directory doesn't exist.
+ * Captured state of a bin symlink — used so we can restore the symlink
+ * if npm removed it during a failed retry install (PRLT-1276).
  */
-export function cleanNpmPackageDir(): boolean {
-  const modulesDir = getNpmGlobalModulesDir()
-  if (!modulesDir) return false
+interface BinSymlinkRecord {
+  /** Absolute path to the bin entry (e.g. `<prefix>/bin/prlt`) */
+  path: string
+  /** Original link target, as returned by `readlink` (may be relative) */
+  target: string
+}
 
-  const packageDir = path.join(modulesDir, '@proletariat', 'cli')
-  try {
-    if (fs.existsSync(packageDir)) {
-      fs.rmSync(packageDir, { recursive: true, force: true })
+/**
+ * State captured before we disturb the current @proletariat/cli install,
+ * so it can be restored if the retry install fails.
+ */
+export interface NpmPackageBackup {
+  /** Absolute path to the original package directory */
+  originalPath: string
+  /**
+   * Absolute path to the backup (rename-aside) location.
+   * Empty string when there was nothing to back up (package dir did not exist).
+   */
+  backupPath: string
+  /** Bin symlinks that existed before the backup was taken */
+  binSymlinks: BinSymlinkRecord[]
+}
+
+/**
+ * Return the `<npm_prefix>/bin` directory for the given
+ * `<npm_prefix>/lib/node_modules` path.
+ */
+function getNpmGlobalBinDir(modulesDir: string): string {
+  // modulesDir is .../<prefix>/lib/node_modules → ../.. = <prefix>
+  return path.join(modulesDir, '..', '..', 'bin')
+}
+
+/**
+ * Record all known prlt bin symlinks so we can restore them if npm removes
+ * them during a failed install. Only entries that are actual symbolic links
+ * are recorded — regular files (Windows .cmd shims) are managed by npm and
+ * left untouched.
+ */
+function captureBinSymlinks(modulesDir: string): BinSymlinkRecord[] {
+  const binDir = getNpmGlobalBinDir(modulesDir)
+  const records: BinSymlinkRecord[] = []
+
+  for (const name of ['prlt', 'prltdev']) {
+    const binPath = path.join(binDir, name)
+    try {
+      const stat = fs.lstatSync(binPath)
+      if (stat.isSymbolicLink()) {
+        const target = fs.readlinkSync(binPath)
+        records.push({ path: binPath, target })
+      }
+    } catch {
+      // Missing / inaccessible — nothing to capture
     }
+  }
+
+  return records
+}
+
+/**
+ * Back up the existing @proletariat/cli package directory via atomic rename
+ * so an install retry can run against a clean slate while preserving the
+ * ability to restore the previous installation if the retry fails.
+ *
+ * The backup is placed adjacent to the original in the same directory, so
+ * the rename is guaranteed to be atomic. Returns null if the rename fails
+ * (e.g. permission error) — in that case the caller must not proceed,
+ * because destroying the package dir without a backup is exactly the
+ * PRLT-1276 regression we are trying to avoid.
+ *
+ * When there is no existing package dir to back up, this still returns a
+ * valid `NpmPackageBackup` with an empty `backupPath` — the bin symlink
+ * records are still captured so they can be restored on failure.
+ */
+export function backupNpmPackageDir(): NpmPackageBackup | null {
+  const modulesDir = getNpmGlobalModulesDir()
+  if (!modulesDir) return null
+
+  const originalPath = path.join(modulesDir, '@proletariat', 'cli')
+  const binSymlinks = captureBinSymlinks(modulesDir)
+
+  if (!fs.existsSync(originalPath)) {
+    return { originalPath, backupPath: '', binSymlinks }
+  }
+
+  // Timestamped + PID-tagged to avoid collisions with any leftover backup
+  // from a prior aborted retry.
+  const backupPath = `${originalPath}.prlt-backup-${Date.now()}-${process.pid}`
+  try {
+    fs.renameSync(originalPath, backupPath)
+    return { originalPath, backupPath, binSymlinks }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Restore the backup created by {@link backupNpmPackageDir} after a failed
+ * retry. Removes any partially-installed content at the original path,
+ * renames the backup back into place, and re-creates bin symlinks that npm
+ * may have removed during the failed install.
+ */
+export function restoreNpmPackageBackup(info: NpmPackageBackup): boolean {
+  try {
+    if (info.backupPath) {
+      // Clear out any partial install from the failed retry
+      if (fs.existsSync(info.originalPath)) {
+        fs.rmSync(info.originalPath, { recursive: true, force: true })
+      }
+      fs.renameSync(info.backupPath, info.originalPath)
+    }
+
+    // Restore any bin symlinks that npm removed during the failed install.
+    // The captured target is used verbatim so relative symlinks stay relative.
+    for (const { path: binPath, target } of info.binSymlinks) {
+      let needsRestore = false
+      try {
+        fs.lstatSync(binPath)
+        // Symlink still present — leave it alone
+      } catch {
+        needsRestore = true
+      }
+
+      if (needsRestore) {
+        try {
+          fs.symlinkSync(target, binPath)
+        } catch {
+          // Best effort — a missing symlink is better than crashing
+        }
+      }
+    }
+
     return true
   } catch {
     return false
+  }
+}
+
+/**
+ * Remove the backup created by {@link backupNpmPackageDir} after a
+ * successful retry. Best-effort — failures are not fatal.
+ */
+export function discardNpmPackageBackup(info: NpmPackageBackup): void {
+  if (!info.backupPath) return
+  try {
+    fs.rmSync(info.backupPath, { recursive: true, force: true })
+  } catch {
+    // Best effort
   }
 }
 
@@ -432,8 +580,15 @@ export function cleanNpmPackageDir(): boolean {
  *
  * npm global installs frequently fail with ENOTEMPTY when renaming the
  * old package directory (a known npm bug). When this error is detected
- * in stderr, the old package directory is removed and the install is
- * retried transparently.
+ * in stderr, the existing @proletariat/cli directory is moved aside via
+ * an atomic rename, the install is retried against a clean slate, and
+ * the backup is either discarded (on success) or restored (on failure).
+ *
+ * PRLT-1276: this is the restore-on-failure path that fixes the "prlt
+ * intermittently disappears from PATH" bug. Previously we `rm -rf`'d the
+ * package directory before retrying, so a retry that failed for any reason
+ * (network glitch, timeout, nvm mid-switch) left the user with a deleted
+ * package and a dangling `bin/prlt` symlink.
  *
  * Throws on failure (both non-ENOTEMPTY errors and failed retries).
  */
@@ -454,23 +609,48 @@ export function runNpmInstallWithRetry(command: string): void {
       throw error
     }
 
-    // ENOTEMPTY detected — clean the old directory and retry
+    // ENOTEMPTY detected — move the old install aside and retry against a
+    // clean slate. If the retry fails, restore the backup so prlt keeps
+    // working. This is the PRLT-1276 fix.
     console.log('')
     console.log('npm encountered ENOTEMPTY error (known npm bug). Cleaning up and retrying…')
 
-    if (!cleanNpmPackageDir()) {
-      console.error('Could not clean the existing package directory.')
+    const backup = backupNpmPackageDir()
+    if (!backup) {
+      console.error(
+        'Could not prepare retry (failed to move the existing package directory aside). ' +
+        'Leaving the current installation in place.',
+      )
       if (stderr) {
         process.stderr.write(stderr)
       }
       throw error
     }
 
-    // Retry with full stdio inherited
-    execSync(command, {
-      stdio: 'inherit',
-      timeout: 120_000,
-    })
+    try {
+      // Retry with full stdio inherited
+      execSync(command, {
+        stdio: 'inherit',
+        timeout: 120_000,
+      })
+      // Retry succeeded — discard the backup
+      discardNpmPackageBackup(backup)
+    } catch (retryError) {
+      // Retry failed — restore the previous installation so prlt still works.
+      console.error('')
+      console.error('Update failed. Restoring previous installation so prlt keeps working…')
+      if (restoreNpmPackageBackup(backup)) {
+        console.error('Previous installation restored. Try the update again later:')
+        console.error(`  ${command}`)
+      } else {
+        console.error(
+          'Could not restore the previous installation automatically. ' +
+          'Reinstall prlt manually:',
+        )
+        console.error(`  ${command}`)
+      }
+      throw retryError
+    }
   }
 }
 
