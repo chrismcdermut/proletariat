@@ -460,15 +460,60 @@ export function createPR(options: CreatePROptions): CreatePRResult {
 }
 
 /**
- * Get PR info for a branch.
+ * Options accepted by PR lookup helpers.
+ *
+ * Either `cwd` (local git repo that gh infers the repo from) OR `repo`
+ * (explicit "owner/repo" passed via `--repo`) may be supplied. If both are
+ * set, `repo` is preferred — it's immune to cwd/git state and works
+ * regardless of where the process is running.
  */
-export function getPRForBranch(branch: string, cwd?: string): PRInfo | null {
+export interface PRLookupOptions {
+  /** Working directory for gh (used to infer repo from git remote). */
+  cwd?: string;
+  /** Explicit "owner/repo" string. When set, passed via `gh --repo`. */
+  repo?: string;
+}
+
+/**
+ * Normalize (cwd, options) overload inputs. Legacy callers pass a string cwd;
+ * new callers pass an options object.
+ */
+function normalizeLookupOptions(
+  cwdOrOptions?: string | PRLookupOptions,
+): PRLookupOptions {
+  if (cwdOrOptions === undefined) return {};
+  if (typeof cwdOrOptions === 'string') return { cwd: cwdOrOptions };
+  return cwdOrOptions;
+}
+
+/**
+ * Build the `--repo <owner/repo>` flag segment (or empty string).
+ * Shell-safe: owner/repo is validated by the caller (GitHub repo format).
+ */
+function repoFlag(repo?: string): string {
+  return repo ? ` --repo ${repo}` : '';
+}
+
+/**
+ * Get PR info for a branch.
+ *
+ * Pass `{ repo }` to bypass git-cwd inference (useful when the process is
+ * not running inside the repo, e.g. workspace root).
+ */
+export function getPRForBranch(
+  branch: string,
+  cwdOrOptions?: string | PRLookupOptions,
+): PRInfo | null {
+  const { cwd, repo } = normalizeLookupOptions(cwdOrOptions);
   try {
-    const result = execSync(`gh pr view ${branch} --json number,url,title,state,headRefName,baseRefName,isDraft,createdAt,updatedAt`, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const result = execSync(
+      `gh pr view ${branch} --json number,url,title,state,headRefName,baseRefName,isDraft,createdAt,updatedAt${repoFlag(repo)}`,
+      {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
 
     const data = JSON.parse(result);
     return {
@@ -489,14 +534,24 @@ export function getPRForBranch(branch: string, cwd?: string): PRInfo | null {
 
 /**
  * Get PR info by number.
+ *
+ * Pass `{ repo }` to bypass git-cwd inference (useful when the process is
+ * not running inside the repo, e.g. workspace root or non-git directory).
  */
-export function getPRByNumber(prNumber: number, cwd?: string): PRInfo | null {
+export function getPRByNumber(
+  prNumber: number,
+  cwdOrOptions?: string | PRLookupOptions,
+): PRInfo | null {
+  const { cwd, repo } = normalizeLookupOptions(cwdOrOptions);
   try {
-    const result = execSync(`gh pr view ${prNumber} --json number,url,title,state,headRefName,baseRefName,isDraft,createdAt,updatedAt`, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const result = execSync(
+      `gh pr view ${prNumber} --json number,url,title,state,headRefName,baseRefName,isDraft,createdAt,updatedAt${repoFlag(repo)}`,
+      {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
 
     const data = JSON.parse(result);
     return {
@@ -510,6 +565,89 @@ export function getPRByNumber(prNumber: number, cwd?: string): PRInfo | null {
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Find a PR (open, closed, or merged) for a ticket by querying GitHub live.
+ *
+ * Searches GitHub for PRs whose head branch matches any of the provided
+ * ticket identifiers. This is the live-GitHub fallback used by `work ship`
+ * when local ticket metadata has no `pr_number` and the branch can't be
+ * resolved locally (e.g. after a Linear sync wiped metadata, or when the
+ * branch has already been deleted post-merge).
+ *
+ * Returns the first matching PR, preferring open PRs, then merged, then closed.
+ */
+export function findPRForTicket(
+  ticketIds: string[],
+  cwdOrOptions?: string | PRLookupOptions,
+): PRInfo | null {
+  const { cwd, repo } = normalizeLookupOptions(cwdOrOptions);
+  const uniqueIds = Array.from(new Set(ticketIds.filter((id): id is string => !!id)));
+  if (uniqueIds.length === 0) return null;
+
+  try {
+    // Search for PRs whose head branch starts with any of the ticket IDs.
+    // `gh pr list --state all --search "head:<id>"` finds PRs even after
+    // the branch has been deleted (GitHub retains the branch name on the PR).
+    // We query each id separately because gh's --search is OR'd by whitespace
+    // but head: takes a single branch prefix.
+    const matches: PRInfo[] = [];
+    for (const id of uniqueIds) {
+      const result = execSync(
+        `gh pr list --state all --search "head:${id}/" --json number,url,title,state,headRefName,baseRefName,isDraft,createdAt,updatedAt${repoFlag(repo)}`,
+        {
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        },
+      );
+
+      const data = JSON.parse(result) as Array<{
+        number: number;
+        url: string;
+        title: string;
+        state: 'OPEN' | 'CLOSED' | 'MERGED';
+        headRefName: string;
+        baseRefName: string;
+        isDraft: boolean;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+
+      for (const pr of data) {
+        matches.push({
+          number: pr.number,
+          url: pr.url,
+          title: pr.title,
+          state: pr.state,
+          headBranch: pr.headRefName,
+          baseBranch: pr.baseRefName,
+          isDraft: pr.isDraft,
+          createdAt: pr.createdAt,
+          updatedAt: pr.updatedAt,
+        });
+      }
+    }
+
+    if (matches.length === 0) return null;
+
+    // Prefer OPEN, then MERGED (recency), then CLOSED. Within same state,
+    // most recently updated wins.
+    const priority: Record<PRInfo['state'], number> = {
+      OPEN: 0,
+      MERGED: 1,
+      CLOSED: 2,
+    };
+    matches.sort((a, b) => {
+      const p = priority[a.state] - priority[b.state];
+      if (p !== 0) return p;
+      return b.updatedAt.localeCompare(a.updatedAt);
+    });
+    return matches[0];
   } catch {
     return null;
   }
