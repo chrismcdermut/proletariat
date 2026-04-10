@@ -28,6 +28,51 @@ export type MachineExecutionStatus = 'starting' | 'running' | 'completed' | 'fai
 export type MachineLifecycleState = 'healthy' | 'idle' | 'died' | 'completed'
 export type MachineCleanupPolicy = 'on-exit' | 'persistent' | 'on-error-keep'
 
+// =============================================================================
+// Messaging gateway types (PRLT-1255)
+// =============================================================================
+
+/**
+ * A registered messaging channel (Telegram, Slack, Discord, ...).
+ * `configJson` is an adapter-specific blob stored as text.
+ */
+export interface MessagingChannelRow {
+  name: string
+  type: string
+  config_json: string
+  active: number
+  last_message_at: number | null
+}
+
+export interface MessagingChannelRecord {
+  name: string
+  type: string
+  configJson: string
+  active: boolean
+  lastMessageAt: Date | undefined
+}
+
+/**
+ * A persistent binding of `(channel, userId)` to an agent session.
+ * The router looks this up on every inbound message so a given user
+ * always lands on the same agent.
+ */
+export interface MessagingRouteRow {
+  channel: string
+  user_id: string
+  agent_session_id: string
+  created_at: number
+  last_used_at: number | null
+}
+
+export interface MessagingRouteRecord {
+  channel: string
+  userId: string
+  agentSessionId: string
+  createdAt: Date
+  lastUsedAt: Date | undefined
+}
+
 export interface MachineExecution {
   id: string
   prompt: string
@@ -175,6 +220,28 @@ export class MachineDB {
         lifecycle_state TEXT NOT NULL DEFAULT 'healthy',
         retries INTEGER NOT NULL DEFAULT 0
       );
+
+      -- Messaging gateway (PRLT-1255) — bridges external messaging platforms
+      -- (Telegram, Slack, ...) to agent sessions via prlt session poke.
+      CREATE TABLE IF NOT EXISTS messaging_channels (
+        name TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        last_message_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS messaging_routes (
+        channel TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        agent_session_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER,
+        PRIMARY KEY (channel, user_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_messaging_routes_agent
+        ON messaging_routes(agent_session_id);
     `)
 
     // Migrate existing databases that don't have the persistent columns
@@ -506,7 +573,165 @@ export class MachineDB {
     return rows.map(rowToExecution)
   }
 
+  // ===========================================================================
+  // Messaging gateway (PRLT-1255)
+  // ===========================================================================
+
+  /**
+   * Insert or replace a registered messaging channel.
+   *
+   * Channels are keyed by `name` (e.g. "telegram"). Re-registering the
+   * same channel updates its config and marks it active — this is what
+   * `prlt gateway connect` does on repeat calls.
+   */
+  upsertMessagingChannel(params: {
+    name: string
+    type: string
+    configJson: string
+    active?: boolean
+  }): void {
+    const active = params.active === false ? 0 : 1
+    this.db.prepare(`
+      INSERT INTO messaging_channels (name, type, config_json, active, last_message_at)
+      VALUES (?, ?, ?, ?, NULL)
+      ON CONFLICT(name) DO UPDATE SET
+        type = excluded.type,
+        config_json = excluded.config_json,
+        active = excluded.active
+    `).run(params.name, params.type, params.configJson, active)
+  }
+
+  /** Look up a single channel by name. */
+  getMessagingChannel(name: string): MessagingChannelRecord | null {
+    const row = this.db.prepare<MessagingChannelRow>(
+      'SELECT * FROM messaging_channels WHERE name = ?'
+    ).get(name)
+    return row ? messagingChannelRowToRecord(row) : null
+  }
+
+  /**
+   * List channels. When `onlyActive` is true (the default), only channels
+   * with `active = 1` are returned — this is what the gateway daemon
+   * uses at startup.
+   */
+  listMessagingChannels(options?: { onlyActive?: boolean }): MessagingChannelRecord[] {
+    const onlyActive = options?.onlyActive !== false
+    const rows = onlyActive
+      ? (this.db.prepare(
+          'SELECT * FROM messaging_channels WHERE active = 1 ORDER BY name ASC'
+        ).all() as unknown as MessagingChannelRow[])
+      : (this.db.prepare(
+          'SELECT * FROM messaging_channels ORDER BY name ASC'
+        ).all() as unknown as MessagingChannelRow[])
+    return rows.map(messagingChannelRowToRecord)
+  }
+
+  /** Mark a channel inactive (keeps config around for re-enable). */
+  setMessagingChannelActive(name: string, active: boolean): void {
+    this.db.prepare(
+      'UPDATE messaging_channels SET active = ? WHERE name = ?'
+    ).run(active ? 1 : 0, name)
+  }
+
+  /** Remove a channel's registration entirely. */
+  deleteMessagingChannel(name: string): void {
+    this.db.prepare('DELETE FROM messaging_channels WHERE name = ?').run(name)
+  }
+
+  /**
+   * Stamp a channel's `last_message_at` to now — called each time the
+   * router successfully routes an inbound message. Used by
+   * `prlt gateway status` to show channel activity.
+   */
+  touchMessagingChannel(name: string, timestamp: number = Date.now()): void {
+    this.db.prepare(
+      'UPDATE messaging_channels SET last_message_at = ? WHERE name = ?'
+    ).run(timestamp, name)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Routes — (channel, user) → agent session
+  // ---------------------------------------------------------------------------
+
+  /** Look up an existing route, or null if this user has never been seen. */
+  getMessagingRoute(channel: string, userId: string): MessagingRouteRecord | null {
+    const row = this.db.prepare<MessagingRouteRow>(
+      'SELECT * FROM messaging_routes WHERE channel = ? AND user_id = ?'
+    ).get(channel, userId)
+    return row ? messagingRouteRowToRecord(row) : null
+  }
+
+  /**
+   * Bind a `(channel, user)` pair to an agent session. Idempotent — if a
+   * binding already exists it is updated to point at the new agent.
+   */
+  upsertMessagingRoute(params: {
+    channel: string
+    userId: string
+    agentSessionId: string
+  }): MessagingRouteRecord {
+    const now = Date.now()
+    this.db.prepare(`
+      INSERT INTO messaging_routes (channel, user_id, agent_session_id, created_at, last_used_at)
+      VALUES (?, ?, ?, ?, NULL)
+      ON CONFLICT(channel, user_id) DO UPDATE SET
+        agent_session_id = excluded.agent_session_id
+    `).run(params.channel, params.userId, params.agentSessionId, now)
+    return this.getMessagingRoute(params.channel, params.userId)!
+  }
+
+  /** Stamp `last_used_at` to now — called every time a route is used. */
+  touchMessagingRoute(channel: string, userId: string, timestamp: number = Date.now()): void {
+    this.db.prepare(
+      'UPDATE messaging_routes SET last_used_at = ? WHERE channel = ? AND user_id = ?'
+    ).run(timestamp, channel, userId)
+  }
+
+  /** List routes for a channel (or all channels when `channel` omitted). */
+  listMessagingRoutes(channel?: string): MessagingRouteRecord[] {
+    const rows = channel
+      ? (this.db.prepare(
+          'SELECT * FROM messaging_routes WHERE channel = ? ORDER BY created_at DESC'
+        ).all(channel) as unknown as MessagingRouteRow[])
+      : (this.db.prepare(
+          'SELECT * FROM messaging_routes ORDER BY created_at DESC'
+        ).all() as unknown as MessagingRouteRow[])
+    return rows.map(messagingRouteRowToRecord)
+  }
+
+  /** Count messages handled by a channel since `since` (for status output). */
+  countMessagingRoutesForChannel(channel: string): number {
+    const row = this.db.prepare<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM messaging_routes WHERE channel = ?'
+    ).get(channel)
+    return row?.n ?? 0
+  }
+
   close(): void {
     this.db.close()
+  }
+}
+
+// =============================================================================
+// Row → record converters for messaging tables
+// =============================================================================
+
+function messagingChannelRowToRecord(row: MessagingChannelRow): MessagingChannelRecord {
+  return {
+    name: row.name,
+    type: row.type,
+    configJson: row.config_json,
+    active: row.active === 1,
+    lastMessageAt: row.last_message_at ? new Date(row.last_message_at) : undefined,
+  }
+}
+
+function messagingRouteRowToRecord(row: MessagingRouteRow): MessagingRouteRecord {
+  return {
+    channel: row.channel,
+    userId: row.user_id,
+    agentSessionId: row.agent_session_id,
+    createdAt: new Date(row.created_at),
+    lastUsedAt: row.last_used_at ? new Date(row.last_used_at) : undefined,
   }
 }
