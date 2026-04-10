@@ -189,8 +189,8 @@ export interface WorkActionRow {
   description: string | null
   prompt: string
   end_prompt: string | null
-  from_state: string | null
-  to_state: string | null
+  from_intent: string | null
+  to_intent: string | null
   executor: string | null
   environment: string | null
   permission_mode: string | null
@@ -208,8 +208,8 @@ export interface WorkActionRow {
 
 export interface WorkflowRuleRow {
   id: string
-  from_state: string | null
-  to_state: string
+  from_intent: string | null
+  to_intent: string
   action_id: string
   trigger: string
   enabled: number

@@ -483,8 +483,8 @@ export const PMO_TABLE_SCHEMAS = {
       description TEXT,
       prompt TEXT NOT NULL,
       end_prompt TEXT,
-      from_state TEXT,
-      to_state TEXT,
+      from_intent TEXT,
+      to_intent TEXT,
       executor TEXT CHECK (executor IN ('claude', 'codex', 'opencode', 'custom')),
       environment TEXT CHECK (environment IN ('devcontainer', 'docker', 'host', 'vm')),
       permission_mode TEXT CHECK (permission_mode IN ('full', 'readonly', 'bypassPermissions')),
@@ -500,12 +500,12 @@ export const PMO_TABLE_SCHEMAS = {
       updated_at TIMESTAMP
     )`,
 
-  // Workflow rules — wire state transitions to actions
+  // Workflow rules — wire intent transitions to actions
   workflow_rules: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.workflow_rules} (
       id TEXT PRIMARY KEY,
-      from_state TEXT,
-      to_state TEXT NOT NULL,
+      from_intent TEXT,
+      to_intent TEXT NOT NULL,
       action_id TEXT NOT NULL,
       trigger TEXT NOT NULL DEFAULT 'manual' CHECK (trigger IN ('manual', 'on_enter')),
       enabled INTEGER NOT NULL DEFAULT 1,

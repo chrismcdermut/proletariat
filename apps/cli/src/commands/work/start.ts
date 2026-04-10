@@ -2585,11 +2585,11 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`   Assigned to: ${assignedAgent}`))
         }
 
-        // Move ticket to target column based on action's toState or default 'started' intent
+        // Move ticket to target column based on action's toIntent or default 'started' intent
         // Skip PMO board operations for external-only tickets (no PMO record to move)
         if (!isExternalOnly) {
-        // If action has a to_state, try direct match first; otherwise use intent resolution
-        const targetStateName = selectedAction?.toState
+        // If action has a to_intent, use it for intent resolution
+        const targetStateName = selectedAction?.toIntent
 
         const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
         const columnNames = board ? board.columns.map(col => col.name) : []

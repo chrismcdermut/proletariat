@@ -4,6 +4,9 @@
  * Subscribes to ticket:status_changed events on the global EventBus and
  * evaluates workflow rules when a ticket enters a new state.
  *
+ * Rules use intent-based matching (from_intent/to_intent). The evaluator
+ * maps provider state names to intents before querying rules.
+ *
  * For on_enter rules, emits a work:rule_matched event so that
  * downstream systems (orchestrators, hooks) can fire the associated action.
  * For manual rules, the match is logged but no action is auto-fired.
@@ -14,14 +17,29 @@ import { getEventBus } from '../events/event-bus.js'
 import type { TicketStatusChangedEvent } from '../events/events.js'
 import { PMO_TABLES } from '../pmo/schema.js'
 import type { WorkflowRuleTrigger } from '../pmo/types.js'
+import { DEFAULT_INTENTS } from '../providers/state-intents.js'
 
 interface WorkflowRuleRow {
   id: string
-  from_state: string | null
-  to_state: string
+  from_intent: string | null
+  to_intent: string
   action_id: string
   trigger: string
   enabled: number
+}
+
+/**
+ * Map a provider state name to its canonical intent name.
+ * Uses the DEFAULT_INTENTS aliases for resolution.
+ */
+function stateNameToIntent(stateName: string): string | null {
+  const lower = stateName.toLowerCase()
+  for (const intent of DEFAULT_INTENTS) {
+    if (intent.aliases.some(a => a.toLowerCase() === lower)) {
+      return intent.name
+    }
+  }
+  return null
 }
 
 export class WorkflowRuleEvaluator {
@@ -57,25 +75,34 @@ export class WorkflowRuleEvaluator {
 
   /**
    * Evaluate workflow rules for a status change event.
-   * Finds all enabled rules matching the new state and emits events for on_enter rules.
+   * Maps state names to intents, then finds matching intent-based rules.
    */
   private evaluate(event: TicketStatusChangedEvent): void {
     if (!event.newStatusName) return
 
     try {
-      // Find all enabled rules where to_state matches the new status
+      // Map the new state name to an intent
+      const toIntent = stateNameToIntent(event.newStatusName)
+      if (!toIntent) return
+
+      // Map the previous state name to an intent (for from_intent matching)
+      const fromIntent = event.previousStatusName
+        ? stateNameToIntent(event.previousStatusName)
+        : null
+
+      // Find all enabled rules where to_intent matches
       const rows = this.db.prepare(`
         SELECT * FROM ${PMO_TABLES.workflow_rules}
-        WHERE to_state = ? AND enabled = 1
-      `).all(event.newStatusName) as WorkflowRuleRow[]
+        WHERE to_intent = ? AND enabled = 1
+      `).all(toIntent) as WorkflowRuleRow[]
 
       if (rows.length === 0) return
 
       const bus = getEventBus()
 
       for (const row of rows) {
-        // If from_state is set, it must match the previous status
-        if (row.from_state && row.from_state !== event.previousStatusName) {
+        // If from_intent is set, it must match the previous intent
+        if (row.from_intent && row.from_intent !== fromIntent) {
           continue
         }
 
@@ -87,8 +114,8 @@ export class WorkflowRuleEvaluator {
             projectId: event.projectId,
             actionId: row.action_id,
             trigger: row.trigger as WorkflowRuleTrigger,
-            fromState: row.from_state,
-            toState: row.to_state,
+            fromIntent: row.from_intent,
+            toIntent: row.to_intent,
             timestamp: new Date(),
           })
         }

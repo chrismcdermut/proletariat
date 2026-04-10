@@ -110,8 +110,8 @@ export interface WorkflowRuleMatchedEvent {
   projectId: string
   actionId: string
   trigger: WorkflowRuleTrigger
-  fromState: string | null
-  toState: string
+  fromIntent: string | null
+  toIntent: string
   timestamp: Date
 }
 

@@ -98,7 +98,7 @@ export class ActionChainingHandler {
    * Handle a workflow rule match by spawning the next action in the chain.
    */
   private async handleRuleMatched(event: WorkflowRuleMatchedEvent): Promise<void> {
-    const { ticketId, actionId, ruleId, trigger, toState } = event
+    const { ticketId, actionId, ruleId, trigger, toIntent } = event
 
     // Only fire on_enter rules — manual rules are user-initiated
     if (trigger !== 'on_enter') return
@@ -149,7 +149,7 @@ export class ActionChainingHandler {
     this.chainDepths.set(ticketId, depth + 1)
 
     this.log(
-      `[action-chain] Firing action "${action.name}" for ${ticketId} (rule=${ruleId}, state=${toState}, depth=${depth + 1})`,
+      `[action-chain] Firing action "${action.name}" for ${ticketId} (rule=${ruleId}, intent=${toIntent}, depth=${depth + 1})`,
     )
 
     // Spawn the agent
@@ -161,7 +161,7 @@ export class ActionChainingHandler {
         action_id: actionId,
         action_name: action.name,
         rule_id: ruleId,
-        to_state: toState,
+        to_intent: toIntent,
         chain_depth: String(depth + 1),
       })
     } catch (error) {

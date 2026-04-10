@@ -107,8 +107,19 @@ export const schemaCatchup: Migration = {
     // --- pmo_actions ---
     if (hasTable(db, 'pmo_actions')) {
       const cols = getColumns(db, 'pmo_actions')
-      addColumnIfMissing(db, 'pmo_actions', 'from_state', 'TEXT', cols)
-      addColumnIfMissing(db, 'pmo_actions', 'to_state', 'TEXT', cols)
+      // Intent-based columns (migration 0023 renames from_state→from_intent, to_state→to_intent)
+      // For fresh databases, add the intent columns. For old databases, add state columns
+      // (migration 0023 will later rename them).
+      if (!cols.has('from_intent') && !cols.has('from_state')) {
+        addColumnIfMissing(db, 'pmo_actions', 'from_intent', 'TEXT', cols)
+      } else if (!cols.has('from_intent')) {
+        addColumnIfMissing(db, 'pmo_actions', 'from_state', 'TEXT', cols)
+      }
+      if (!cols.has('to_intent') && !cols.has('to_state')) {
+        addColumnIfMissing(db, 'pmo_actions', 'to_intent', 'TEXT', cols)
+      } else if (!cols.has('to_intent')) {
+        addColumnIfMissing(db, 'pmo_actions', 'to_state', 'TEXT', cols)
+      }
       addColumnIfMissing(db, 'pmo_actions', 'executor', 'TEXT', cols)
       addColumnIfMissing(db, 'pmo_actions', 'environment', 'TEXT', cols)
       addColumnIfMissing(db, 'pmo_actions', 'permission_mode', 'TEXT', cols)
