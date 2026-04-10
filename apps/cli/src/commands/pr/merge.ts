@@ -3,14 +3,12 @@ import {
   PMOCommand,
   pmoBaseFlags,
 } from '../../lib/pmo/index.js';
-import { getWorkColumnSetting, findColumnByName } from '../../lib/work-lifecycle/settings.js';
 import { styles } from '../../lib/styles.js';
 import {
   requireGhCli,
   getPRByNumber,
   listOpenPRs,
   mergePR,
-  getGitHubRepo,
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
@@ -19,7 +17,6 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
-import { getEventBus } from '../../lib/events/event-bus.js';
 import { validateBranchName } from '../../lib/branch/index.js';
 import { PMO_TABLES } from '../../lib/pmo/schema.js';
 import type { Ticket } from '../../lib/pmo/types.js';
@@ -133,7 +130,50 @@ export default class PRMerge extends PMOCommand {
       return handleError('PR_NOT_OPEN', `PR #${prNumber} is ${prInfo.state.toLowerCase()}, not open.`);
     }
 
-    // Merge the PR
+    // --- Check if PR is linked to a ticket BEFORE merging ---
+    // If linked, delegate to work:ship for full lifecycle (merge, transition, cleanup, rebase siblings, hooks)
+    if (this.hasPMO) {
+      try {
+        const linkedTicket = await this.resolveLinkedTicket(prNumber, prInfo.headBranch, flags.project);
+        if (linkedTicket) {
+          const ticketDisplayId = linkedTicket.metadata?.external_key || linkedTicket.id;
+
+          if (!jsonMode) {
+            this.log('');
+            this.log(styles.info(`PR #${prNumber} is linked to ${ticketDisplayId} — running full ship lifecycle`));
+          }
+
+          // Build args for work:ship --pr <num>
+          const shipArgs: string[] = ['--pr', String(prNumber)];
+          shipArgs.push('--method', flags.method as string);
+          if (!flags['delete-branch']) {
+            shipArgs.push('--no-delete-branch');
+          }
+          if (flags.admin) {
+            shipArgs.push('--admin');
+          }
+          if (flags.project) {
+            shipArgs.push('--project', flags.project as string);
+          }
+          if (jsonMode) {
+            shipArgs.push('--json');
+          }
+
+          // Delegate to work:ship which handles the full lifecycle
+          await this.config.runCommand('work:ship', shipArgs);
+          return;
+        }
+      } catch {
+        // If ticket resolution fails, fall through to simple merge
+      }
+    }
+
+    // --- No linked ticket — simple merge (no lifecycle) ---
+    if (!jsonMode) {
+      this.log('');
+      this.log(styles.info(`PR #${prNumber} has no linked ticket — merging directly`));
+    }
+
     const method = flags.method as 'merge' | 'squash' | 'rebase';
     const result = mergePR(prNumber, {
       method,
@@ -146,77 +186,6 @@ export default class PRMerge extends PMOCommand {
       return handleError('MERGE_FAILED', `Failed to merge PR #${prNumber}: ${result.error}`);
     }
 
-    // After successful merge, resolve the linked ticket and move it to Done
-    let linkedTicketId: string | undefined;
-    let ticketMovedToDone = false;
-    let ticketTransitionProvider: string | undefined;
-    if (this.hasPMO) {
-      try {
-        const linkedTicket = await this.resolveLinkedTicket(prNumber, prInfo.headBranch, flags.project);
-        if (linkedTicket) {
-          linkedTicketId = linkedTicket.id;
-
-          // Update PR state metadata
-          await this.storage.updateTicket(linkedTicket.id, {
-            metadata: {
-              ...linkedTicket.metadata,
-              pr_state: 'MERGED',
-            },
-          });
-
-          // Move ticket to Done column
-          try {
-            const db = this.storage.getDatabase();
-            const targetColumnName = getWorkColumnSetting(db, 'done');
-            const board = linkedTicket.projectId
-              ? await this.storage.getProjectBoard(linkedTicket.projectId)
-              : null;
-            const columnNames = board ? board.columns.map(col => col.name) : [];
-            const doneColumn = findColumnByName(columnNames, targetColumnName);
-
-            if (doneColumn && linkedTicket.projectId) {
-              // Move in local PMO
-              await this.storage.moveTicket(linkedTicket.projectId, linkedTicket.id, doneColumn);
-              ticketMovedToDone = true;
-
-              // Sync to external provider (e.g., Linear)
-              const provider = await this.resolveTicketProvider(linkedTicket.id, linkedTicket.projectId);
-              if (provider.name !== 'pmo') {
-                const moveResult = await provider.moveTicket(linkedTicket.id, doneColumn);
-                if (moveResult.success) {
-                  ticketTransitionProvider = moveResult.provider;
-                }
-              }
-            }
-          } catch (err) {
-            this.warn(`Failed to move ticket ${linkedTicket.id} to Done: ${err instanceof Error ? err.message : err}`);
-          }
-        }
-      } catch (err) {
-        this.warn(`Failed to resolve linked ticket: ${err instanceof Error ? err.message : err}`);
-      }
-    }
-
-    // Emit work:pr_merged event for outbound sync (e.g., Linear auto-transition)
-    if (linkedTicketId) {
-      try {
-        const repo = getGitHubRepo(repoCwd);
-        const prUrl = repo ? `https://github.com/${repo}/pull/${prNumber}` : null;
-
-        getEventBus().emit('work:pr_merged', {
-          workItemId: linkedTicketId,
-          source: 'github',
-          prNumber,
-          prTitle: prInfo.title,
-          prUrl,
-          mergeMethod: method,
-          timestamp: new Date(),
-        });
-      } catch {
-        // Non-critical - don't fail the merge if event emission fails
-      }
-    }
-
     if (jsonMode) {
       outputSuccessAsJson(
         {
@@ -225,27 +194,21 @@ export default class PRMerge extends PMOCommand {
           title: prInfo.title,
           method,
           branchDeleted: flags['delete-branch'],
-          linkedTicket: linkedTicketId ?? null,
-          ticketMovedToDone,
-          ticketTransitionProvider: ticketTransitionProvider ?? null,
+          linkedTicket: null,
+          ticketMovedToDone: false,
+          ticketTransitionProvider: null,
+          delegatedToWorkShip: false,
         },
         createMetadata('pr merge', flags)
       );
       return;
     }
 
-    this.log('');
     this.log(styles.success(`PR #${prNumber} merged successfully!`));
     this.log(styles.muted(`   Title: ${prInfo.title}`));
     this.log(styles.muted(`   Method: ${method}`));
     if (flags['delete-branch']) {
       this.log(styles.muted(`   Branch ${prInfo.headBranch} deleted`));
-    }
-    if (linkedTicketId) {
-      this.log(styles.muted(`   Ticket ${linkedTicketId} → Done`));
-      if (ticketTransitionProvider) {
-        this.log(styles.muted(`   Synced to ${ticketTransitionProvider}`));
-      }
     }
   }
 
