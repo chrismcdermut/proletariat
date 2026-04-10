@@ -1772,7 +1772,19 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+      // Executor resolution: per-invocation flag > action override > workspace default > hardcoded default
+      let executor: ExecutorType
+      if (flags.executor) {
+        executor = flags.executor as ExecutorType
+      } else if (selectedAction?.executor) {
+        executor = selectedAction.executor as ExecutorType
+      } else {
+        // Check workspace default_executor setting
+        const { SettingsStore } = await import('../../lib/database/settings-store.js')
+        const settings = new SettingsStore(db)
+        const wsDefault = settings.get('execution.default_executor')
+        executor = (wsDefault as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+      }
 
       // Default to interactive output mode (streaming UI)
       // Can be overridden via --output flag if needed

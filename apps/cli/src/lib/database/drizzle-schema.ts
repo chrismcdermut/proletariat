@@ -608,8 +608,8 @@ export const pmoActions = sqliteTable('pmo_actions', {
   description: text('description'),
   prompt: text('prompt').notNull(),
   endPrompt: text('end_prompt'),
-  fromState: text('from_state'),
-  toState: text('to_state'),
+  fromIntent: text('from_intent'),
+  toIntent: text('to_intent'),
   executor: text('executor'),
   environment: text('environment'),
   permissionMode: text('permission_mode'),
@@ -624,12 +624,12 @@ export const pmoActions = sqliteTable('pmo_actions', {
 })
 
 /**
- * Workflow rules (state-to-action wiring)
+ * Workflow rules (intent-to-action wiring)
  */
 export const pmoWorkflowRules = sqliteTable('pmo_workflow_rules', {
   id: text('id').primaryKey(),
-  fromState: text('from_state'),
-  toState: text('to_state').notNull(),
+  fromIntent: text('from_intent'),
+  toIntent: text('to_intent').notNull(),
   actionId: text('action_id').notNull().references(() => pmoActions.id, { onDelete: 'cascade' }),
   trigger: text('trigger').notNull().default('manual'),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
