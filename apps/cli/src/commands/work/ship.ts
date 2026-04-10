@@ -15,6 +15,7 @@ import {
   getGitHubRepo,
   getDefaultBaseBranch,
   listOpenPRs,
+  findPRForTicket,
   type PRInfo,
   type PRCheck,
 } from '../../lib/pr/index.js';
@@ -148,12 +149,18 @@ export default class WorkShip extends PMOCommand {
     const executionStorage = new ExecutionStorage(db);
 
     try {
-      // --- Step 0: Resolve repo cwd for gh CLI commands ---
-      // gh commands (pr view, pr checks, etc.) need to run inside a git repo
-      // to determine which GitHub repository to query. In workspace/devcontainer
-      // environments, process.cwd() may be the workspace root (not a git repo),
-      // causing gh to fail and PR lookups to return PR_NOT_FOUND.
+      // --- Step 0: Resolve repo cwd + repo id for gh CLI commands ---
+      // gh commands (pr view, pr checks, etc.) need to know which GitHub
+      // repository to query. Two strategies:
+      //   1. Run inside a git repo (cwd) so gh can infer from `origin`.
+      //   2. Pass `--repo owner/repo` explicitly (immune to cwd state).
+      // We use (1) when possible and fall back to (2) with a repo detected
+      // from the workspace info. In workspace/devcontainer environments,
+      // process.cwd() may be the workspace root (not a git repo), which
+      // causes gh to fail and PR lookups to return PR_NOT_FOUND — PRLT-1279.
       const repoCwd = this.resolveRepoCwd(workspaceInfo, executionStorage);
+      const repoSlug = getGitHubRepo(repoCwd) ?? getGitHubRepo() ?? undefined;
+      const prLookup = { cwd: repoCwd, repo: repoSlug };
 
       // --- Handle --all flag: batch ship all green PRs ---
       if (flags.all) {
@@ -168,8 +175,13 @@ export default class WorkShip extends PMOCommand {
       let prInfo: PRInfo | null = null;
 
       if (prNumber) {
-        // PR number provided directly — find the PR, then resolve the ticket
-        prInfo = getPRByNumber(prNumber, repoCwd);
+        // PR number provided directly — find the PR, then resolve the ticket.
+        // Try cwd-based lookup first, then fall back to explicit --repo so we
+        // succeed even when running outside a git repo (PRLT-1279).
+        prInfo = getPRByNumber(prNumber, prLookup);
+        if (!prInfo && repoSlug && repoCwd) {
+          prInfo = getPRByNumber(prNumber, { repo: repoSlug });
+        }
         if (!prInfo) {
           db.close();
           return handleError('PR_NOT_FOUND', `PR #${prNumber} not found.`);
@@ -231,7 +243,7 @@ export default class WorkShip extends PMOCommand {
         prNumber = ticket.metadata?.pr_number ? parseInt(ticket.metadata.pr_number, 10) : undefined;
 
         if (prNumber) {
-          prInfo = getPRByNumber(prNumber, repoCwd);
+          prInfo = getPRByNumber(prNumber, prLookup);
         }
 
         if (!prInfo) {
@@ -239,10 +251,41 @@ export default class WorkShip extends PMOCommand {
           const runningExecution = executionStorage.getRunningExecution(ticketId!);
           const branch = runningExecution?.branch || ticket.branch;
           if (branch) {
-            prInfo = getPRForBranch(branch, repoCwd);
+            prInfo = getPRForBranch(branch, prLookup);
             if (prInfo) {
               prNumber = prInfo.number;
             }
+          }
+        }
+
+        if (!prInfo) {
+          // Live GitHub fallback (PRLT-1279): search merged + open PRs by head
+          // branch prefix. This recovers from the drift scenarios in the ticket:
+          //   - local metadata has no pr_number (e.g. after Linear sync)
+          //   - branch has been deleted post-merge
+          //   - dual-identity tickets: try both internal and external IDs
+          const searchIds: string[] = [];
+          if (ticket.id) searchIds.push(ticket.id);
+          const externalKey = typeof ticket.metadata?.external_key === 'string'
+            ? ticket.metadata.external_key
+            : undefined;
+          if (externalKey && !searchIds.includes(externalKey)) {
+            searchIds.push(externalKey);
+          }
+          const linearId = typeof ticket.metadata?.['linear.identifier'] === 'string'
+            ? (ticket.metadata['linear.identifier'] as string)
+            : undefined;
+          if (linearId && !searchIds.includes(linearId)) {
+            searchIds.push(linearId);
+          }
+          if (ticketId && !searchIds.includes(ticketId)) {
+            searchIds.push(ticketId);
+          }
+
+          const found = findPRForTicket(searchIds, prLookup);
+          if (found) {
+            prInfo = found;
+            prNumber = found.number;
           }
         }
 
@@ -253,18 +296,11 @@ export default class WorkShip extends PMOCommand {
       }
 
       // Validate PR state
-      if (prInfo.state === 'MERGED') {
-        db.close();
-        if (jsonMode) {
-          outputSuccessAsJson(
-            { alreadyMerged: true, prNumber, title: prInfo.title, ticketId: ticketId ?? null },
-            createMetadata('work ship', flags),
-          );
-          return;
-        }
-        this.log(styles.info(`PR #${prNumber} is already merged.`));
-        return;
-      }
+      // If the PR is already merged (e.g. the user merged manually via the
+      // GitHub UI or `gh pr merge`, or a previous ship run merged but failed
+      // to transition the ticket), we still run the ticket-transition step
+      // so the board can recover from drift. PRLT-1279.
+      const alreadyMerged = prInfo.state === 'MERGED';
 
       if (prInfo.state === 'CLOSED') {
         db.close();
@@ -282,48 +318,58 @@ export default class WorkShip extends PMOCommand {
         this.log(styles.muted(`   PR:      #${prNumber} — ${prInfo.title}`));
         this.log(styles.muted(`   Branch:  ${prInfo.headBranch} → ${prInfo.baseBranch}`));
         this.log(styles.muted(`   Method:  ${flags.method}`));
-        this.log(styles.muted(`   Mode:    ${flags['when-green'] ? 'when-green (watch + auto-merge)' : 'immediate'}`));
+        this.log(styles.muted(`   Mode:    ${alreadyMerged ? 'already-merged (transition only)' : flags['when-green'] ? 'when-green (watch + auto-merge)' : 'immediate'}`));
         if (ticketId) {
           this.log(styles.muted(`   Ticket:  ${ticketId}${ticket ? ` — ${ticket.title}` : ''}`));
         }
 
-        // Check CI
-        const checks = getPRChecks(prNumber, cwd);
-        if (checks.length > 0) {
-          const allPassed = checks.every(c => c.conclusion === 'SUCCESS' || c.conclusion === 'SKIPPED');
-          const pending = checks.filter(c => !c.conclusion || c.status === 'IN_PROGRESS' || c.status === 'QUEUED');
-          const failed = checks.filter(c => c.conclusion === 'FAILURE');
-
-          if (allPassed) {
-            this.log(styles.muted(`   CI:      All checks passed (${checks.length})`));
-          } else if (pending.length > 0) {
-            this.log(styles.muted(`   CI:      ${pending.length} pending, ${failed.length} failed`));
+        if (alreadyMerged) {
+          this.log('');
+          this.log(styles.muted('   Actions that would be taken:'));
+          if (ticketId) {
+            this.log(styles.muted(`   1. Move ticket ${ticketId} to Done`));
           } else {
-            this.log(styles.muted(`   CI:      ${failed.length} failed`));
+            this.log(styles.muted('   1. (no ticket resolved — nothing to transition)'));
           }
         } else {
-          this.log(styles.muted(`   CI:      No checks configured`));
-        }
+          // Check CI
+          const checks = getPRChecks(prNumber, cwd);
+          if (checks.length > 0) {
+            const allPassed = checks.every(c => c.conclusion === 'SUCCESS' || c.conclusion === 'SKIPPED');
+            const pending = checks.filter(c => !c.conclusion || c.status === 'IN_PROGRESS' || c.status === 'QUEUED');
+            const failed = checks.filter(c => c.conclusion === 'FAILURE');
 
-        // Check conflicts
-        const hasConflicts = this.checkMergeConflicts(prNumber, cwd);
-        this.log(styles.muted(`   Conflicts: ${hasConflicts ? 'Yes — would rebase' : 'None'}`));
+            if (allPassed) {
+              this.log(styles.muted(`   CI:      All checks passed (${checks.length})`));
+            } else if (pending.length > 0) {
+              this.log(styles.muted(`   CI:      ${pending.length} pending, ${failed.length} failed`));
+            } else {
+              this.log(styles.muted(`   CI:      ${failed.length} failed`));
+            }
+          } else {
+            this.log(styles.muted(`   CI:      No checks configured`));
+          }
 
-        this.log('');
-        this.log(styles.muted('   Actions that would be taken:'));
-        if (hasConflicts && !flags['no-rebase']) {
-          this.log(styles.muted('   1. Rebase onto base branch and force-push'));
-          this.log(styles.muted('   2. Wait for CI to rerun'));
-        }
-        this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '3' : '1'}. Squash merge PR #${prNumber}`));
-        if (ticketId) {
-          this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '4' : '2'}. Move ticket ${ticketId} to Done`));
-        }
-        if (flags['delete-branch']) {
-          this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '5' : '3'}. Delete remote branch ${prInfo.headBranch}`));
-        }
-        if (flags['rebase-siblings']) {
-          this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '6' : '4'}. Check and rebase conflicting sibling PRs`));
+          // Check conflicts
+          const hasConflicts = this.checkMergeConflicts(prNumber, cwd);
+          this.log(styles.muted(`   Conflicts: ${hasConflicts ? 'Yes — would rebase' : 'None'}`));
+
+          this.log('');
+          this.log(styles.muted('   Actions that would be taken:'));
+          if (hasConflicts && !flags['no-rebase']) {
+            this.log(styles.muted('   1. Rebase onto base branch and force-push'));
+            this.log(styles.muted('   2. Wait for CI to rerun'));
+          }
+          this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '3' : '1'}. Squash merge PR #${prNumber}`));
+          if (ticketId) {
+            this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '4' : '2'}. Move ticket ${ticketId} to Done`));
+          }
+          if (flags['delete-branch']) {
+            this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '5' : '3'}. Delete remote branch ${prInfo.headBranch}`));
+          }
+          if (flags['rebase-siblings']) {
+            this.log(styles.muted(`   ${hasConflicts && !flags['no-rebase'] ? '6' : '4'}. Check and rebase conflicting sibling PRs`));
+          }
         }
 
         db.close();
@@ -332,12 +378,21 @@ export default class WorkShip extends PMOCommand {
 
       // --- Step 2+3+4: CI check, rebase, and merge ---
       const method = flags.method as 'merge' | 'squash' | 'rebase';
-      this.log('');
-      this.log(styles.info(`Shipping PR #${prNumber}: ${prInfo.title}`));
+      if (!jsonMode) {
+        this.log('');
+        if (alreadyMerged) {
+          this.log(styles.info(`PR #${prNumber} already merged: ${prInfo.title}`));
+          this.log(styles.muted('   Skipping merge — will transition ticket to Done.'));
+        } else {
+          this.log(styles.info(`Shipping PR #${prNumber}: ${prInfo.title}`));
+        }
+      }
 
       let whenGreenResult: WhenGreenResult | undefined;
 
-      if (flags['when-green']) {
+      if (alreadyMerged) {
+        // Nothing to merge — skip straight to the ticket-transition step.
+      } else if (flags['when-green']) {
         // --- When-green mode: watch CI and auto-merge ---
         whenGreenResult = await watchAndShip(
           {
@@ -497,8 +552,10 @@ export default class WorkShip extends PMOCommand {
       }
 
       // --- Step 7: Auto-rebase conflicting sibling PRs ---
+      // Skip when the PR was already merged — we didn't actually touch the
+      // base branch, so sibling PRs are unaffected by this run.
       let siblingRebaseResults: Array<{ prNumber: number; headBranch: string; success: boolean; error?: string }> = [];
-      if (flags['rebase-siblings']) {
+      if (flags['rebase-siblings'] && !alreadyMerged) {
         try {
           this.log(styles.muted('   Checking sibling PRs for conflicts...'));
           const rebaseResult: SiblingRebaseResult = rebaseSiblingPRs({
@@ -549,10 +606,11 @@ export default class WorkShip extends PMOCommand {
         outputSuccessAsJson(
           {
             shipped: true,
+            alreadyMerged,
             prNumber,
             prTitle: prInfo.title,
             method,
-            branchDeleted: flags['delete-branch'],
+            branchDeleted: !alreadyMerged && flags['delete-branch'],
             ticketId: ticketId ?? null,
             ticketMovedToDone,
             ticketTransitionProvider: ticketTransitionProvider ?? null,
@@ -569,11 +627,17 @@ export default class WorkShip extends PMOCommand {
       }
 
       this.log('');
-      this.log(styles.success(`Shipped: ${ticketId ?? `PR #${prNumber}`}`));
+      if (alreadyMerged) {
+        this.log(styles.success(`Synced: ${ticketId ?? `PR #${prNumber}`} (PR already merged)`));
+      } else {
+        this.log(styles.success(`Shipped: ${ticketId ?? `PR #${prNumber}`}`));
+      }
       this.log(styles.muted(`   PR:     #${prNumber} — ${prInfo.title}`));
-      this.log(styles.muted(`   Method: ${method}`));
-      if (flags['delete-branch']) {
-        this.log(styles.muted(`   Branch: ${prInfo.headBranch} deleted`));
+      if (!alreadyMerged) {
+        this.log(styles.muted(`   Method: ${method}`));
+        if (flags['delete-branch']) {
+          this.log(styles.muted(`   Branch: ${prInfo.headBranch} deleted`));
+        }
       }
       if (ticketMovedToDone && ticketId) {
         this.log(styles.muted(`   Ticket: ${ticketId} → ${doneColumn}`));
