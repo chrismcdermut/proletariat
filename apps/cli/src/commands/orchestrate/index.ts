@@ -33,6 +33,7 @@ import {
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initHookManager } from '../../lib/work-lifecycle/hooks/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
+import { ensureReconcilerDaemon } from '../../lib/orchestrate/reconciler-supervisor.js'
 export default class Orchestrate extends PMOCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
 
@@ -183,9 +184,21 @@ export default class Orchestrate extends PMOCommand {
       // Daemon mode: start the engine and run until stopped
       engine.start()
 
+      // Auto-spawn reconciler daemon if not already running
+      const reconcilerResult = ensureReconcilerDaemon()
+      if (verbose || !jsonMode) {
+        if (reconcilerResult.spawned) {
+          this.log(styles.success('  Spawned reconciler daemon'))
+        } else if (reconcilerResult.alreadyRunning) {
+          this.log(styles.muted('  Reconciler daemon already running'))
+        } else if (reconcilerResult.error) {
+          this.log(styles.warning(`  Failed to spawn reconciler: ${reconcilerResult.error}`))
+        }
+      }
+
       if (jsonMode) {
         outputSuccessAsJson(
-          { status: 'running', mode: 'daemon' },
+          { status: 'running', mode: 'daemon', reconciler: reconcilerResult },
           createMetadata('orchestrate', flags),
         )
       } else {
@@ -216,11 +229,20 @@ export default class Orchestrate extends PMOCommand {
         }, pollInterval * 1000)
       }
 
+      // Supervise reconciler: check every 60s and restart if dead
+      const reconcilerSupervisorTimer = setInterval(() => {
+        const result = ensureReconcilerDaemon()
+        if (result.spawned && verbose) {
+          this.log(styles.warning('  Reconciler daemon died — restarted'))
+        }
+      }, 60_000)
+
       // Keep the process alive until signal
       await new Promise<void>((resolve) => {
         const cleanup = () => {
           engine.stop()
           if (pollTimer) clearInterval(pollTimer)
+          clearInterval(reconcilerSupervisorTimer)
           this.log(styles.muted('\n  Orchestrate daemon stopped'))
           resolve()
         }

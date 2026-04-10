@@ -18,6 +18,8 @@ import { execSync } from 'node:child_process'
 // Types
 // =============================================================================
 
+export type SessionRole = 'worker' | 'orchestrator' | 'daemon' | 'headless'
+
 export interface SessionRecord {
   id: string
   agentName: string
@@ -27,6 +29,7 @@ export interface SessionRecord {
   sessionName: string
   environment: 'host' | 'docker' | 'podman'
   permissionMode: 'danger' | 'safe'
+  role: SessionRole
   status: 'running' | 'done' | 'error' | 'stopped'
   startedAt: Date
   endedAt?: Date
@@ -41,6 +44,7 @@ interface SessionRow {
   session_name: string
   environment: string
   permission_mode: string
+  role: string
   status: string
   started_at: number
   ended_at: number | null
@@ -60,6 +64,7 @@ function rowToSession(row: SessionRow): SessionRecord {
     sessionName: row.session_name,
     environment: row.environment as SessionRecord['environment'],
     permissionMode: row.permission_mode as SessionRecord['permissionMode'],
+    role: (row.role || 'worker') as SessionRole,
     status: row.status as SessionRecord['status'],
     startedAt: new Date(row.started_at),
     endedAt: row.ended_at ? new Date(row.ended_at) : undefined,
@@ -95,11 +100,19 @@ export class SessionStore {
         session_name TEXT NOT NULL,
         environment TEXT NOT NULL DEFAULT 'host',
         permission_mode TEXT NOT NULL DEFAULT 'safe',
+        role TEXT NOT NULL DEFAULT 'worker',
         status TEXT NOT NULL DEFAULT 'running',
         started_at INTEGER NOT NULL,
         ended_at INTEGER
       )
     `)
+
+    // Migration: add role column to existing databases
+    try {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'worker'`)
+    } catch {
+      // Column already exists — expected for new databases
+    }
   }
 
   /**
@@ -113,14 +126,16 @@ export class SessionStore {
     sessionName: string
     environment: SessionRecord['environment']
     permissionMode: SessionRecord['permissionMode']
+    role?: SessionRole
   }): SessionRecord {
     const id = `SES-${Date.now().toString(36).toUpperCase()}`
     const now = Date.now()
+    const role = params.role || 'worker'
 
     this.db.prepare(`
-      INSERT INTO sessions (id, agent_name, runner, task, workdir, session_name, environment, permission_mode, status, started_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
-    `).run(id, params.agentName, params.runner, params.task, params.workdir, params.sessionName, params.environment, params.permissionMode, now)
+      INSERT INTO sessions (id, agent_name, runner, task, workdir, session_name, environment, permission_mode, role, status, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
+    `).run(id, params.agentName, params.runner, params.task, params.workdir, params.sessionName, params.environment, params.permissionMode, role, now)
 
     return {
       id,
@@ -131,6 +146,7 @@ export class SessionStore {
       sessionName: params.sessionName,
       environment: params.environment,
       permissionMode: params.permissionMode,
+      role,
       status: 'running',
       startedAt: new Date(now),
     }
@@ -231,6 +247,26 @@ export class SessionStore {
     } catch {
       return false
     }
+  }
+
+  /**
+   * List running sessions filtered by role.
+   */
+  listByRole(role: SessionRole): SessionRecord[] {
+    const rows = this.db.prepare<SessionRow>(
+      `SELECT * FROM sessions WHERE role = ? AND status = 'running' ORDER BY started_at DESC`
+    ).all(role)
+    return rows.map(rowToSession)
+  }
+
+  /**
+   * Check if a daemon session with the given name is running.
+   */
+  isDaemonRunning(sessionName: string): boolean {
+    const row = this.db.prepare<SessionRow>(
+      `SELECT * FROM sessions WHERE session_name = ? AND role = 'daemon' AND status = 'running' ORDER BY started_at DESC LIMIT 1`
+    ).get(sessionName)
+    return !!row
   }
 
   close(): void {

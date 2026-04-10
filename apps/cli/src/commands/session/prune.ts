@@ -18,6 +18,7 @@ import {
   findContainerSessionsByPrefix,
   findSessionForExecution,
 } from '../../lib/execution/session-utils.js'
+import { SessionStore } from '../../lib/session-store.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import {
   shouldOutputJson,
@@ -149,10 +150,24 @@ export default class SessionPrune extends PMOCommand {
         }
       }
 
+      // Load daemon sessions from global session store to protect them from pruning
+      const globalStore = new SessionStore()
+      const daemonSessionNames = new Set<string>()
+      try {
+        const daemons = globalStore.listByRole('daemon')
+        for (const d of daemons) {
+          daemonSessionNames.add(d.sessionName)
+        }
+      } finally {
+        globalStore.close()
+      }
+
       // Find orphan host sessions (match prlt pattern but not tracked in DB)
+      // Skip daemon-role sessions — they are supposed to run forever
       const orphanHostSessions: string[] = []
       for (const sessionName of hostTmuxSessions) {
         if (matchedHostSessions.has(sessionName)) continue
+        if (daemonSessionNames.has(sessionName)) continue // Never prune daemons
         const parsed = parseSessionName(sessionName)
         if (parsed) {
           orphanHostSessions.push(sessionName)

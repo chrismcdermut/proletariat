@@ -15,16 +15,18 @@ import {
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
+import { SessionStore } from '../../lib/session-store.js'
 
 interface VerifiedSession {
   sessionId: string
   ticketId: string
   agentName: string
+  role?: string
   status: string
   environment: 'host' | 'container'
   containerId?: string
   exists: boolean  // Whether the tmux session actually exists
-  source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
+  source: 'db' | 'discovered' | 'global'  // Whether session was found in DB, discovered from tmux, or global store
 }
 
 export default class SessionList extends PMOCommand {
@@ -237,6 +239,34 @@ export default class SessionList extends PMOCommand {
         }
       }
 
+      // Include daemon sessions from global session store
+      const globalStore = new SessionStore()
+      try {
+        const daemons = globalStore.listByRole('daemon')
+        for (const daemon of daemons) {
+          // Avoid duplicates — check if already matched by session name
+          const alreadyListed = sessions.some(s => s.sessionId === daemon.sessionName)
+          if (alreadyListed) continue
+
+          // Verify the tmux session is alive
+          const exists = hostTmuxSessions.includes(daemon.sessionName)
+          if (exists || flags.all) {
+            sessions.push({
+              sessionId: daemon.sessionName,
+              ticketId: '—',
+              agentName: daemon.agentName,
+              role: 'daemon',
+              status: exists ? 'running' : 'stale',
+              environment: 'host',
+              exists,
+              source: 'global',
+            })
+          }
+        }
+      } finally {
+        globalStore.close()
+      }
+
       if (jsonMode) {
         this.log(JSON.stringify(sessions, null, 2))
         return
@@ -245,7 +275,7 @@ export default class SessionList extends PMOCommand {
       if (sessions.length > 0) {
         this.log('')
         this.log(styles.header('🖥️  Active Sessions'))
-        this.log('═'.repeat(90))
+        this.log('═'.repeat(102))
 
         this.log(
           styles.muted(
@@ -253,11 +283,12 @@ export default class SessionList extends PMOCommand {
             visualPadEnd('Session', 34) +
             visualPadEnd('Ticket', 12) +
             visualPadEnd('Agent', 18) +
+            visualPadEnd('Role', 14) +
             visualPadEnd('Type', 15) +
             'Status'
           )
         )
-        this.log('  ' + '─'.repeat(88))
+        this.log('  ' + '─'.repeat(100))
 
         for (const session of sessions) {
           const typeIcon = session.environment === 'container' ? '🐳 container' : '💻 host'
@@ -274,18 +305,21 @@ export default class SessionList extends PMOCommand {
             ? session.sessionId.substring(0, 29) + '...'
             : session.sessionId
 
+          const role = session.role || 'worker'
+
           this.log(
             '  ' +
             visualPadEnd(displaySession, 34) +
             visualPadEnd(session.ticketId, 12) +
             visualPadEnd(session.agentName, 18) +
+            visualPadEnd(role, 14) +
             visualPadEnd(typeIcon, 15) +
             statusColor(statusText)
           )
         }
 
         this.log('')
-        this.log('═'.repeat(90))
+        this.log('═'.repeat(102))
 
         // Show attach command example
         const firstSession = sessions.find(s => s.exists)
