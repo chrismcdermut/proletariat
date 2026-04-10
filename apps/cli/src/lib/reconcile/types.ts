@@ -23,6 +23,7 @@ import type { Ticket } from '../pmo/types.js'
 export type LinkedPRSource =
   | 'ticket_branch' // PR resolved from the ticket's linked branch
   | 'external_map' // PR URL stored in pmo_external_execution_prs for this ticket's external id
+  | 'branch_search' // PR discovered via GitHub search by branch name pattern (head:<ticket-id>/)
 
 /**
  * A PR linked to a ticket, along with its provenance.
@@ -81,6 +82,12 @@ export interface ReconcileOptions {
    * depend on a local PR cache.
    */
   prLookup?: PRLookupFn
+  /**
+   * Injectable branch search. Used when a ticket has no linked PRs
+   * from branch or external map — falls back to searching GitHub by
+   * branch name pattern. Tests use this to avoid the real gh CLI.
+   */
+  branchSearch?: BranchSearchFn
 }
 
 /**
@@ -103,6 +110,18 @@ export type PRLookupRef =
   | { kind: 'branch'; branch: string }
   | { kind: 'number'; number: number }
   | { kind: 'url'; url: string }
+
+/**
+ * Function signature for searching GitHub by branch name prefix.
+ *
+ * When a ticket has no `pr_number` metadata, no branch, and no entries
+ * in the external execution map, the reconciler falls back to searching
+ * GitHub for PRs whose head branch starts with any of the ticket's
+ * known identifiers (e.g. `PRLT-1234/`, `TKT-081/`).
+ *
+ * Returns ALL matching PRs so the reconciler can evaluate them all.
+ */
+export type BranchSearchFn = (ticketIds: string[], cwd?: string) => PRInfo[]
 
 /**
  * Report returned after a reconcile cycle completes.

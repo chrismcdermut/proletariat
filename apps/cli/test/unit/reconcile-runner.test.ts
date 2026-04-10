@@ -5,7 +5,7 @@ import * as os from 'node:os'
 import Database from 'better-sqlite3'
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js'
 import { runReconcile } from '../../src/lib/reconcile/index.js'
-import type { PRLookupFn, PRLookupRef } from '../../src/lib/reconcile/types.js'
+import type { BranchSearchFn, PRLookupFn, PRLookupRef } from '../../src/lib/reconcile/types.js'
 import type { PMOStorage } from '../../src/lib/pmo/types.js'
 import type { ProviderStorage } from '../../src/lib/providers/types.js'
 import type { PRInfo } from '../../src/lib/pr/index.js'
@@ -366,21 +366,268 @@ describe('Tier 2 Reconciler — runner (PRLT-1280)', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Tickets with no PR info are ignored (not flagged, not moved).
+  // Tickets with no PR info AND no branch search results are ignored.
   // ---------------------------------------------------------------------------
-  it('ignores tickets with no linked PR', async () => {
+  it('ignores tickets with no linked PR and no branch search results', async () => {
     await storage.createTicket(PROJECT_ID, {
       title: 'No PR, no problem',
       statusName: 'In Progress',
     })
     const { lookup } = makeStubLookup([])
+    const branchSearch: BranchSearchFn = () => []
 
     const report = await runReconcile(
       db,
       storage as unknown as PMOStorage & ProviderStorage,
-      { prLookup: lookup, projectId: PROJECT_ID },
+      { prLookup: lookup, projectId: PROJECT_ID, branchSearch },
     )
     expect(report.applied.length).to.equal(0)
     expect(report.checked).to.be.greaterThan(0)
+  })
+
+  // ---------------------------------------------------------------------------
+  // PRLT-1288: Branch search fallback — ticket with no pr_number metadata,
+  // no branch, but a merged PR discoverable by searching head:<ticket-id>/
+  // ---------------------------------------------------------------------------
+  it('finds a merged PR via branch search when ticket has no pr_number or branch (PRLT-1288)', async () => {
+    const ticket = await storage.createTicket(PROJECT_ID, {
+      title: 'No metadata, merged PR exists',
+      statusName: 'In Progress',
+    })
+    // No branch, no pr_number metadata — the old reconciler would skip this.
+
+    const mergedPR = makePR({
+      number: 1106,
+      state: 'MERGED',
+      headBranch: `${ticket.id}/feat/implement-auth`,
+    })
+
+    const { lookup } = makeStubLookup([])
+    const branchSearch: BranchSearchFn = (ids) => {
+      // Simulate: GitHub returns a merged PR whose head branch starts with the ticket ID
+      if (ids.includes(ticket.id)) return [mergedPR]
+      return []
+    }
+
+    const report = await runReconcile(
+      db,
+      storage as unknown as PMOStorage & ProviderStorage,
+      { prLookup: lookup, projectId: PROJECT_ID, branchSearch },
+    )
+
+    expect(report.applied.length).to.equal(1)
+    expect(report.applied[0].toState).to.equal('Done')
+    expect(report.applied[0].prNumber).to.equal(1106)
+
+    // Verify ticket moved to Done
+    const [t] = await storage.listTickets(PROJECT_ID)
+    expect(t.statusName).to.equal('Done')
+  })
+
+  // ---------------------------------------------------------------------------
+  // PRLT-1288: Branch search backfills pr_number metadata so future cycles
+  // skip the search.
+  // ---------------------------------------------------------------------------
+  it('backfills pr_number metadata after finding a PR via branch search', async () => {
+    const ticket = await storage.createTicket(PROJECT_ID, {
+      title: 'Backfill test',
+      statusName: 'In Progress',
+    })
+
+    const mergedPR = makePR({
+      number: 2048,
+      state: 'MERGED',
+      url: 'https://github.com/test/repo/pull/2048',
+      headBranch: `${ticket.id}/feat/backfill`,
+    })
+
+    const { lookup } = makeStubLookup([])
+    let searchCallCount = 0
+    const branchSearch: BranchSearchFn = (ids) => {
+      searchCallCount++
+      if (ids.includes(ticket.id)) return [mergedPR]
+      return []
+    }
+
+    await runReconcile(
+      db,
+      storage as unknown as PMOStorage & ProviderStorage,
+      { prLookup: lookup, projectId: PROJECT_ID, branchSearch },
+    )
+    expect(searchCallCount).to.equal(1)
+
+    // Verify metadata was backfilled
+    const updated = await storage.getTicket(ticket.id)
+    expect(updated).to.not.be.null
+    expect(updated!.metadata.pr_number).to.equal('2048')
+    expect(updated!.metadata.pr_url).to.equal('https://github.com/test/repo/pull/2048')
+  })
+
+  // ---------------------------------------------------------------------------
+  // PRLT-1288: Branch search uses external_key (Linear identifier) when
+  // the ticket has no branch and no pr_number.
+  // ---------------------------------------------------------------------------
+  it('searches by external_key (PRLT-xxx) when ticket has Linear metadata', async () => {
+    const ticket = await storage.createTicket(PROJECT_ID, {
+      title: 'Linear ticket, no branch',
+      statusName: 'In Progress',
+    })
+    // Simulate a ticket synced from Linear with external_key but no branch
+    await storage.updateTicket(ticket.id, {
+      metadata: {
+        external_source: 'linear',
+        external_key: 'PRLT-1266',
+        external_id: 'uuid-1266',
+      },
+    })
+
+    const mergedPR = makePR({
+      number: 1106,
+      state: 'MERGED',
+      headBranch: 'PRLT-1266/feat/fix-thing',
+    })
+
+    const { lookup } = makeStubLookup([])
+    let searchedIds: string[] = []
+    const branchSearch: BranchSearchFn = (ids) => {
+      searchedIds = ids
+      if (ids.includes('PRLT-1266')) return [mergedPR]
+      return []
+    }
+
+    const report = await runReconcile(
+      db,
+      storage as unknown as PMOStorage & ProviderStorage,
+      { prLookup: lookup, projectId: PROJECT_ID, branchSearch },
+    )
+
+    // Verify the search included the external_key
+    expect(searchedIds).to.include('PRLT-1266')
+    // Verify the ticket moved to Done
+    expect(report.applied.length).to.equal(1)
+    expect(report.applied[0].toState).to.equal('Done')
+  })
+
+  // ---------------------------------------------------------------------------
+  // PRLT-1288: --dry-run reports transitions found via branch search
+  // ---------------------------------------------------------------------------
+  it('--dry-run reports branch-search transitions without mutating state', async () => {
+    const ticket = await storage.createTicket(PROJECT_ID, {
+      title: 'Dry run branch search',
+      statusName: 'Backlog',
+    })
+
+    const mergedPR = makePR({
+      number: 999,
+      state: 'MERGED',
+      headBranch: `${ticket.id}/feat/dry`,
+    })
+
+    const { lookup } = makeStubLookup([])
+    const branchSearch: BranchSearchFn = (ids) => {
+      if (ids.includes(ticket.id)) return [mergedPR]
+      return []
+    }
+
+    const report = await runReconcile(
+      db,
+      storage as unknown as PMOStorage & ProviderStorage,
+      { prLookup: lookup, projectId: PROJECT_ID, branchSearch, dryRun: true },
+    )
+
+    expect(report.applied.length).to.equal(0)
+    expect(report.skipped.length).to.equal(1)
+    expect(report.skipped[0].toState).to.equal('Done')
+    expect(report.skipped[0].prNumber).to.equal(999)
+
+    // State must be unchanged
+    const [t] = await storage.listTickets(PROJECT_ID)
+    expect(t.statusName).to.equal('Backlog')
+  })
+
+  // ---------------------------------------------------------------------------
+  // PRLT-1288: 5-ticket batch scenario — all stuck in Backlog with no metadata,
+  // all have merged PRs discoverable by branch search.
+  // ---------------------------------------------------------------------------
+  it('finds and transitions 5 stuck tickets via branch search (PRLT-1288 batch scenario)', async () => {
+    const ticketIds: string[] = []
+    const prs: PRInfo[] = []
+
+    // Create 5 tickets with no branch, no pr_number, stuck in Backlog
+    for (let i = 0; i < 5; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      const ticket = await storage.createTicket(PROJECT_ID, {
+        title: `Stuck ticket PRLT-126${7 + i}`,
+        statusName: 'Backlog',
+      })
+      // eslint-disable-next-line no-await-in-loop
+      await storage.updateTicket(ticket.id, {
+        metadata: {
+          external_source: 'linear',
+          external_key: `PRLT-126${7 + i}`,
+          external_id: `uuid-126${7 + i}`,
+        },
+      })
+      ticketIds.push(ticket.id)
+      prs.push(
+        makePR({
+          number: 1100 + i,
+          state: 'MERGED',
+          headBranch: `PRLT-126${7 + i}/feat/fix-${i}`,
+        }),
+      )
+    }
+
+    const { lookup } = makeStubLookup([])
+    const branchSearch: BranchSearchFn = (ids) => {
+      // Return matching PRs for any of the searched IDs
+      return prs.filter(pr => ids.some(id => pr.headBranch.startsWith(`${id}/`)))
+    }
+
+    const report = await runReconcile(
+      db,
+      storage as unknown as PMOStorage & ProviderStorage,
+      { prLookup: lookup, projectId: PROJECT_ID, branchSearch },
+    )
+
+    expect(report.applied.length).to.equal(5)
+    expect(report.applied.every(t => t.toState === 'Done')).to.equal(true)
+    expect(report.applied.every(t => t.prState === 'MERGED')).to.equal(true)
+
+    // Every ticket is now in Done
+    const after = await storage.listTickets(PROJECT_ID)
+    expect(after).to.have.lengthOf(5)
+    for (const t of after) {
+      expect(t.statusName).to.equal('Done')
+    }
+  })
+
+  // ---------------------------------------------------------------------------
+  // PRLT-1288: Branch search is NOT used when ticket already has a linked PR
+  // via branch or external map — avoids redundant GitHub API calls.
+  // ---------------------------------------------------------------------------
+  it('does not call branch search when ticket already has a linked PR via branch', async () => {
+    await createTicketWithBranch(storage, PROJECT_ID, {
+      title: 'Has branch already',
+      statusName: 'In Progress',
+      branch: 'PRLT-42/feat/existing',
+    })
+
+    const { lookup } = makeStubLookup([
+      makePR({ number: 42, state: 'MERGED', headBranch: 'PRLT-42/feat/existing' }),
+    ])
+    let searchCalled = false
+    const branchSearch: BranchSearchFn = () => {
+      searchCalled = true
+      return []
+    }
+
+    await runReconcile(
+      db,
+      storage as unknown as PMOStorage & ProviderStorage,
+      { prLookup: lookup, projectId: PROJECT_ID, branchSearch },
+    )
+
+    expect(searchCalled).to.equal(false)
   })
 })

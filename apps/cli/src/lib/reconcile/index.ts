@@ -20,10 +20,11 @@ import type { StateCategory, Ticket, PMOStorage } from '../pmo/types.js'
 import type { ProviderStorage, TicketProvider } from '../providers/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
 import type { PRInfo } from '../pr/index.js'
-import { getPRForBranch, getPRByNumber } from '../pr/index.js'
+import { getPRForBranch, getPRByNumber, searchAllPRsForTicket } from '../pr/index.js'
 import { getWorkflowConfig, type WorkflowConfig } from '../work-lifecycle/settings.js'
 import { buildTransition, deriveExpectedState, formatTransitionLogLine } from './core.js'
 import type {
+  BranchSearchFn,
   LinkedPR,
   PRLookupFn,
   ReconcileOptions,
@@ -33,6 +34,7 @@ import type {
 } from './types.js'
 
 export type {
+  BranchSearchFn,
   LinkedPR,
   LinkedPRSource,
   PRLookupFn,
@@ -81,6 +83,14 @@ export const defaultPRLookup: PRLookupFn = (ref, cwd) => {
 }
 
 /**
+ * Default branch search. Searches GitHub for PRs whose head branch
+ * starts with any of the given ticket IDs.
+ */
+export const defaultBranchSearch: BranchSearchFn = (ticketIds, cwd) => {
+  return searchAllPRsForTicket(ticketIds, cwd)
+}
+
+/**
  * Run one reconciliation cycle.
  *
  * Strictly idempotent: if a ticket is already in its expected state the
@@ -95,6 +105,7 @@ export async function runReconcile(
   const startedAt = new Date()
   const { dryRun = false, cwd, log, projectId } = options
   const prLookup = options.prLookup ?? defaultPRLookup
+  const branchSearch = options.branchSearch ?? defaultBranchSearch
 
   // Workflow config is used to resolve "Done" / "In Progress" / "Review"
   // column names for the ticket's board. Fall back gracefully if the
@@ -130,7 +141,8 @@ export async function runReconcile(
 
   for (const ticket of tickets) {
     try {
-      const linkedPRs = gatherLinkedPRs(db, ticket, prLookup, cwd)
+      // eslint-disable-next-line no-await-in-loop -- sequential is fine; small N
+      const linkedPRs = await gatherLinkedPRs(db, storage, ticket, prLookup, branchSearch, cwd, log)
       if (linkedPRs.length === 0) {
         continue
       }
@@ -176,12 +188,15 @@ export async function runReconcile(
       await applyTransition(db, storage, transition)
       applied.push(transition)
 
-      // Dual-identity tickets: if the primary provider is NOT local PMO,
-      // the local PMO board may still hold a stale mirror row. Nudge it
-      // to the same column so the local kanban view does not drift.
+      // Dual-identity tickets (PRLT-1288): reconcile BOTH sides.
+      // If primary provider is external (Linear, etc.), also update local PMO mirror.
+      // If primary provider is PMO, also update external provider if the ticket has one.
       if (transition.provider !== 'pmo') {
         // eslint-disable-next-line no-await-in-loop
         await reconcilePmoMirror(db, storage, transition, log)
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        await reconcileExternalMirror(db, storage, transition, log)
       }
     } catch (err) {
       failed.push({
@@ -210,18 +225,25 @@ export async function runReconcile(
 
 /**
  * Gather every PR linked to a ticket by:
- *   1. the ticket's branch (if set), and
+ *   1. the ticket's branch (if set),
  *   2. PR URLs stored in `pmo_external_execution_prs` under any of the
- *      ticket's external-source identities.
+ *      ticket's external-source identities, and
+ *   3. (PRLT-1288 fallback) searching GitHub by branch name pattern when
+ *      sources 1 & 2 yield nothing.
  *
  * Every lookup goes through the live PR lookup function — no cache.
+ * When source 3 finds a PR, the ticket's metadata is backfilled with
+ * `pr_number` and `pr_url` so future cycles skip the search.
  */
-function gatherLinkedPRs(
+async function gatherLinkedPRs(
   db: Database.Database,
+  storage: PMOStorage & ProviderStorage,
   ticket: Ticket,
   prLookup: PRLookupFn,
+  branchSearch: BranchSearchFn,
   cwd?: string,
-): LinkedPR[] {
+  log?: (msg: string) => void,
+): Promise<LinkedPR[]> {
   const results: LinkedPR[] = []
   const seen = new Set<number>() // de-dupe by PR number
 
@@ -245,7 +267,79 @@ function gatherLinkedPRs(
     push(prLookup({ kind: 'url', url }, cwd), 'external_map')
   }
 
+  // 3. PRLT-1288: Branch search fallback — when sources 1 & 2 found nothing,
+  //    search GitHub by branch name prefix using every known alias for this
+  //    ticket (ticket ID, external_key, external_id).
+  if (results.length === 0) {
+    const searchIds = collectSearchIds(ticket)
+    if (searchIds.length > 0) {
+      const found = branchSearch(searchIds, cwd)
+      for (const pr of found) {
+        push(pr, 'branch_search')
+      }
+      // Backfill: write pr_number & pr_url onto ticket metadata so future
+      // reconcile cycles skip the search. Use the first (best) match.
+      if (results.length > 0) {
+        const best = results[0].pr
+        await backfillPRMetadata(storage, ticket, best, log)
+      }
+    }
+  }
+
   return results
+}
+
+/**
+ * Collect every identifier that can serve as a branch-name prefix when
+ * searching GitHub for PRs associated with a ticket.
+ *
+ * Covers: ticket ID (TKT-xxx), external_key (PRLT-xxx), external_id
+ * (if it looks like a ticket key, not a UUID).
+ */
+function collectSearchIds(ticket: Ticket): string[] {
+  const ids = new Set<string>()
+  const md = ticket.metadata ?? {}
+
+  // The ticket's own ID (e.g. TKT-042)
+  ids.add(ticket.id)
+
+  // External key — typically the Linear identifier (e.g. PRLT-1266)
+  if (md.external_key) ids.add(md.external_key)
+
+  // External ID — only include if it looks like a ticket key, not a UUID
+  if (md.external_id && /^[A-Z]+-\d+$/i.test(md.external_id)) {
+    ids.add(md.external_id)
+  }
+
+  return [...ids]
+}
+
+/**
+ * Backfill pr_number and pr_url onto a ticket's metadata so future
+ * reconcile cycles find the PR directly without searching GitHub.
+ *
+ * Best-effort: failures are logged but never block the reconcile cycle.
+ */
+async function backfillPRMetadata(
+  storage: PMOStorage & ProviderStorage,
+  ticket: Ticket,
+  pr: PRInfo,
+  log?: (msg: string) => void,
+): Promise<void> {
+  try {
+    const updatedMetadata = {
+      ...(ticket.metadata ?? {}),
+      pr_number: String(pr.number),
+      pr_url: pr.url,
+    }
+    await storage.updateTicket(ticket.id, { metadata: updatedMetadata })
+    log?.(`[reconcile] backfilled pr_number=${pr.number} on ${ticket.id} (found via branch search)`)
+  } catch (err) {
+    log?.(
+      `[reconcile] failed to backfill PR metadata on ${ticket.id}: ` +
+        (err instanceof Error ? err.message : String(err)),
+    )
+  }
 }
 
 /**
@@ -373,6 +467,64 @@ async function reconcilePmoMirror(
   } catch (err) {
     log?.(
       `[reconcile] pmo mirror update for ${transition.ticketId} errored: ` +
+        (err instanceof Error ? err.message : String(err)),
+    )
+  }
+}
+
+/**
+ * For dual-identity tickets whose primary provider resolved to PMO
+ * (e.g. because external_source metadata was missing), check whether
+ * the ticket also has an external identity (Linear, Jira, etc.) and
+ * try to update that side too.
+ *
+ * Best effort — failures here never block the primary transition.
+ */
+async function reconcileExternalMirror(
+  db: Database.Database,
+  storage: PMOStorage & ProviderStorage,
+  transition: ReconcileTransition,
+  log?: (msg: string) => void,
+): Promise<void> {
+  try {
+    const ticket = await storage.getTicket(transition.ticketId)
+    if (!ticket) return
+    const md = ticket.metadata ?? {}
+
+    // Only act if the ticket has external-provider metadata
+    if (!md.external_source && !md.external_key && !md.external_id) return
+
+    // Build metadata that forces the resolver to pick the external provider
+    const externalMetadata: Record<string, string> = { ...md }
+    // If external_source is missing but external_key/external_id exists,
+    // try to infer the source from the key format (PRLT-xxx → linear)
+    if (!externalMetadata.external_source && externalMetadata.external_key) {
+      if (/^PRLT-\d+$/.test(externalMetadata.external_key)) {
+        externalMetadata.external_source = 'linear'
+      }
+    }
+    if (!externalMetadata.external_source) return
+
+    const externalProvider = resolveTicketProvider(
+      ticket.id,
+      ticket.projectId ?? transition.projectId,
+      db,
+      storage,
+      externalMetadata,
+    )
+
+    // Don't bounce back to PMO — that's the primary provider we already used
+    if (externalProvider.name === 'pmo') return
+
+    const result = await externalProvider.moveTicket(ticket.id, transition.toState)
+    if (result.success) {
+      log?.(`[reconcile] also moved ${ticket.id} on ${externalProvider.name} → ${transition.toState}`)
+    } else if (log) {
+      log(`[reconcile] external mirror update for ${ticket.id} on ${externalProvider.name} failed: ${result.error}`)
+    }
+  } catch (err) {
+    log?.(
+      `[reconcile] external mirror update for ${transition.ticketId} errored: ` +
         (err instanceof Error ? err.message : String(err)),
     )
   }
