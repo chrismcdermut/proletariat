@@ -654,6 +654,71 @@ export function findPRForTicket(
 }
 
 /**
+ * Search GitHub for ALL PRs (open, closed, merged) whose head branch
+ * matches any of the provided ticket identifiers.
+ *
+ * Unlike {@link findPRForTicket} which returns only the best match,
+ * this returns every match — needed by the reconciler to evaluate all
+ * linked PRs (e.g. "any merged?" vs "all closed?").
+ */
+export function searchAllPRsForTicket(
+  ticketIds: string[],
+  cwdOrOptions?: string | PRLookupOptions,
+): PRInfo[] {
+  const { cwd, repo } = normalizeLookupOptions(cwdOrOptions);
+  const uniqueIds = Array.from(new Set(ticketIds.filter((id): id is string => !!id)));
+  if (uniqueIds.length === 0) return [];
+
+  const matches: PRInfo[] = [];
+  const seen = new Set<number>();
+
+  for (const id of uniqueIds) {
+    try {
+      const result = execSync(
+        `gh pr list --state all --search "head:${id}/" --json number,url,title,state,headRefName,baseRefName,isDraft,createdAt,updatedAt${repoFlag(repo)}`,
+        {
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+        },
+      );
+
+      const data = JSON.parse(result) as Array<{
+        number: number;
+        url: string;
+        title: string;
+        state: 'OPEN' | 'CLOSED' | 'MERGED';
+        headRefName: string;
+        baseRefName: string;
+        isDraft: boolean;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+
+      for (const pr of data) {
+        if (seen.has(pr.number)) continue;
+        seen.add(pr.number);
+        matches.push({
+          number: pr.number,
+          url: pr.url,
+          title: pr.title,
+          state: pr.state,
+          headBranch: pr.headRefName,
+          baseBranch: pr.baseRefName,
+          isDraft: pr.isDraft,
+          createdAt: pr.createdAt,
+          updatedAt: pr.updatedAt,
+        });
+      }
+    } catch {
+      // Non-fatal: skip this id and try the next.
+    }
+  }
+
+  return matches;
+}
+
+/**
  * List open PRs for the current repo.
  */
 export function listOpenPRs(cwd?: string): PRInfo[] {
