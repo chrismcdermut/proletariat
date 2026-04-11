@@ -27,6 +27,8 @@ import { TicketRefStore } from './ticket-refs.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
 import { type ExternalMappingProvider } from '../external-issues/types.js'
 import { copyMediaToAgentWorkspace } from '../media/index.js'
+import { startPromptWatcher } from './prompt-watcher.js'
+import { getEventBus } from '../events/event-bus.js'
 import {
   DisplayMode,
   SessionManager,
@@ -743,6 +745,36 @@ export async function spawnAgentForTicket(
         },
         executionId: execution.id,
         lastSpawnedAt: new Date(),
+      })
+    }
+
+    // PRLT-1281: Start prompt watcher to auto-dismiss plugin onboarding prompts.
+    // Watches pane output for the first 60s after spawn and auto-answers known
+    // interactive prompts (e.g. Vercel telemetry, ~/.claude/ permission dialogs).
+    if (result.sessionId) {
+      const eventBus = getEventBus()
+      startPromptWatcher(result.sessionId, {
+        containerId: result.containerId,
+        log,
+        onDismiss: (dismissResult) => {
+          eventBus.emit('prompt:auto_dismissed', {
+            sessionId: result.sessionId!,
+            patternName: dismissResult.pattern.name,
+            matchedText: dismissResult.matchedText,
+            selectedAnswer: dismissResult.selectedAnswer,
+            success: dismissResult.success,
+            error: dismissResult.error,
+            timestamp: new Date(),
+          })
+        },
+        onEscalate: (escalation) => {
+          eventBus.emit('prompt:escalated', {
+            sessionId: result.sessionId!,
+            paneContent: escalation.paneContent,
+            reason: escalation.reason,
+            timestamp: new Date(),
+          })
+        },
       })
     }
 

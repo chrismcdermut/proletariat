@@ -105,6 +105,8 @@ import {
 import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
 import { handlePostExecutionTransition } from '../../lib/work-lifecycle/index.js'
 import { runPreflightChecks, formatPreflightReport } from '../../lib/execution/preflight.js'
+import { startPromptWatcher } from '../../lib/execution/prompt-watcher.js'
+import { getEventBus } from '../../lib/events/event-bus.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -2600,6 +2602,34 @@ export default class WorkStart extends PMOCommand {
             agentName: context.agentName,
             dockerId: result.containerId,
             currentExecutionId: execution.id,
+          })
+        }
+
+        // PRLT-1281: Start prompt watcher to auto-dismiss plugin onboarding prompts
+        if (result.sessionId) {
+          const eventBus = getEventBus()
+          startPromptWatcher(result.sessionId, {
+            containerId: result.containerId,
+            log: (msg) => { if (!jsonMode) this.log(styles.muted(msg)) },
+            onDismiss: (dismissResult) => {
+              eventBus.emit('prompt:auto_dismissed', {
+                sessionId: result.sessionId!,
+                patternName: dismissResult.pattern.name,
+                matchedText: dismissResult.matchedText,
+                selectedAnswer: dismissResult.selectedAnswer,
+                success: dismissResult.success,
+                error: dismissResult.error,
+                timestamp: new Date(),
+              })
+            },
+            onEscalate: (escalation) => {
+              eventBus.emit('prompt:escalated', {
+                sessionId: result.sessionId!,
+                paneContent: escalation.paneContent,
+                reason: escalation.reason,
+                timestamp: new Date(),
+              })
+            },
           })
         }
 

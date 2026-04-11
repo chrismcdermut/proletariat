@@ -73,6 +73,25 @@ export interface AgentOutputEvent {
   timestamp: Date
 }
 
+/** Emitted when a plugin prompt is auto-dismissed (PRLT-1281). */
+export interface PromptAutoDismissedEvent {
+  sessionId: string
+  patternName: string
+  matchedText: string
+  selectedAnswer: string
+  success: boolean
+  error?: string
+  timestamp: Date
+}
+
+/** Emitted when an unknown prompt is escalated (PRLT-1281). */
+export interface PromptEscalatedEvent {
+  sessionId: string
+  paneContent: string
+  reason: string
+  timestamp: Date
+}
+
 // =============================================================================
 // Ticket Events
 // =============================================================================
@@ -152,6 +171,8 @@ export interface RuntimeEventMap {
   'agent:stopped': AgentStoppedEvent
   'agent:error': AgentErrorEvent
   'agent:output': AgentOutputEvent
+  'prompt:auto_dismissed': PromptAutoDismissedEvent
+  'prompt:escalated': PromptEscalatedEvent
   'ticket:status_changed': TicketStatusChangedEvent
   'ticket:pr_linked': TicketPRLinkedEvent
   'workflow_rule:matched': WorkflowRuleMatchedEvent
