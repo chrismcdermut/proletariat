@@ -66,6 +66,7 @@ export {
   fetchPrDiff,
   fetchTicketDescription,
   fetchTestOutput,
+  fetchAgentSessionStatus,
   invokeClaudeLlm,
 } from './llm-agent.js'
 export type { DecisionContext, LlmAgentOptions } from './llm-agent.js'

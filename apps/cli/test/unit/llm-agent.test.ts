@@ -587,5 +587,118 @@ describe('PRLT-1253: LLM Orchestrator Agent', () => {
 
       expect(result.branch).to.equal('feat/my-branch')
     })
+
+    it('should gracefully handle agent session fetch failure', () => {
+      const escalation = makeEscalationContext({
+        ctx: { event: 'on_agent_died', agent: 'nonexistent-agent' },
+      })
+
+      const result = gatherDecisionContext(escalation, {
+        maxDiffChars: 8000,
+        maxTestOutputChars: 4000,
+      })
+
+      // prlt session list will fail in test env — should be undefined, not throw
+      expect(result.agentStatus).to.be.undefined
+    })
+  })
+
+  // ===========================================================================
+  // buildDecisionPrompt — agent session context
+  // ===========================================================================
+
+  describe('buildDecisionPrompt — agent context', () => {
+    it('should include agent sessions section when agentStatus is available', () => {
+      const context: DecisionContext = {
+        escalation: makeEscalationContext(),
+        agentStatus: 'Active agents (2):\n  - agent-a | running | ticket=PRLT-100\n  - agent-b | running | ticket=PRLT-200',
+      }
+      const prompt = buildDecisionPrompt(context)
+      expect(prompt).to.include('Agent Sessions')
+      expect(prompt).to.include('agent-a')
+      expect(prompt).to.include('agent-b')
+    })
+
+    it('should not include agent sessions section when agentStatus is undefined', () => {
+      const context: DecisionContext = {
+        escalation: makeEscalationContext(),
+      }
+      const prompt = buildDecisionPrompt(context)
+      expect(prompt).to.not.include('Agent Sessions')
+    })
+  })
+
+  // ===========================================================================
+  // OrchestrateEngine — LLM timeout escalation
+  // ===========================================================================
+
+  describe('OrchestrateEngine — LLM timeout escalation', () => {
+    let db: Database.Database
+
+    beforeEach(() => {
+      db = createTestDb()
+      resetEventBus()
+    })
+
+    afterEach(() => {
+      resetEventBus()
+      db.close()
+    })
+
+    it('should escalate timed-out LLM decisions to human queue', async () => {
+      // Insert an llm-mode hook
+      insertHook(db, { name: 'llm-hook', event: 'on_ci_green', action: 'notify', mode: 'llm' })
+
+      // Create engine WITHOUT onLlmDecision to force queuing
+      const engine = new OrchestrateEngine({
+        db,
+        llmTimeoutMs: 1, // 1ms timeout — instant escalation
+      })
+
+      // Fire event — should queue in LLM decisions (no handler)
+      const results = await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+      expect(results).to.have.length(1)
+      expect(results[0].awaitingLlmDecision).to.be.true
+      expect(engine.getPendingLlmDecisions()).to.have.length(1)
+
+      // Wait for the 1ms timeout to expire
+      await new Promise(resolve => setTimeout(resolve, 5))
+
+      // Escalate timed-out decisions
+      const escalated = engine.escalateTimedOutLlmDecisions()
+      expect(escalated).to.equal(1)
+
+      // Decision should now be in human queue
+      expect(engine.getPendingLlmDecisions()).to.be.empty
+      expect(engine.getPendingHumanEscalations()).to.have.length(1)
+      expect(engine.getPendingHumanEscalations()[0].reason).to.equal('llm_timeout')
+    })
+
+    it('should not escalate LLM decisions that have not timed out', async () => {
+      insertHook(db, { name: 'llm-hook', event: 'on_ci_green', action: 'notify', mode: 'llm' })
+
+      // Create engine with a long timeout (decisions should NOT escalate)
+      const engine = new OrchestrateEngine({
+        db,
+        llmTimeoutMs: 300_000, // 5 minutes
+      })
+
+      await engine.fireEvent('on_ci_green', { event: 'on_ci_green' })
+      expect(engine.getPendingLlmDecisions()).to.have.length(1)
+
+      // Try to escalate — should find 0 timed-out
+      const escalated = engine.escalateTimedOutLlmDecisions()
+      expect(escalated).to.equal(0)
+
+      // Decision should still be in LLM queue
+      expect(engine.getPendingLlmDecisions()).to.have.length(1)
+      expect(engine.getPendingHumanEscalations()).to.be.empty
+    })
+
+    it('should return 0 when no LLM decisions are pending', () => {
+      const engine = new OrchestrateEngine({ db })
+      const escalated = engine.escalateTimedOutLlmDecisions()
+      expect(escalated).to.equal(0)
+    })
   })
 })

@@ -265,6 +265,7 @@ export default class Orchestrate extends PromptCommand {
           this.log(styles.muted(`  ${hookCount} active hooks`))
         } catch { /* hook count is cosmetic — db may not have pmo_work_hooks table yet */ }
 
+        this.log(styles.muted('  LLM agent (tier 2) active — daemon decisions have a brain'))
         if (parsedFlags['poll-interval'] && (parsedFlags['poll-interval'] as number) > 0) {
           this.log(styles.muted(`  Polling every ${parsedFlags['poll-interval']}s for external events`))
         }
@@ -292,8 +293,16 @@ export default class Orchestrate extends PromptCommand {
         }
       }
 
-      // Keep Node.js event loop alive — signal listeners alone don't prevent exit
-      const keepAlive = setInterval(() => {}, 60_000)
+      // Keep Node.js event loop alive and periodically check for timed-out
+      // LLM decisions. Even with onLlmDecision wired, this is a safety net:
+      // if the callback throws or is slow, queued decisions can accumulate.
+      // Every 60s, escalate any LLM decisions that exceeded their timeout.
+      const keepAlive = setInterval(() => {
+        const escalated = engine.escalateTimedOutLlmDecisions()
+        if (escalated > 0) {
+          logFn(`[daemon] Escalated ${escalated} timed-out LLM decision(s) to human tier`)
+        }
+      }, 60_000)
 
       // Keep the process alive until signal
       await new Promise<void>((resolve) => {
