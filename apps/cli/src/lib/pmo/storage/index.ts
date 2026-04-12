@@ -660,6 +660,10 @@ export class SQLiteStorage implements PMOStorage {
     return this.actionStorage.getSuggestedAction(stateName)
   }
 
+  async getActionByFromIntent(intent: string): Promise<WorkAction | null> {
+    return this.actionStorage.getActionByFromIntent(intent)
+  }
+
   // ===========================================================================
   // Workflow Rule Operations
   // ===========================================================================

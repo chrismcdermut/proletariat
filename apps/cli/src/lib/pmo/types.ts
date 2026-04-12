@@ -1099,6 +1099,7 @@ export interface PMOStorage {
   updateAction(id: string, changes: Partial<WorkAction>): Promise<WorkAction>
   deleteAction(id: string): Promise<void>
   getSuggestedAction(stateName: string): Promise<WorkAction | null>
+  getActionByFromIntent(intent: string): Promise<WorkAction | null>
 
   // Workflow Rule Operations
   listWorkflowRules(filter?: WorkflowRuleFilter): Promise<WorkflowRule[]>
