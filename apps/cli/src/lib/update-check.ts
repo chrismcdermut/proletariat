@@ -655,6 +655,177 @@ export function runNpmInstallWithRetry(command: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Binary integrity guard (PRLT-1276)
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of a binary integrity check.
+ */
+export interface BinaryIntegrityResult {
+  /** Whether the prlt binary is healthy (exists and resolves) */
+  healthy: boolean
+  /** Path to the bin symlink that was checked (null if npm prefix unknown) */
+  binPath: string | null
+  /** True if the binary was restored from a stale backup */
+  restoredFromBackup: boolean
+  /** Number of stale backups cleaned up */
+  staleBackupsCleaned: number
+  /** Diagnostic message (present when unhealthy or restored) */
+  message?: string
+}
+
+/**
+ * Check whether the prlt binary symlink is intact and, if not, attempt
+ * self-healing from any leftover `.prlt-backup-*` directory.
+ *
+ * This catches the PRLT-1276 scenario where a concurrent or interrupted
+ * `npm install -g` left the package directory deleted and the bin symlink
+ * dangling. If a backup from a previous {@link runNpmInstallWithRetry}
+ * exists, the function restores it automatically.
+ *
+ * Also cleans up stale backups that may have accumulated from prior
+ * aborted retries.
+ *
+ * Safe to call on every startup — returns quickly when everything is fine.
+ */
+export function checkBinaryIntegrity(): BinaryIntegrityResult {
+  const modulesDir = getNpmGlobalModulesDir()
+  if (!modulesDir) {
+    return { healthy: true, binPath: null, restoredFromBackup: false, staleBackupsCleaned: 0 }
+  }
+
+  const binDir = getNpmGlobalBinDir(modulesDir)
+  const binPath = path.join(binDir, 'prlt')
+  const packageDir = path.join(modulesDir, '@proletariat', 'cli')
+
+  // Check if the binary exists and resolves (not dangling)
+  let binExists = false
+  let binResolves = false
+  try {
+    const stat = fs.lstatSync(binPath)
+    binExists = stat.isSymbolicLink() || stat.isFile()
+    if (binExists) {
+      // fs.existsSync follows symlinks — returns false for dangling
+      binResolves = fs.existsSync(binPath)
+    }
+  } catch {
+    // Binary doesn't exist at all
+  }
+
+  if (binExists && binResolves) {
+    // Binary is healthy — clean up any stale backups from prior aborted retries
+    const staleBackupsCleaned = cleanStaleBackups(modulesDir)
+    return { healthy: true, binPath, restoredFromBackup: false, staleBackupsCleaned }
+  }
+
+  // Binary is missing or dangling — try to restore from a backup first
+  const proletariatDir = path.join(modulesDir, '@proletariat')
+  let restoredFromBackup = false
+  let staleBackupsCleaned = 0
+
+  try {
+    if (fs.existsSync(proletariatDir)) {
+      const entries = fs.readdirSync(proletariatDir)
+      const backupDirs = entries
+        .filter(e => e.startsWith('cli.prlt-backup-'))
+        .sort()
+        .reverse() // Most recent first
+
+      if (backupDirs.length > 0) {
+        const backupPath = path.join(proletariatDir, backupDirs[0])
+
+        // Capture existing bin symlinks for restore
+        const binSymlinks = captureBinSymlinks(modulesDir)
+
+        const backup: NpmPackageBackup = {
+          originalPath: packageDir,
+          backupPath,
+          binSymlinks,
+        }
+
+        if (restoreNpmPackageBackup(backup)) {
+          restoredFromBackup = true
+          // Clean remaining stale backups (the one we restored from was
+          // already renamed back by restoreNpmPackageBackup)
+          for (let i = 1; i < backupDirs.length; i++) {
+            try {
+              fs.rmSync(path.join(proletariatDir, backupDirs[i]), { recursive: true, force: true })
+              staleBackupsCleaned++
+            } catch {
+              // Best effort
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Best effort — don't crash the CLI
+  }
+
+  if (restoredFromBackup) {
+    const msg = `[PRLT-1276] prlt binary was missing at ${binPath}. Restored from backup automatically.`
+    return {
+      healthy: true,
+      binPath,
+      restoredFromBackup: true,
+      staleBackupsCleaned,
+      message: msg,
+    }
+  }
+
+  // Could not self-heal — clean up any stale backups that couldn't be used
+  staleBackupsCleaned = cleanStaleBackups(modulesDir)
+
+  const msg =
+    `[PRLT-1276] prlt binary is missing or broken at ${binPath}. ` +
+    `Package dir exists: ${fs.existsSync(packageDir)}. ` +
+    `Reinstall with: npm install -g @proletariat/cli`
+  return {
+    healthy: false,
+    binPath,
+    restoredFromBackup: false,
+    staleBackupsCleaned,
+    message: msg,
+  }
+}
+
+/**
+ * Remove stale `.prlt-backup-*` directories from `<modulesDir>/@proletariat/`.
+ *
+ * These accumulate when {@link runNpmInstallWithRetry} creates a backup but
+ * the process exits before cleanup runs (e.g., SIGKILL, power loss, OOM).
+ *
+ * Returns the number of directories removed.
+ */
+export function cleanStaleBackups(modulesDir?: string | null): number {
+  const dir = modulesDir ?? getNpmGlobalModulesDir()
+  if (!dir) return 0
+
+  const proletariatDir = path.join(dir, '@proletariat')
+  let cleaned = 0
+
+  try {
+    if (!fs.existsSync(proletariatDir)) return 0
+
+    const entries = fs.readdirSync(proletariatDir)
+    for (const entry of entries) {
+      if (entry.startsWith('cli.prlt-backup-')) {
+        try {
+          fs.rmSync(path.join(proletariatDir, entry), { recursive: true, force: true })
+          cleaned++
+        } catch {
+          // Best effort
+        }
+      }
+    }
+  } catch {
+    // Best effort — never crash
+  }
+
+  return cleaned
+}
+
+// ---------------------------------------------------------------------------
 // Pending check tracking
 // ---------------------------------------------------------------------------
 

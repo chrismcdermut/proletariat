@@ -2,7 +2,7 @@ import { Hook } from '@oclif/core'
 import { validateBetterSqlite3NativeBinding } from '../lib/database/native-validation.js'
 import { readMachineConfig, pruneStaleHeadquarters } from '../lib/machine-config.js'
 import { findHQRoot } from '../lib/workspace.js'
-import { getCachedUpdateInfo, triggerBackgroundCheck } from '../lib/update-check.js'
+import { getCachedUpdateInfo, triggerBackgroundCheck, checkBinaryIntegrity } from '../lib/update-check.js'
 import { handleUpdatePrompt } from '../lib/update-prompt.js'
 import { initSentry } from '../lib/telemetry.js'
 import { initAnalytics, shutdownAnalytics, trackCommandRun } from '../lib/telemetry/analytics.js'
@@ -109,6 +109,19 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
     pruneStaleHeadquarters()
   } catch {
     // Never let pruning errors break the CLI
+  }
+
+  // ── Binary integrity check (PRLT-1276) ──────────────────────────────
+  // Detect when the prlt binary has gone missing (e.g., interrupted npm install)
+  // and self-heal from stale backups if possible. Also cleans up leftover
+  // backup directories from prior aborted retries.
+  try {
+    const integrity = checkBinaryIntegrity()
+    if (integrity.message) {
+      console.error(integrity.message)
+    }
+  } catch {
+    // Never let integrity-check errors break the CLI
   }
 
   // ── Update check ────────────────────────────────────────────────────

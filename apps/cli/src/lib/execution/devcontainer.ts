@@ -650,8 +650,32 @@ if command -v prlt &> /dev/null; then
 
         if [ "$TARGET_VERSION" != "unknown" ] && [ "$CURRENT_VERSION" != "$TARGET_VERSION" ]; then
             echo "Updating prlt from v\${CURRENT_VERSION} to v\${TARGET_VERSION} (channel: \${DESIRED_VERSION})..."
-            npm install -g "@proletariat/cli@\${DESIRED_VERSION}" 2>&1
-            echo "prlt updated successfully"
+            # PRLT-1276: Back up current install before attempting update.
+            # If the update fails, restore from backup so prlt keeps working.
+            PRLT_PKG_DIR="/home/node/.npm-global/lib/node_modules/@proletariat/cli"
+            PRLT_BACKUP_DIR="\${PRLT_PKG_DIR}.prlt-backup-\$\$"
+            if [ -d "$PRLT_PKG_DIR" ]; then
+                mv "$PRLT_PKG_DIR" "$PRLT_BACKUP_DIR" 2>/dev/null || true
+            fi
+            if npm install -g "@proletariat/cli@\${DESIRED_VERSION}" 2>&1; then
+                echo "prlt updated successfully"
+                # Clean up backup on success
+                rm -rf "$PRLT_BACKUP_DIR" 2>/dev/null || true
+            else
+                echo "Warning: prlt update failed. Restoring previous version..."
+                # Restore from backup if update failed
+                if [ -d "$PRLT_BACKUP_DIR" ]; then
+                    rm -rf "$PRLT_PKG_DIR" 2>/dev/null || true
+                    mv "$PRLT_BACKUP_DIR" "$PRLT_PKG_DIR" 2>/dev/null || true
+                    # Re-create bin symlink if it was removed
+                    if [ ! -L "/home/node/.npm-global/bin/prlt" ] && [ -f "$PRLT_PKG_DIR/bin/run.js" ]; then
+                        ln -sf "../lib/node_modules/@proletariat/cli/bin/run.js" "/home/node/.npm-global/bin/prlt" 2>/dev/null || true
+                    fi
+                    echo "Previous version restored: prlt v\${CURRENT_VERSION}"
+                else
+                    echo "Error: Could not restore previous prlt installation"
+                fi
+            fi
         else
             echo "prlt v\${CURRENT_VERSION} is up to date"
         fi
