@@ -1,5 +1,8 @@
 /**
  * Workflow rule operations.
+ *
+ * Rules use intent-based wiring (from_intent/to_intent) instead of
+ * provider-specific state names.
  */
 
 import { PMO_TABLES } from '../schema.js'
@@ -20,14 +23,17 @@ export class WorkflowRuleStorage {
     const conditions: string[] = []
     const params: unknown[] = []
 
-    if (filter?.toState) {
-      conditions.push('to_state = ?')
-      params.push(filter.toState)
+    // Support both new intent and deprecated state filters
+    const toFilter = filter?.toIntent || filter?.toState
+    if (toFilter) {
+      conditions.push('to_intent = ?')
+      params.push(toFilter)
     }
 
-    if (filter?.fromState) {
-      conditions.push('(from_state = ? OR from_state IS NULL)')
-      params.push(filter.fromState)
+    const fromFilter = filter?.fromIntent || filter?.fromState
+    if (fromFilter) {
+      conditions.push('(from_intent = ? OR from_intent IS NULL)')
+      params.push(fromFilter)
     }
 
     if (filter?.actionId) {
@@ -49,7 +55,7 @@ export class WorkflowRuleStorage {
       sql += ` WHERE ${conditions.join(' AND ')}`
     }
 
-    sql += ' ORDER BY to_state ASC, from_state ASC'
+    sql += ' ORDER BY to_intent ASC, from_intent ASC'
 
     const rows = this.ctx.db.prepare(sql).all(...params) as WorkflowRuleRow[]
 
@@ -73,8 +79,12 @@ export class WorkflowRuleStorage {
    * Create a new workflow rule.
    */
   async createWorkflowRule(rule: Partial<WorkflowRule>): Promise<WorkflowRule> {
-    if (!rule.toState) {
-      throw new PMOError('INVALID', 'to_state is required')
+    // Support both new intent and deprecated state fields
+    const toIntent = rule.toIntent || rule.toState
+    const fromIntent = rule.fromIntent ?? rule.fromState
+
+    if (!toIntent) {
+      throw new PMOError('INVALID', 'to_intent is required')
     }
     if (!rule.actionId) {
       throw new PMOError('INVALID', 'action_id is required')
@@ -88,7 +98,7 @@ export class WorkflowRuleStorage {
       throw new PMOError('NOT_FOUND', `Action not found: ${rule.actionId}`)
     }
 
-    const id = rule.id || slugify(`${rule.fromState || 'any'}-to-${rule.toState}-${rule.actionId}`)
+    const id = rule.id || slugify(`${fromIntent || 'any'}-to-${toIntent}-${rule.actionId}`)
 
     // Check for duplicate
     const existing = this.ctx.db.prepare(`
@@ -103,12 +113,12 @@ export class WorkflowRuleStorage {
     const enabled = rule.enabled !== false
 
     this.ctx.db.prepare(`
-      INSERT INTO ${T.workflow_rules} (id, from_state, to_state, action_id, trigger, enabled, created_at, updated_at)
+      INSERT INTO ${T.workflow_rules} (id, from_intent, to_intent, action_id, trigger, enabled, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
-      rule.fromState || null,
-      rule.toState,
+      fromIntent || null,
+      toIntent,
       rule.actionId,
       trigger,
       enabled ? 1 : 0,
@@ -118,8 +128,8 @@ export class WorkflowRuleStorage {
 
     return {
       id,
-      fromState: rule.fromState,
-      toState: rule.toState,
+      fromIntent: fromIntent || undefined,
+      toIntent,
       actionId: rule.actionId,
       trigger,
       enabled,
@@ -150,13 +160,13 @@ export class WorkflowRuleStorage {
     const updates: string[] = []
     const params: unknown[] = []
 
-    if (changes.fromState !== undefined) {
-      updates.push('from_state = ?')
-      params.push(changes.fromState || null)
+    if (changes.fromIntent !== undefined || changes.fromState !== undefined) {
+      updates.push('from_intent = ?')
+      params.push(changes.fromIntent ?? changes.fromState ?? null)
     }
-    if (changes.toState !== undefined) {
-      updates.push('to_state = ?')
-      params.push(changes.toState)
+    if (changes.toIntent !== undefined || changes.toState !== undefined) {
+      updates.push('to_intent = ?')
+      params.push(changes.toIntent ?? changes.toState ?? null)
     }
     if (changes.actionId !== undefined) {
       updates.push('action_id = ?')
@@ -196,26 +206,34 @@ export class WorkflowRuleStorage {
   }
 
   /**
-   * Get all enabled workflow rules that match a target state.
-   * Used when a ticket transitions to a new state.
+   * Get all enabled workflow rules that match a target intent.
+   * Used when a ticket transitions to a new intent state.
    */
-  async getWorkflowRulesForState(toState: string): Promise<WorkflowRule[]> {
+  async getWorkflowRulesForIntent(toIntent: string): Promise<WorkflowRule[]> {
     const rows = this.ctx.db.prepare(`
       SELECT * FROM ${T.workflow_rules}
-      WHERE to_state = ? AND enabled = 1
+      WHERE to_intent = ? AND enabled = 1
       ORDER BY
-        CASE WHEN from_state IS NOT NULL THEN 0 ELSE 1 END,
-        from_state ASC
-    `).all(toState) as WorkflowRuleRow[]
+        CASE WHEN from_intent IS NOT NULL THEN 0 ELSE 1 END,
+        from_intent ASC
+    `).all(toIntent) as WorkflowRuleRow[]
 
     return rows.map((row) => this.rowToRule(row))
+  }
+
+  /** @deprecated Use getWorkflowRulesForIntent instead */
+  async getWorkflowRulesForState(toState: string): Promise<WorkflowRule[]> {
+    return this.getWorkflowRulesForIntent(toState)
   }
 
   private rowToRule(row: WorkflowRuleRow): WorkflowRule {
     return {
       id: row.id,
-      fromState: row.from_state || undefined,
-      toState: row.to_state,
+      fromIntent: row.from_intent || undefined,
+      toIntent: row.to_intent,
+      // Deprecated compat aliases
+      fromState: row.from_intent || undefined,
+      toState: row.to_intent,
       actionId: row.action_id,
       trigger: row.trigger as WorkflowRuleTrigger,
       enabled: row.enabled === 1,

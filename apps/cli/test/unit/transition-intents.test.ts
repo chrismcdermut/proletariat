@@ -14,8 +14,9 @@ import { autoMapIntents, formatMappingTable } from '../../src/lib/providers/auto
 
 describe('Transition Intents', () => {
   describe('TRANSITION_INTENTS', () => {
-    it('contains all 6 canonical intents', () => {
-      expect(TRANSITION_INTENTS).to.have.length(6)
+    it('contains all 7 canonical intents', () => {
+      expect(TRANSITION_INTENTS).to.have.length(7)
+      expect(TRANSITION_INTENTS).to.include('backlog')
       expect(TRANSITION_INTENTS).to.include('started')
       expect(TRANSITION_INTENTS).to.include('needs_review')
       expect(TRANSITION_INTENTS).to.include('completed')

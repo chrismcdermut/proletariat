@@ -35,9 +35,10 @@ export interface SemanticIntent {
  *
  * These are the intents stored in the pmo_transition_map table.
  */
-export type TransitionIntent = 'started' | 'needs_review' | 'completed' | 'paused' | 'ready' | 'dropped'
+export type TransitionIntent = 'backlog' | 'started' | 'needs_review' | 'completed' | 'paused' | 'ready' | 'dropped'
 
 export const TRANSITION_INTENTS: TransitionIntent[] = [
+  'backlog',
   'started',
   'needs_review',
   'completed',
@@ -57,6 +58,19 @@ export const TRANSITION_INTENTS: TransitionIntent[] = [
  * within the new intents for backward compatibility.
  */
 export const DEFAULT_INTENTS: SemanticIntent[] = [
+  {
+    name: 'backlog',
+    description: 'Not yet scheduled for work',
+    aliases: [
+      'Backlog',
+      'Icebox',
+      'Inbox',
+      'Triage',
+      'Unscheduled',
+      'Later',
+      'Someday',
+    ],
+  },
   {
     name: 'started',
     description: 'Work has begun',
