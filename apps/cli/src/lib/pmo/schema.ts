@@ -372,6 +372,7 @@ export const PMO_TABLE_SCHEMAS = {
       display_mode TEXT NOT NULL DEFAULT 'terminal',
       permission_mode TEXT NOT NULL DEFAULT 'safe',
       status TEXT NOT NULL DEFAULT 'starting',
+      role TEXT NOT NULL DEFAULT 'worker',
       branch TEXT,
       pid TEXT,
       container_id TEXT,

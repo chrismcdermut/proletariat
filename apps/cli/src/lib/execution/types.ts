@@ -138,6 +138,23 @@ export type ExecutionStatus =
   | 'stopped'     // Manually terminated
 
 // =============================================================================
+// Session Role
+// =============================================================================
+
+/**
+ * SessionRole - What kind of process this execution represents.
+ * - worker: An agent working on a ticket (default)
+ * - orchestrator: The root supervisor daemon
+ * - daemon: A long-running infrastructure process (reconciler, rebase coordinator, etc.)
+ * - headless: A background task with no interactive session
+ */
+export type SessionRole =
+  | 'worker'       // Agent working on a ticket
+  | 'orchestrator' // Root supervisor
+  | 'daemon'       // Long-running infrastructure (reconciler, etc.)
+  | 'headless'     // Background task
+
+// =============================================================================
 // Agent Work Record
 // =============================================================================
 
@@ -152,6 +169,7 @@ export interface AgentWork {
   permissionMode: PermissionMode  // Permission mode used for this execution
   cleanupPolicy: CleanupPolicy   // Container cleanup policy for this execution
   status: ExecutionStatus
+  role: SessionRole              // What kind of process: worker, orchestrator, daemon, headless
   branch?: string
   pid?: string
   containerId?: string
