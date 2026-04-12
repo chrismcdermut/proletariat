@@ -8,7 +8,6 @@
  */
 
 import * as fs from 'node:fs'
-import * as path from 'node:path'
 import { openWorkspaceDatabase } from '../database/index.js'
 import { getPMOContext } from '../pmo/pmo-context.js'
 import type { ProviderStorage } from '../providers/types.js'

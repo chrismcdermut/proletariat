@@ -13,7 +13,7 @@ import { flushPendingVersionCheck } from '../lib/update-check.js'
  * call process.exit() directly. The __prlt_telemetry_tracked flag prevents
  * double-counting between the two mechanisms.
  */
-const hook: Hook<'postrun'> = async function ({ Command, argv }) {
+const hook: Hook<'postrun'> = async function ({ _Command, argv }) {
   // Mark as tracked so the process.on('exit') fallback in init.ts skips
   if (!(globalThis as Record<string, unknown>).__prlt_telemetry_tracked) {
     ;(globalThis as Record<string, unknown>).__prlt_telemetry_tracked = true

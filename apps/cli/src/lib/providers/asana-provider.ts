@@ -346,9 +346,8 @@ export class AsanaTicketProvider implements TicketProvider {
   }
 
   async assignTicket(ticketId: string, assignee: string): Promise<ProviderAssignResult> {
-    let token: string
     try {
-      token = this.getAccessTokenOrFail()
+      this.getAccessTokenOrFail()
     } catch {
       return { success: false, provider: 'asana', error: 'Asana access token not configured' }
     }

@@ -20,7 +20,7 @@ import {
 import { styles } from '../../lib/styles.js'
 import { getRunner } from '../../lib/runners/index.js'
 import { SessionStore } from '../../lib/session-store.js'
-import { generateAgentName, buildLayer0SessionName } from '../../lib/agent-naming.js'
+import { generateAgentName } from '../../lib/agent-naming.js'
 
 export default class Codex extends PromptCommand {
   static description = 'Quick launch Codex for ad-hoc sessions (works anywhere, no HQ required)'

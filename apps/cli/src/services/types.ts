@@ -11,9 +11,9 @@
  * - Services have no dependency on oclif, inquirer, or any CLI framework
  */
 
-import type { Ticket, TicketFilter, Board, StateCategory } from '../lib/pmo/types.js'
-import type { PRInfo, CreatePRResult } from '../lib/pr/index.js'
-import type { ReconcileReport, ReconcileOptions } from '../lib/reconcile/types.js'
+import type { Ticket, TicketFilter, Board } from '../lib/pmo/types.js'
+import type { PRInfo } from '../lib/pr/index.js'
+import type { ReconcileReport } from '../lib/reconcile/types.js'
 import type {
   UnifiedSession,
   CollectOptions,

@@ -25,7 +25,6 @@
 
 import type Database from 'better-sqlite3'
 import { getEventBus } from '../events/event-bus.js'
-import type { TicketProviderName } from './types.js'
 
 /**
  * Valid trigger event names that can be configured.

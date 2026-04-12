@@ -7,8 +7,8 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
 import {
   requireGhCli,
-  getGitHubRepo,
-  type PRInfo,
+  _getGitHubRepo,
+  type _PRInfo,
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,
@@ -231,7 +231,7 @@ export default class WorkShip extends PMOCommand {
     }
   }
 
-  private outputDryRun(result: any, flags: Record<string, unknown>): void {
+  private outputDryRun(result: any, _flags: Record<string, unknown>): void {
     const d = result.dryRunDetails!;
     this.log('');
     this.log(styles.info('Dry run — no changes will be made:'));
@@ -268,7 +268,7 @@ export default class WorkShip extends PMOCommand {
    */
   private resolveRepoCwd(
     workspaceInfo: ReturnType<typeof getWorkspaceInfo>,
-    executionStorage: ExecutionStorage,
+    _executionStorage: ExecutionStorage,
   ): string | undefined {
     // In devcontainer, find repo directories
     if (process.env.DEVCONTAINER === 'true') {

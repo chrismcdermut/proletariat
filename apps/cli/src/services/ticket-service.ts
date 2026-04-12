@@ -10,8 +10,8 @@
 
 import type Database from 'better-sqlite3'
 import type { Ticket, TicketFilter, Board, CreateTicketInput, UpdateTicketInput } from '../lib/pmo/types.js'
-import type { ProviderStorage, TicketProvider, TicketProviderName, ProviderListResult } from '../lib/providers/types.js'
-import { resolveProjectProvider, resolveTicketProvider } from '../lib/providers/resolver.js'
+import type { ProviderStorage, ProviderListResult } from '../lib/providers/types.js'
+import { resolveProjectProvider } from '../lib/providers/resolver.js'
 import { ServiceError } from './types.js'
 import type { ListTicketsOptions, ListTicketsResult, GetTicketResult } from './types.js'
 
@@ -38,7 +38,7 @@ export class TicketService {
    * validates project/column existence, fetches tickets, and paginates.
    */
   async listTickets(options: ListTicketsOptions = {}): Promise<ListTicketsResult> {
-    const { projectId, filter = {}, limit, offset, source, team } = options
+    const { projectId, filter = {}, limit, offset, source, _team } = options
 
     // Build the effective filter
     const effectiveFilter: TicketFilter = { ...filter }

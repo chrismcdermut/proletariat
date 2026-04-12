@@ -160,7 +160,7 @@ function findWorkspaceDb(): string | null {
 /**
  * Rebase conflicting PRs after a merge.
  */
-const rebaseConflictingPrs: ActionHandler = (ctx) => {
+const rebaseConflictingPrs: ActionHandler = (_ctx) => {
   const start = Date.now()
   try {
     execSync('prlt work rebase --all', { timeout: 300_000, stdio: 'pipe' })
@@ -399,7 +399,7 @@ const resolveConflict: ActionHandler = (ctx, config) => {
  *
  * This is Tier 2 of the cleanup system — runs as a daemon action.
  */
-const gcSweep: ActionHandler = (ctx) => {
+const gcSweep: ActionHandler = (_ctx) => {
   const start = Date.now()
   try {
     const hqPath = findHqPath()

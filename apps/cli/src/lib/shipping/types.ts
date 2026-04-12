@@ -6,7 +6,7 @@
  * exist for GitHub (via gh CLI) and can be added for GitLab, Bitbucket, etc.
  */
 
-import type { PRInfo, MergeableState, RebasePRResult } from '../pr/index.js'
+import type { PRInfo, MergeableState } from '../pr/index.js'
 
 // =============================================================================
 // Git Provider Interface (Sibling Rebase — PRLT-1143)

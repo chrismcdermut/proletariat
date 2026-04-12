@@ -18,7 +18,6 @@
 
 import type Database from 'better-sqlite3'
 import type { StateCategory } from '../pmo/types.js'
-import type { TicketProviderName } from './types.js'
 
 export interface StatusMapping {
   provider: string

@@ -22,7 +22,6 @@
  * initiated the change.
  */
 
-import { getEventBus } from '../events/event-bus.js'
 import type { WorkEventSource } from './events.js'
 
 /**

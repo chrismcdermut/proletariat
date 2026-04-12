@@ -14,7 +14,7 @@ import { getEventBus } from '../events/event-bus.js'
 import {
   trackAgentCompleted,
   trackAgentErrored,
-  trackTicketOperation,
+  _trackTicketOperation,
   trackPrimitiveExecuted,
 } from './analytics.js'
 

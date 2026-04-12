@@ -14,7 +14,7 @@ import { execSync } from 'node:child_process'
 import {
   getAgentContainerName,
   containerExists,
-  isContainerRunning,
+  _isContainerRunning,
 } from './runners/docker-management.js'
 
 /**

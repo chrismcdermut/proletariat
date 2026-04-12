@@ -14,7 +14,6 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../lib/prompt-json.js'
-import { styles } from '../lib/styles.js'
 import { SessionStore } from '../lib/session-store.js'
 import { getRunner } from '../lib/runners/index.js'
 

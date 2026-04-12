@@ -21,9 +21,8 @@ import {
   getLinearApiKey,
 } from '../../lib/linear/index.js'
 import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
-import { autoMapIntents, formatMappingTable, type IntentMapping } from '../../lib/providers/auto-mapper.js'
+import { autoMapIntents, formatMappingTable } from '../../lib/providers/auto-mapper.js'
 import { TransitionMapStore } from '../../lib/providers/transition-map.js'
-import type { TransitionIntent } from '../../lib/providers/state-intents.js'
 
 export default class LinearConnect extends PMOCommand {
   static description = 'Connect to Linear workspace and configure authentication'

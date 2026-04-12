@@ -16,7 +16,7 @@ import {
   outputExecutionResultAsJson,
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
-import { getWorkColumnSetting, findColumnByName, resolveReviewGate, isValidReviewGateMode } from '../../lib/work-lifecycle/settings.js'
+import { findColumnByName, resolveReviewGate } from '../../lib/work-lifecycle/settings.js'
 import { moveTicketByIntent } from '../../lib/work-lifecycle/transition.js'
 import type { TransitionIntent } from '../../lib/providers/state-intents.js'
 import { getTicketExternalMetadata, resolveExternalTicketId } from '../../lib/external-issues/utils.js'
@@ -93,13 +93,12 @@ import { resolveMirrorToPmo } from '../../lib/external-issues/work-start.js'
 import { buildTicketFromEnvelope } from '../../lib/external-issues/ticket-builder.js'
 import { TicketRefStore } from '../../lib/execution/ticket-refs.js'
 import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/config.js'
-import { LinearMapper } from '../../lib/linear/mapper.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 import {
-  parseWorkSourceRef,
-  formatWorkSourceRef,
+  _parseWorkSourceRef,
+  _formatWorkSourceRef,
   loadDefaultWorkSource,
-  getRegisteredWorkSources,
+  _getRegisteredWorkSources,
   getConnectedIntegrations,
   isLocalTicketId,
 } from '../../lib/work-source/index.js'
@@ -3558,7 +3557,7 @@ export default class WorkStart extends PMOCommand {
       }
 
       // Move ticket to In Progress column ONLY after successful spawn — via intent resolution
-      const transition = await moveTicketByIntent({
+      const _transition = await moveTicketByIntent({
         db,
         storage: this.storage,
         ticket,

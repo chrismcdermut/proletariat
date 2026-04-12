@@ -12,8 +12,6 @@ import {
   getPriorityStyle,
 } from '../../lib/styles.js';
 import { isNonTTY } from '../../lib/prompt-json.js';
-import { resolveProjectProvider } from '../../lib/providers/resolver.js';
-import type { ProviderStorage } from '../../lib/providers/types.js';
 import { TicketService, ServiceError } from '../../services/index.js';
 
 // Priority order for grouping - dynamically resolved from workspace settings

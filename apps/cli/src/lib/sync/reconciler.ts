@@ -15,7 +15,7 @@
  */
 
 import type { PRInfo, PRCheck } from '../pr/index.js'
-import type { Ticket, StateCategory } from '../pmo/types.js'
+import type { Ticket } from '../pmo/types.js'
 import type { WorkflowConfig } from '../work-lifecycle/settings.js'
 
 // =============================================================================

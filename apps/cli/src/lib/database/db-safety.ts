@@ -14,7 +14,6 @@
 import Database from 'better-sqlite3'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { throwIfNativeBindingError } from './native-validation.js'
 import { CREATE_TABLES_SQL } from './workspace-schema.js'
 import { PMO_TABLE_SCHEMAS } from '../pmo/schema.js'
 

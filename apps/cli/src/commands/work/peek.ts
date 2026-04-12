@@ -1,7 +1,6 @@
 import { Args, Flags } from '@oclif/core'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
-import { styles } from '../../lib/styles.js'
 import {
   shouldOutputJson,
   outputErrorAsJson,

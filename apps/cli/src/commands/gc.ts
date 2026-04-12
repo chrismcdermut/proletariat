@@ -159,7 +159,7 @@ export default class GC extends PromptCommand {
     })
 
     // Orphan worktree cleanup (--orphans flag)
-    let orphansRemoved = 0
+    let _orphansRemoved = 0
     if (flags.orphans) {
       const orphans = findOrphanedWorktrees(workspaceInfo.path)
       if (orphans.length > 0) {
@@ -171,13 +171,13 @@ export default class GC extends PromptCommand {
             log(`Removing orphaned worktree: ${orphan.worktreePath} (agent: ${orphan.agentName})`)
             if (removeWorktree(orphan.worktreePath, orphan.sourceRepoPath)) {
               result.worktreesRemoved.push(orphan.worktreePath)
-              orphansRemoved++
+              _orphansRemoved++
             } else {
               result.errors.push(`Failed to remove orphaned worktree: ${orphan.worktreePath}`)
             }
           } else {
             log(`[dry-run] Would remove orphaned worktree: ${orphan.worktreePath} (agent: ${orphan.agentName})`)
-            orphansRemoved++
+            _orphansRemoved++
           }
         }
       } else if (!jsonMode) {

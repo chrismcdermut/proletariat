@@ -43,7 +43,7 @@ import { EventEmittingProvider, type StatusResolver } from './event-emitting-pro
  * Used by EventEmittingProvider to resolve status names/categories
  * for event emission.
  */
-function createDbStatusResolver(db: Database.Database, storage: ProviderStorage): StatusResolver {
+function createDbStatusResolver(db: Database.Database, _storage: ProviderStorage): StatusResolver {
   return {
     resolveStatusByName(projectId: string, statusName: string) {
       try {

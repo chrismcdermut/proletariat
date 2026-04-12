@@ -13,7 +13,7 @@ import {
   getMergeableState,
   rebasePRBranch,
   type PRInfo,
-  type RebasePRResult,
+  type _RebasePRResult,
 } from '../../lib/pr/index.js';
 import { rebaseSiblingPRs, type SiblingRebaseResult } from '../../lib/shipping/index.js';
 import {

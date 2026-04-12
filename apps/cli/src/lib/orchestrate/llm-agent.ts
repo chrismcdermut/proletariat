@@ -142,7 +142,7 @@ export function fetchTestOutput(prNumber: number | undefined, maxChars: number):
  * Fetch running agent session status via `prlt session list --json`.
  * Returns a summary of active agents and their states, or undefined if unavailable.
  */
-export function fetchAgentSessionStatus(agentName: string | undefined): string | undefined {
+export function fetchAgentSessionStatus(_agentName: string | undefined): string | undefined {
   try {
     const output = execSync('prlt session list --json', {
       timeout: 10_000,

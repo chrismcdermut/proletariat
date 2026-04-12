@@ -117,7 +117,7 @@ export class NotificationManager {
 
     // Dispatch immediate notifications
     const results: NotificationResult[] = []
-    for (const { rule, provider } of immediateRules) {
+    for (const { _rule, provider } of immediateRules) {
       this.log(`Dispatching ${provider.type} notification via "${provider.name}" for ${event}`)
       const result = await dispatchNotification(provider, context)
       results.push(result)

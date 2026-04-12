@@ -26,7 +26,7 @@ import {
   formatCrashNotification,
   sendDesktopNotification,
   type TmuxCrashEvent,
-  type WatchdogCycleResult,
+  type _WatchdogCycleResult,
 } from './tmux-watchdog.js'
 
 // =============================================================================

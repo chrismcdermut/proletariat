@@ -5,11 +5,11 @@
  * attaching PR links, and posting status comments.
  */
 
-import type { PMOStorage, Ticket, WorkflowStatus } from '../pmo/types.js'
+import type { PMOStorage, Ticket } from '../pmo/types.js'
 import { LinearClient } from './client.js'
 import { LinearMapper } from './mapper.js'
 import {
-  PMO_PRIORITY_TO_LINEAR,
+  _PMO_PRIORITY_TO_LINEAR,
 } from './types.js'
 import type { LinearWorkflowState } from './types.js'
 

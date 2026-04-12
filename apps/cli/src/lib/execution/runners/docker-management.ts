@@ -471,7 +471,7 @@ export function buildClaudeStopHookConfig(): Record<string, unknown> {
 /**
  * Run the post-start setup commands in a container.
  */
-export function runContainerSetup(containerId: string, permissionMode: PermissionMode = 'safe', executor: ExecutorType = 'claude-code'): boolean {
+export function runContainerSetup(containerId: string, _permissionMode: PermissionMode = 'safe', executor: ExecutorType = 'claude-code'): boolean {
   try {
     execSync(`docker exec ${containerId} sudo /usr/local/bin/init-firewall.sh`, { stdio: 'pipe' })
     execSync(`docker exec ${containerId} /usr/local/bin/setup-prlt.sh`, { stdio: 'pipe' })

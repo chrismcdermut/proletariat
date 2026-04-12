@@ -9,7 +9,7 @@
 
 import type Database from 'better-sqlite3'
 import type { Ticket , PMOStorage } from '../pmo/types.js'
-import type { TicketProvider, ProviderStorage } from '../providers/types.js'
+import type { ProviderStorage } from '../providers/types.js'
 import { resolveTicketProvider } from '../providers/resolver.js'
 import { ExecutionStorage } from '../execution/storage.js'
 import {
