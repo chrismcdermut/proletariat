@@ -295,6 +295,31 @@ export default class SessionHealth extends PMOCommand {
         })
       }
 
+      // PRLT-1287: Also discover daemon tmux sessions (prlt-daemon-*).
+      // Daemons are registered in machine.db, not workspace.db, so we discover
+      // them by tmux name pattern and check their pane content.
+      for (const sessionName of hostTmuxSessions) {
+        if (matchedHostSessions.has(sessionName)) continue
+        if (sessionName.startsWith('prlt-daemon-')) {
+          matchedHostSessions.add(sessionName)
+          const paneContent = captureTmuxPane(sessionName, 10)
+          const state = detectState(paneContent)
+          // Extract daemon type from session name (prlt-daemon-{hq}-{type})
+          const parts = sessionName.split('-')
+          const daemonType = parts.length >= 4 ? parts.slice(3).join('-') : 'unknown'
+          agents.push({
+            sessionId: sessionName,
+            ticketId: 'DAEMON',
+            agentName: `daemon-${daemonType}`,
+            state: state === 'IDLE' ? 'WORKING' : state, // daemons sitting at idle prompt are normal
+            environment: 'host',
+            elapsed: '?',
+            paneContent: paneContent || undefined,
+          })
+          continue
+        }
+      }
+
       // Also discover orphan tmux sessions matching prlt pattern.
       // For orphans, try to look up the DB record by ticketId + agentName
       // to recover the elapsed time instead of showing '?'.

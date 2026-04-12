@@ -184,19 +184,22 @@ export default class SessionPrune extends PromptCommand {
       }
 
       // Find orphan host sessions (match prlt pattern but not tracked in DB)
+      // PRLT-1287: Skip daemon sessions — they're supposed to run forever
       const orphanHostSessions: string[] = []
       for (const sessionName of hostTmuxSessions) {
         if (matchedHostSessions.has(sessionName)) continue
+        if (sessionName.startsWith('prlt-daemon-')) continue
         const parsed = parseSessionName(sessionName)
         if (parsed) {
           orphanHostSessions.push(sessionName)
         }
       }
 
-      // Find orphan container sessions
+      // Find orphan container sessions (skip daemons — PRLT-1287)
       const orphanContainerSessions: Array<{ sessionName: string; containerId: string }> = []
       for (const { sessionName, containerId } of allContainerSessions) {
         if (matchedContainerSessions.has(`${containerId}:${sessionName}`)) continue
+        if (sessionName.startsWith('prlt-daemon-')) continue
         const parsed = parseSessionName(sessionName)
         if (parsed) {
           orphanContainerSessions.push({ sessionName, containerId })
