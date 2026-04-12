@@ -14,6 +14,7 @@ import {
 import { isNonTTY } from '../../lib/prompt-json.js';
 import { resolveProjectProvider } from '../../lib/providers/resolver.js';
 import type { ProviderStorage } from '../../lib/providers/types.js';
+import { TicketService, ServiceError } from '../../services/index.js';
 
 // Priority order for grouping - dynamically resolved from workspace settings
 // Computed at runtime and includes 'None' for unset priorities
@@ -120,77 +121,37 @@ export default class TicketList extends Command {
       // Set dynamic priority order from workspace settings
       this.priorityOrder = getPriorityOrder(db);
 
-      // Build filter
+      // Build filter from flags
       const filter: TicketFilter = {};
+      if (flags.column) filter.column = flags.column;
+      if (flags.priority) filter.priority = flags.priority;
+      if (flags.category) filter.category = flags.category;
+      if (flags.search) filter.search = flags.search;
+      if (flags.label) filter.label = flags.label;
 
-      if (flags.all) {
-        filter.allProjects = true;
-      } else if (flags.project) {
-        filter.projectId = flags.project;
-      }
-      if (flags.column) {
-        filter.column = flags.column;
-      }
-      if (flags.priority) {
-        filter.priority = flags.priority;
-      }
-      if (flags.category) {
-        filter.category = flags.category;
-      }
-      if (flags.search) {
-        filter.search = flags.search;
-      }
-      if (flags.label) {
-        filter.label = flags.label;
-      }
-
-      // Determine projectId for the query
-      const projectId = flags.all ? undefined : (filter.projectId || undefined);
-
-      // Validate project if specified (not in --all mode)
-      if (flags.project && !flags.all) {
-        const project = await pmoContext.storage.getProject(flags.project);
-        if (!project) {
-          const allProjects = await pmoContext.storage.listProjectSummaries();
-          const validProjectIds = allProjects.map(p => p.id);
-          this.error(`Project "${flags.project}" not found. Valid projects: ${validProjectIds.join(', ')}`);
-        }
-      }
-
-      // Validate column if specified (requires knowing the project) — only for PMO source
+      const projectId = flags.all ? undefined : (flags.project || undefined);
       const source = flags.source as string;
-      if (flags.column && !flags.all && source !== 'linear') {
-        // Get the project board to validate the column
-        const targetProjectId = projectId || (await pmoContext.storage.listProjectSummaries())[0]?.id;
-        if (targetProjectId) {
-          const board = await pmoContext.storage.getProjectBoard(targetProjectId);
-          if (board) {
-            const validColumns = board.columns.map(c => c.name);
-            if (!validColumns.includes(flags.column)) {
-              this.error(`Column "${flags.column}" not found. Valid columns: ${validColumns.join(', ')}`);
-            }
-          }
+
+      // Delegate to TicketService for data fetching, validation, and pagination
+      const ticketService = new TicketService(db, pmoContext.storage as any);
+      let listResult;
+      try {
+        listResult = await ticketService.listTickets({
+          projectId,
+          filter,
+          limit: flags.limit,
+          offset: flags.offset,
+          source: source as 'auto' | 'pmo' | 'linear',
+        });
+      } catch (error) {
+        if (error instanceof ServiceError) {
+          this.error(error.message);
         }
+        throw error;
       }
 
-      // Resolve the provider and fetch tickets through it
-      const provider = resolveProjectProvider(
-        db,
-        pmoContext.storage as unknown as ProviderStorage,
-        projectId || '',
-        source,
-      );
-
-      const listResult = await provider.listTickets(projectId, filter);
-      if (!listResult.success) {
-        this.error(listResult.error || 'Failed to list tickets.');
-      }
-
-      let tickets = listResult.tickets;
-
-      // Apply pagination
-      if (flags.offset) tickets = tickets.slice(flags.offset);
-      if (flags.limit) tickets = tickets.slice(0, flags.limit);
+      const tickets = listResult.tickets;
+      const provider = { name: listResult.provider };
 
       if (tickets.length === 0) {
         this.log(styles.warning('No tickets found.'));

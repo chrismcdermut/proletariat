@@ -17,10 +17,10 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
-import { validateBranchName } from '../../lib/branch/index.js';
-import { PMO_TABLES } from '../../lib/pmo/schema.js';
 import type { Ticket } from '../../lib/pmo/types.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { PRService } from '../../services/index.js';
+import type { ProviderStorage } from '../../lib/providers/types.js';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
@@ -131,12 +131,15 @@ export default class PRMerge extends PMOCommand {
     }
 
     // --- Check if PR is linked to a ticket BEFORE merging ---
-    // If linked, delegate to work:ship for full lifecycle (merge, transition, cleanup, rebase siblings, hooks)
+    // If linked, delegate to work:ship for full lifecycle
     if (this.hasPMO) {
       try {
-        const linkedTicket = await this.resolveLinkedTicket(prNumber, prInfo.headBranch, flags.project);
-        if (linkedTicket) {
-          const ticketDisplayId = linkedTicket.metadata?.external_key || linkedTicket.id;
+        const db = this.storage.getDatabase();
+        const prService = new PRService(db, this.storage as unknown as ProviderStorage & { listTickets: any; updateTicket: any });
+        const linkResult = await prService.resolveLinkedTicket(prNumber, prInfo.headBranch, (flags as { project?: string }).project);
+
+        if (linkResult.ticket) {
+          const ticketDisplayId = linkResult.ticket.metadata?.external_key || linkResult.ticket.id;
 
           if (!jsonMode) {
             this.log('');
@@ -152,14 +155,13 @@ export default class PRMerge extends PMOCommand {
           if (flags.admin) {
             shipArgs.push('--admin');
           }
-          if (flags.project) {
-            shipArgs.push('--project', flags.project as string);
+          if ((flags as { project?: string }).project) {
+            shipArgs.push('--project', (flags as { project?: string }).project as string);
           }
           if (jsonMode) {
             shipArgs.push('--json');
           }
 
-          // Delegate to work:ship which handles the full lifecycle
           await this.config.runCommand('work:ship', shipArgs);
           return;
         }
@@ -233,58 +235,4 @@ export default class PRMerge extends PMOCommand {
     return undefined;
   }
 
-  /**
-   * Resolve the linked ticket for a merged PR.
-   *
-   * Lookup order:
-   * 1. PR metadata (pr_number / pr_url) on tickets
-   * 2. agent_work table (branch → ticket_id)
-   * 3. PR branch name parsing (extract ticket ID from conventional branch format)
-   */
-  private async resolveLinkedTicket(
-    prNumber: number,
-    headBranch: string,
-    projectId: string | undefined,
-  ): Promise<Ticket | null> {
-    // 1. Find by PR metadata on tickets
-    const allTickets = await this.storage.listTickets(projectId);
-    const byMetadata = allTickets.find(t =>
-      t.metadata?.pr_number === String(prNumber) ||
-      t.metadata?.pr_url?.endsWith(`/pull/${prNumber}`) ||
-      t.metadata?.pr_url?.endsWith(`/${prNumber}`)
-    );
-    if (byMetadata) return byMetadata;
-
-    // 2. Look up from agent_work table by branch name
-    try {
-      const db = this.storage.getDatabase();
-      const row = db.prepare(
-        `SELECT ticket_id FROM ${PMO_TABLES.agent_work} WHERE branch = ? LIMIT 1`
-      ).get(headBranch) as { ticket_id: string } | undefined;
-      if (row?.ticket_id) {
-        const ticket = await this.storage.getTicket(row.ticket_id);
-        if (ticket) return ticket;
-      }
-    } catch {
-      // agent_work lookup failed, continue to branch name parsing
-    }
-
-    // 3. Parse ticket ID from branch name (e.g., PRLT-1043/feat/owner/agent/desc)
-    const branchResult = validateBranchName(headBranch);
-    if (branchResult.valid && branchResult.parts?.ticketId) {
-      const ticketId = branchResult.parts.ticketId;
-
-      // Try direct lookup (works for TKT-xxx internal IDs)
-      const directTicket = await this.storage.getTicket(ticketId);
-      if (directTicket) return directTicket;
-
-      // Search by external_key metadata (works for PRLT-xxx, LINEAR-xxx, etc.)
-      const byExternalKey = allTickets.find(t =>
-        t.metadata?.external_key === ticketId
-      );
-      if (byExternalKey) return byExternalKey;
-    }
-
-    return null;
-  }
 }

@@ -17,13 +17,14 @@ import { Flags } from '@oclif/core'
 import { PMOCommand, pmoBaseFlags } from '../lib/pmo/index.js'
 import type { PMOStorage } from '../lib/pmo/types.js'
 import type { ProviderStorage } from '../lib/providers/types.js'
-import { runReconcile, watchReconcile, type ReconcileReport } from '../lib/reconcile/index.js'
+import type { ReconcileReport } from '../lib/reconcile/index.js'
 import { styles } from '../lib/styles.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
   createMetadata,
 } from '../lib/prompt-json.js'
+import { ReconcileService } from '../services/index.js'
 
 export default class Reconcile extends PMOCommand {
   static description =
@@ -60,11 +61,10 @@ export default class Reconcile extends PMOCommand {
     const dryRun = flags['dry-run']
     const projectFlag = (flags as { project?: string }).project
     const storage = this.storage as unknown as PMOStorage & ProviderStorage
+    const reconcileService = new ReconcileService(db, storage)
 
     if (flags.watch) {
       if (jsonMode) {
-        // --watch in JSON mode doesn't make sense — there is no single
-        // structured output to print. Fail fast so callers notice.
         this.error('--watch is not supported in JSON mode')
       }
 
@@ -83,7 +83,7 @@ export default class Reconcile extends PMOCommand {
       process.once('SIGTERM', stopHandler)
 
       try {
-        await watchReconcile(db, storage, {
+        await reconcileService.watch({
           dryRun,
           cwd: this.hqPath ?? process.cwd(),
           projectId: projectFlag,
@@ -99,7 +99,7 @@ export default class Reconcile extends PMOCommand {
       return
     }
 
-    const report = await runReconcile(db, storage, {
+    const report = await reconcileService.runOnce({
       dryRun,
       cwd: this.hqPath ?? process.cwd(),
       projectId: projectFlag,
