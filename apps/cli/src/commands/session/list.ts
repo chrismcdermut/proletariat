@@ -5,15 +5,13 @@ import { machineOutputFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
 import {
-  collectAllSessions,
-  groupSessionsByHQ,
-  bucketElsewhereByHq,
   formatRelativeAge,
   tildifyPath,
   type SessionRole,
   type UnifiedSession,
 } from '../../lib/session/renderer.js'
 import { findHQRoot } from '../../lib/workspace.js'
+import { SessionService } from '../../services/index.js'
 
 export default class SessionList extends PromptCommand {
   static description =
@@ -92,14 +90,14 @@ export default class SessionList extends PromptCommand {
       hqPathFilter = flags.hq
     }
 
-    // Always query machine-wide; filters are applied inside collectAllSessions.
-    const sessions = collectAllSessions({
+    // Delegate to SessionService for data collection
+    const sessionService = new SessionService()
+    const result = sessionService.listSessions({
       hqPathFilter,
       roleFilter: flags.role as SessionRole | undefined,
       includeAll: flags.all,
     })
-
-    const grouped = groupSessionsByHQ(sessions)
+    const { sessions, grouped } = result
 
     if (jsonMode) {
       // Default shape is a flat array for backward compatibility with
@@ -157,7 +155,7 @@ export default class SessionList extends PromptCommand {
           `Other locations (${grouped.elsewhere.length} session${grouped.elsewhere.length === 1 ? '' : 's'})`,
         ),
       )
-      const buckets = bucketElsewhereByHq(grouped.elsewhere)
+      const buckets = sessionService.bucketByHq(grouped.elsewhere)
       for (const bucket of buckets) {
         const hqLabel = bucket.hqPath ? tildifyPath(bucket.hqPath) : '(no HQ)'
         this.log(styles.muted(`  ${bucket.hqName} — ${hqLabel}`))
