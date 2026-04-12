@@ -33,6 +33,11 @@ import {
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initHookManager } from '../../lib/work-lifecycle/hooks/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
+import { ExecutionStorage } from '../../lib/execution/index.js'
+import {
+  ensureReconcilerRunning,
+  checkAndRestartReconciler,
+} from '../../lib/orchestrate/reconciler-supervisor.js'
 export default class Orchestrate extends PMOCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
 
@@ -183,6 +188,11 @@ export default class Orchestrate extends PMOCommand {
       // Daemon mode: start the engine and run until stopped
       engine.start()
 
+      // Auto-spawn the reconciler daemon if not already running (PRLT-1287)
+      const executionStorage = new ExecutionStorage(db)
+      const logFn = verbose ? (msg: string) => this.log(msg) : undefined
+      ensureReconcilerRunning(executionStorage, logFn)
+
       if (jsonMode) {
         outputSuccessAsJson(
           { status: 'running', mode: 'daemon' },
@@ -216,11 +226,19 @@ export default class Orchestrate extends PMOCommand {
         }, pollInterval * 1000)
       }
 
+      // Set up reconciler health check: every 60s, check if reconciler is alive
+      // and restart it if it died. This ensures the reconciler is always running
+      // as long as the orchestrator is alive. (PRLT-1287)
+      const reconcilerCheckTimer = setInterval(() => {
+        checkAndRestartReconciler(executionStorage, logFn)
+      }, 60_000)
+
       // Keep the process alive until signal
       await new Promise<void>((resolve) => {
         const cleanup = () => {
           engine.stop()
           if (pollTimer) clearInterval(pollTimer)
+          clearInterval(reconcilerCheckTimer)
           this.log(styles.muted('\n  Orchestrate daemon stopped'))
           resolve()
         }
