@@ -103,15 +103,15 @@ export interface TicketPRLinkedEvent {
 // Workflow Rule Events
 // =============================================================================
 
-/** Emitted when a workflow rule matches a ticket state change. */
+/** Emitted when a workflow rule matches a ticket state change (resolved to intent). */
 export interface WorkflowRuleMatchedEvent {
   ruleId: string
   ticketId: string
   projectId: string
   actionId: string
   trigger: WorkflowRuleTrigger
-  fromState: string | null
-  toState: string
+  fromIntent: string | null
+  toIntent: string
   timestamp: Date
 }
 

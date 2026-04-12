@@ -10,7 +10,7 @@ export default class ActionCreate extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> "Security Review" --prompt "Review for vulnerabilities..."',
-    '<%= config.bin %> <%= command.id %> "Write Docs" --prompt "Document this feature..." --from-state "Done"',
+    '<%= config.bin %> <%= command.id %> "Write Docs" --prompt "Document this feature..." --from-intent "Done"',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 
@@ -31,11 +31,11 @@ export default class ActionCreate extends PMOCommand {
       char: 'd',
       description: 'Short description of what this action does',
     }),
-    'from-state': Flags.string({
-      description: 'State name this action is suggested for (empty = any state)',
+    'from-intent': Flags.string({
+      description: 'Intent name this action is suggested for (empty = any intent)',
     }),
-    'to-state': Flags.string({
-      description: 'State name to move ticket to after action completes',
+    'to-intent': Flags.string({
+      description: 'Intent name to move ticket to after action completes',
     }),
     executor: Flags.string({
       description: 'Executor to use',
@@ -72,8 +72,8 @@ export default class ActionCreate extends PMOCommand {
     let name = args.name;
     let prompt = flags.prompt;
     let description = flags.description;
-    let fromState: string | undefined = flags['from-state'];
-    let toState: string | undefined = flags['to-state'];
+    let fromIntent: string | undefined = flags['from-intent'];
+    let toIntent: string | undefined = flags['to-intent'];
     let executor: ActionExecutor | undefined = flags.executor as ActionExecutor | undefined;
     let environment: ActionEnvironment | undefined = flags.environment as ActionEnvironment | undefined;
     let permissionMode: ActionPermissionMode | undefined = flags['permission-mode'] as ActionPermissionMode | undefined;
@@ -104,8 +104,8 @@ export default class ActionCreate extends PMOCommand {
         name?: string;
         description?: string;
         prompt?: string;
-        fromState?: string;
-        toState?: string;
+        fromIntent?: string;
+        toIntent?: string;
         executor?: string;
         environment?: string;
         permissionMode?: string;
@@ -118,8 +118,8 @@ export default class ActionCreate extends PMOCommand {
           name,
           prompt,
           description,
-          fromState,
-          toState,
+          fromIntent,
+          toIntent,
           executor,
           environment,
           permissionMode,
@@ -152,7 +152,7 @@ export default class ActionCreate extends PMOCommand {
         context: (ctx) => ({
           hint: `Provide with: prlt action create "${ctx.flags.name}" --prompt "Your prompt here"`,
           requiredFields: ['--prompt'],
-          optionalFields: ['--description', '--from-state', '--to-state', '--executor', '--environment', '--permission-mode', '--model'],
+          optionalFields: ['--description', '--from-intent', '--to-intent', '--executor', '--environment', '--permission-mode', '--model'],
         }),
       });
 
@@ -166,21 +166,21 @@ export default class ActionCreate extends PMOCommand {
           when: (ctx) => ctx.flags.name !== undefined && ctx.flags.prompt !== undefined,
         });
 
-        // From-state input (optional)
+        // From-intent input (optional)
         resolver.addPrompt({
-          flagName: 'fromState',
+          flagName: 'fromIntent',
           type: 'input',
-          message: 'From state (state name to match, empty = any state):',
-          default: fromState || '',
+          message: 'From intent (intent name to match, empty = any intent):',
+          default: fromIntent || '',
           when: (ctx) => ctx.flags.name !== undefined && ctx.flags.prompt !== undefined,
         });
 
-        // To-state input (optional)
+        // To-intent input (optional)
         resolver.addPrompt({
-          flagName: 'toState',
+          flagName: 'toIntent',
           type: 'input',
-          message: 'To state (state name to move ticket to after action, empty = no move):',
-          default: toState || '',
+          message: 'To intent (intent name to move ticket to after action, empty = no move):',
+          default: toIntent || '',
           when: (ctx) => ctx.flags.name !== undefined && ctx.flags.prompt !== undefined,
         });
 
@@ -220,8 +220,8 @@ export default class ActionCreate extends PMOCommand {
       name = resolved.name || name;
       prompt = resolved.prompt || prompt;
       description = resolved.description || description;
-      fromState = resolved.fromState || fromState;
-      toState = resolved.toState || toState;
+      fromIntent = resolved.fromIntent || fromIntent;
+      toIntent = resolved.toIntent || toIntent;
       executor = (resolved.executor || executor || undefined) as ActionExecutor | undefined;
       environment = (resolved.environment || environment || undefined) as ActionEnvironment | undefined;
       permissionMode = (resolved.permissionMode || permissionMode || undefined) as ActionPermissionMode | undefined;
@@ -239,8 +239,8 @@ export default class ActionCreate extends PMOCommand {
       name,
       description,
       prompt,
-      fromState: fromState || undefined,
-      toState: toState || undefined,
+      fromIntent: fromIntent || undefined,
+      toIntent: toIntent || undefined,
       executor,
       environment,
       permissionMode,
@@ -252,8 +252,8 @@ export default class ActionCreate extends PMOCommand {
         id: action.id,
         name: action.name,
         description: action.description ?? null,
-        fromState: action.fromState ?? null,
-        toState: action.toState ?? null,
+        fromIntent: action.fromIntent ?? null,
+        toIntent: action.toIntent ?? null,
         executor: action.executor ?? null,
         environment: action.environment ?? null,
         permissionMode: action.permissionMode ?? null,
@@ -267,11 +267,11 @@ export default class ActionCreate extends PMOCommand {
     if (action.description) {
       this.log(styles.muted(`  ${action.description}`));
     }
-    if (action.fromState) {
-      this.log(styles.muted(`  From state: ${action.fromState}`));
+    if (action.fromIntent) {
+      this.log(styles.muted(`  From intent: ${action.fromIntent}`));
     }
-    if (action.toState) {
-      this.log(styles.muted(`  To state: ${action.toState}`));
+    if (action.toIntent) {
+      this.log(styles.muted(`  To intent: ${action.toIntent}`));
     }
     this.log('');
     this.log(styles.muted(`Use with: prlt work start TKT-001 --action ${action.id}`));

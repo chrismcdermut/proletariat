@@ -163,8 +163,8 @@ export default class ActionRun extends PMOCommand {
     }
     this.log('');
 
-    if (action.toState) {
-      this.log(styles.muted(`After action: tickets will move to "${action.toState}"`));
+    if (action.toIntent) {
+      this.log(styles.muted(`After action: tickets will move to "${action.toIntent}"`));
       this.log('');
     }
 

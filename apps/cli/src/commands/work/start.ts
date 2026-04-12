@@ -17,6 +17,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
 import { getWorkColumnSetting, findColumnByName, getTicketExternalMetadata, resolveExternalTicketId, resolveReviewGate, isValidReviewGateMode } from '../../lib/pmo/utils.js'
+import { moveWithProvider } from '../../lib/providers/state-resolution.js'
 import type { ReviewGateMode } from '../../lib/pmo/types.js'
 import { WorkAction } from '../../lib/pmo/types.js'
 import { styles } from '../../lib/styles.js'
@@ -1386,7 +1387,7 @@ export default class WorkStart extends PMOCommand {
             description: 'Unstructured exploration and debugging',
             prompt: 'You are working on an ad-hoc session for exploration and debugging. Help the user with whatever they need.',
             modifiesCode: false,
-            toState: 'In Progress',
+            toIntent: 'started',
             isBuiltin: false,
             createdAt: new Date(),
           }
@@ -1681,7 +1682,10 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+      // Executor inheritance: per-invocation flag > action override > workspace default
+      const executor = (flags.executor as ExecutorType)
+        || (selectedAction?.executor as ExecutorType | undefined)
+        || DEFAULT_EXECUTION_CONFIG.defaultExecutor
 
       // Default to interactive output mode (streaming UI)
       // Can be overridden via --output flag if needed
@@ -2437,57 +2441,43 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`   Assigned to: ${assignedAgent}`))
         }
 
-        // Move ticket to target column based on action's toState
-        // If action has a to_state, use that state name directly; otherwise fall back to "In Progress" default
-        const targetStateName = selectedAction?.toState
+        // Move ticket to target column based on action's toIntent
+        // Resolve intent → provider state via state resolution engine
+        const targetIntent = selectedAction?.toIntent || 'started'
 
-        const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
-        const columnNames = board ? board.columns.map(col => col.name) : []
+        try {
+          const provider = await this.resolveTicketProvider(ticket.id, ticket.projectId!)
+          const resolution = await moveWithProvider(
+            provider,
+            this.storage,
+            ticket.projectId!,
+            ticket.id,
+            targetIntent,
+            db,
+            ticket.statusName,
+          )
 
-        let targetColumnName: string | null = null
-        if (targetStateName) {
-          // Try direct state name match first
-          targetColumnName = findColumnByName(columnNames, targetStateName)
-          if (!targetColumnName) {
-            // Fall back to category-based lookup for backward compatibility
-            type ColumnTypeKey = 'planned' | 'in_progress' | 'review' | 'done'
-            const categoryMap: Record<string, ColumnTypeKey> = {
-              'Backlog': 'planned',
-              'Todo': 'planned',
-              'In Progress': 'in_progress',
-              'Done': 'done',
+          if (resolution.success && resolution.stateName) {
+            this.log(styles.muted(`   Moved to: ${resolution.stateName}${provider.name !== 'pmo' ? ` (via ${provider.name})` : ''}`))
+          } else if (!resolution.success && resolution.resolvedVia !== 'skipped') {
+            // Non-fatal — log but don't block work
+            if (resolution.error) {
+              this.warn(`Could not move ticket: ${resolution.error}`)
             }
-            const columnType = categoryMap[targetStateName] || 'in_progress' as ColumnTypeKey
-            const workColumnName = getWorkColumnSetting(db, columnType)
-            targetColumnName = findColumnByName(columnNames, workColumnName)
-          }
-        } else {
-          // No target state specified — default to "In Progress"
-          const workColumnName = getWorkColumnSetting(db, 'in_progress')
-          targetColumnName = findColumnByName(columnNames, workColumnName)
-        }
-
-        if (targetColumnName && ticket.statusName !== targetColumnName) {
-          try {
-            await this.storage.moveTicket(ticket.projectId!, ticket.id, targetColumnName)
-            this.log(styles.muted(`   Moved to: ${targetColumnName}`))
-          } catch (moveError) {
-            // Non-fatal - work can proceed even if column move fails
-            this.warn(`Could not move ticket to "${targetColumnName}": ${moveError instanceof Error ? moveError.message : moveError}`)
-          }
-
-          // Sync to external provider (e.g., Linear) if ticket was imported from one
-          try {
-            const provider = await this.resolveTicketProvider(ticket.id, ticket.projectId!)
-            if (provider.name !== 'pmo') {
-              const result = await provider.moveTicket(ticket.id, targetColumnName)
-              if (result.success) {
-                this.log(styles.muted(`   Synced to ${result.provider}: ${targetColumnName}`))
-              }
+          } else if (resolution.resolvedVia === 'skipped') {
+            // Fallback: try direct column name matching
+            const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
+            const columnNames = board ? board.columns.map(col => col.name) : []
+            const workColumnName = getWorkColumnSetting(db, 'in_progress')
+            const targetColumnName = findColumnByName(columnNames, workColumnName)
+            if (targetColumnName && ticket.statusName !== targetColumnName) {
+              await this.storage.moveTicket(ticket.projectId!, ticket.id, targetColumnName)
+              this.log(styles.muted(`   Moved to: ${targetColumnName}`))
             }
-          } catch {
-            // Non-fatal — don't block work start for provider sync failures
           }
+        } catch (moveError) {
+          // Non-fatal - work can proceed even if column move fails
+          this.warn(`Could not move ticket: ${moveError instanceof Error ? moveError.message : moveError}`)
         }
 
         await autoExportToBoard(this.pmoPath, this.storage, (msg) => {

@@ -30,8 +30,50 @@ export interface SemanticIntent {
  */
 export const DEFAULT_INTENTS: SemanticIntent[] = [
   {
-    name: 'active',
+    name: 'backlog',
+    description: 'Work is in the backlog, not yet triaged or ready',
+    aliases: [
+      'Backlog',
+      'Icebox',
+      'Ideas',
+      'Someday',
+      'Wishlist',
+      'Later',
+    ],
+  },
+  {
+    name: 'ready',
+    description: 'Work is groomed and ready to be started',
+    aliases: [
+      'Todo',
+      'To Do',
+      'TO DO',
+      'Ready',
+      'Ready for Dev',
+      'Development Ready',
+      'Up Next',
+      'Selected for Development',
+      'Planned',
+    ],
+  },
+  {
+    name: 'started',
     description: 'Work has started',
+    aliases: [
+      'In Progress',
+      'Working On',
+      'Doing',
+      'In Development',
+      'Started',
+      'Active',
+      'Developing',
+      'In Work',
+      'IN PROGRESS',
+    ],
+  },
+  {
+    name: 'active',
+    description: 'Work has started (alias for started)',
     aliases: [
       'In Progress',
       'Working On',
@@ -44,7 +86,7 @@ export const DEFAULT_INTENTS: SemanticIntent[] = [
     ],
   },
   {
-    name: 'review',
+    name: 'needs_review',
     description: 'Work is done, awaiting review',
     aliases: [
       'Review',
@@ -59,8 +101,37 @@ export const DEFAULT_INTENTS: SemanticIntent[] = [
     ],
   },
   {
-    name: 'done',
+    name: 'review',
+    description: 'Work is done, awaiting review (alias for needs_review)',
+    aliases: [
+      'Review',
+      'In Review',
+      'Needs Review',
+      'Awaiting Review',
+      'Awaiting Feedback',
+      'Code Review',
+      'QA',
+      'Ready for Review',
+      'Pending Review',
+    ],
+  },
+  {
+    name: 'completed',
     description: 'Work is complete',
+    aliases: [
+      'Done',
+      'Complete',
+      'Closed',
+      'Shipped',
+      'Merged',
+      'Resolved',
+      'Finished',
+      'Released',
+    ],
+  },
+  {
+    name: 'done',
+    description: 'Work is complete (alias for completed)',
     aliases: [
       'Done',
       'Complete',
@@ -85,6 +156,19 @@ export const DEFAULT_INTENTS: SemanticIntent[] = [
       'Pending',
     ],
   },
+  {
+    name: 'testing',
+    description: 'Work is being tested or in QA',
+    aliases: [
+      'Testing',
+      'QA',
+      'In QA',
+      'In Testing',
+      'To Test',
+      'Quality Assurance',
+      'Verification',
+    ],
+  },
 ]
 
 /**
@@ -92,6 +176,36 @@ export const DEFAULT_INTENTS: SemanticIntent[] = [
  */
 export function getDefaultIntent(name: string): SemanticIntent | undefined {
   return DEFAULT_INTENTS.find(i => i.name === name)
+}
+
+/**
+ * Resolve a provider state name to the best-matching intent name.
+ * Used to find which action should fire for a given ticket state.
+ *
+ * Returns the first intent whose aliases include the given state name
+ * (case-insensitive). Prefers canonical intents (backlog, ready, started,
+ * needs_review, completed) over aliases (active, review, done).
+ */
+export function resolveStateToIntent(stateName: string): string | null {
+  const lower = stateName.toLowerCase()
+  // Canonical intents to check first (not aliases like 'active', 'review', 'done')
+  const canonical = ['backlog', 'ready', 'started', 'needs_review', 'completed', 'blocked', 'testing']
+  for (const intentName of canonical) {
+    const intent = getDefaultIntent(intentName)
+    if (!intent) continue
+    const match = intent.aliases.some(a => a.toLowerCase() === lower)
+    if (match) return intentName
+  }
+  // Partial match fallback
+  for (const intentName of canonical) {
+    const intent = getDefaultIntent(intentName)
+    if (!intent) continue
+    const match = intent.aliases.some(a =>
+      a.toLowerCase().includes(lower) || lower.includes(a.toLowerCase()),
+    )
+    if (match) return intentName
+  }
+  return null
 }
 
 /**

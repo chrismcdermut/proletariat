@@ -15,7 +15,7 @@ export default class ActionUpdate extends PMOCommand {
   static examples = [
     '<%= config.bin %> <%= command.id %> my-action --name "New Name"',
     '<%= config.bin %> <%= command.id %> my-action --prompt "Updated prompt..."',
-    '<%= config.bin %> <%= command.id %> my-action --from-state "In Progress" --to-state "Done"',
+    '<%= config.bin %> <%= command.id %> my-action --from-intent "In Progress" --to-intent "Done"',
     '<%= config.bin %> <%= command.id %> my-action  # Interactive mode',
   ];
 
@@ -40,11 +40,11 @@ export default class ActionUpdate extends PMOCommand {
       char: 'd',
       description: 'New description',
     }),
-    'from-state': Flags.string({
-      description: 'State name this action is suggested for (empty = any state)',
+    'from-intent': Flags.string({
+      description: 'Intent name this action is suggested for (empty = any intent)',
     }),
-    'to-state': Flags.string({
-      description: 'State name to move ticket to after action completes (empty = no move)',
+    'to-intent': Flags.string({
+      description: 'Intent name to move ticket to after action completes (empty = no move)',
     }),
     executor: Flags.string({
       description: 'Executor to use',
@@ -98,15 +98,15 @@ export default class ActionUpdate extends PMOCommand {
     }
 
     const hasFlags = flags.name || flags.prompt || flags.description !== undefined ||
-                     flags['from-state'] !== undefined || flags['to-state'] !== undefined ||
+                     flags['from-intent'] !== undefined || flags['to-intent'] !== undefined ||
                      flags.executor || flags.environment || flags['permission-mode'] || flags.model !== undefined;
 
     const changes: Partial<{
       name: string
       prompt: string
       description: string
-      fromState: string | null
-      toState: string | null
+      fromIntent: string | null
+      toIntent: string | null
       executor: ActionExecutor | null
       environment: ActionEnvironment | null
       permissionMode: ActionPermissionMode | null
@@ -138,8 +138,8 @@ export default class ActionUpdate extends PMOCommand {
         name?: string;
         description?: string;
         prompt?: string;
-        fromState?: string;
-        toState?: string;
+        fromIntent?: string;
+        toIntent?: string;
         executor?: string;
         environment?: string;
         permissionMode?: string;
@@ -152,8 +152,8 @@ export default class ActionUpdate extends PMOCommand {
           name: flags.name,
           description: flags.description,
           prompt: flags.prompt,
-          fromState: flags['from-state'],
-          toState: flags['to-state'],
+          fromIntent: flags['from-intent'],
+          toIntent: flags['to-intent'],
           executor: flags.executor,
           environment: flags.environment,
           permissionMode: flags['permission-mode'],
@@ -197,22 +197,22 @@ export default class ActionUpdate extends PMOCommand {
         },
       });
 
-      // From-state input
+      // From-intent input
       resolver.addPrompt({
-        flagName: 'fromState',
+        flagName: 'fromIntent',
         type: 'input',
-        message: 'From state (state name to match, empty = any state):',
-        default: existingAction.fromState || '',
-        when: (ctx) => ctx.flags.prompt !== undefined && ctx.flags.fromState === undefined,
+        message: 'From intent (intent name to match, empty = any intent):',
+        default: existingAction.fromIntent || '',
+        when: (ctx) => ctx.flags.prompt !== undefined && ctx.flags.fromIntent === undefined,
       });
 
-      // To-state input
+      // To-intent input
       resolver.addPrompt({
-        flagName: 'toState',
+        flagName: 'toIntent',
         type: 'input',
-        message: 'To state (state name to move ticket to, empty = no move):',
-        default: existingAction.toState || '',
-        when: (ctx) => ctx.flags.fromState !== undefined && ctx.flags.toState === undefined,
+        message: 'To intent (intent name to move ticket to, empty = no move):',
+        default: existingAction.toIntent || '',
+        when: (ctx) => ctx.flags.fromIntent !== undefined && ctx.flags.toIntent === undefined,
       });
 
       // Executor list
@@ -222,7 +222,7 @@ export default class ActionUpdate extends PMOCommand {
         message: 'Executor:',
         choices: () => executorChoices,
         default: existingAction.executor || 'claude',
-        when: (ctx) => ctx.flags.toState !== undefined && ctx.flags.executor === undefined,
+        when: (ctx) => ctx.flags.toIntent !== undefined && ctx.flags.executor === undefined,
       });
 
       // Environment list
@@ -256,14 +256,14 @@ export default class ActionUpdate extends PMOCommand {
       if (resolved.description !== (existingAction.description || '')) changes.description = resolved.description;
       if (resolved.prompt !== existingAction.prompt) changes.prompt = resolved.prompt;
 
-      const currentFromState = existingAction.fromState || '';
-      if ((resolved.fromState || '') !== currentFromState) {
-        changes.fromState = resolved.fromState || null;
+      const currentFromIntent = existingAction.fromIntent || '';
+      if ((resolved.fromIntent || '') !== currentFromIntent) {
+        changes.fromIntent = resolved.fromIntent || null;
       }
 
-      const currentToState = existingAction.toState || '';
-      if ((resolved.toState || '') !== currentToState) {
-        changes.toState = resolved.toState || null;
+      const currentToIntent = existingAction.toIntent || '';
+      if ((resolved.toIntent || '') !== currentToIntent) {
+        changes.toIntent = resolved.toIntent || null;
       }
 
       if (resolved.executor && resolved.executor !== existingAction.executor) {
@@ -280,11 +280,11 @@ export default class ActionUpdate extends PMOCommand {
       if (flags.name) changes.name = flags.name;
       if (flags.prompt) changes.prompt = flags.prompt;
       if (flags.description !== undefined) changes.description = flags.description;
-      if (flags['from-state'] !== undefined) {
-        changes.fromState = flags['from-state'] || null;
+      if (flags['from-intent'] !== undefined) {
+        changes.fromIntent = flags['from-intent'] || null;
       }
-      if (flags['to-state'] !== undefined) {
-        changes.toState = flags['to-state'] || null;
+      if (flags['to-intent'] !== undefined) {
+        changes.toIntent = flags['to-intent'] || null;
       }
       if (flags.executor) {
         changes.executor = flags.executor as ActionExecutor;
@@ -320,8 +320,8 @@ export default class ActionUpdate extends PMOCommand {
     if (changes.name) this.log(styles.muted(`  Name: ${action.name}`));
     if (changes.description !== undefined) this.log(styles.muted(`  Description: ${action.description || '(none)'}`));
     if (changes.prompt) this.log(styles.muted(`  Prompt: (updated)`));
-    if (changes.fromState !== undefined) this.log(styles.muted(`  From state: ${action.fromState || '(any)'}`));
-    if (changes.toState !== undefined) this.log(styles.muted(`  To state: ${action.toState || '(none)'}`));
+    if (changes.fromIntent !== undefined) this.log(styles.muted(`  From intent: ${action.fromIntent || '(any)'}`));
+    if (changes.toIntent !== undefined) this.log(styles.muted(`  To intent: ${action.toIntent || '(none)'}`));
     if (changes.executor !== undefined) this.log(styles.muted(`  Executor: ${action.executor || '(default)'}`));
     if (changes.environment !== undefined) this.log(styles.muted(`  Environment: ${action.environment || '(default)'}`));
     if (changes.permissionMode !== undefined) this.log(styles.muted(`  Permission mode: ${action.permissionMode || '(default)'}`));

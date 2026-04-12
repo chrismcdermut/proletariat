@@ -470,13 +470,13 @@ export type ReviewGateMode = 'required' | 'auto' | 'post'
 export type WorkflowRuleTrigger = 'manual' | 'on_enter'
 
 /**
- * Workflow rule - wires a state transition to an action.
- * Rules define: "when a ticket enters <to_state>, fire <action>".
+ * Workflow rule - wires an intent transition to an action.
+ * Rules define: "when a ticket reaches <to_intent>, fire <action>".
  */
 export interface WorkflowRule {
   id: string
-  fromState?: string                         // Source state (nullable — any source state)
-  toState: string                            // Target state that triggers the rule
+  fromIntent?: string                        // Source intent (nullable — any source)
+  toIntent: string                           // Target intent that triggers the rule
   actionId: string                           // FK to actions
   trigger: WorkflowRuleTrigger               // manual | on_enter
   enabled: boolean
@@ -488,8 +488,8 @@ export interface WorkflowRule {
  * Filter options for listing workflow rules.
  */
 export interface WorkflowRuleFilter {
-  toState?: string
-  fromState?: string
+  toIntent?: string
+  fromIntent?: string
   actionId?: string
   trigger?: WorkflowRuleTrigger
   enabled?: boolean
@@ -498,7 +498,8 @@ export interface WorkflowRuleFilter {
 /**
  * Work action - defines what an agent should do with a ticket.
  * Actions are reusable prompts that can be applied to any ticket.
- * Uses state-name-based wiring (from_state/to_state) instead of category-based.
+ * Uses intent-based wiring (from_intent/to_intent) instead of provider state names.
+ * Intents are resolved to provider states via the state resolution engine.
  */
 export interface WorkAction {
   id: string
@@ -506,9 +507,9 @@ export interface WorkAction {
   description?: string
   prompt: string                              // The start prompt (instruction for what to do)
   endPrompt?: string                          // The end prompt (completion instructions)
-  fromState?: string                          // State name to match (nullable — matches any state)
-  toState?: string                            // Target state name after action completes
-  executor?: ActionExecutor                   // Which executor to use (claude | codex | opencode | custom)
+  fromIntent?: string                         // Intent name for auto-trigger (nullable — manual only)
+  toIntent?: string                           // Target intent after action completes (resolved to provider state)
+  executor?: ActionExecutor                   // Which executor to use (nullable — inherits workspace default)
   environment?: ActionEnvironment             // Execution environment (devcontainer | docker | host | vm)
   permissionMode?: ActionPermissionMode       // Permission mode (full | readonly | bypassPermissions)
   timeout?: number                            // Timeout in seconds
@@ -516,7 +517,7 @@ export interface WorkAction {
   reviewGate?: ReviewGateMode                  // Per-action review gate override (nullable — use workspace default)
   networkAllowlist?: string[]                  // Extra domains to allowlist in container firewall for this action
   modifiesCode: boolean                       // Whether this action modifies code (needs branch)
-  isDefault?: boolean                         // Whether this is the default action for its from_state
+  isDefault?: boolean                         // Whether this is the default action for its from_intent
   isBuiltin: boolean
   position?: number
   createdAt: Date
@@ -923,7 +924,7 @@ export interface PhaseTemplateFilter {
 
 export interface WorkActionFilter {
   isBuiltin?: boolean
-  fromState?: string              // Filter to actions matching this from_state (or null from_state = any)
+  fromIntent?: string             // Filter to actions matching this from_intent (or null from_intent = any)
   search?: string
 }
 
@@ -1101,7 +1102,7 @@ export interface PMOStorage {
   createAction(action: Partial<WorkAction>): Promise<WorkAction>
   updateAction(id: string, changes: Partial<WorkAction>): Promise<WorkAction>
   deleteAction(id: string): Promise<void>
-  getSuggestedAction(stateName: string): Promise<WorkAction | null>
+  getSuggestedAction(intentOrStateName: string): Promise<WorkAction | null>
 
   // Workflow Rule Operations
   listWorkflowRules(filter?: WorkflowRuleFilter): Promise<WorkflowRule[]>
@@ -1109,7 +1110,7 @@ export interface PMOStorage {
   createWorkflowRule(rule: Partial<WorkflowRule>): Promise<WorkflowRule>
   updateWorkflowRule(id: string, changes: Partial<WorkflowRule>): Promise<WorkflowRule>
   deleteWorkflowRule(id: string): Promise<void>
-  getWorkflowRulesForState(toState: string): Promise<WorkflowRule[]>
+  getWorkflowRulesForIntent(toIntent: string): Promise<WorkflowRule[]>
 
   // Project Operations
   getProject(id: string): Promise<Project | null>

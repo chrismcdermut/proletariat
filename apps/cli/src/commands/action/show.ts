@@ -52,14 +52,14 @@ export default class ActionShow extends PMOCommand {
       this.log(`${styles.muted('Description:')} ${action.description}`);
     }
 
-    if (action.fromState) {
-      this.log(`${styles.muted('From state:')} ${action.fromState}`);
+    if (action.fromIntent) {
+      this.log(`${styles.muted('From intent:')} ${action.fromIntent}`);
     } else {
-      this.log(`${styles.muted('From state:')} (any)`);
+      this.log(`${styles.muted('From intent:')} (any)`);
     }
 
-    if (action.toState) {
-      this.log(`${styles.muted('To state:')} ${action.toState}`);
+    if (action.toIntent) {
+      this.log(`${styles.muted('To intent:')} ${action.toIntent}`);
     }
 
     if (action.executor) {

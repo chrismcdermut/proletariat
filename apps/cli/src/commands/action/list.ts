@@ -11,7 +11,7 @@ export default class ActionList extends PMOCommand {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --builtin',
     '<%= config.bin %> <%= command.id %> --custom',
-    '<%= config.bin %> <%= command.id %> --from-state "In Progress"',
+    '<%= config.bin %> <%= command.id %> --from-intent "In Progress"',
   ];
 
   static flags = {
@@ -24,18 +24,18 @@ export default class ActionList extends PMOCommand {
       description: 'Show only custom actions',
       exclusive: ['builtin'],
     }),
-    'from-state': Flags.string({
-      description: 'Filter to actions matching a from_state (includes actions with null from_state)',
+    'from-intent': Flags.string({
+      description: 'Filter to actions matching a from_intent (includes actions with null from_intent)',
     }),
   };
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(ActionList);
 
-    const filter: { isBuiltin?: boolean; fromState?: string } = {};
+    const filter: { isBuiltin?: boolean; fromIntent?: string } = {};
     if (flags.builtin) filter.isBuiltin = true;
     if (flags.custom) filter.isBuiltin = false;
-    if (flags['from-state']) filter.fromState = flags['from-state'];
+    if (flags['from-intent']) filter.fromIntent = flags['from-intent'];
 
     const actions = await this.storage.listActions(filter);
 
@@ -86,11 +86,11 @@ export default class ActionList extends PMOCommand {
     }
 
     const details: string[] = [];
-    if (action.fromState) {
-      details.push(`From: ${action.fromState}`);
+    if (action.fromIntent) {
+      details.push(`From: ${action.fromIntent}`);
     }
-    if (action.toState) {
-      details.push(`To: ${action.toState}`);
+    if (action.toIntent) {
+      details.push(`To: ${action.toIntent}`);
     }
     if (action.executor) {
       details.push(`Executor: ${action.executor}`);

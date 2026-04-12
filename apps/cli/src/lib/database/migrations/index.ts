@@ -20,6 +20,7 @@ import { addReviewGate } from './0011_add_review_gate.js'
 import { addActionNetworkAllowlist } from './0012_add_action_network_allowlist.js'
 import { agentLifecycleStates } from './0013_agent_lifecycle_states.js'
 import { orchestrateHooks } from './0014_orchestrate_hooks.js'
+import { intentBasedActions } from './0015_intent_based_actions.js'
 
 /**
  * Ordered list of all migrations.
@@ -40,4 +41,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   addActionNetworkAllowlist,
   agentLifecycleStates,
   orchestrateHooks,
+  intentBasedActions,
 ]

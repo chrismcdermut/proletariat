@@ -51,5 +51,6 @@ export {
   DEFAULT_INTENTS,
   getDefaultIntent,
   matchIntentByAliases,
+  resolveStateToIntent,
   type SemanticIntent,
 } from './state-intents.js'
