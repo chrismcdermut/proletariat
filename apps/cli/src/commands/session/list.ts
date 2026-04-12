@@ -21,6 +21,7 @@ interface VerifiedSession {
   ticketId: string
   agentName: string
   status: string
+  role: string  // worker, orchestrator, daemon, headless
   environment: 'host' | 'container'
   containerId?: string
   exists: boolean  // Whether the tmux session actually exists
@@ -146,6 +147,7 @@ export default class SessionList extends PMOCommand {
             ticketId: exec.ticketId,
             agentName: exec.agentName,
             status: exists ? exec.status : 'stale',
+            role: exec.role || 'worker',
             environment: isContainer ? 'container' : 'host',
             containerId,
             exists,
@@ -190,6 +192,7 @@ export default class SessionList extends PMOCommand {
               ticketId: exec.ticketId,
               agentName: exec.agentName,
               status: 'running',
+              role: exec.role || 'worker',
               environment: isContainer ? 'container' : 'host',
               containerId,
               exists: true,
@@ -211,6 +214,7 @@ export default class SessionList extends PMOCommand {
             ticketId: parsed.ticketId,
             agentName: parsed.agentName,
             status: 'orphan',
+            role: 'worker',
             environment: 'host',
             exists: true,
             source: 'discovered',
@@ -229,6 +233,7 @@ export default class SessionList extends PMOCommand {
             ticketId: parsed.ticketId,
             agentName: parsed.agentName,
             status: 'orphan',
+            role: 'worker',
             environment: 'container',
             containerId,
             exists: true,
@@ -250,9 +255,9 @@ export default class SessionList extends PMOCommand {
         this.log(
           styles.muted(
             '  ' +
-            visualPadEnd('Session', 34) +
+            visualPadEnd('Session', 28) +
             visualPadEnd('Ticket', 12) +
-            visualPadEnd('Agent', 18) +
+            visualPadEnd('Role', 14) +
             visualPadEnd('Type', 15) +
             'Status'
           )
@@ -270,15 +275,18 @@ export default class SessionList extends PMOCommand {
           const statusText = session.source === 'discovered' ? `${session.status}*` : session.status
 
           // Truncate long session names to fit column
-          const displaySession = session.sessionId.length > 32
-            ? session.sessionId.substring(0, 29) + '...'
+          const displaySession = session.sessionId.length > 26
+            ? session.sessionId.substring(0, 23) + '...'
             : session.sessionId
+
+          // Display ticket ID: show '—' for daemon sentinel
+          const displayTicket = session.ticketId === 'DAEMON' ? '—' : session.ticketId
 
           this.log(
             '  ' +
-            visualPadEnd(displaySession, 34) +
-            visualPadEnd(session.ticketId, 12) +
-            visualPadEnd(session.agentName, 18) +
+            visualPadEnd(displaySession, 28) +
+            visualPadEnd(displayTicket, 12) +
+            visualPadEnd(session.role, 14) +
             visualPadEnd(typeIcon, 15) +
             statusColor(statusText)
           )

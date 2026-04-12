@@ -25,6 +25,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { RECONCILER_SESSION_NAME } from '../reconcile.js'
 
 interface PruneResult {
   staleExecutionsCleaned: number
@@ -149,10 +150,23 @@ export default class SessionPrune extends PMOCommand {
         }
       }
 
+      // Collect daemon session names from DB so we never prune them.
+      // Daemons are supposed to run forever — pruning them defeats their purpose.
+      const daemonSessionNames = new Set<string>()
+      const allRunning = executionStorage.listExecutions({ status: 'running' })
+      for (const exec of allRunning) {
+        if (exec.role === 'daemon' && exec.sessionId) {
+          daemonSessionNames.add(exec.sessionId)
+        }
+      }
+      // Also protect the well-known reconciler session name
+      daemonSessionNames.add(RECONCILER_SESSION_NAME)
+
       // Find orphan host sessions (match prlt pattern but not tracked in DB)
       const orphanHostSessions: string[] = []
       for (const sessionName of hostTmuxSessions) {
         if (matchedHostSessions.has(sessionName)) continue
+        if (daemonSessionNames.has(sessionName)) continue  // Never prune daemons
         const parsed = parseSessionName(sessionName)
         if (parsed) {
           orphanHostSessions.push(sessionName)

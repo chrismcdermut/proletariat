@@ -376,9 +376,12 @@ export class ExecutionStorage {
    * (e.g., commit validation and implement→Review transition).
    */
   cleanupStaleExecutionsDetailed(): CleanedExecution[] {
-    // Get all "running" or "starting" executions
+    // Get all "running" or "starting" executions, excluding daemons.
+    // Daemons (role='daemon') are long-running infrastructure that should
+    // not be reaped by stale cleanup — they are supposed to run forever.
     const activeExecutions = this.listExecutions({ status: 'running' })
       .concat(this.listExecutions({ status: 'starting' }))
+      .filter(exec => exec.role !== 'daemon')
 
     if (activeExecutions.length === 0) {
       return []
