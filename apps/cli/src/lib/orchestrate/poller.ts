@@ -15,8 +15,7 @@ import * as path from 'node:path'
 import type Database from 'better-sqlite3'
 import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks, getPRByNumber, getPRReviewDecision } from '../pr/index.js'
 import type { PRReviewDecision } from '../pr/index.js'
-import { runSyncCycle, type SyncReport } from '../sync/engine.js'
-import { SQLiteStorage } from '../pmo/storage-sqlite.js'
+import type { SyncReport } from '../sync/engine.js'
 import type { OrchestrateEngine } from './engine.js'
 import { getWorkflowConfig } from '../work-lifecycle/settings.js'
 
@@ -88,8 +87,8 @@ export class OrchestratePoller {
    * Check for tickets in the configured "ready" status with no active agent.
    * Fires on_ticket_ready for each.
    *
-   * Uses the configured ready/planned column name from pmo_settings.
-   * Falls back to category-based matching if no config is available.
+   * Since PRLT-1299 removed the local ticket store, this now queries the
+   * ticket_refs cache table instead of pmo_tickets/pmo_workflow_statuses.
    */
   private async pollReadyTickets(): Promise<void> {
     try {
@@ -102,25 +101,25 @@ export class OrchestratePoller {
         // pmo_settings may not exist yet
       }
 
+      // Query ticket_refs (provider-agnostic cache) for unassigned tickets
+      // in the "ready" status with no active agent
       const readyTickets = readyStatusName
         ? this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE LOWER(ws.name) = LOWER(?)
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
+            SELECT id, title
+            FROM ticket_refs
+            WHERE LOWER(status) = LOWER(?)
+              AND assignee IS NULL
+              AND id NOT IN (
                 SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
               )
             LIMIT 10
           `).all(readyStatusName) as Array<{ id: string; title: string }>
         : this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE ws.category = 'unstarted'
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
+            SELECT id, title
+            FROM ticket_refs
+            WHERE status IN ('Backlog', 'Todo', 'Planned', 'Triage')
+              AND assignee IS NULL
+              AND id NOT IN (
                 SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
               )
             LIMIT 10
@@ -137,7 +136,7 @@ export class OrchestratePoller {
         })
       }
     } catch {
-      // Non-fatal polling error
+      // Non-fatal polling error (ticket_refs table may not exist)
     }
   }
 
@@ -401,44 +400,13 @@ export class OrchestratePoller {
    * Run board reconciliation — deterministic rules that sync ticket state
    * from GitHub without LLM involvement.
    *
-   * Rules:
-   * 1. PR merged → ticket to Done
-   * 2. PR opened → ticket to Review
-   * 3. Agent spawned → ticket to In Progress
-   * 4. Detect duplicate tickets
-   * 5. Flag stale Triage tickets that match merged PRs
+   * DISABLED since PRLT-1299: The local ticket store has been removed.
+   * The sync engine requires PMOStorage & ProviderStorage which
+   * SQLiteStorage no longer implements. Reconciliation should be
+   * re-implemented to work directly with providers.
    */
   private async pollBoardReconciliation(): Promise<void> {
-    try {
-      // Get the workspace db path from the database file path
-      const dbPath = this.getDbPath()
-      if (!dbPath) return
-
-      const storage = new SQLiteStorage(dbPath)
-
-      // Get all active project IDs
-      const projects = this.db.prepare(`
-        SELECT id FROM pmo_projects WHERE is_archived = 0
-        LIMIT 20
-      `).all() as Array<{ id: string }>
-
-      for (const project of projects) {
-        try {
-          const report = await runSyncCycle(this.db, storage, project.id, {
-            cwd: this.cwd,
-            log: (msg) => this.log(`[reconcile] ${msg}`),
-            dryRun: false,
-          })
-
-          // Fire events for applied reconciliation actions
-          await this.fireReconciliationEvents(report)
-        } catch (err) {
-          this.log(`[reconcile] Error reconciling project ${project.id}: ${err instanceof Error ? err.message : String(err)}`)
-        }
-      }
-    } catch {
-      // Non-fatal board reconciliation error
-    }
+    // No-op — reconciliation disabled until re-implemented for provider-first architecture
   }
 
   /**

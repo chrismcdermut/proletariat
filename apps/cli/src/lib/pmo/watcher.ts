@@ -14,8 +14,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { watch, FSWatcher } from 'chokidar';
-import { SQLiteStorage } from './storage-sqlite.js';
-import { parseBoard } from './markdown.js';
 import { onShutdown } from '../signal-handler.js';
 
 export interface WatcherOptions {
@@ -129,64 +127,28 @@ export function startWatcher(
   }
 
   /**
-   * Perform sync from board.md to SQLite
+   * Perform sync from board.md to SQLite.
+   * DISABLED: The local ticket store has been removed (PRLT-1299). The
+   * provider is now the source of truth. This is a no-op stub that
+   * preserves the watcher API contract.
    */
   async function doSync(): Promise<SyncStats> {
     const startTime = Date.now();
-
-    // Read and hash content
     const content = fs.readFileSync(boardPath, 'utf-8');
     const currentHash = computeHash(content);
 
-    // Check if content actually changed
     if (currentHash === lastHash) {
       logger('📋 board.md unchanged (hash match), skipping sync');
-      return {
-        syncedAt: new Date(),
-        ticketCount: 0,
-        durationMs: Date.now() - startTime,
-      };
-    }
-
-    // Parse and sync
-    const board = parseBoard(content);
-    const storage = new SQLiteStorage(dbPath);
-
-    try {
-      storage.rebuildFromBoard(board);
-
-      // Update cache metadata
-      const stats = fs.statSync(boardPath);
-      storage.setCacheMetadata({
-        boardMtime: stats.mtimeMs,
-        cacheBuiltAt: Date.now(),
-        contentHash: currentHash,
-      });
-
-      // Count tickets
-      const ticketCount = board.columns.reduce(
-        (sum, col) => sum + col.tickets.length,
-        0
-      );
-
+    } else {
       lastHash = currentHash;
-
-      const syncStats: SyncStats = {
-        syncedAt: new Date(),
-        ticketCount,
-        durationMs: Date.now() - startTime,
-      };
-
-      logger(`📥 Synced board.md → SQLite (${ticketCount} tickets, ${syncStats.durationMs}ms)`);
-
-      if (onSync) {
-        onSync(syncStats);
-      }
-
-      return syncStats;
-    } finally {
-      await storage.close();
+      logger('📋 board.md changed but local ticket sync is disabled (provider is source of truth)');
     }
+
+    return {
+      syncedAt: new Date(),
+      ticketCount: 0,
+      durationMs: Date.now() - startTime,
+    };
   }
 
   /**

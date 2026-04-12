@@ -162,23 +162,9 @@ export abstract class PMOCommand extends RuntimeCommand {
       throw new Error('No projects found. Create a project first or connect a provider (e.g., prlt linear connect).');
     }
 
-    // Filter to projects with tickets if requested
+    // Note: filterEmptyProjects is no longer supported since tickets live in
+    // the provider (Linear, Jira, etc.), not local storage.
     let filteredProjects = projects;
-    if (options?.filterEmptyProjects) {
-      const projectsWithTickets: typeof projects = [];
-      for (const p of projects) {
-        // eslint-disable-next-line no-await-in-loop -- Sequential filtering for project selection
-        const tickets = await this.storage.listTickets(p.id);
-        if (tickets.length > 0) {
-          projectsWithTickets.push(p);
-        }
-      }
-      filteredProjects = projectsWithTickets;
-
-      if (filteredProjects.length === 0) {
-        throw new Error('No projects with tickets found. Create a ticket first.');
-      }
-    }
 
     // If only one project, use it
     if (filteredProjects.length === 1) {
@@ -284,13 +270,10 @@ export abstract class PMOCommand extends RuntimeCommand {
   protected async resolveTicketProvider(ticketId: string, projectId: string): Promise<TicketProvider> {
     const db = this.storage.getDatabase();
 
-    // Try local storage first for metadata
-    const ticket = await this.storage.getTicket(ticketId);
-    let metadata = ticket?.metadata ?? null;
-
-    // If no local ticket found and ticket ID looks like an external key (e.g. PRLT-1231),
-    // build synthetic metadata so the resolver routes to the correct provider.
-    if (!ticket && /^[A-Z]+-\d+$/i.test(ticketId)) {
+    // Build metadata from ticket ID pattern. The provider (Linear, Jira, etc.)
+    // is the source of truth — no local ticket lookup needed.
+    let metadata: Record<string, string> | null = null;
+    if (/^[A-Z]+-\d+$/i.test(ticketId)) {
       metadata = {
         external_source: 'linear',
         external_key: ticketId,

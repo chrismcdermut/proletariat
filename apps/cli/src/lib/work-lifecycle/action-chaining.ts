@@ -209,17 +209,31 @@ export class ActionChainingHandler {
     // Select the first available agent
     const agentName = availableAgents[0]
 
-    // Get the ticket
-    const ticket = await this.storage.getTicket(ticketId)
-    if (!ticket) {
-      this.log(`[action-chain] Ticket ${ticketId} not found. Skipping.`)
+    // Look up ticket from ticket_refs cache (provider is source of truth,
+    // but ticket_refs has the latest cached snapshot for spawning).
+    const refRow = this.db.prepare(`
+      SELECT id, title, description, status, priority, category, assignee, project_id
+      FROM ticket_refs WHERE id = ?
+    `).get(ticketId) as {
+      id: string; title: string; description: string | null; status: string | null;
+      priority: string | null; category: string | null; assignee: string | null; project_id: string | null;
+    } | undefined
+
+    if (!refRow) {
+      this.log(`[action-chain] Ticket ${ticketId} not found in ticket_refs. Skipping.`)
       return
     }
 
-    // Ensure projectId is set on ticket
-    if (!ticket.projectId) {
-      ticket.projectId = projectId
-    }
+    const ticket = {
+      id: refRow.id,
+      title: refRow.title,
+      description: refRow.description || '',
+      status: refRow.status || 'unknown',
+      priority: refRow.priority || undefined,
+      category: refRow.category || undefined,
+      assignee: refRow.assignee || undefined,
+      projectId: refRow.project_id || projectId,
+    } as import('../pmo/types.js').Ticket
 
     // Spawn the agent with the action's configuration
     // Note: chained actions always run in background mode

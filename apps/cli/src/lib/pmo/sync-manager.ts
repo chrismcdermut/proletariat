@@ -20,9 +20,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 import { SQLiteStorage } from './storage-sqlite.js';
-import { parseBoard } from './markdown.js';
 import { initWorkLifecycleAdapter } from '../work-lifecycle/adapter.js';
 import { initOutboundSync } from '../external-issues/outbound-sync.js';
 import { initHookManager } from '../work-lifecycle/hooks/index.js';
@@ -60,13 +58,6 @@ export function getBoardPath(pmoPath: string, projectId: string): string {
   return kanbanPath;
 }
 
-export interface SyncMetadata {
-  lastSyncAt: number;      // When we last synced (either direction)
-  lastBoardMtime: number;  // board.md mtime at last sync
-  lastDbWriteAt: number;   // When CLI last wrote to database
-  contentHash?: string;    // SHA-256 hash of board.md content at last sync
-}
-
 export interface PMOContext {
   pmoPath: string;
   storage: SQLiteStorage;
@@ -74,138 +65,17 @@ export interface PMOContext {
 }
 
 /**
- * Compute SHA-256 hash of content
- */
-function computeHash(content: string): string {
-  return crypto.createHash('sha256').update(content).digest('hex');
-}
-
-/**
- * Get sync metadata from database
- */
-export function getSyncMetadata(storage: SQLiteStorage): SyncMetadata | null {
-  const meta = storage.getCacheMetadata();
-  if (!meta) return null;
-
-  return {
-    lastSyncAt: meta.cacheBuiltAt,
-    lastBoardMtime: meta.boardMtime,
-    lastDbWriteAt: meta.cacheBuiltAt,
-    contentHash: meta.contentHash,
-  };
-}
-
-/**
- * Update sync metadata after a sync operation
- */
-export function updateSyncMetadata(
-  storage: SQLiteStorage,
-  boardMtime: number,
-  contentHash?: string
-): void {
-  storage.setCacheMetadata({
-    boardMtime,
-    cacheBuiltAt: Date.now(),
-    contentHash,
-  });
-}
-
-/**
- * Check if board.md mtime has changed (fast check)
- */
-export function boardMtimeChanged(pmoPath: string, storage: SQLiteStorage, projectId: string = 'default'): boolean {
-  const boardPath = getBoardPath(pmoPath, projectId);
-
-  if (!fs.existsSync(boardPath)) {
-    return false;
-  }
-
-  const stats = fs.statSync(boardPath);
-  const meta = getSyncMetadata(storage);
-
-  if (!meta) {
-    // No sync metadata - board.md exists but never synced
-    return true;
-  }
-
-  // board.md mtime differs from last sync
-  return stats.mtimeMs !== meta.lastBoardMtime;
-}
-
-/**
- * Check if board.md content has actually changed (slower, content-based check)
- * Only called when mtime indicates a potential change
- */
-export function boardContentChanged(
-  pmoPath: string,
-  storage: SQLiteStorage,
-  content: string
-): boolean {
-  const meta = getSyncMetadata(storage);
-
-  if (!meta || !meta.contentHash) {
-    // No content hash stored - assume changed
-    return true;
-  }
-
-  const currentHash = computeHash(content);
-  return currentHash !== meta.contentHash;
-}
-
-/**
- * Auto-sync from board.md if it has changes
- * Uses hybrid mtime + content approach:
- * 1. If mtime unchanged -> skip (fast path)
- * 2. If mtime changed -> check content hash
- * 3. If content same -> just update mtime, skip sync
- * 4. If content different -> perform sync
- *
- * Returns: true if sync performed, false otherwise
+ * Auto-sync from board.md — DISABLED.
+ * The local ticket store has been removed (PRLT-1299). The provider
+ * (Linear, Jira, etc.) is now the source of truth. Board sync is a no-op.
  */
 export function autoSyncFromBoard(
-  pmoPath: string,
-  storage: SQLiteStorage,
-  logger?: (msg: string) => void,
-  projectId: string = 'default'
+  _pmoPath: string,
+  _storage: SQLiteStorage,
+  _logger?: (msg: string) => void,
+  _projectId?: string
 ): boolean {
-  const boardPath = getBoardPath(pmoPath, projectId);
-
-  if (!fs.existsSync(boardPath)) {
-    return false;
-  }
-
-  // Fast path: mtime unchanged
-  if (!boardMtimeChanged(pmoPath, storage, projectId)) {
-    return false;
-  }
-
-  // Mtime changed - read content and check hash
-  const markdown = fs.readFileSync(boardPath, 'utf-8');
-  const stats = fs.statSync(boardPath);
-  const contentHash = computeHash(markdown);
-
-  // Check if content actually changed
-  if (!boardContentChanged(pmoPath, storage, markdown)) {
-    // Content same, just update mtime (file was touched but not modified)
-    updateSyncMetadata(storage, stats.mtimeMs, contentHash);
-    if (logger) {
-      logger(`📋 ${path.basename(boardPath)} touched but unchanged, updated mtime`);
-    }
-    return false;
-  }
-
-  // Content changed - perform full sync
-  const board = parseBoard(markdown, projectId);
-  storage.rebuildFromBoard(board);
-
-  // Update sync metadata with new mtime and hash
-  updateSyncMetadata(storage, stats.mtimeMs, contentHash);
-
-  if (logger) {
-    logger(`📥 Auto-synced from ${path.basename(boardPath)}`);
-  }
-
-  return true;
+  return false;
 }
 
 /**
@@ -310,17 +180,14 @@ export function getStorageWithAutoSync(
   initContainerCleanupHook();
 
   // Initialize configurable trigger handler (agent_started, pr_created, etc. → target column)
+  // Since PRLT-1299, local ticket store is gone — moves go directly to the provider.
   initTriggerHandler(storage.getDatabase(), async (ticketId, projectId, targetStatus) => {
     try {
-      await storage.moveTicket(projectId, ticketId, targetStatus);
-    } catch {
-      // Trigger-driven moves are non-fatal
-    }
-
-    // Sync to external provider (e.g., Linear) if ticket was imported from one
-    try {
-      const ticket = await storage.getTicketById(ticketId);
-      const provider = resolveTicketProvider(ticketId, projectId, storage.getDatabase(), storage, ticket?.metadata);
+      // Build synthetic metadata for provider resolution
+      const metadata = /^[A-Z]+-\d+$/i.test(ticketId)
+        ? { external_source: 'linear', external_key: ticketId }
+        : null;
+      const provider = resolveTicketProvider(ticketId, projectId, storage.getDatabase(), storage as never, metadata);
       if (provider.name !== 'pmo') {
         await provider.moveTicket(ticketId, targetStatus);
       }

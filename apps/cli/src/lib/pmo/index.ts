@@ -54,8 +54,6 @@ export {
   PMO_TABLE_SCHEMAS,
   PMO_INDEXES,
   PMO_SCHEMA_SQL,
-  EXPECTED_TICKET_COLUMNS,
-  validateTicketSchema,
 } from './schema.js';
 
 
@@ -358,49 +356,13 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
 
   const storage = new SQLiteStorage(dbPath);
 
-  // Create project
-  await storage.createProject({
-    id: projectId,
-    name: boardName,
-    description: `Project for ${boardName}`,
-    template: boardTemplate,
-  });
-
-  // Initialize board with columns (projectId already created above)
-  await storage.init(projectId, {
-    name: boardName,
-    columns,
-  });
-
-  // For custom templates, create statuses from columns
-  // (built-in templates have statuses created via applyTemplate in createProject)
-  if (boardTemplate === 'custom' && columns) {
-    for (let i = 0; i < columns.length; i++) {
-      const name = columns[i];
-      const nameLower = name.toLowerCase();
-
-      // Infer category from column name
-      let category: 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled' = 'backlog';
-      if (nameLower.includes('done') || nameLower.includes('complete') || nameLower.includes('shipped')) {
-        category = 'completed';
-      } else if (nameLower.includes('progress') || nameLower.includes('review') || nameLower.includes('active')) {
-        category = 'started';
-      } else if (nameLower.includes('todo') || nameLower.includes('to do') || nameLower.includes('planned') || nameLower.includes('next')) {
-        category = 'unstarted';
-      } else if (nameLower.includes('cancel') || nameLower.includes('archived')) {
-        category = 'canceled';
-      }
-      // Default: backlog (for first columns, custom backlogs, etc.)
-
-      // eslint-disable-next-line no-await-in-loop -- Sequential status creation in order
-      await storage.createStatus(projectId, {
-        name,
-        category,
-        position: i,
-        isDefault: i === 0,
-      });
-    }
-  }
+  // Create project via raw SQL — SQLiteStorage's createProject was removed
+  // as part of the dead-code cleanup, but we still need to insert into pmo_projects.
+  const db = storage.getDatabase();
+  db.prepare(`
+    INSERT OR IGNORE INTO pmo_projects (id, name, template, description, status, is_archived)
+    VALUES (?, ?, ?, ?, 'active', 0)
+  `).run(projectId, boardName, boardTemplate, `Project for ${boardName}`);
 
   // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {

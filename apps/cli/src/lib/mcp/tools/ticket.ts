@@ -1,13 +1,26 @@
 /**
  * MCP Ticket Tools
+ *
+ * Since PRLT-1299 removed the local ticket store, all ticket operations
+ * are delegated to the `prlt` CLI which routes through the provider
+ * (Linear, Jira, etc.).
  */
 
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { Ticket } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
-import { formatTicket, formatTicketFull, errorResponse, strictTool } from '../helpers.js'
+import { errorResponse, strictTool } from '../helpers.js'
 import { getWorkspacePriorities, setWorkspacePriorities } from '../../work-lifecycle/settings.js'
+
+/** Run a prlt command and parse JSON output. */
+function runPrlt(ctx: McpToolContext, cmd: string): unknown {
+  const output = ctx.runCommand(cmd)
+  try {
+    return JSON.parse(output)
+  } catch {
+    return { success: true, raw: output }
+  }
+}
 
 export function registerTicketTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,
@@ -21,50 +34,24 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       assignee: z.string().optional().describe('Filter by assignee'),
       owner: z.string().optional().describe('Filter by owner'),
       search: z.string().optional().describe('Search in title/description'),
-      epic: z.string().optional().describe('Filter by epic ID'),
       all_projects: z.boolean().optional().describe('List from all projects'),
       limit: z.number().min(1).optional().describe('Maximum number of tickets to return (default: 50)'),
       offset: z.number().min(0).optional().describe('Number of tickets to skip for pagination (default: 0)'),
     },
     async (params) => {
       try {
-        const allTickets = await ctx.storage.listTickets(
-          params.all_projects ? undefined : params.project,
-          {
-            column: params.column,
-            priority: params.priority,
-            category: params.category,
-            assignee: params.assignee,
-            owner: params.owner,
-            search: params.search,
-            epic: params.epic,
-            allProjects: params.all_projects,
-          }
-        )
-        const total = allTickets.length
-        const offset = params.offset ?? 0
-        const limit = params.limit ?? 50
-        const tickets = allTickets.slice(offset, offset + limit)
+        const args: string[] = ['prlt ticket list --json']
+        if (params.project) args.push(`-P ${params.project}`)
+        if (params.column) args.push(`--column "${params.column}"`)
+        if (params.priority) args.push(`--priority "${params.priority}"`)
+        if (params.category) args.push(`--category "${params.category}"`)
+        if (params.assignee) args.push(`--assignee "${params.assignee}"`)
+        if (params.search) args.push(`--search "${params.search}"`)
+        const result = runPrlt(ctx, args.join(' '))
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({
-              success: true,
-              total,
-              count: tickets.length,
-              offset,
-              limit,
-              tickets: tickets.map((t: Ticket) => ({
-                  id: t.id,
-                  title: t.title,
-                  priority: t.priority,
-                  category: t.category,
-                  statusName: t.statusName,
-                  statusCategory: t.statusCategory,
-                  assignee: t.assignee,
-                  position: t.position,
-              })),
-            }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         }
       } catch (error) {
@@ -84,33 +71,21 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       category: z.string().optional().describe('Category (feature, bug, etc.)'),
       column: z.string().optional().describe('Column/status name'),
       assignee: z.string().optional().describe('Assignee'),
-      owner: z.string().optional().describe('Owner'),
-      epic_id: z.string().optional().describe('Epic ID to link'),
-      subtasks: z.array(z.string()).optional().describe('Subtasks to add'),
     },
     async (params) => {
       try {
-        let projectId = params.project
-        if (!projectId) {
-          const projects = await ctx.storage.listProjects()
-          if (projects.length === 0) throw new Error('No projects found')
-          projectId = projects[0].id
-        }
-        const ticket = await ctx.storage.createTicket(projectId, {
-          title: params.title,
-          description: params.description,
-          priority: params.priority,
-          category: params.category,
-          statusName: params.column,
-          assignee: params.assignee,
-          owner: params.owner,
-          epicId: params.epic_id,
-          subtasks: params.subtasks?.map((title) => ({ id: '', title, done: false })),
-        })
+        const args: string[] = ['prlt ticket create --json']
+        args.push(`--title "${params.title.replace(/"/g, '\\"')}"`)
+        if (params.project) args.push(`-P ${params.project}`)
+        if (params.description) args.push(`--description "${params.description.replace(/"/g, '\\"')}"`)
+        if (params.priority) args.push(`--priority "${params.priority}"`)
+        if (params.category) args.push(`--category "${params.category}"`)
+        if (params.assignee) args.push(`--assignee "${params.assignee}"`)
+        const result = runPrlt(ctx, args.join(' '))
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, ticket: formatTicket(ticket) }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         }
       } catch (error) {
@@ -125,12 +100,11 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     { id: z.string().describe('Ticket ID') },
     async (params) => {
       try {
-        const ticket = await ctx.storage.getTicket(params.id)
-        if (!ticket) throw new Error(`Ticket not found: ${params.id}`)
+        const result = runPrlt(ctx, `prlt ticket show ${params.id} --json`)
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, ticket: formatTicketFull(ticket) }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         }
       } catch (error) {
@@ -149,24 +123,20 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
       priority: z.string().optional().describe('New priority (uses workspace priority scale)'),
       category: z.string().optional().describe('New category'),
       assignee: z.string().optional().describe('New assignee'),
-      owner: z.string().optional().describe('New owner'),
-      branch: z.string().optional().describe('Git branch'),
     },
     async (params) => {
       try {
-        const changes: Record<string, unknown> = {}
-        if (params.title !== undefined) changes.title = params.title
-        if (params.description !== undefined) changes.description = params.description
-        if (params.priority !== undefined) changes.priority = params.priority
-        if (params.category !== undefined) changes.category = params.category
-        if (params.assignee !== undefined) changes.assignee = params.assignee
-        if (params.owner !== undefined) changes.owner = params.owner
-        if (params.branch !== undefined) changes.branch = params.branch
-        const ticket = await ctx.storage.updateTicket(params.id, changes)
+        const args: string[] = [`prlt ticket edit ${params.id} --json`]
+        if (params.title) args.push(`--title "${params.title.replace(/"/g, '\\"')}"`)
+        if (params.description) args.push(`--description "${params.description.replace(/"/g, '\\"')}"`)
+        if (params.priority) args.push(`--priority "${params.priority}"`)
+        if (params.category) args.push(`--category "${params.category}"`)
+        if (params.assignee) args.push(`--assignee "${params.assignee}"`)
+        const result = runPrlt(ctx, args.join(' '))
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, ticket: formatTicket(ticket) }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         }
       } catch (error) {
@@ -181,17 +151,14 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     {
       id: z.string().describe('Ticket ID'),
       column: z.string().describe('Target column/status'),
-      position: z.number().optional().describe('Position in column'),
     },
     async (params) => {
       try {
-        const ticket = await ctx.storage.getTicket(params.id)
-        if (!ticket) throw new Error(`Ticket not found: ${params.id}`)
-        const moved = await ctx.storage.moveTicket(ticket.projectId!, params.id, params.column, params.position)
+        const result = runPrlt(ctx, `prlt ticket move ${params.id} "${params.column}" --json`)
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, ticket: formatTicket(moved) }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         }
       } catch (error) {
@@ -206,62 +173,11 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     { id: z.string().describe('Ticket ID') },
     async (params) => {
       try {
-        await ctx.storage.deleteTicket(params.id)
+        const result = runPrlt(ctx, `prlt ticket delete ${params.id} --json`)
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, message: `Deleted ${params.id}` }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_move_to_project',
-    'Move ticket to a different project',
-    {
-      id: z.string().describe('Ticket ID'),
-      project: z.string().describe('Target project ID'),
-    },
-    async (params) => {
-      try {
-        const ticket = await ctx.storage.moveTicketToProject(params.id, params.project)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, ticket: formatTicket(ticket) }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_reorder',
-    'Reorder a ticket within its current status. Provide either a direct position value or place it after another ticket.',
-    {
-      id: z.string().describe('Ticket ID to reorder'),
-      position: z.number().optional().describe('Direct position value (gapped integers, e.g. 1000, 2000)'),
-      after_ticket_id: z.string().optional().describe('Place this ticket after the specified ticket ID'),
-    },
-    async (params) => {
-      try {
-        if (!params.position && !params.after_ticket_id) {
-          throw new Error('Must provide either position or after_ticket_id')
-        }
-        const ticket = await ctx.storage.reorderTicket(params.id, {
-          position: params.position,
-          afterTicketId: params.after_ticket_id,
-        })
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, ticket: formatTicket(ticket) }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         }
       } catch (error) {
@@ -279,55 +195,11 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     },
     async (params) => {
       try {
-        const subtask = await ctx.storage.addSubtask(params.ticket_id, params.title)
+        const result = runPrlt(ctx, `prlt ticket edit ${params.ticket_id} --add-subtask "${params.title.replace(/"/g, '\\"')}" --json`)
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, subtask }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_toggle_subtask',
-    'Toggle subtask completion',
-    {
-      ticket_id: z.string().describe('Ticket ID'),
-      subtask_id: z.string().describe('Subtask ID'),
-    },
-    async (params) => {
-      try {
-        const subtask = await ctx.storage.toggleSubtask(params.ticket_id, params.subtask_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, subtask }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_remove_subtask',
-    'Remove a subtask',
-    {
-      ticket_id: z.string().describe('Ticket ID'),
-      subtask_id: z.string().describe('Subtask ID'),
-    },
-    async (params) => {
-      try {
-        await ctx.storage.removeSubtask(params.ticket_id, params.subtask_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: 'Subtask removed' }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         }
       } catch (error) {
@@ -345,162 +217,11 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     },
     async (params) => {
       try {
-        const ac = await ctx.storage.addAcceptanceCriterion(params.ticket_id, params.criterion)
+        const result = runPrlt(ctx, `prlt ticket edit ${params.ticket_id} --add-ac "${params.criterion.replace(/"/g, '\\"')}" --json`)
         return {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify({ success: true, acceptanceCriterion: ac }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_remove_acceptance_criterion',
-    'Remove acceptance criterion',
-    {
-      ticket_id: z.string().describe('Ticket ID'),
-      criterion_id: z.string().describe('Criterion ID'),
-    },
-    async (params) => {
-      try {
-        await ctx.storage.removeAcceptanceCriterion(params.ticket_id, params.criterion_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: 'Criterion removed' }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_link_to_epic',
-    'Link ticket to an epic',
-    {
-      ticket_id: z.string().describe('Ticket ID'),
-      epic_id: z.string().describe('Epic ID'),
-    },
-    async (params) => {
-      try {
-        await ctx.storage.linkTicketToEpic(params.ticket_id, params.epic_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: 'Ticket linked to epic' }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_unlink_from_epic',
-    'Unlink ticket from its epic',
-    { ticket_id: z.string().describe('Ticket ID') },
-    async (params) => {
-      try {
-        await ctx.storage.unlinkTicketFromEpic(params.ticket_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: 'Ticket unlinked from epic' }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_link_to_spec',
-    'Link ticket to a spec',
-    {
-      ticket_id: z.string().describe('Ticket ID'),
-      spec_id: z.string().describe('Spec ID'),
-    },
-    async (params) => {
-      try {
-        await ctx.storage.linkTicketToSpec(params.ticket_id, params.spec_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: 'Ticket linked to spec' }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_add_blocker',
-    'Add a blocking dependency',
-    {
-      ticket_id: z.string().describe('Ticket that will be blocked'),
-      blocker_id: z.string().describe('Ticket that blocks'),
-    },
-    async (params) => {
-      try {
-        await ctx.storage.createTicketDependency(params.ticket_id, params.blocker_id, 'blocks')
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: `${params.ticket_id} is now blocked by ${params.blocker_id}` }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_remove_blocker',
-    'Remove a blocking dependency',
-    {
-      ticket_id: z.string().describe('Blocked ticket'),
-      blocker_id: z.string().describe('Blocking ticket'),
-    },
-    async (params) => {
-      try {
-        await ctx.storage.deleteTicketDependency(params.ticket_id, params.blocker_id, 'blocks')
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({ success: true, message: 'Blocker removed' }, null, 2),
-          }],
-        }
-      } catch (error) {
-        return errorResponse(error)
-      }
-    }
-  )
-
-  strictTool(server,
-    'ticket_get_blockers',
-    'Get tickets blocking this ticket',
-    { ticket_id: z.string().describe('Ticket ID') },
-    async (params) => {
-      try {
-        const blockers = await ctx.storage.getTicketBlockers(params.ticket_id)
-        return {
-          content: [{
-            type: 'text' as const,
-            text: JSON.stringify({
-              success: true,
-              blockers: blockers.map((t: Ticket) => ({ id: t.id, title: t.title, statusName: t.statusName })),
-            }, null, 2),
+            text: JSON.stringify(result, null, 2),
           }],
         }
       } catch (error) {
@@ -538,7 +259,6 @@ export function registerTicketTools(server: McpServer, ctx: McpToolContext): voi
     async (params) => {
       try {
         const db = ctx.storage.getDatabase()
-        // Check for duplicates
         const seen = new Set<string>()
         for (const p of params.priorities) {
           if (seen.has(p)) throw new Error(`Duplicate priority value: "${p}"`)
