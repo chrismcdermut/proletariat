@@ -109,52 +109,6 @@ export class TemplateStorage {
   }
 
   /**
-   * Create a ticket template from an existing ticket.
-   */
-  async createTicketTemplateFromTicket(
-    ticketId: string,
-    name: string,
-    description?: string
-  ): Promise<TicketTemplate> {
-    // Get the ticket
-    const ticket = this.ctx.db.prepare(`
-      SELECT * FROM ${T.tickets} WHERE id = ?
-    `).get(ticketId) as {
-      title: string
-      description: string | null
-      priority: string | null
-      category: string | null
-      status_id: string | null
-      owner: string | null
-      assignee: string | null
-      labels: string | null
-    } | undefined
-
-    if (!ticket) {
-      throw new PMOError('NOT_FOUND', `Ticket not found: ${ticketId}`, ticketId)
-    }
-
-    // Get subtasks
-    const subtasks = this.ctx.db.prepare(`
-      SELECT title FROM ${T.subtasks} WHERE ticket_id = ? ORDER BY position
-    `).all(ticketId) as Array<{ title: string }>
-
-    // Create template from ticket
-    return this.createTicketTemplate({
-      name,
-      description,
-      descriptionTemplate: ticket.description || undefined,
-      defaultPriority: ticket.priority || undefined,
-      defaultCategory: ticket.category || undefined,
-      defaultStatusId: ticket.status_id || undefined,
-      defaultOwner: ticket.owner || undefined,
-      defaultAssignee: ticket.assignee || undefined,
-      defaultLabels: ticket.labels ? JSON.parse(ticket.labels) : [],
-      suggestedSubtasks: subtasks.map((st) => ({ title: st.title })),
-    })
-  }
-
-  /**
    * Update a ticket template.
    */
   async updateTicketTemplate(
