@@ -174,6 +174,7 @@ async function setupTestDatabase(db: SqliteDatabase, pmoPath: string): Promise<v
       sandboxed INTEGER NOT NULL DEFAULT 0,
       permission_mode TEXT DEFAULT 'safe',
       cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
+      role TEXT NOT NULL DEFAULT 'worker',
       status TEXT NOT NULL DEFAULT 'starting',
       branch TEXT,
       pid TEXT,

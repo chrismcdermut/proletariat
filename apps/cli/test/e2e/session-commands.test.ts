@@ -777,6 +777,7 @@ describe('@smoke Session Commands E2E Tests', () => {
           agent_name TEXT NOT NULL,
           executor TEXT NOT NULL DEFAULT 'claude',
           environment TEXT NOT NULL DEFAULT 'host',
+          role TEXT NOT NULL DEFAULT 'worker',
           status TEXT NOT NULL DEFAULT 'pending',
           session_id TEXT,
           container_id TEXT,
