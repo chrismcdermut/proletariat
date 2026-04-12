@@ -721,9 +721,9 @@ Requirements:
 **Tip:** Use \`prlt ticket view <id>\` to see full ticket details at any time.
 
 After updating, output a brief summary of your grooming changes.`,
-      fromState: 'Backlog',
-      toState: 'Todo',
-      executor: 'claude',
+      fromIntent: 'backlog',
+      toIntent: 'ready',
+      executor: null,
       environment: 'host',
       permissionMode: 'readonly',
       modifiesCode: false,
@@ -777,9 +777,9 @@ ${PRLT_COMMANDS_RESOLVE}`,
 \`\`\`bash
 prlt ticket edit {{TICKET_ID}} --description "..." --remove-label "needs-clarification" --add-label "ready"
 \`\`\``,
-      fromState: null,
-      toState: null,
-      executor: 'claude',
+      fromIntent: null,
+      toIntent: null,
+      executor: null,
       environment: 'host',
       permissionMode: 'readonly',
       modifiesCode: false,
@@ -858,9 +858,9 @@ ${PRLT_COMMANDS_CODE}`,
 - \`gh pr create\` → use \`prlt work propose {{TICKET_ID}}\` instead
 - \`gh pr merge\` → use \`prlt work ship {{TICKET_ID}}\` instead
 - These raw commands skip ticket lifecycle updates and break board sync.`,
-      fromState: 'Todo',
-      toState: 'In Progress',
-      executor: 'claude',
+      fromIntent: 'ready',
+      toIntent: 'started',
+      executor: null,
       environment: 'host',
       permissionMode: 'full',
       modifiesCode: true,
@@ -969,9 +969,9 @@ prlt ticket edit <TICKET_ID> --add-subtask "Fix: <description of issue>"
 \`\`\`
 
 **STOP:** After posting your review and logging any findings, your task is complete. Do not take any further actions.`,
-      fromState: null,
-      toState: null,
-      executor: 'claude',
+      fromIntent: null,
+      toIntent: null,
+      executor: null,
       environment: 'host',
       permissionMode: 'readonly',
       modifiesCode: false,
@@ -1038,9 +1038,9 @@ ${PRLT_COMMANDS_CODE}`,
 **IMPORTANT:** NEVER use \`gh pr merge\` — always use \`prlt work ship {{TICKET_ID}}\`.
 
 **STOP:** After completing the above, your task is done. Do not take any further actions.`,
-      fromState: 'Review',
-      toState: 'Done',
-      executor: 'claude',
+      fromIntent: 'needs_review',
+      toIntent: 'completed',
+      executor: null,
       environment: 'devcontainer',
       permissionMode: 'bypassPermissions',
       modifiesCode: false,
@@ -1053,7 +1053,7 @@ ${PRLT_COMMANDS_CODE}`,
   // Use INSERT OR REPLACE to always update builtin actions with latest prompts
   // This ensures prompt improvements are applied to existing databases
   const upsertAction = db.prepare(`
-    INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_state, to_state,
+    INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_intent, to_intent,
       executor, environment, permission_mode, modifies_code, is_default, is_builtin, position, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
@@ -1061,8 +1061,8 @@ ${PRLT_COMMANDS_CODE}`,
       description = excluded.description,
       prompt = excluded.prompt,
       end_prompt = excluded.end_prompt,
-      from_state = excluded.from_state,
-      to_state = excluded.to_state,
+      from_intent = excluded.from_intent,
+      to_intent = excluded.to_intent,
       executor = excluded.executor,
       environment = excluded.environment,
       permission_mode = excluded.permission_mode,
@@ -1081,9 +1081,9 @@ ${PRLT_COMMANDS_CODE}`,
       action.description,
       action.prompt,
       action.endPrompt || null,
-      action.fromState || null,
-      action.toState || null,
-      action.executor || 'claude',
+      action.fromIntent || null,
+      action.toIntent || null,
+      action.executor || null,
       action.environment || 'host',
       action.permissionMode || 'full',
       action.modifiesCode ? 1 : 0,
@@ -1097,39 +1097,38 @@ ${PRLT_COMMANDS_CODE}`,
 
 /**
  * Seed built-in workflow rules.
- * Wires default actions to standard Linear/kanban states.
+ * Wires default actions to standard intent-based transitions.
  */
 export function seedBuiltinWorkflowRules(db: Database.Database): void {
   const builtinRules = [
     {
       id: 'backlog-groom',
-      fromState: null,
-      toState: 'Backlog',
+      fromIntent: null,
+      toIntent: 'backlog',
       actionId: 'groom',
       trigger: 'manual',
     },
     {
-      id: 'todo-implement',
-      fromState: null,
-      toState: 'Todo',
+      id: 'ready-implement',
+      fromIntent: null,
+      toIntent: 'ready',
       actionId: 'implement',
       trigger: 'manual',
     },
     {
-      id: 'in-progress-implement',
-      fromState: null,
-      toState: 'In Progress',
+      id: 'started-implement',
+      fromIntent: null,
+      toIntent: 'started',
       actionId: 'implement',
       trigger: 'manual',
     },
     {
-      id: 'done-review',
-      fromState: null,
-      toState: 'Done',
+      id: 'completed-review',
+      fromIntent: null,
+      toIntent: 'completed',
       actionId: 'review',
       trigger: 'manual',
     },
-    // NOTE: 'done-review-comment' rule removed — review-comment absorbed by review
   ]
 
   // Verify pmo_workflow_rules table exists
@@ -1139,11 +1138,11 @@ export function seedBuiltinWorkflowRules(db: Database.Database): void {
   if (!tableExists) return
 
   const upsertRule = db.prepare(`
-    INSERT INTO ${T.workflow_rules} (id, from_state, to_state, action_id, trigger, enabled, created_at, updated_at)
+    INSERT INTO ${T.workflow_rules} (id, from_intent, to_intent, action_id, trigger, enabled, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, 1, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
-      from_state = excluded.from_state,
-      to_state = excluded.to_state,
+      from_intent = excluded.from_intent,
+      to_intent = excluded.to_intent,
       action_id = excluded.action_id,
       trigger = excluded.trigger,
       updated_at = excluded.updated_at
@@ -1159,8 +1158,8 @@ export function seedBuiltinWorkflowRules(db: Database.Database): void {
 
     upsertRule.run(
       rule.id,
-      rule.fromState,
-      rule.toState,
+      rule.fromIntent,
+      rule.toIntent,
       rule.actionId,
       rule.trigger,
       now,

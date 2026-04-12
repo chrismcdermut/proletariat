@@ -1,5 +1,9 @@
 /**
  * Work action operations.
+ *
+ * Actions use intent-based wiring (from_intent/to_intent) instead of
+ * provider-specific state names. The transition map resolves intents
+ * to provider states at runtime.
  */
 
 import { PMO_TABLES } from '../schema.js'
@@ -25,10 +29,11 @@ export class ActionStorage {
       params.push(filter.isBuiltin ? 1 : 0)
     }
 
-    if (filter?.fromState) {
-      // Match actions where from_state equals the given state name, or from_state is null (matches any)
-      conditions.push('(from_state = ? OR from_state IS NULL)')
-      params.push(filter.fromState)
+    // Support both fromIntent (new) and fromState (deprecated)
+    const intentFilter = filter?.fromIntent || filter?.fromState
+    if (intentFilter) {
+      conditions.push('(from_intent = ? OR from_intent IS NULL)')
+      params.push(intentFilter)
     }
 
     if (filter?.search) {
@@ -84,8 +89,12 @@ export class ActionStorage {
     const now = new Date().toISOString()
     const modifiesCode = action.modifiesCode !== false
 
+    // Support both fromIntent (new) and fromState (deprecated)
+    const fromIntent = action.fromIntent ?? action.fromState ?? null
+    const toIntent = action.toIntent ?? action.toState ?? null
+
     this.ctx.db.prepare(`
-      INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_state, to_state,
+      INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_intent, to_intent,
         executor, environment, permission_mode, timeout, model, review_gate, network_allowlist, modifies_code, is_default, is_builtin, position, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -94,8 +103,8 @@ export class ActionStorage {
       action.description || null,
       action.prompt,
       action.endPrompt || null,
-      action.fromState || null,
-      action.toState || null,
+      fromIntent,
+      toIntent,
       action.executor || null,
       action.environment || null,
       action.permissionMode || null,
@@ -117,8 +126,8 @@ export class ActionStorage {
       description: action.description,
       prompt: action.prompt,
       endPrompt: action.endPrompt,
-      fromState: action.fromState,
-      toState: action.toState,
+      fromIntent: fromIntent || undefined,
+      toIntent: toIntent || undefined,
       executor: action.executor,
       environment: action.environment,
       permissionMode: action.permissionMode,
@@ -177,13 +186,14 @@ export class ActionStorage {
       updates.push('end_prompt = ?')
       params.push(changes.endPrompt || null)
     }
-    if (changes.fromState !== undefined) {
-      updates.push('from_state = ?')
-      params.push(changes.fromState || null)
+    // Support both fromIntent (new) and fromState (deprecated)
+    if (changes.fromIntent !== undefined || changes.fromState !== undefined) {
+      updates.push('from_intent = ?')
+      params.push(changes.fromIntent ?? changes.fromState ?? null)
     }
-    if (changes.toState !== undefined) {
-      updates.push('to_state = ?')
-      params.push(changes.toState || null)
+    if (changes.toIntent !== undefined || changes.toState !== undefined) {
+      updates.push('to_intent = ?')
+      params.push(changes.toIntent ?? changes.toState ?? null)
     }
     if (changes.executor !== undefined) {
       updates.push('executor = ?')
@@ -251,39 +261,56 @@ export class ActionStorage {
   }
 
   /**
-   * Get suggested action for a state name.
-   * Matches actions where from_state equals the given state name, or from_state is null.
-   * Prefers exact from_state matches with is_default=true, then by position.
+   * Get suggested action for an intent name.
+   * Matches actions where from_intent equals the given intent, or from_intent is null.
+   * Prefers exact from_intent matches with is_default=true, then by position.
    */
-  async getSuggestedAction(stateName: string): Promise<WorkAction | null> {
-    // First try to find a default action with exact from_state match
+  async getSuggestedAction(intentOrStateName: string): Promise<WorkAction | null> {
+    // First try to find a default action with exact from_intent match
     const exactMatch = this.ctx.db.prepare(`
       SELECT * FROM ${T.actions}
-      WHERE from_state = ? AND is_default = 1
+      WHERE from_intent = ? AND is_default = 1
       ORDER BY position ASC
       LIMIT 1
-    `).get(stateName) as WorkActionRow | undefined
+    `).get(intentOrStateName) as WorkActionRow | undefined
 
     if (exactMatch) {
       return this.rowToAction(exactMatch)
     }
 
-    // Fall back to any action matching this state (exact match first, then null from_state)
+    // Fall back to any action matching this intent (exact match first, then null from_intent)
     const anyMatch = this.ctx.db.prepare(`
       SELECT * FROM ${T.actions}
-      WHERE from_state = ? OR from_state IS NULL
+      WHERE from_intent = ? OR from_intent IS NULL
       ORDER BY
-        CASE WHEN from_state = ? THEN 0 ELSE 1 END,
+        CASE WHEN from_intent = ? THEN 0 ELSE 1 END,
         is_default DESC,
         position ASC
       LIMIT 1
-    `).get(stateName, stateName) as WorkActionRow | undefined
+    `).get(intentOrStateName, intentOrStateName) as WorkActionRow | undefined
 
     if (anyMatch) {
       return this.rowToAction(anyMatch)
     }
 
     return null
+  }
+
+  /**
+   * Find the action that should auto-fire for a given from_intent.
+   * Used by the hook system to resolve which action to trigger
+   * when a ticket reaches a particular intent state.
+   */
+  async getActionByFromIntent(intent: string): Promise<WorkAction | null> {
+    const row = this.ctx.db.prepare(`
+      SELECT * FROM ${T.actions}
+      WHERE from_intent = ?
+      ORDER BY is_default DESC, position ASC
+      LIMIT 1
+    `).get(intent) as WorkActionRow | undefined
+
+    if (!row) return null
+    return this.rowToAction(row)
   }
 
   private rowToAction(row: WorkActionRow): WorkAction {
@@ -293,8 +320,11 @@ export class ActionStorage {
       description: row.description || undefined,
       prompt: row.prompt,
       endPrompt: row.end_prompt || undefined,
-      fromState: row.from_state || undefined,
-      toState: row.to_state || undefined,
+      fromIntent: row.from_intent || undefined,
+      toIntent: row.to_intent || undefined,
+      // Deprecated compat aliases
+      fromState: row.from_intent || undefined,
+      toState: row.to_intent || undefined,
       executor: (row.executor as ActionExecutor) || undefined,
       environment: (row.environment as ActionEnvironment) || undefined,
       permissionMode: (row.permission_mode as ActionPermissionMode) || undefined,
