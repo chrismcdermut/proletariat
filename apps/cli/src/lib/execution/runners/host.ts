@@ -71,14 +71,10 @@ export async function runHost(
 
     // Override user message: just action instructions or a default startup message
     const userMessage = context.actionPrompt
-      || 'Assess the current state of the project:
-'
-        + '1. Check the board: `prlt board view` — what tickets are in progress, blocked, or ready?
-'
-        + '2. List running agents: `prlt session list` — who is working on what? Any stale sessions?
-'
-        + '3. Check open PRs: `gh pr list` — any PRs ready for review or merge?
-'
+      || 'Assess the current state of the project:\n'
+        + '1. Check the board: `prlt board view` — what tickets are in progress, blocked, or ready?\n'
+        + '2. List running agents: `prlt session list` — who is working on what? Any stale sessions?\n'
+        + '3. Check open PRs: `gh pr list` — any PRs ready for review or merge?\n'
         + '4. Summarize what needs attention and recommend next actions.'
     fs.writeFileSync(promptPath, userMessage, { mode: 0o644 })
   } else {
@@ -143,8 +139,7 @@ export async function runHost(
   const setTitleCmds = getSetTitleCommands(windowTitle)
   // TKT-941: Export SYSTEM_PROMPT_PATH so it's available inside srt sandbox child processes.
   // Without export, `bash -c '...'` inside srt can't access the variable.
-  const systemPromptVar = systemPromptPath ? `
-export SYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
+  const systemPromptVar = systemPromptPath ? `\nexport SYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
 
   // Ephemeral agents auto-close after completion instead of dropping to interactive shell
   const postExecBlock = context.isEphemeral
@@ -165,7 +160,7 @@ exec $SHELL
   if (context.executionEnvironment === 'sandbox') {
     // Build the srt wrapper command
     // The inner command is the executor invocation that reads from PROMPT_PATH
-    const srtCmd = buildSrtCommand(`bash -c '${executorInvocation.replace(/'/g, "'\''")}'`, context, config)
+    const srtCmd = buildSrtCommand(`bash -c '${executorInvocation.replace(/'/g, "'\\''")}'`, context, config)
     finalInvocation = srtCmd
   }
 
@@ -241,7 +236,7 @@ ${postExecBlock}`
     // Step 1: Create host tmux session (detached)
     // Only enable mouse mode if NOT using control mode (control mode lets iTerm handle mouse natively)
     const mouseOption = buildTmuxMouseOption(useControlMode)
-    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption} \; set-option -g set-titles on \; set-option -g set-titles-string "#{window_name}"`
+    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
 
     try {
       execSync(tmuxCmd, { stdio: 'pipe' })
@@ -285,7 +280,7 @@ ${postExecBlock}`
     // -CC gives native iTerm scrolling, selection, and gesture support
     // Without -CC, use regular attach (relies on mouse mode for scrolling)
     const tmuxAttach = buildTmuxAttachCommand(useControlMode)
-    const attachCmd = `clear && ${tmuxAttach} -t \"${sessionName}\"`
+    const attachCmd = `clear && ${tmuxAttach} -t \\"${sessionName}\\"`
 
     // For iTerm with control mode, create a new tab and run -CC attach there
     // This avoids interfering with the terminal where prlt is running
@@ -303,7 +298,7 @@ ${postExecBlock}`
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "tmux -u -CC attach -d -t \"${sessionName}\""
+                write text "tmux -u -CC attach -d -t \\"${sessionName}\\""
               end tell
             end tell
           end tell
@@ -316,7 +311,7 @@ ${postExecBlock}`
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "tmux -u -CC attach -d -t \"${sessionName}\""
+                write text "tmux -u -CC attach -d -t \\"${sessionName}\\""
               end tell
             end tell
           end tell
