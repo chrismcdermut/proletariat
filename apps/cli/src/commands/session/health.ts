@@ -24,6 +24,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { SessionStore } from '../../lib/session-store.js'
 
 // =============================================================================
 // Types
@@ -40,6 +41,8 @@ interface AgentHealthInfo {
   containerId?: string
   elapsed: string
   paneContent?: string
+  role?: string  // daemon, worker, orchestrator, etc.
+  daemonType?: string
 }
 
 // =============================================================================
@@ -338,6 +341,34 @@ export default class SessionHealth extends PMOCommand {
             paneContent: paneContent || undefined,
           })
         }
+      }
+
+      // Daemon sessions from global SessionStore
+      const globalStore = new SessionStore()
+      try {
+        const daemonSessions = globalStore.listByRole('daemon', 'running')
+        for (const daemon of daemonSessions) {
+          const alive = globalStore.isTmuxSessionAlive(daemon.sessionName)
+          const state: AgentHealthState = alive ? 'WORKING' : 'UNKNOWN'
+
+          // Mark dead daemons so orchestrator can detect and restart
+          if (!alive) {
+            globalStore.updateStatus(daemon.id, 'done')
+          }
+
+          agents.push({
+            sessionId: daemon.sessionName,
+            ticketId: daemon.daemonType ? `DAEMON:${daemon.daemonType}` : 'DAEMON',
+            agentName: daemon.agentName,
+            state,
+            environment: 'host',
+            elapsed: formatElapsed(daemon.startedAt),
+            role: 'daemon',
+            daemonType: daemon.daemonType,
+          })
+        }
+      } finally {
+        globalStore.close()
       }
 
       // Auto-poke idle agents if --poke-idle
