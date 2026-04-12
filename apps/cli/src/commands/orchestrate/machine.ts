@@ -22,17 +22,13 @@ import { SessionStore } from '../../lib/session-store.js'
 import { readMachineState, buildMachineOrchestratorPrompt } from '../../lib/machine-orchestrator.js'
 import {
   ExecutionContext,
-  _ExecutionEnvironment,
   ExecutorType,
   DisplayMode,
-  _SessionManager,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution } from '../../lib/execution/runners.js'
 import {
   shouldOutputJson,
-  _outputErrorAsJson,
-  _createMetadata,
 } from '../../lib/prompt-json.js'
 
 const MACHINE_ORCHESTRATOR_AGENT = 'machine-orchestrator'

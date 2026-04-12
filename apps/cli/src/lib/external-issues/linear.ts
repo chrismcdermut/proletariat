@@ -189,7 +189,7 @@ export function normalizeLinearIssue(rawIssue: unknown): IssueEnvelope {
 
   const labels = (issue.labels?.nodes || [])
     .map(label => label.name?.trim())
-    .filter(Boolean)
+    .filter((name): name is string => Boolean(name))
 
   const projectKey = issue.team?.key || issue.identifier.split('-')[0]
 

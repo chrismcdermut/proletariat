@@ -16,7 +16,6 @@ import {
   getPRChecks,
   findPRForTicket,
   listOpenPRs,
-  _searchAllPRsForTicket,
   generatePRTitle,
   generatePRBody,
   getCommitLog,

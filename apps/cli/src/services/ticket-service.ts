@@ -38,7 +38,7 @@ export class TicketService {
    * validates project/column existence, fetches tickets, and paginates.
    */
   async listTickets(options: ListTicketsOptions = {}): Promise<ListTicketsResult> {
-    const { projectId, filter = {}, limit, offset, source, _team } = options
+    const { projectId, filter = {}, limit, offset, source } = options
 
     // Build the effective filter
     const effectiveFilter: TicketFilter = { ...filter }

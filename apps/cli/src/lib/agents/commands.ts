@@ -12,7 +12,6 @@ import {
   getAgentWorktrees,
   addAgentsToDatabase,
   removeAgentsFromDatabase,
-  _addEphemeralAgentToDatabase,
   tryAddEphemeralAgentToDatabase,
   getEphemeralAgentNames,
   getActiveTheme,
@@ -530,7 +529,7 @@ export async function removeAgentsFromWorkspace(workspaceInfo: WorkspaceInfo, ag
     // Clear ticket assignees for removed agents
     try {
       const { storage } = await getPMOContext();
-      // eslint-disable-next-line unicorn/no-useless-undefined
+       
       const allTickets = await storage.listTickets(undefined);
       for (const ticket of allTickets) {
         if (ticket.assignee && removed.includes(ticket.assignee)) {

@@ -87,6 +87,8 @@ export default [
       'unicorn/prefer-export-from': 'off',
       'unicorn/prefer-array-some': 'off',
       'unicorn/no-lonely-if': 'off',
+      'unicorn/prefer-native-coercion-functions': 'off',
+      'unicorn/no-useless-undefined': 'off',
 
       // Stylistic rules that don't catch real bugs
       'camelcase': 'off',

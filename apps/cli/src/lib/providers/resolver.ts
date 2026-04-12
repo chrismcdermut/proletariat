@@ -266,6 +266,10 @@ export function resolveProjectProvider(
     return wrapWithEvents(inner, db, storage, projectId)
   }
 
+  if (source === 'notion') {
+    const inner = new NotionTicketProvider(db, storage, projectId)
+    return wrapWithEvents(inner, db, storage, projectId)
+  }
   // auto: use Linear when it's configured in the workspace
   try {
     if (isLinearConfigured(db)) {

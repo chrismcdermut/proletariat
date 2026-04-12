@@ -29,7 +29,6 @@ import type { AgentWork } from '../execution/types.js'
 import {
   getHostTmuxServerStatus,
   getContainerTmuxServerStatus,
-  type _TmuxServerStatus,
 } from '../execution/session-utils.js'
 
 // =============================================================================

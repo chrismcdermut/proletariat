@@ -71,7 +71,7 @@ function deriveAsanaLabels(task: AsanaApiTask): string[] {
   }
   return task.tags
     .map(tag => tag.name?.trim())
-    .filter(Boolean)
+    .filter((name): name is string => Boolean(name))
 }
 
 /**
