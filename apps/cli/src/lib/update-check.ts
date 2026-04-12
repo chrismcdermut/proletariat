@@ -112,6 +112,9 @@ export function writeCache(cache: VersionCheckCache): void {
  */
 export function shouldCheck(cache: VersionCheckCache, currentVersion?: string): boolean {
   if (!cache.last_checked_at) {
+  // PRLT-1300: agents must never self-update — concurrent npm install -g races delete the binary
+  if (process.env.PRLT_AGENT) return false
+
     return true
   }
 
