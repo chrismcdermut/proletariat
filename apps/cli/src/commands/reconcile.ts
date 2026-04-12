@@ -5,12 +5,10 @@
  * ticket transitions to fix board drift (e.g. "6 tickets stuck in Review
  * because someone merged via `gh pr merge` instead of `prlt work ship`").
  *
- * Design constraints from PRLT-1280:
- *   - Idempotent: a second run is a no-op when state is already correct.
- *   - Provider-agnostic: the command never branches on provider type;
- *     all state changes go through the provider adapter layer.
- *   - Scope is strictly the reconciliation function — no LLM, no daemon
- *     rewrite, no supervision tree.
+ * PRLT-1287: When `--watch` is used without `--foreground`, the reconciler
+ * spawns as a supervised daemon in a tmux session, registered in machine.db
+ * with role='daemon'. Use `--foreground` to run in the current terminal
+ * (original behavior, useful for debugging).
  */
 
 import { Flags } from '@oclif/core'
@@ -25,6 +23,10 @@ import {
   createMetadata,
 } from '../lib/prompt-json.js'
 import { ReconcileService } from '../services/index.js'
+import { getHeadquartersNameFromPath } from '../lib/machine-config.js'
+import { getHostTmuxSessionNames } from '../lib/execution/session-utils.js'
+import { buildDaemonSessionName } from '../lib/session/renderer.js'
+import { MachineDB } from '../lib/machine-db.js'
 
 export default class Reconcile extends PMOCommand {
   static description =
@@ -34,6 +36,7 @@ export default class Reconcile extends PMOCommand {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --dry-run',
     '<%= config.bin %> <%= command.id %> --watch',
+    '<%= config.bin %> <%= command.id %> --watch --foreground',
     '<%= config.bin %> <%= command.id %> --watch --interval 60',
     '<%= config.bin %> <%= command.id %> -P proj-001',
   ]
@@ -45,7 +48,11 @@ export default class Reconcile extends PMOCommand {
       default: false,
     }),
     watch: Flags.boolean({
-      description: 'Run on a timer until killed (default interval: 5 minutes)',
+      description: 'Run on a timer until killed (spawns as tmux daemon by default)',
+      default: false,
+    }),
+    foreground: Flags.boolean({
+      description: 'Run in the current terminal instead of spawning a tmux daemon (used with --watch)',
       default: false,
     }),
     interval: Flags.integer({
@@ -64,10 +71,12 @@ export default class Reconcile extends PMOCommand {
     const reconcileService = new ReconcileService(db, storage)
 
     if (flags.watch) {
-      if (jsonMode) {
-        this.error('--watch is not supported in JSON mode')
+      if (!flags.foreground) {
+        // Default --watch behavior: spawn as tmux daemon
+        return this.spawnDaemon(flags, jsonMode)
       }
 
+      // --foreground: run in current terminal (original behavior)
       this.log(
         styles.muted(
           `Watching for drift every ${flags.interval}s (Ctrl+C to stop)${dryRun ? ' [dry-run]' : ''}...`,
@@ -124,6 +133,111 @@ export default class Reconcile extends PMOCommand {
     }
 
     this.printSummary(report, dryRun)
+  }
+
+  /**
+   * Spawn the reconciler as a tmux daemon session.
+   *
+   * Creates a detached tmux session running `prlt reconcile --watch --foreground`,
+   * registers it in machine.db with ticketId='DAEMON' and agentName='daemon-reconciler',
+   * and returns immediately.
+   */
+  private async spawnDaemon(
+    flags: Record<string, unknown>,
+    jsonMode: boolean,
+  ): Promise<void> {
+    const { execSync } = await import('node:child_process')
+    const hqPath = this.hqPath ?? process.cwd()
+    const hqName = getHeadquartersNameFromPath(hqPath)
+    const sessionName = buildDaemonSessionName(hqName, 'reconciler')
+
+    // Check if already running
+    const hostSessions = getHostTmuxSessionNames()
+    if (hostSessions.includes(sessionName)) {
+      if (jsonMode) {
+        outputSuccessAsJson(
+          {
+            status: 'already_running',
+            sessionName,
+            message: `Reconciler daemon is already running (session: ${sessionName})`,
+          },
+          createMetadata('reconcile', flags),
+        )
+        return
+      }
+      this.log(styles.success(`Reconciler daemon is already running (session: ${sessionName})`))
+      this.log(styles.muted(`  Attach with: tmux attach -t ${sessionName}`))
+      return
+    }
+
+    // Build the command that will run inside tmux
+    const interval = flags.interval as number
+    const dryRun = flags['dry-run'] as boolean
+    const projectFlag = (flags as { project?: string }).project
+
+    let cmd = `prlt reconcile --watch --foreground --interval ${interval}`
+    if (dryRun) cmd += ' --dry-run'
+    if (projectFlag) cmd += ` -P ${projectFlag}`
+
+    // Spawn detached tmux session
+    try {
+      execSync(
+        `tmux new-session -d -s "${sessionName}" -c "${hqPath}" "${cmd}"`,
+        { stdio: 'pipe', timeout: 10000 },
+      )
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      if (jsonMode) {
+        outputSuccessAsJson(
+          { status: 'error', error: `Failed to spawn tmux session: ${errMsg}` },
+          createMetadata('reconcile', flags),
+        )
+        return
+      }
+      this.log(styles.error(`Failed to spawn reconciler daemon: ${errMsg}`))
+      return
+    }
+
+    // Register in machine.db
+    try {
+      const machineDb = new MachineDB()
+      try {
+        const execution = machineDb.createExecution({
+          prompt: cmd,
+          repoPath: hqPath,
+          agentName: 'daemon-reconciler',
+          executor: 'prlt',
+          environment: 'host',
+          ticketId: 'DAEMON',
+          persistent: true,
+          cleanupPolicy: 'persistent',
+        })
+        machineDb.updateProcessInfo(execution.id, { sessionId: sessionName })
+        machineDb.updateStatus(execution.id, 'running')
+      } finally {
+        machineDb.close()
+      }
+    } catch {
+      // Non-fatal: daemon is running even if machine.db registration fails
+    }
+
+    if (jsonMode) {
+      outputSuccessAsJson(
+        {
+          status: 'started',
+          sessionName,
+          interval,
+          dryRun: dryRun || false,
+        },
+        createMetadata('reconcile', flags),
+      )
+      return
+    }
+
+    this.log(styles.success(`Reconciler daemon started (session: ${sessionName})`))
+    this.log(styles.muted(`  Interval: ${interval}s`))
+    this.log(styles.muted(`  Attach with: tmux attach -t ${sessionName}`))
+    this.log(styles.muted(`  Stop with: prlt session stop ${sessionName}`))
   }
 
   private printSummary(report: ReconcileReport, dryRun: boolean): void {

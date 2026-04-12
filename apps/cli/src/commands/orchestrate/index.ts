@@ -35,6 +35,12 @@ import {
 } from '../../lib/orchestrate/index.js'
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
+import {
+  ensureDaemonRunning,
+  isDaemonAlive,
+  reconcilerDaemonSpec,
+} from '../../lib/session/daemon-manager.js'
+
 export default class Orchestrate extends PromptCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
 
@@ -230,6 +236,16 @@ export default class Orchestrate extends PromptCommand {
         return
       }
 
+      // PRLT-1287: Auto-spawn reconciler daemon on orchestrate startup
+      const hqPath = workspaceInfo.path
+      const reconcilerSpec = reconcilerDaemonSpec()
+      const reconcilerSession = ensureDaemonRunning(hqPath, reconcilerSpec)
+      if (reconcilerSession) {
+        logFn(`[daemon] Reconciler daemon running (${reconcilerSession})`)
+      } else {
+        logFn('[daemon] Failed to spawn reconciler daemon — will retry on next health check')
+      }
+
       // Daemon mode: start the engine and run until stopped
       engine.start()
 
@@ -301,6 +317,17 @@ export default class Orchestrate extends PromptCommand {
         const escalated = engine.escalateTimedOutLlmDecisions()
         if (escalated > 0) {
           logFn(`[daemon] Escalated ${escalated} timed-out LLM decision(s) to human tier`)
+        }
+
+        // PRLT-1287: Supervise reconciler daemon — restart if dead
+        if (!isDaemonAlive(hqPath, 'reconciler')) {
+          logFn('[daemon] Reconciler daemon died — restarting...')
+          const restarted = ensureDaemonRunning(hqPath, reconcilerSpec)
+          if (restarted) {
+            logFn(`[daemon] Reconciler daemon restarted (${restarted})`)
+          } else {
+            logFn('[daemon] Failed to restart reconciler daemon')
+          }
         }
       }, 60_000)
 
