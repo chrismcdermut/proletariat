@@ -157,6 +157,27 @@ export function getHostPrltVersion(): string | null {
 }
 
 /**
+ * PRLT-1296: Get the host's installed Claude Code version.
+ * Returns the semver version string (e.g., "2.1.89") or null if not available.
+ * Used to pin the container's Claude Code version to match the host,
+ * preventing credential format/handling mismatches between versions.
+ */
+export function getHostClaudeCodeVersion(): string | null {
+  try {
+    const output = execSync('claude --version', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10_000,
+    }).trim()
+    // claude --version output: "claude <version>" or just "<version>"
+    const match = output.match(/(\d+\.\d+\.\d+)/)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Get the container name for an agent.
  * Format: prlt-agent-{agentName}
  */
@@ -630,10 +651,21 @@ export function ensureDockerContainer(
     PRLT_REGISTRY: devcontainerJson?.build?.args?.PRLT_REGISTRY || 'npm',
   }
 
-  // Pass Claude Code version if pinned in devcontainer config
-  const ccVersion = devcontainerJson?.build?.args?.CC_VERSION
-  if (ccVersion) {
-    buildArgs.CC_VERSION = ccVersion
+  // PRLT-1296: Pin Claude Code version to match host.
+  // Priority: devcontainer config pin > host version detection > latest (fallback).
+  // This prevents credential format/handling mismatches between container and host.
+  const ccVersionFromConfig = devcontainerJson?.build?.args?.CC_VERSION
+  if (ccVersionFromConfig) {
+    buildArgs.CC_VERSION = ccVersionFromConfig
+    console.debug(`[runners:docker] Using CC version from devcontainer config: ${ccVersionFromConfig}`)
+  } else {
+    const hostCCVersion = getHostClaudeCodeVersion()
+    if (hostCCVersion) {
+      buildArgs.CC_VERSION = hostCCVersion
+      console.debug(`[runners:docker] Pinning CC version to host: ${hostCCVersion}`)
+    } else {
+      console.debug(`[runners:docker] Could not detect host CC version, container will use latest`)
+    }
   }
 
   const configuredVersion = devcontainerJson?.build?.args?.PRLT_VERSION || 'latest'

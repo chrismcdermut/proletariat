@@ -328,6 +328,7 @@ export {
   hostCredentialsExist,
   ensureTmuxServerHasKeychainAccess,
   copyClaudeCredentials,
+  refreshCredentialVolume,
 } from './docker-credentials.js'
 
 export {
@@ -343,6 +344,7 @@ export {
 
 export {
   getHostPrltVersion,
+  getHostClaudeCodeVersion,
   getAgentContainerName,
   getContainerName,
   getImageName,
