@@ -14,7 +14,7 @@ const DEFAULT_SOURCE_KEY = 'work.default_source'
 /** @deprecated Old key kept for migration — use DEFAULT_SOURCE_KEY */
 const LEGACY_ACTIVE_SOURCE_KEY = 'work.active_source'
 
-export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'clickup', 'github'] as const
+export const WORK_SOURCE_PROVIDERS = ['pmo', 'linear', 'jira', 'shortcut', 'asana', 'trello', 'monday', 'clickup', 'github', 'notion'] as const
 export type WorkSourceProvider = typeof WORK_SOURCE_PROVIDERS[number]
 
 export interface WorkSourceRef {
