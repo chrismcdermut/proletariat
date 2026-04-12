@@ -1103,8 +1103,6 @@ export default class WorkSpawn extends PMOCommand {
               createMetadata('work spawn', flags)
             )
             return
-            db.close()
-            return
           }
         }
 
