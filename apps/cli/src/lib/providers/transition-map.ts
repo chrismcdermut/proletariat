@@ -139,3 +139,50 @@ export class TransitionMapStore {
     return mapping?.providerStateName ?? null
   }
 }
+
+/**
+ * Result of validating transition map against provider states.
+ */
+export interface TransitionMapValidation {
+  valid: TransitionMapping[]
+  missing: TransitionMapping[]
+  unmappedIntents: string[]
+}
+
+/**
+ * Canonical intents that should have mappings for a fully-configured provider.
+ */
+const EXPECTED_INTENTS: TransitionIntent[] = ['backlog', 'ready', 'started', 'needs_review', 'completed']
+
+/**
+ * Validate transition_map entries against the actual provider states.
+ * Returns which mappings are valid, which point to missing states,
+ * and which intents have no mapping at all.
+ *
+ * Called on `prlt connect` to flag configuration drift.
+ */
+export function validateTransitionMap(
+  db: Database.Database,
+  provider: string,
+  providerStateNames: string[],
+): TransitionMapValidation {
+  const store = new TransitionMapStore(db)
+  const mappings = store.listMappings(provider)
+
+  const stateNameSet = new Set(providerStateNames.map(n => n.toLowerCase()))
+  const valid: TransitionMapping[] = []
+  const missing: TransitionMapping[] = []
+
+  for (const mapping of mappings) {
+    if (stateNameSet.has(mapping.providerStateName.toLowerCase())) {
+      valid.push(mapping)
+    } else {
+      missing.push(mapping)
+    }
+  }
+
+  const mappedIntents = new Set(mappings.map(m => m.intent))
+  const unmappedIntents = EXPECTED_INTENTS.filter(i => !mappedIntents.has(i))
+
+  return { valid, missing, unmappedIntents }
+}

@@ -22,7 +22,7 @@ import {
 } from '../../lib/linear/index.js'
 import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
 import { autoMapIntents, formatMappingTable, type IntentMapping } from '../../lib/providers/auto-mapper.js'
-import { TransitionMapStore } from '../../lib/providers/transition-map.js'
+import { TransitionMapStore, validateTransitionMap } from '../../lib/providers/transition-map.js'
 import type { TransitionIntent } from '../../lib/providers/state-intents.js'
 
 export default class LinearConnect extends PMOCommand {
@@ -414,6 +414,37 @@ export default class LinearConnect extends PMOCommand {
   }
 
   /**
+   * Validate existing transition_map entries against actual provider states.
+   * Flags any mappings that point to states that don't exist on the provider.
+   */
+  private validateTransitionMapAgainstProvider(
+    db: import('better-sqlite3').Database,
+    providerStateNames: string[],
+    jsonMode: boolean,
+  ): void {
+    try {
+      const validation = validateTransitionMap(db, 'linear', providerStateNames)
+
+      if (validation.missing.length > 0) {
+        if (!jsonMode) {
+          this.log('')
+          this.log(colors.warning('Warning: Some transition_map entries point to states that don\'t exist on this board:'))
+          for (const m of validation.missing) {
+            this.log(colors.textMuted(`  ${m.intent} → "${m.providerStateName}" (not found)`))
+          }
+          this.log(colors.textMuted('  These intents will fall back to alias/LLM resolution.'))
+        }
+      }
+
+      if (validation.unmappedIntents.length > 0 && !jsonMode) {
+        this.log(colors.textMuted(`  Unmapped intents: ${validation.unmappedIntents.join(', ')} (will use alias resolution)`))
+      }
+    } catch {
+      // Non-critical — don't block connect for validation failures
+    }
+  }
+
+  /**
    * Pull board states from Linear, auto-guess intent mappings,
    * show to user for confirmation, and store in pmo_transition_map.
    */
@@ -465,6 +496,8 @@ export default class LinearConnect extends PMOCommand {
             providerStateId: m.stateId,
           })
         }
+        // Validate transition_map against actual provider states (PRLT-1299)
+        this.validateTransitionMapAgainstProvider(db, sortedStates.map(s => s.name), jsonMode)
         return
       }
 
@@ -496,6 +529,9 @@ export default class LinearConnect extends PMOCommand {
       } else {
         this.log(colors.textMuted('  Skipped state mapping. You can configure later with "prlt config set state-map.<intent> <state-name>"'))
       }
+
+      // Validate transition_map against actual provider states (PRLT-1299)
+      this.validateTransitionMapAgainstProvider(db, sortedStates.map(s => s.name), jsonMode)
     } catch (error) {
       // Non-fatal — don't block connect for mapping failures
       if (!jsonMode) {
