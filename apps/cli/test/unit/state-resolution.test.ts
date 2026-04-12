@@ -113,13 +113,21 @@ function createMockStorage(columns: string[]): ProviderStorage {
 
 describe('PRLT-1087: State Resolution Engine', () => {
   describe('Semantic Intent Presets', () => {
-    it('should have default intents for active, review, done, blocked', () => {
-      expect(DEFAULT_INTENTS).to.have.lengthOf(4)
+    it('should have default intents for canonical and backward-compatible names', () => {
+      expect(DEFAULT_INTENTS.length).to.be.greaterThanOrEqual(4)
       const names = DEFAULT_INTENTS.map(i => i.name)
+      // Canonical intents
+      expect(names).to.include('backlog')
+      expect(names).to.include('ready')
+      expect(names).to.include('started')
+      expect(names).to.include('needs_review')
+      expect(names).to.include('completed')
+      expect(names).to.include('blocked')
+      expect(names).to.include('testing')
+      // Backward-compatible aliases
       expect(names).to.include('active')
       expect(names).to.include('review')
       expect(names).to.include('done')
-      expect(names).to.include('blocked')
     })
 
     it('should get a specific default intent by name', () => {

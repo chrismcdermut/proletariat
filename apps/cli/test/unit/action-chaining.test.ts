@@ -52,8 +52,8 @@ function createMatchedEvent(overrides?: Partial<WorkflowRuleMatchedEvent>): Work
     projectId: 'test-project',
     actionId: 'test-chain-action',
     trigger: 'on_enter',
-    fromState: 'In Progress',
-    toState: 'Review',
+    fromIntent: 'started',
+    toIntent: 'needs_review',
     timestamp: new Date(),
     ...overrides,
   }
