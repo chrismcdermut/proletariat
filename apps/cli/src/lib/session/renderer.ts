@@ -48,7 +48,7 @@ import type { AgentWork } from '../execution/types.js'
 // Types
 // =============================================================================
 
-export type SessionRole = 'orchestrator' | 'worker' | 'headless'
+export type SessionRole = 'orchestrator' | 'worker' | 'headless' | 'daemon'
 
 export type SessionStatus =
   | 'starting'
@@ -305,6 +305,11 @@ function collectFromWorkspaceDb(
       // Determine role: agentName 'orchestrator-*' or ticketId 'ORCH'
       let role: SessionRole = 'worker'
       if (
+        exec.ticketId === 'DAEMON' ||
+        exec.agentName.startsWith('daemon-')
+      ) {
+        role = 'daemon'
+      } else if (
         exec.agentName.startsWith('orchestrator') ||
         exec.ticketId === 'ORCH' ||
         exec.ticketId === 'orchestrator'
@@ -410,6 +415,11 @@ function collectFromMachineDb(
       // Detect role
       let role: SessionRole = exec.ticketId ? 'worker' : 'headless'
       if (
+        exec.ticketId === 'DAEMON' ||
+        exec.agentName.startsWith('daemon-')
+      ) {
+        role = 'daemon'
+      } else if (
         exec.agentName.startsWith('orchestrator') ||
         exec.ticketId === 'ORCH' ||
         exec.ticketId === 'orchestrator'
@@ -532,6 +542,70 @@ function collectOrchestrators(
 }
 
 // =============================================================================
+// Daemon discovery (tmux)
+// =============================================================================
+
+/**
+ * Build the daemon session prefix used by daemon spawning.
+ * Format: `prlt-daemon-{sanitizedHqName}-`
+ */
+function daemonPrefixForHq(hqName: string): string {
+  return `prlt-daemon-${sanitizeName(hqName) || 'default'}-`
+}
+
+/**
+ * Try to attribute a daemon session name to one of the registered HQs.
+ */
+function attributeDaemonToHq(
+  sessionName: string,
+  registered: RegisteredHeadquarters[],
+): { hqPath: string; hqName: string; daemonName: string } | null {
+  for (const hq of registered) {
+    const hqName = getHeadquartersNameFromPath(hq.path)
+    const prefix = daemonPrefixForHq(hqName)
+    if (sessionName.startsWith(prefix)) {
+      return {
+        hqPath: hq.path,
+        hqName,
+        daemonName: sessionName.slice(prefix.length),
+      }
+    }
+  }
+  return null
+}
+
+function collectDaemons(
+  snapshot: RuntimeSnapshot,
+  registered: RegisteredHeadquarters[],
+  alreadySeenSessionIds: Set<string>,
+): UnifiedSession[] {
+  const sessions: UnifiedSession[] = []
+
+  for (const sessionName of snapshot.hostTmuxSessions) {
+    if (!sessionName.startsWith('prlt-daemon-')) continue
+    if (alreadySeenSessionIds.has(sessionName)) continue
+
+    const attribution = attributeDaemonToHq(sessionName, registered)
+    sessions.push({
+      id: sessionName,
+      sessionId: sessionName,
+      ticketId: 'DAEMON',
+      agentName: attribution?.daemonName || sessionName,
+      status: 'running',
+      role: 'daemon',
+      environment: 'host',
+      exists: true,
+      source: 'discovered',
+      hqPath: attribution?.hqPath,
+      hqName: attribution?.hqName,
+      repoPath: attribution?.hqPath,
+    })
+  }
+
+  return sessions
+}
+
+// =============================================================================
 // Public API: collect + group
 // =============================================================================
 
@@ -605,6 +679,13 @@ export function collectAllSessions(options: CollectOptions = {}): UnifiedSession
   // 3) Discovered orchestrator tmux/Docker sessions not yet covered by a DB
   const discoveredOrchestrators = collectOrchestrators(snapshot, hqsToQuery, seenSessionIds)
   for (const s of discoveredOrchestrators) {
+    if (s.sessionId) seenSessionIds.add(s.sessionId)
+    all.push(s)
+  }
+
+  // 4) Discovered daemon tmux sessions not yet covered by a DB
+  const discoveredDaemons = collectDaemons(snapshot, hqsToQuery, seenSessionIds)
+  for (const s of discoveredDaemons) {
     if (s.sessionId) seenSessionIds.add(s.sessionId)
     all.push(s)
   }
@@ -686,6 +767,33 @@ export function groupSessionsByHQ(
     currentHqName: currentHq ? getHeadquartersNameFromPath(currentHq) : undefined,
     here,
     elsewhere,
+  }
+}
+
+// =============================================================================
+// Public daemon helpers (used by reconcile command and orchestrate)
+// =============================================================================
+
+/**
+ * Build a daemon tmux session name scoped to the HQ workspace.
+ * Format: 'prlt-daemon-{hqName}-{daemonType}'
+ * Example: 'prlt-daemon-proletariat-reconciler'
+ */
+export function buildDaemonSessionName(hqName: string, daemonType: string): string {
+  const safeHqName = sanitizeName(hqName) || 'default'
+  const safeType = sanitizeName(daemonType) || 'daemon'
+  return `prlt-daemon-${safeHqName}-${safeType}`
+}
+
+/**
+ * Check if a daemon session is alive by looking for its tmux session.
+ */
+export function isDaemonSessionAlive(sessionName: string): boolean {
+  try {
+    const hostSessions = getHostTmuxSessionNames()
+    return hostSessions.includes(sessionName)
+  } catch {
+    return false
   }
 }
 
