@@ -10,10 +10,11 @@
 /**
  * Entity type prefixes for ID generation
  */
+/**
+ * PRLT-1299: Removed ticket, epic, spec prefixes and tables. Provider is source
+ * of truth for those entities. Only project ID generation remains.
+ */
 export const ENTITY_PREFIXES = {
-  ticket: 'TKT',
-  epic: 'EPIC',
-  spec: 'SPEC',
   project: 'PROJ',
 } as const;
 
@@ -23,9 +24,6 @@ export type EntityType = keyof typeof ENTITY_PREFIXES;
  * Entity type to table name mapping for self-healing ID generation
  */
 const ENTITY_TABLES = {
-  ticket: 'pmo_tickets',
-  epic: 'pmo_epics',
-  spec: 'pmo_specs',
   project: 'pmo_projects',
 } as const;
 

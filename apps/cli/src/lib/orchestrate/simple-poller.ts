@@ -354,25 +354,24 @@ export class SimplePoller {
         // pmo_settings may not exist yet
       }
 
+      // PRLT-1299: Use ticket_refs instead of dead pmo_tickets/pmo_workflow_statuses tables
       const readyTickets = readyStatusName
         ? this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE LOWER(ws.name) = LOWER(?)
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
+            SELECT tr.id, tr.title
+            FROM ticket_refs tr
+            WHERE LOWER(tr.status) = LOWER(?)
+              AND tr.assignee IS NULL
+              AND tr.id NOT IN (
                 SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
               )
             LIMIT 20
           `).all(readyStatusName) as ReadyTicket[]
         : this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE ws.category = 'unstarted'
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
+            SELECT tr.id, tr.title
+            FROM ticket_refs tr
+            WHERE tr.category = 'unstarted'
+              AND tr.assignee IS NULL
+              AND tr.id NOT IN (
                 SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
               )
             LIMIT 20

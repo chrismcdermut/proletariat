@@ -45,16 +45,14 @@ export class LinearMapper {
   private ensureTable(): void {
     this.driver.exec(`
       CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_issue_map} (
-        pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
-        provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
+        provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github', 'asana', 'clickup', 'monday')),
         external_id TEXT NOT NULL,
         external_key TEXT NOT NULL,
         external_url TEXT NOT NULL,
         team_key TEXT NOT NULL,
         sync_direction TEXT NOT NULL DEFAULT 'inbound',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (pmo_ticket_id, provider),
-        UNIQUE (provider, external_id)
+        PRIMARY KEY (provider, external_id)
       )
     `)
     this.driver.exec(`
@@ -228,10 +226,9 @@ export class LinearMapper {
   createMapping(map: Omit<LinearIssueMap, 'lastSyncedAt'>): void {
     this.driver.prepare(`
       INSERT INTO ${PMO_TABLES.external_issue_map}
-        (pmo_ticket_id, provider, external_id, external_key, external_url, team_key, sync_direction, created_at)
-      VALUES (?, 'linear', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        (provider, external_id, external_key, external_url, team_key, sync_direction, created_at)
+      VALUES ('linear', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
-      map.pmoTicketId,
       map.linearIssueId,
       map.linearIdentifier,
       map.linearUrl,
@@ -255,13 +252,39 @@ export class LinearMapper {
 
   /**
    * Get a mapping by PMO ticket ID.
+   *
+   * Since pmo_ticket_id is no longer stored in pmo_external_issue_map,
+   * this looks up the ticket via the external execution mapping store
+   * where the pmoTicketId is persisted in the latestStateSnapshot JSON.
    */
   getByTicketId(ticketId: string): LinearIssueMap | null {
-    const row = this.driver.prepare(`
-      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE pmo_ticket_id = ? AND provider = 'linear'
-    `).get(ticketId) as Record<string, unknown> | undefined
+    // Search external_execution_map for a linear mapping whose snapshot contains this ticket ID
+    const rows = this.driver.prepare<Record<string, unknown>>(`
+      SELECT * FROM ${PMO_TABLES.external_execution_map}
+      WHERE provider = 'linear'
+        AND json_extract(latest_state_snapshot, '$.pmoTicketId') = ?
+    `).all(ticketId)
 
-    return row ? this.rowToMap(row) : null
+    if (rows.length > 0) {
+      const row = rows[0]
+      return this.externalMappingToLinearMap({
+        provider: row.provider as ExternalExecutionMapping['provider'],
+        externalId: row.external_id as string,
+        externalKey: row.external_key as string | null,
+        canonicalUrl: row.canonical_url as string | null,
+        latestStateSnapshot: row.latest_state_snapshot
+          ? (JSON.parse(row.latest_state_snapshot as string) as Record<string, unknown>)
+          : null,
+        executionIds: [],
+        prUrls: [],
+        lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at as string) : null,
+        lastSpawnedAt: row.last_spawned_at ? new Date(row.last_spawned_at as string) : null,
+        createdAt: new Date(row.created_at as string),
+        updatedAt: new Date(row.updated_at as string),
+      })
+    }
+
+    return null
   }
 
   /**
@@ -269,7 +292,12 @@ export class LinearMapper {
    */
   getByLinearId(linearIssueId: string): LinearIssueMap | null {
     const row = this.driver.prepare(`
-      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' AND external_id = ?
+      SELECT eim.*,
+        json_extract(eem.latest_state_snapshot, '$.pmoTicketId') AS pmo_ticket_id
+      FROM ${PMO_TABLES.external_issue_map} eim
+      LEFT JOIN ${PMO_TABLES.external_execution_map} eem
+        ON eim.provider = eem.provider AND eim.external_id = eem.external_id
+      WHERE eim.provider = 'linear' AND eim.external_id = ?
     `).get(linearIssueId) as Record<string, unknown> | undefined
 
     if (row) {
@@ -285,7 +313,12 @@ export class LinearMapper {
    */
   getByIdentifier(identifier: string): LinearIssueMap | null {
     const row = this.driver.prepare(`
-      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' AND external_key = ?
+      SELECT eim.*,
+        json_extract(eem.latest_state_snapshot, '$.pmoTicketId') AS pmo_ticket_id
+      FROM ${PMO_TABLES.external_issue_map} eim
+      LEFT JOIN ${PMO_TABLES.external_execution_map} eem
+        ON eim.provider = eem.provider AND eim.external_id = eem.external_id
+      WHERE eim.provider = 'linear' AND eim.external_key = ?
     `).get(identifier) as Record<string, unknown> | undefined
 
     if (row) {
@@ -301,7 +334,13 @@ export class LinearMapper {
    */
   listMappings(): LinearIssueMap[] {
     const rows = this.driver.prepare(`
-      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' ORDER BY created_at DESC
+      SELECT eim.*,
+        json_extract(eem.latest_state_snapshot, '$.pmoTicketId') AS pmo_ticket_id
+      FROM ${PMO_TABLES.external_issue_map} eim
+      LEFT JOIN ${PMO_TABLES.external_execution_map} eem
+        ON eim.provider = eem.provider AND eim.external_id = eem.external_id
+      WHERE eim.provider = 'linear'
+      ORDER BY eim.created_at DESC
     `).all() as Record<string, unknown>[]
 
     return rows.map((row) => this.rowToMap(row))
@@ -330,19 +369,28 @@ export class LinearMapper {
 
   /**
    * Delete a mapping by PMO ticket ID.
+   *
+   * Looks up the external_id via the execution mapping store snapshot,
+   * then deletes from both tables.
    */
   deleteMapping(pmoTicketId: string): void {
-    this.driver.prepare(`
-      DELETE FROM ${PMO_TABLES.external_issue_map} WHERE pmo_ticket_id = ? AND provider = 'linear'
-    `).run(pmoTicketId)
+    const map = this.getByTicketId(pmoTicketId)
+    if (map) {
+      this.driver.prepare(`
+        DELETE FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' AND external_id = ?
+      `).run(map.linearIssueId)
+    }
   }
 
   /**
    * Convert a database row to a LinearIssueMap.
+   *
+   * pmo_ticket_id comes from a LEFT JOIN with external_execution_map
+   * (extracted from the JSON snapshot), so it may be null.
    */
   private rowToMap(row: Record<string, unknown>): LinearIssueMap {
     return {
-      pmoTicketId: row.pmo_ticket_id as string,
+      pmoTicketId: (row.pmo_ticket_id as string) ?? '',
       linearIssueId: row.external_id as string,
       linearIdentifier: row.external_key as string,
       linearTeamKey: row.team_key as string,

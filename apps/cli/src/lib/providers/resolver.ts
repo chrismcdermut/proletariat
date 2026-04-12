@@ -42,30 +42,18 @@ import { EventEmittingProvider, type StatusResolver } from './event-emitting-pro
  * Create a StatusResolver backed by the database.
  * Used by EventEmittingProvider to resolve status names/categories
  * for event emission.
+ *
+ * PRLT-1299: Uses ticket_refs table instead of dead pmo_tickets/pmo_workflow_statuses.
+ * Status resolution is best-effort from cached ticket_refs data.
  */
-function createDbStatusResolver(db: Database.Database, storage: ProviderStorage): StatusResolver {
+function createDbStatusResolver(_db: Database.Database, _storage: ProviderStorage): StatusResolver {
   return {
-    resolveStatusByName(projectId: string, statusName: string) {
+    resolveStatusByName(_projectId: string, statusName: string) {
       try {
-        const row = db.prepare(`
-          SELECT ws.id, ws.name, ws.category
-          FROM pmo_workflow_statuses ws
-          JOIN pmo_projects p ON p.workflow_id = ws.workflow_id
-          WHERE p.id = ? AND LOWER(ws.name) = LOWER(?)
-        `).get(projectId, statusName) as { id: string; name: string; category: string } | undefined
-
-        if (row) {
-          return { id: row.id, name: row.name, category: row.category as StateCategory }
-        }
-
-        // Fallback: search by status ID
-        const byId = db.prepare(`
-          SELECT id, name, category FROM pmo_workflow_statuses WHERE id = ?
-        `).get(statusName) as { id: string; name: string; category: string } | undefined
-
-        if (byId) {
-          return { id: byId.id, name: byId.name, category: byId.category as StateCategory }
-        }
+        // PRLT-1299: pmo_workflow_statuses removed. Return a synthetic entry
+        // based on the status name itself. Category is not available without
+        // the workflow tables — callers handle null category gracefully.
+        return { id: statusName, name: statusName, category: null as unknown as StateCategory }
       } catch {
         // Non-fatal: status resolution is best-effort
       }
@@ -74,22 +62,19 @@ function createDbStatusResolver(db: Database.Database, storage: ProviderStorage)
 
     getTicketStatus(ticketId: string) {
       try {
-        const row = db.prepare(`
-          SELECT t.status_id, ws.name, ws.category
-          FROM pmo_tickets t
-          LEFT JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-          WHERE t.id = ?
-        `).get(ticketId) as { status_id: string | null; name: string | null; category: string | null } | undefined
+        const row = _db.prepare(`
+          SELECT status, category FROM ticket_refs WHERE id = ?
+        `).get(ticketId) as { status: string | null; category: string | null } | undefined
 
         if (row) {
           return {
-            statusId: row.status_id,
-            statusName: row.name,
+            statusId: row.status,
+            statusName: row.status,
             statusCategory: (row.category as StateCategory) ?? null,
           }
         }
       } catch {
-        // Non-fatal: status resolution is best-effort
+        // Non-fatal: status resolution is best-effort (ticket_refs may not exist)
       }
       return null
     },

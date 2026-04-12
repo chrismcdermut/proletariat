@@ -13,7 +13,7 @@
 import type { Migration } from '../migrator.js'
 
 export const dropDeadPmoTables: Migration = {
-  id: 23,
+  id: '0023',
   name: 'drop_dead_pmo_tables',
   up(db) {
     // =========================================================================

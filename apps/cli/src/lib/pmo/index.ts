@@ -54,8 +54,6 @@ export {
   PMO_TABLE_SCHEMAS,
   PMO_INDEXES,
   PMO_SCHEMA_SQL,
-  EXPECTED_TICKET_COLUMNS,
-  validateTicketSchema,
 } from './schema.js';
 
 
@@ -366,41 +364,7 @@ export async function createPMO(options: CreatePMOOptions): Promise<void> {
     template: boardTemplate,
   });
 
-  // Initialize board with columns (projectId already created above)
-  await storage.init(projectId, {
-    name: boardName,
-    columns,
-  });
-
-  // For custom templates, create statuses from columns
-  // (built-in templates have statuses created via applyTemplate in createProject)
-  if (boardTemplate === 'custom' && columns) {
-    for (let i = 0; i < columns.length; i++) {
-      const name = columns[i];
-      const nameLower = name.toLowerCase();
-
-      // Infer category from column name
-      let category: 'backlog' | 'unstarted' | 'started' | 'completed' | 'canceled' = 'backlog';
-      if (nameLower.includes('done') || nameLower.includes('complete') || nameLower.includes('shipped')) {
-        category = 'completed';
-      } else if (nameLower.includes('progress') || nameLower.includes('review') || nameLower.includes('active')) {
-        category = 'started';
-      } else if (nameLower.includes('todo') || nameLower.includes('to do') || nameLower.includes('planned') || nameLower.includes('next')) {
-        category = 'unstarted';
-      } else if (nameLower.includes('cancel') || nameLower.includes('archived')) {
-        category = 'canceled';
-      }
-      // Default: backlog (for first columns, custom backlogs, etc.)
-
-      // eslint-disable-next-line no-await-in-loop -- Sequential status creation in order
-      await storage.createStatus(projectId, {
-        name,
-        category,
-        position: i,
-        isDefault: i === 0,
-      });
-    }
-  }
+  // PRLT-1299: Board init and status creation removed — provider owns workflows/statuses
 
   // Save PMO path and column settings (relative to HQ root for container compatibility)
   try {

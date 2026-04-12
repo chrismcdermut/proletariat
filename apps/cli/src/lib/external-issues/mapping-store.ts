@@ -73,17 +73,6 @@ export class ExternalExecutionMappingStore {
         PRIMARY KEY (provider, external_id)
       );
 
-      CREATE TABLE IF NOT EXISTS ${T.external_execution_links} (
-        provider TEXT NOT NULL,
-        external_id TEXT NOT NULL,
-        execution_id TEXT NOT NULL,
-        linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (provider, external_id, execution_id),
-        FOREIGN KEY (provider, external_id)
-          REFERENCES ${T.external_execution_map}(provider, external_id)
-          ON DELETE CASCADE
-      );
-
       CREATE TABLE IF NOT EXISTS ${T.external_execution_prs} (
         provider TEXT NOT NULL,
         external_id TEXT NOT NULL,
@@ -97,8 +86,6 @@ export class ExternalExecutionMappingStore {
 
       CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_map_external_key
         ON ${T.external_execution_map}(provider, external_key);
-      CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_links_execution_id
-        ON ${T.external_execution_links}(execution_id);
       CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_prs_pr_url
         ON ${T.external_execution_prs}(pr_url);
     `)
@@ -133,14 +120,6 @@ export class ExternalExecutionMappingStore {
         lastSpawnedAt,
       )
 
-      if (input.executionId) {
-        this.driver.prepare(`
-          INSERT OR IGNORE INTO ${T.external_execution_links}
-            (provider, external_id, execution_id, linked_at)
-          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        `).run(input.provider, input.externalId, input.executionId)
-      }
-
       if (input.prUrl) {
         this.driver.prepare(`
           INSERT OR IGNORE INTO ${T.external_execution_prs}
@@ -173,28 +152,13 @@ export class ExternalExecutionMappingStore {
     return this.rowToMapping(row)
   }
 
-  findByExecutionId(executionId: string): ExternalExecutionMapping[] {
-    const rows = this.driver.prepare<ExternalExecutionMapRow>(`
-      SELECT m.*
-      FROM ${T.external_execution_map} m
-      INNER JOIN ${T.external_execution_links} l
-        ON m.provider = l.provider
-       AND m.external_id = l.external_id
-      WHERE l.execution_id = ?
-      ORDER BY m.updated_at DESC
-    `).all(executionId)
-
-    return rows.map((row) => this.rowToMapping(row))
+  findByExecutionId(_executionId: string): ExternalExecutionMapping[] {
+    // external_execution_links table has been removed; execution-to-mapping
+    // links are no longer tracked at the DB level.
+    return []
   }
 
   private rowToMapping(row: ExternalExecutionMapRow): ExternalExecutionMapping {
-    const executionIds = this.driver.prepare<StringRow>(`
-      SELECT execution_id AS value
-      FROM ${T.external_execution_links}
-      WHERE provider = ? AND external_id = ?
-      ORDER BY linked_at DESC
-    `).all(row.provider, row.external_id)
-
     const prUrls = this.driver.prepare<StringRow>(`
       SELECT pr_url AS value
       FROM ${T.external_execution_prs}
@@ -208,7 +172,7 @@ export class ExternalExecutionMappingStore {
       externalKey: row.external_key,
       canonicalUrl: row.canonical_url,
       latestStateSnapshot: parseSnapshot(row.latest_state_snapshot),
-      executionIds: executionIds.map((r) => r.value),
+      executionIds: [],
       prUrls: prUrls.map((r) => r.value),
       lastSyncedAt: parseDate(row.last_synced_at),
       lastSpawnedAt: parseDate(row.last_spawned_at),

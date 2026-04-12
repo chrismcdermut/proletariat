@@ -55,118 +55,35 @@ export interface TriggerConfig {
 }
 
 /**
- * ProviderTriggerStore manages the pmo_provider_triggers table.
- * Provides CRUD operations for configurable triggers.
+ * ProviderTriggerStore — stub implementation (PRLT-1299).
+ * The pmo_provider_triggers table has been dropped.
+ * All methods return empty/no-op to avoid breaking callers.
  */
 export class ProviderTriggerStore {
-  constructor(private db: Database.Database) {}
+  constructor(_db: Database.Database) {}
 
-  /**
-   * Get all triggers for a specific event, optionally filtered by provider and project.
-   */
   getTriggersForEvent(
-    triggerEvent: TriggerEvent,
-    provider?: string,
-    projectId?: string | null,
+    _triggerEvent: TriggerEvent,
+    _provider?: string,
+    _projectId?: string | null,
   ): TriggerConfig[] {
-    try {
-      const rows = this.db.prepare(`
-        SELECT id, provider, trigger_event, target_status, project_id, enabled
-        FROM pmo_provider_triggers
-        WHERE trigger_event = ?
-          AND enabled = 1
-          AND (provider = '*' OR provider = ?)
-          AND (project_id IS NULL OR project_id = ?)
-        ORDER BY
-          CASE WHEN provider != '*' THEN 0 ELSE 1 END,
-          CASE WHEN project_id IS NOT NULL THEN 0 ELSE 1 END
-      `).all(triggerEvent, provider ?? '*', projectId ?? null) as Array<{
-        id: number
-        provider: string
-        trigger_event: string
-        target_status: string
-        project_id: string | null
-        enabled: number
-      }>
-
-      return rows.map(row => ({
-        id: row.id,
-        provider: row.provider,
-        triggerEvent: row.trigger_event as TriggerEvent,
-        targetStatus: row.target_status,
-        projectId: row.project_id,
-        enabled: row.enabled === 1,
-      }))
-    } catch {
-      return []
-    }
+    return []
   }
 
-  /**
-   * List all configured triggers.
-   */
   listTriggers(): TriggerConfig[] {
-    try {
-      const rows = this.db.prepare(`
-        SELECT id, provider, trigger_event, target_status, project_id, enabled
-        FROM pmo_provider_triggers
-        ORDER BY trigger_event, provider
-      `).all() as Array<{
-        id: number
-        provider: string
-        trigger_event: string
-        target_status: string
-        project_id: string | null
-        enabled: number
-      }>
-
-      return rows.map(row => ({
-        id: row.id,
-        provider: row.provider,
-        triggerEvent: row.trigger_event as TriggerEvent,
-        targetStatus: row.target_status,
-        projectId: row.project_id,
-        enabled: row.enabled === 1,
-      }))
-    } catch {
-      return []
-    }
+    return []
   }
 
-  /**
-   * Add or update a trigger configuration.
-   */
-  upsertTrigger(config: TriggerConfig): void {
-    this.db.prepare(`
-      INSERT INTO pmo_provider_triggers (provider, trigger_event, target_status, project_id, enabled)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(provider, trigger_event, project_id) DO UPDATE SET
-        target_status = excluded.target_status,
-        enabled = excluded.enabled
-    `).run(
-      config.provider,
-      config.triggerEvent,
-      config.targetStatus,
-      config.projectId,
-      config.enabled ? 1 : 0,
-    )
+  upsertTrigger(_config: TriggerConfig): void {
+    // No-op: table removed (PRLT-1299)
   }
 
-  /**
-   * Remove a trigger by ID.
-   */
-  removeTrigger(id: number): void {
-    this.db.prepare('DELETE FROM pmo_provider_triggers WHERE id = ?').run(id)
+  removeTrigger(_id: number): void {
+    // No-op: table removed (PRLT-1299)
   }
 
-  /**
-   * Enable or disable a trigger.
-   */
-  setEnabled(id: number, enabled: boolean): void {
-    this.db.prepare('UPDATE pmo_provider_triggers SET enabled = ? WHERE id = ?').run(
-      enabled ? 1 : 0,
-      id,
-    )
+  setEnabled(_id: number, _enabled: boolean): void {
+    // No-op: table removed (PRLT-1299)
   }
 }
 

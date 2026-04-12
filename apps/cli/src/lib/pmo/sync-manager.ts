@@ -22,7 +22,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { SQLiteStorage } from './storage-sqlite.js';
-import { parseBoard } from './markdown.js';
 import { initWorkLifecycleAdapter } from '../work-lifecycle/adapter.js';
 import { initOutboundSync } from '../external-issues/outbound-sync.js';
 import { initHookManager } from '../work-lifecycle/hooks/index.js';
@@ -82,32 +81,25 @@ function computeHash(content: string): string {
 
 /**
  * Get sync metadata from database
+ *
+ * PRLT-1299: Cache metadata methods removed from SQLiteStorage.
+ * Board sync is no longer performed — DB is sole source of truth.
  */
-export function getSyncMetadata(storage: SQLiteStorage): SyncMetadata | null {
-  const meta = storage.getCacheMetadata();
-  if (!meta) return null;
-
-  return {
-    lastSyncAt: meta.cacheBuiltAt,
-    lastBoardMtime: meta.boardMtime,
-    lastDbWriteAt: meta.cacheBuiltAt,
-    contentHash: meta.contentHash,
-  };
+export function getSyncMetadata(_storage: SQLiteStorage): SyncMetadata | null {
+  return null;
 }
 
 /**
  * Update sync metadata after a sync operation
+ *
+ * PRLT-1299: No-op — cache metadata methods removed from SQLiteStorage.
  */
 export function updateSyncMetadata(
-  storage: SQLiteStorage,
-  boardMtime: number,
-  contentHash?: string
+  _storage: SQLiteStorage,
+  _boardMtime: number,
+  _contentHash?: string
 ): void {
-  storage.setCacheMetadata({
-    boardMtime,
-    cacheBuiltAt: Date.now(),
-    contentHash,
-  });
+  // No-op: board sync disabled (PRLT-1299)
 }
 
 /**
@@ -194,12 +186,8 @@ export function autoSyncFromBoard(
     return false;
   }
 
-  // Content changed - perform full sync
-  const board = parseBoard(markdown, projectId);
-  storage.rebuildFromBoard(board);
-
-  // Update sync metadata with new mtime and hash
-  updateSyncMetadata(storage, stats.mtimeMs, contentHash);
+  // PRLT-1299: Board-to-DB sync disabled — rebuildFromBoard removed.
+  // The database is the sole source of truth; board.md is informational only.
 
   if (logger) {
     logger(`📥 Auto-synced from ${path.basename(boardPath)}`);
@@ -319,7 +307,7 @@ export function getStorageWithAutoSync(
 
     // Sync to external provider (e.g., Linear) if ticket was imported from one
     try {
-      const ticket = await storage.getTicketById(ticketId);
+      const ticket = await storage.getTicket(ticketId);
       const provider = resolveTicketProvider(ticketId, projectId, storage.getDatabase(), storage, ticket?.metadata);
       if (provider.name !== 'pmo') {
         await provider.moveTicket(ticketId, targetStatus);

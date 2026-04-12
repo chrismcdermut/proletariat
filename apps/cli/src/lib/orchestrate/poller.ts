@@ -102,25 +102,24 @@ export class OrchestratePoller {
         // pmo_settings may not exist yet
       }
 
+      // PRLT-1299: Use ticket_refs instead of dead pmo_tickets/pmo_workflow_statuses tables
       const readyTickets = readyStatusName
         ? this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE LOWER(ws.name) = LOWER(?)
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
+            SELECT tr.id, tr.title
+            FROM ticket_refs tr
+            WHERE LOWER(tr.status) = LOWER(?)
+              AND tr.assignee IS NULL
+              AND tr.id NOT IN (
                 SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
               )
             LIMIT 10
           `).all(readyStatusName) as Array<{ id: string; title: string }>
         : this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE ws.category = 'unstarted'
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
+            SELECT tr.id, tr.title
+            FROM ticket_refs tr
+            WHERE tr.category = 'unstarted'
+              AND tr.assignee IS NULL
+              AND tr.id NOT IN (
                 SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
               )
             LIMIT 10
@@ -416,17 +415,31 @@ export class OrchestratePoller {
 
       const storage = new SQLiteStorage(dbPath)
 
-      // Get all active project IDs
-      const projects = this.db.prepare(`
-        SELECT id FROM pmo_projects WHERE is_archived = 0
-        LIMIT 20
-      `).all() as Array<{ id: string }>
+      // PRLT-1299: Use pmo_projects if it exists, otherwise use ticket_refs project_id
+      let projects: Array<{ id: string }> = []
+      try {
+        projects = this.db.prepare(`
+          SELECT id FROM pmo_projects WHERE is_archived = 0
+          LIMIT 20
+        `).all() as Array<{ id: string }>
+      } catch {
+        // pmo_projects may not exist — fall back to distinct project_ids from ticket_refs
+        try {
+          projects = this.db.prepare(`
+            SELECT DISTINCT project_id AS id FROM ticket_refs
+            WHERE project_id IS NOT NULL
+            LIMIT 20
+          `).all() as Array<{ id: string }>
+        } catch {
+          // ticket_refs may not exist either — skip reconciliation
+        }
+      }
 
       for (const project of projects) {
         try {
-          const report = await runSyncCycle(this.db, storage, project.id, {
+          const report = await runSyncCycle(this.db, storage as any, project.id, {
             cwd: this.cwd,
-            log: (msg) => this.log(`[reconcile] ${msg}`),
+            log: (msg: string) => this.log(`[reconcile] ${msg}`),
             dryRun: false,
           })
 

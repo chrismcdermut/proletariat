@@ -4,8 +4,7 @@
  */
 
 import Database from 'better-sqlite3'
-import { PMO_TABLES, PMO_SCHEMA_SQL, validateTicketSchema } from '../schema.js'
-import { BUILTIN_TEMPLATES } from '../templates-builtin.js'
+import { PMO_TABLES, PMO_SCHEMA_SQL } from '../schema.js'
 import { setWorkspacePriorities, DEFAULT_PRIORITIES } from '../../work-lifecycle/settings.js'
 
 const T = PMO_TABLES
@@ -17,12 +16,10 @@ const T = PMO_TABLES
 export function initializePMOTables(db: Database.Database): void {
   runMigrations(db)
   db.exec(PMO_SCHEMA_SQL)
-  seedBuiltinWorkflows(db)  // Workflows are the source of truth for status configurations
   seedBuiltinActions(db)
   seedBuiltinWorkflowRules(db)
   seedBuiltinTicketTemplates(db)
   seedDefaultPriorities(db)  // Seed default priority scale if not set
-  validateTicketSchema(db)
 }
 
 /**
@@ -36,96 +33,49 @@ export function runMigrations(db: Database.Database): void {
     return !!result
   }
 
-  if (!tableExists(T.tickets) || !tableExists(T.specs) || !tableExists(T.projects)) {
-    return
-  }
+  // Migration: Add status and target_date columns to projects table
+  if (tableExists(T.projects)) {
+    const projectsColumns = db.pragma(`table_info(${T.projects})`) as Array<{ name: string }>
+    const projectsColumnNames = new Set(projectsColumns.map(c => c.name))
 
-  // Migration: Update specs table to new simplified schema
-  if (tableExists(T.specs)) {
-    const specsColumns = db.pragma(`table_info(${T.specs})`) as Array<{ name: string }>
-    const specsColumnNames = new Set(specsColumns.map(c => c.name))
-
-    const newColumns = [
-      { name: 'type', sql: 'type TEXT' },
-      { name: 'tags', sql: 'tags TEXT' },
-      { name: 'depends_on', sql: 'depends_on TEXT' },
-      { name: 'problem', sql: 'problem TEXT' },
-      { name: 'solution', sql: 'solution TEXT' },
-      { name: 'decisions', sql: 'decisions TEXT' },
-      { name: 'not_now', sql: 'not_now TEXT' },
-      { name: 'ui_ux', sql: 'ui_ux TEXT' },
-      { name: 'acceptance_criteria', sql: 'acceptance_criteria TEXT' },
-      { name: 'open_questions', sql: 'open_questions TEXT' },
-      { name: 'requirements_functional', sql: 'requirements_functional TEXT' },
-      { name: 'requirements_technical', sql: 'requirements_technical TEXT' },
-      { name: 'context', sql: 'context TEXT' },
-    ]
-
-    for (const col of newColumns) {
-      if (!specsColumnNames.has(col.name)) {
-        try {
-          db.exec(`ALTER TABLE ${T.specs} ADD COLUMN ${col.sql}`)
-        } catch {
-          // Column may already exist
-        }
+    if (!projectsColumnNames.has('status')) {
+      try {
+        db.exec(`ALTER TABLE ${T.projects} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`)
+      } catch {
+        // Column may already exist
       }
     }
-  }
 
-  // Migration: Add status_id column to tickets table
-  const ticketsColumns = db.pragma(`table_info(${T.tickets})`) as Array<{ name: string }>
-  const ticketsColumnNames = new Set(ticketsColumns.map(c => c.name))
-
-  if (!ticketsColumnNames.has('status_id')) {
-    try {
-      db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN status_id TEXT`)
-    } catch {
-      // Column may already exist
+    if (!projectsColumnNames.has('target_date')) {
+      try {
+        db.exec(`ALTER TABLE ${T.projects} ADD COLUMN target_date TIMESTAMP`)
+      } catch {
+        // Column may already exist
+      }
     }
-  }
 
-  // Migration: Add status and target_date columns to projects table
-  const projectsColumns = db.pragma(`table_info(${T.projects})`) as Array<{ name: string }>
-  const projectsColumnNames = new Set(projectsColumns.map(c => c.name))
-
-  if (!projectsColumnNames.has('status')) {
-    try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`)
-    } catch {
-      // Column may already exist
+    if (!projectsColumnNames.has('phase_id')) {
+      try {
+        db.exec(`ALTER TABLE ${T.projects} ADD COLUMN phase_id TEXT`)
+      } catch {
+        // Column may already exist
+      }
     }
-  }
 
-  if (!projectsColumnNames.has('target_date')) {
-    try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN target_date TIMESTAMP`)
-    } catch {
-      // Column may already exist
+    if (!projectsColumnNames.has('is_archived')) {
+      try {
+        db.exec(`ALTER TABLE ${T.projects} ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0`)
+      } catch {
+        // Column may already exist
+      }
     }
-  }
 
-  if (!projectsColumnNames.has('phase_id')) {
-    try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN phase_id TEXT`)
-    } catch {
-      // Column may already exist
-    }
-  }
-
-  if (!projectsColumnNames.has('is_archived')) {
-    try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0`)
-    } catch {
-      // Column may already exist
-    }
-  }
-
-  // Migration: Add branch column to tickets table
-  if (!ticketsColumnNames.has('branch')) {
-    try {
-      db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN branch TEXT`)
-    } catch {
-      // Column may already exist
+    if (!projectsColumnNames.has('workflow_id')) {
+      try {
+        db.exec(`ALTER TABLE ${T.projects} ADD COLUMN workflow_id TEXT`)
+      } catch {
+        // Column may already exist
+      }
     }
   }
 
@@ -156,15 +106,6 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
-  // Migration: Add labels column to tickets table
-  if (!ticketsColumnNames.has('labels')) {
-    try {
-      db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN labels TEXT NOT NULL DEFAULT '[]'`)
-    } catch {
-      // Column may already exist
-    }
-  }
-
   // Migration: Add new columns to ticket_templates table
   if (tableExists(T.ticket_templates)) {
     const templateColumns = db.pragma(`table_info(${T.ticket_templates})`) as Array<{ name: string }>
@@ -188,54 +129,6 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
-  // Migration: Migrate old ticket_dependencies schema (blocked_by_ticket_id) to new format
-  if (tableExists(T.ticket_dependencies)) {
-    const depsColumns = db.pragma(`table_info(${T.ticket_dependencies})`) as Array<{ name: string }>
-    const depsColumnNames = new Set(depsColumns.map(c => c.name))
-
-    if (depsColumnNames.has('blocked_by_ticket_id') && !depsColumnNames.has('depends_on_ticket_id')) {
-      // Old schema detected - migrate to new format
-      const migrate = db.transaction(() => {
-        // Create new table with correct schema
-        db.exec(`
-          CREATE TABLE pmo_ticket_dependencies_new (
-            ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE RESTRICT,
-            depends_on_ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE RESTRICT,
-            dependency_type TEXT NOT NULL DEFAULT 'blocks' CHECK (dependency_type IN ('blocks', 'relates_to', 'duplicates')),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (ticket_id, depends_on_ticket_id, dependency_type),
-            CHECK (ticket_id != depends_on_ticket_id)
-          )
-        `)
-
-        // Copy existing blocking relationships (old schema: ticket_id is blocked by blocked_by_ticket_id)
-        db.exec(`
-          INSERT OR IGNORE INTO pmo_ticket_dependencies_new (ticket_id, depends_on_ticket_id, dependency_type, created_at)
-          SELECT ticket_id, blocked_by_ticket_id, 'blocks', created_at
-          FROM ${T.ticket_dependencies}
-        `)
-
-        // Replace old table with new one
-        db.exec(`DROP TABLE ${T.ticket_dependencies}`)
-        db.exec(`ALTER TABLE pmo_ticket_dependencies_new RENAME TO ${T.ticket_dependencies}`)
-      })
-      migrate()
-    }
-  }
-
-  // Migration: Convert legacy priority values (URGENT/HIGH/MEDIUM/LOW) to P0-P3
-  if (tableExists(T.tickets)) {
-    try {
-      // Convert ticket priorities
-      db.exec(`UPDATE ${T.tickets} SET priority = 'P0' WHERE priority = 'URGENT'`)
-      db.exec(`UPDATE ${T.tickets} SET priority = 'P1' WHERE priority = 'HIGH'`)
-      db.exec(`UPDATE ${T.tickets} SET priority = 'P2' WHERE priority = 'MEDIUM'`)
-      db.exec(`UPDATE ${T.tickets} SET priority = 'P3' WHERE priority = 'LOW'`)
-    } catch {
-      // Ignore errors if migration already ran
-    }
-  }
-
   // Migration: Convert legacy priority values in ticket templates
   if (tableExists(T.ticket_templates)) {
     try {
@@ -248,57 +141,12 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
-  // Migration: Add workflow_id column to projects table
-  if (!projectsColumnNames.has('workflow_id')) {
-    try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN workflow_id TEXT`)
-    } catch {
-      // Column may already exist
-    }
-  }
-
   // Migration: Drop pmo_templates table (workflows are now used directly)
   if (tableExists('pmo_templates')) {
     try {
       db.exec('DROP TABLE pmo_templates')
     } catch {
       // Table may already be dropped
-    }
-  }
-
-  // Migration: Add position column to tickets table (TKT-965)
-  if (!ticketsColumnNames.has('position')) {
-    try {
-      db.exec(`ALTER TABLE ${T.tickets} ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_pmo_tickets_status_position ON ${T.tickets}(status_id, position)`)
-
-      // Backfill existing tickets with gapped positions (1000, 2000, ...) per status
-      const statuses = db.prepare(
-        `SELECT DISTINCT status_id FROM ${T.tickets} WHERE status_id IS NOT NULL`
-      ).all() as { status_id: string }[]
-
-      const getTicketsForStatus = db.prepare(`
-        SELECT id FROM ${T.tickets} WHERE status_id = ?
-        ORDER BY
-          CASE priority
-            WHEN 'P0' THEN 0
-            WHEN 'P1' THEN 1
-            WHEN 'P2' THEN 2
-            WHEN 'P3' THEN 3
-            ELSE 4
-          END,
-          created_at ASC
-      `)
-      const updatePosition = db.prepare(`UPDATE ${T.tickets} SET position = ? WHERE id = ?`)
-
-      for (const { status_id } of statuses) {
-        const tickets = getTicketsForStatus.all(status_id) as { id: string }[]
-        for (let i = 0; i < tickets.length; i++) {
-          updatePosition.run((i + 1) * 1000, tickets[i].id)
-        }
-      }
-    } catch {
-      // Column may already exist
     }
   }
 
@@ -344,59 +192,6 @@ export function runMigrations(db: Database.Database): void {
       } catch {
         // Column may already exist
       }
-    }
-  }
-
-  // Migration: Reassign orphaned tickets (TKT-940)
-  // Tickets with project_id that doesn't match any existing project are "orphaned".
-  // This can happen when a 'default' project never existed or was deleted.
-  // NOTE: This runs on every init but is idempotent — if no orphaned tickets exist, it's a no-op.
-  // Kept as a runtime check rather than a one-time migration since orphaned tickets could
-  // reappear if projects are deleted in the future.
-  if (tableExists(T.tickets) && tableExists(T.projects)) {
-    try {
-      // Find orphaned tickets (project_id doesn't match any project)
-      const orphanedTickets = db.prepare(`
-        SELECT t.id, t.project_id
-        FROM ${T.tickets} t
-        LEFT JOIN ${T.projects} p ON t.project_id = p.id
-        WHERE p.id IS NULL
-      `).all() as Array<{ id: string; project_id: string }>
-
-      if (orphanedTickets.length > 0) {
-        // Get the first available project to reassign to
-        const firstProject = db.prepare(`
-          SELECT id FROM ${T.projects} ORDER BY created_at ASC LIMIT 1
-        `).get() as { id: string } | undefined
-
-        if (firstProject) {
-          // Get the default status for the target project's workflow
-          const project = db.prepare(`
-            SELECT workflow_id FROM ${T.projects} WHERE id = ?
-          `).get(firstProject.id) as { workflow_id: string | null } | undefined
-
-          const workflowId = project?.workflow_id || 'default'
-          const defaultStatus = db.prepare(`
-            SELECT id FROM ${T.workflow_statuses}
-            WHERE workflow_id = ? AND is_default = 1
-          `).get(workflowId) as { id: string } | undefined
-
-          // Reassign orphaned tickets to the first project
-          const updateStmt = defaultStatus
-            ? db.prepare(`UPDATE ${T.tickets} SET project_id = ?, status_id = COALESCE(status_id, ?) WHERE id = ?`)
-            : db.prepare(`UPDATE ${T.tickets} SET project_id = ? WHERE id = ?`)
-
-          for (const ticket of orphanedTickets) {
-            if (defaultStatus) {
-              updateStmt.run(firstProject.id, defaultStatus.id, ticket.id)
-            } else {
-              updateStmt.run(firstProject.id, ticket.id)
-            }
-          }
-        }
-      }
-    } catch {
-      // Non-critical migration - don't fail initialization
     }
   }
 
@@ -447,90 +242,10 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
-  // Migration: Migrate pmo_linear_issue_map → pmo_external_issue_map (PRLT-947)
-  if (tableExists(T.linear_issue_map) && !tableExists(T.external_issue_map)) {
-    try {
-      // Create the new generic table
-      db.exec(`
-        CREATE TABLE ${T.external_issue_map} (
-          pmo_ticket_id TEXT NOT NULL REFERENCES ${T.tickets}(id) ON DELETE CASCADE,
-          provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
-          external_id TEXT NOT NULL,
-          external_key TEXT NOT NULL,
-          external_url TEXT NOT NULL,
-          team_key TEXT NOT NULL,
-          sync_direction TEXT NOT NULL DEFAULT 'inbound',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (pmo_ticket_id, provider),
-          UNIQUE (provider, external_id)
-        )
-      `)
-
-      // Copy existing Linear mappings into the new table
-      db.exec(`
-        INSERT INTO ${T.external_issue_map}
-          (pmo_ticket_id, provider, external_id, external_key, external_url, team_key, sync_direction, created_at)
-        SELECT
-          pmo_ticket_id, 'linear', linear_issue_id, linear_identifier, linear_url, linear_team_key, sync_direction, created_at
-        FROM ${T.linear_issue_map}
-      `)
-    } catch {
-      // Migration may have already run
-    }
-  }
-
 }
 
-/**
- * Seed built-in workflows from BUILTIN_TEMPLATES (single source of truth).
- * Creates workflows from template definitions for reuse across projects.
- */
-export function seedBuiltinWorkflows(db: Database.Database): void {
-  const now = new Date().toISOString()
-
-  const insertWorkflow = db.prepare(`
-    INSERT OR IGNORE INTO ${T.workflows} (id, name, description, is_builtin, created_at, updated_at)
-    VALUES (?, ?, ?, 1, ?, ?)
-  `)
-
-  const insertStatus = db.prepare(`
-    INSERT OR IGNORE INTO ${T.workflow_statuses} (id, workflow_id, name, category, position, color, description, is_default, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
-  // Read from BUILTIN_TEMPLATES - the single source of truth
-  for (const template of BUILTIN_TEMPLATES) {
-    insertWorkflow.run(template.id, template.name, template.description, now, now)
-
-    for (let i = 0; i < template.statuses.length; i++) {
-      const status = template.statuses[i]
-      const statusId = `${template.id}-${status.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')}`
-      // First status is the default
-      const isDefault = i === 0
-      insertStatus.run(
-        statusId,
-        template.id,
-        status.name,
-        status.category,
-        status.position,
-        null, // color
-        null, // description
-        isDefault ? 1 : 0,
-        now
-      )
-    }
-  }
-
-  // Assign default workflow to any projects without a workflow
-  db.prepare(`
-    UPDATE ${T.projects}
-    SET workflow_id = 'default'
-    WHERE workflow_id IS NULL
-  `).run()
-}
-
+// REMOVED: seedBuiltinWorkflows - dead tables (pmo_workflows, pmo_workflow_statuses) dropped in PRLT-1299
 // REMOVED: seedBuiltinTemplates - workflows are now used directly (no separate template concept)
-// Built-in workflows are seeded in seedBuiltinWorkflows() above
 
 /**
  * Rule for agents about using the globally installed prlt command.
@@ -1360,24 +1075,5 @@ export function updateBoardTimestamp(db: Database.Database, projectId: string): 
   `).run(Date.now(), projectId)
 }
 
-/**
- * Get max position for columns in a project.
- */
-export function getMaxColumnPosition(db: Database.Database, projectId: string): number {
-  const result = db.prepare(`
-    SELECT MAX(position) as max FROM ${T.columns}
-    WHERE project_id = ?
-  `).get(projectId) as { max: number | null }
-  return result.max ?? -1
-}
-
-/**
- * Get max position for tickets in a column.
- */
-export function getMaxTicketPosition(db: Database.Database, projectId: string, columnId: string): number {
-  const result = db.prepare(`
-    SELECT MAX(position) as max FROM ${T.board_tickets}
-    WHERE project_id = ? AND column_id = ?
-  `).get(projectId, columnId) as { max: number | null }
-  return result.max ?? -1
-}
+// REMOVED: getMaxColumnPosition - dead table (pmo_columns) dropped in PRLT-1299
+// REMOVED: getMaxTicketPosition - dead table (pmo_board_tickets) dropped in PRLT-1299
