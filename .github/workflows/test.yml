@@ -250,6 +250,46 @@ jobs:
 
           fi
 
+  lint:
+    needs: [detect-changes]
+    if: needs.detect-changes.outputs.run_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        node-version: ['22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store-path }}
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        working-directory: apps/cli
+        run: pnpm lint
+
+      - name: Typecheck
+        working-directory: apps/cli
+        run: pnpm typecheck
+
   build:
     needs: [detect-changes]
     if: needs.detect-changes.outputs.run_tests == 'true'
@@ -600,7 +640,7 @@ jobs:
   ci-status:
     name: CI Status
     if: always()
-    needs: [detect-changes, build, unit-tests, e2e-tests]
+    needs: [detect-changes, lint, build, unit-tests, e2e-tests]
     runs-on: ubuntu-latest
     steps:
       - name: CI Summary
@@ -608,6 +648,7 @@ jobs:
           SCOPE="${{ needs.detect-changes.outputs.scope }}"
           TIER="${{ needs.detect-changes.outputs.tier }}"
           REASON="${{ needs.detect-changes.outputs.reason }}"
+          LINT="${{ needs.lint.result }}"
           BUILD="${{ needs.build.result }}"
           UNIT="${{ needs.unit-tests.result }}"
           E2E="${{ needs.e2e-tests.result }}"
@@ -621,6 +662,7 @@ jobs:
           echo "| Job | Result |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-----|--------|" >> "$GITHUB_STEP_SUMMARY"
           echo "| detect-changes | ${{ needs.detect-changes.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| lint | $LINT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| build | $BUILD |" >> "$GITHUB_STEP_SUMMARY"
           echo "| unit-tests | $UNIT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| e2e-tests (all shards) | $E2E |" >> "$GITHUB_STEP_SUMMARY"
@@ -634,6 +676,7 @@ jobs:
           echo "Reason: $REASON"
           echo "E2E shards: ${{ needs.detect-changes.outputs.e2e_shards }}"
           echo "detect-changes: ${{ needs.detect-changes.result }}"
+          echo "lint: $LINT"
           echo "build: $BUILD"
           echo "unit-tests: $UNIT"
           echo "e2e-tests: $E2E"
@@ -643,6 +686,10 @@ jobs:
           # Fail if any job that ran actually failed
           if [[ "${{ needs.detect-changes.result }}" == "failure" ]]; then
             echo "FAIL: detect-changes failed"
+            exit 1
+          fi
+          if [[ "${{ needs.lint.result }}" == "failure" ]]; then
+            echo "FAIL: lint failed"
             exit 1
           fi
           if [[ "${{ needs.build.result }}" == "failure" ]]; then
