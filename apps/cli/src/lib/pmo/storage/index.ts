@@ -656,8 +656,8 @@ export class SQLiteStorage implements PMOStorage {
     return this.actionStorage.deleteAction(id)
   }
 
-  async getSuggestedAction(stateName: string): Promise<WorkAction | null> {
-    return this.actionStorage.getSuggestedAction(stateName)
+  async getSuggestedAction(intentName: string): Promise<WorkAction | null> {
+    return this.actionStorage.getSuggestedAction(intentName)
   }
 
   // ===========================================================================

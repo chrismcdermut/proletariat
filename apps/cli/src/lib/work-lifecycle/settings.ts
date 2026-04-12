@@ -1,8 +1,8 @@
 /**
- * Work lifecycle settings — column, priority, and review gate configuration.
+ * Work lifecycle settings — column, priority, review gate, and executor configuration.
  */
 
-import type { ReviewGateMode } from '../pmo/types.js'
+import type { ActionExecutor, ReviewGateMode } from '../pmo/types.js'
 
 /**
  * Database interface for settings access (compatible with better-sqlite3)
@@ -355,4 +355,78 @@ export function resolveReviewGate(
   if (spawnOverride) return spawnOverride
   if (actionOverride) return actionOverride
   return getReviewGateSetting(db)
+}
+
+// =============================================================================
+// Default Executor Settings
+// =============================================================================
+
+/**
+ * Valid executor types for workspace default.
+ */
+export const EXECUTOR_TYPES: readonly ActionExecutor[] = ['claude', 'codex', 'opencode', 'custom'] as const
+
+/**
+ * Default executor when no workspace setting is configured.
+ */
+export const DEFAULT_EXECUTOR: ActionExecutor = 'claude'
+
+/**
+ * Settings key for workspace-level default executor.
+ */
+const DEFAULT_EXECUTOR_SETTING_KEY = 'default_executor'
+
+/**
+ * Get the workspace default executor from workspace_settings.
+ * Returns the configured executor, or 'claude' if not set.
+ *
+ * @param db - Database instance
+ * @returns The configured default executor
+ */
+export function getDefaultExecutorSetting(db: DatabaseLike): ActionExecutor {
+  try {
+    const row = db.prepare(
+      `SELECT value FROM workspace_settings WHERE key = ?`
+    ).get(DEFAULT_EXECUTOR_SETTING_KEY) as { value: string } | undefined
+
+    const value = row?.value
+    if (value && EXECUTOR_TYPES.includes(value as ActionExecutor)) {
+      return value as ActionExecutor
+    }
+  } catch {
+    // workspace_settings table may not exist in older databases
+  }
+  return DEFAULT_EXECUTOR
+}
+
+/**
+ * Set the workspace default executor in workspace_settings.
+ *
+ * @param db - Database instance
+ * @param executor - Executor type to set as default
+ */
+export function setDefaultExecutorSetting(db: DatabaseLike, executor: ActionExecutor): void {
+  db.prepare(`
+    INSERT INTO workspace_settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(DEFAULT_EXECUTOR_SETTING_KEY, executor)
+}
+
+/**
+ * Resolve the effective executor given the hierarchy of overrides.
+ * Most specific wins: per-invocation flag > action override > workspace default.
+ *
+ * @param invocationOverride - Value from --executor flag on `prlt work start`
+ * @param actionOverride - Value from the action's executor column (nullable)
+ * @param db - Database instance for workspace default lookup
+ * @returns The resolved executor type
+ */
+export function resolveExecutor(
+  invocationOverride: ActionExecutor | undefined,
+  actionOverride: ActionExecutor | undefined,
+  db: DatabaseLike,
+): ActionExecutor {
+  if (invocationOverride) return invocationOverride
+  if (actionOverride) return actionOverride
+  return getDefaultExecutorSetting(db)
 }

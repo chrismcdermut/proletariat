@@ -189,8 +189,8 @@ export interface WorkActionRow {
   description: string | null
   prompt: string
   end_prompt: string | null
-  from_state: string | null
-  to_state: string | null
+  from_intent: string | null
+  to_intent: string | null
   executor: string | null
   environment: string | null
   permission_mode: string | null
