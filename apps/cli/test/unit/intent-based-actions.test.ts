@@ -245,6 +245,197 @@ describe('Intent-Based Actions (PRLT-1284)', () => {
   })
 
   // ===========================================================================
+  // AC #8: implement action on a Backlog ticket (not Ready) — should work
+  // ===========================================================================
+
+  describe('implement action works on any ticket state (AC #8)', () => {
+    it('getAction("implement") returns the action regardless of ticket state', async () => {
+      // Simulate: ticket is in Backlog, user runs `prlt work start <ticket> --action implement`
+      // The action lookup is by ID only — from_intent is NOT checked as a gate
+      const implement = await storage.getAction('implement')
+      expect(implement).to.not.be.null
+      expect(implement!.id).to.equal('implement')
+      expect(implement!.fromIntent).to.equal('ready') // has from_intent, but it's not a gate
+      expect(implement!.prompt).to.be.a('string').and.not.be.empty
+    })
+
+    it('getAction works for any action regardless of from_intent mismatch', async () => {
+      // Create a custom action with a specific from_intent
+      await storage.createAction({
+        name: 'Custom Deploy',
+        prompt: 'Deploy this',
+        fromIntent: 'needs_review',
+        toIntent: 'completed',
+      })
+
+      // Manual lookup by ID always works — from_intent is ignored
+      const action = await storage.getAction('custom-deploy')
+      expect(action).to.not.be.null
+      expect(action!.fromIntent).to.equal('needs_review')
+    })
+  })
+
+  // ===========================================================================
+  // AC #9: workspace default executor to codex, action with null executor — uses codex
+  // ===========================================================================
+
+  describe('executor inheritance from workspace settings (AC #9, #10)', () => {
+    it('workspace default_executor can be set to codex', () => {
+      db.exec('CREATE TABLE IF NOT EXISTS workspace_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+      const settings = new SettingsStore(db)
+      settings.set('execution.default_executor', 'codex')
+      const executor = settings.get('execution.default_executor')
+      expect(executor).to.equal('codex')
+    })
+
+    it('action with null executor stores null (inherits at runtime)', async () => {
+      const action = await storage.createAction({
+        name: 'Inheriting Action',
+        prompt: 'Use workspace default executor',
+        toIntent: 'started',
+        executor: undefined,
+      })
+
+      expect(action.executor).to.be.undefined
+
+      // Verify the DB stores null
+      const row = db.prepare('SELECT executor FROM pmo_actions WHERE id = ?').get(action.id) as { executor: string | null }
+      expect(row.executor).to.be.null
+    })
+
+    it('action with explicit executor stores the override (AC #10)', async () => {
+      const action = await storage.createAction({
+        name: 'Claude Only Action',
+        prompt: 'Always use Claude',
+        toIntent: 'started',
+        executor: 'claude',
+      })
+
+      expect(action.executor).to.equal('claude')
+
+      // Verify DB stores the explicit executor
+      const row = db.prepare('SELECT executor FROM pmo_actions WHERE id = ?').get(action.id) as { executor: string | null }
+      expect(row.executor).to.equal('claude')
+    })
+
+    it('runtime executor resolution: null action inherits workspace default, explicit overrides', () => {
+      // This is the resolution logic used at runtime (in work start)
+      db.exec('CREATE TABLE IF NOT EXISTS workspace_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+      const settings = new SettingsStore(db)
+      settings.set('execution.default_executor', 'codex')
+
+      // Resolution function: per-invocation > action override > workspace default
+      const resolveExecutor = (actionExecutor?: string, invocationExecutor?: string) => {
+        return invocationExecutor || actionExecutor || settings.get('execution.default_executor') || 'claude'
+      }
+
+      // Action with null executor → workspace default (codex)
+      expect(resolveExecutor(undefined, undefined)).to.equal('codex')
+      // Action with explicit executor → action override
+      expect(resolveExecutor('claude', undefined)).to.equal('claude')
+      // Per-invocation flag → highest priority
+      expect(resolveExecutor('claude', 'opencode')).to.equal('opencode')
+    })
+  })
+
+  // ===========================================================================
+  // AC #11: Custom action creation — prlt action create test --to-intent testing --prompt '...'
+  // ===========================================================================
+
+  describe('custom action creation (AC #11)', () => {
+    it('creates action with all intent fields', async () => {
+      const action = await storage.createAction({
+        name: 'test',
+        prompt: 'Run tests for this ticket',
+        toIntent: 'testing',
+        fromIntent: 'needs_review',
+        executor: 'claude',
+        description: 'Automated test runner',
+      })
+
+      expect(action.id).to.equal('test')
+      expect(action.name).to.equal('test')
+      expect(action.toIntent).to.equal('testing')
+      expect(action.fromIntent).to.equal('needs_review')
+      expect(action.executor).to.equal('claude')
+      expect(action.description).to.equal('Automated test runner')
+      expect(action.isBuiltin).to.be.false
+    })
+
+    it('creates action with custom intent names (board-specific)', async () => {
+      const action = await storage.createAction({
+        name: 'await_feedback',
+        prompt: 'Wait for client feedback',
+        toIntent: 'blocked',
+        fromIntent: 'started',
+      })
+
+      expect(action.id).to.equal('await-feedback')
+      expect(action.toIntent).to.equal('blocked')
+      expect(action.fromIntent).to.equal('started')
+    })
+
+    it('deletes custom actions', async () => {
+      await storage.createAction({
+        name: 'Temp Action',
+        prompt: 'Temporary',
+        toIntent: 'started',
+      })
+
+      const before = await storage.getAction('temp-action')
+      expect(before).to.not.be.null
+
+      await storage.deleteAction('temp-action')
+
+      const after = await storage.getAction('temp-action')
+      expect(after).to.be.null
+    })
+
+    it('cannot delete built-in actions', async () => {
+      try {
+        await storage.deleteAction('implement')
+        expect.fail('Should have thrown')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('Cannot delete built-in')
+      }
+    })
+
+    it('cannot create duplicate action names', async () => {
+      await storage.createAction({
+        name: 'Unique Action',
+        prompt: 'First',
+        toIntent: 'started',
+      })
+
+      try {
+        await storage.createAction({
+          name: 'Unique Action',
+          prompt: 'Second',
+          toIntent: 'started',
+        })
+        expect.fail('Should have thrown')
+      } catch (error: unknown) {
+        expect((error as Error).message).to.include('already exists')
+      }
+    })
+
+    it('lists actions filtered by from_intent', async () => {
+      await storage.createAction({
+        name: 'Auto Ready',
+        prompt: 'Auto-triggered on ready',
+        toIntent: 'started',
+        fromIntent: 'ready',
+      })
+
+      const readyActions = await storage.listActions({ fromIntent: 'ready' })
+      // Should include the custom action AND the built-in implement (which has from_intent='ready')
+      const ids = readyActions.map(a => a.id)
+      expect(ids).to.include('auto-ready')
+      expect(ids).to.include('implement')
+    })
+  })
+
+  // ===========================================================================
   // Workflow rules use intents
   // ===========================================================================
 
