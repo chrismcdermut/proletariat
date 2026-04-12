@@ -35,6 +35,8 @@ export interface DecisionContext {
   testOutput?: string
   /** Branch name */
   branch?: string
+  /** Agent session status (running agents, their states) */
+  agentStatus?: string
 }
 
 /**
@@ -137,6 +139,41 @@ export function fetchTestOutput(prNumber: number | undefined, maxChars: number):
 }
 
 /**
+ * Fetch running agent session status via `prlt session list --json`.
+ * Returns a summary of active agents and their states, or undefined if unavailable.
+ */
+export function fetchAgentSessionStatus(agentName: string | undefined): string | undefined {
+  try {
+    const output = execSync('prlt session list --json', {
+      timeout: 10_000,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+    })
+    try {
+      const parsed = JSON.parse(output)
+      const sessions = parsed.result?.sessions ?? parsed.sessions ?? []
+      if (!Array.isArray(sessions) || sessions.length === 0) return undefined
+
+      const lines: string[] = [`Active agents (${sessions.length}):`]
+      for (const s of sessions) {
+        const parts = [
+          s.agentName || s.agent_name || 'unknown',
+          s.status || 'unknown',
+        ]
+        if (s.ticket_id || s.ticketId) parts.push(`ticket=${s.ticket_id || s.ticketId}`)
+        if (s.elapsed) parts.push(`elapsed=${s.elapsed}`)
+        lines.push(`  - ${parts.join(' | ')}`)
+      }
+      return lines.join('\n')
+    } catch {
+      return output || undefined
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Gather enriched context from all available sources.
  */
 export function gatherDecisionContext(
@@ -146,12 +183,14 @@ export function gatherDecisionContext(
   const prNumber = escalation.ctx.pr as number | undefined
   const ticketId = escalation.ctx.ticket as string | undefined
   const branch = escalation.ctx.branch as string | undefined
+  const agentName = escalation.ctx.agent as string | undefined
 
   return {
     escalation,
     prDiff: fetchPrDiff(prNumber, options.maxDiffChars),
     ticketDescription: fetchTicketDescription(ticketId),
     testOutput: fetchTestOutput(prNumber, options.maxTestOutputChars),
+    agentStatus: fetchAgentSessionStatus(agentName),
     branch,
   }
 }
@@ -167,7 +206,7 @@ export function gatherDecisionContext(
  * with reasoning.
  */
 export function buildDecisionPrompt(context: DecisionContext): string {
-  const { escalation, prDiff, ticketDescription, testOutput, branch } = context
+  const { escalation, prDiff, ticketDescription, testOutput, agentStatus, branch } = context
 
   const sections: string[] = []
 
@@ -203,6 +242,14 @@ ${prDiff}
 
 \`\`\`
 ${testOutput}
+\`\`\``)
+  }
+
+  if (agentStatus) {
+    sections.push(`## Agent Sessions
+
+\`\`\`
+${agentStatus}
 \`\`\``)
   }
 
