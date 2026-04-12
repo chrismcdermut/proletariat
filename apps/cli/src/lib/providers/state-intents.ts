@@ -59,6 +59,19 @@ export const TRANSITION_INTENTS: TransitionIntent[] = [
  */
 export const DEFAULT_INTENTS: SemanticIntent[] = [
   {
+    name: 'backlog',
+    description: 'Not yet scheduled for work',
+    aliases: [
+      'Backlog',
+      'Icebox',
+      'Inbox',
+      'Triage',
+      'Unscheduled',
+      'Later',
+      'Someday',
+    ],
+  },
+  {
     name: 'started',
     description: 'Work has begun',
     aliases: [
