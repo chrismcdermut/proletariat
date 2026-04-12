@@ -18,6 +18,8 @@ import { execSync } from 'node:child_process'
 // Types
 // =============================================================================
 
+export type SessionRole = 'worker' | 'orchestrator' | 'daemon' | 'headless'
+
 export interface SessionRecord {
   id: string
   agentName: string
@@ -28,6 +30,8 @@ export interface SessionRecord {
   environment: 'host' | 'docker' | 'podman'
   permissionMode: 'danger' | 'safe'
   status: 'running' | 'done' | 'error' | 'stopped'
+  role: SessionRole
+  daemonType?: string
   startedAt: Date
   endedAt?: Date
 }
@@ -42,6 +46,8 @@ interface SessionRow {
   environment: string
   permission_mode: string
   status: string
+  role: string | null
+  daemon_type: string | null
   started_at: number
   ended_at: number | null
 }
@@ -61,6 +67,8 @@ function rowToSession(row: SessionRow): SessionRecord {
     environment: row.environment as SessionRecord['environment'],
     permissionMode: row.permission_mode as SessionRecord['permissionMode'],
     status: row.status as SessionRecord['status'],
+    role: (row.role as SessionRole) || 'worker',
+    daemonType: row.daemon_type || undefined,
     startedAt: new Date(row.started_at),
     endedAt: row.ended_at ? new Date(row.ended_at) : undefined,
   }
@@ -96,10 +104,27 @@ export class SessionStore {
         environment TEXT NOT NULL DEFAULT 'host',
         permission_mode TEXT NOT NULL DEFAULT 'safe',
         status TEXT NOT NULL DEFAULT 'running',
+        role TEXT NOT NULL DEFAULT 'worker',
+        daemon_type TEXT,
         started_at INTEGER NOT NULL,
         ended_at INTEGER
       )
     `)
+    // Migrate existing tables that lack the new columns
+    this.migrateSchema()
+  }
+
+  private migrateSchema(): void {
+    try {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT 'worker'`)
+    } catch {
+      // Column already exists
+    }
+    try {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN daemon_type TEXT`)
+    } catch {
+      // Column already exists
+    }
   }
 
   /**
@@ -113,14 +138,17 @@ export class SessionStore {
     sessionName: string
     environment: SessionRecord['environment']
     permissionMode: SessionRecord['permissionMode']
+    role?: SessionRole
+    daemonType?: string
   }): SessionRecord {
     const id = `SES-${Date.now().toString(36).toUpperCase()}`
     const now = Date.now()
+    const role = params.role || 'worker'
 
     this.db.prepare(`
-      INSERT INTO sessions (id, agent_name, runner, task, workdir, session_name, environment, permission_mode, status, started_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?)
-    `).run(id, params.agentName, params.runner, params.task, params.workdir, params.sessionName, params.environment, params.permissionMode, now)
+      INSERT INTO sessions (id, agent_name, runner, task, workdir, session_name, environment, permission_mode, status, role, daemon_type, started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)
+    `).run(id, params.agentName, params.runner, params.task, params.workdir, params.sessionName, params.environment, params.permissionMode, role, params.daemonType || null, now)
 
     return {
       id,
@@ -132,6 +160,8 @@ export class SessionStore {
       environment: params.environment,
       permissionMode: params.permissionMode,
       status: 'running',
+      role,
+      daemonType: params.daemonType,
       startedAt: new Date(now),
     }
   }
@@ -222,9 +252,37 @@ export class SessionStore {
   }
 
   /**
+   * List sessions filtered by role.
+   */
+  listByRole(role: SessionRole, status?: SessionRecord['status']): SessionRecord[] {
+    let rows: SessionRow[]
+    if (status) {
+      rows = this.db.prepare<SessionRow>(
+        `SELECT * FROM sessions WHERE role = ? AND status = ? ORDER BY started_at DESC`
+      ).all(role, status)
+    } else {
+      rows = this.db.prepare<SessionRow>(
+        `SELECT * FROM sessions WHERE role = ? ORDER BY started_at DESC`
+      ).all(role)
+    }
+    return rows.map(rowToSession)
+  }
+
+  /**
+   * Get a running daemon session by its daemon type.
+   * Returns the most recent running daemon of the given type, or null.
+   */
+  getRunningDaemon(daemonType: string): SessionRecord | null {
+    const row = this.db.prepare<SessionRow>(
+      `SELECT * FROM sessions WHERE role = 'daemon' AND daemon_type = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1`
+    ).get(daemonType)
+    return row ? rowToSession(row) : null
+  }
+
+  /**
    * Check if a tmux session is alive.
    */
-  private isTmuxSessionAlive(sessionName: string): boolean {
+  isTmuxSessionAlive(sessionName: string): boolean {
     try {
       execSync(`tmux has-session -t "${sessionName}" 2>/dev/null`, { stdio: 'pipe' })
       return true
