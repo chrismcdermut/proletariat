@@ -129,7 +129,7 @@ function resolveTargetFromWorkspace(target: string): string {
     if (!dbPath) return target
 
     // Dynamic import to avoid circular dependencies — better-sqlite3 is always available at runtime
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const Database = require('better-sqlite3')
     const db = new Database(dbPath, { readonly: true })
     try {
@@ -244,7 +244,7 @@ const notify: ActionHandler = (ctx) => {
   // Try to dispatch through NotificationManager if available
   try {
     // Dynamic import to avoid circular deps at module load time
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const { getNotificationManager } = require('../notifications/index.js')
     const manager = getNotificationManager()
     if (manager) {
@@ -257,7 +257,7 @@ const notify: ActionHandler = (ctx) => {
   }
 
   // Fallback: terminal notification
-  // eslint-disable-next-line no-console
+   
   console.log(`[orchestrate:notify] ${parts.join(' ')}`)
   return { action: 'notify', success: true, durationMs: Date.now() - start }
 }
@@ -515,7 +515,7 @@ function getActiveAgentNames(): Set<string> {
     const dbPath = findWorkspaceDb()
     if (!dbPath) return names
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const Database = require('better-sqlite3')
     const db = new Database(dbPath, { readonly: true })
     try {
@@ -543,7 +543,7 @@ function getActiveSessionIds(): Set<string> {
     const dbPath = findWorkspaceDb()
     if (!dbPath) return ids
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+     
     const Database = require('better-sqlite3')
     const db = new Database(dbPath, { readonly: true })
     try {

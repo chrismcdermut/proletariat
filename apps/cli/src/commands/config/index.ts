@@ -564,7 +564,7 @@ export default class Config extends PromptCommand {
 
     if (jsonMode) {
       outputSuccessAsJson({ key, value }, createMetadata('config', {}))
-      return
+      
     } else {
       this.log(styles.success(`Set ${key} = ${value}`))
     }

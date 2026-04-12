@@ -20,27 +20,27 @@ import { strictTool, textResponse, errorResponse } from './helpers.js'
  * that don't make sense as MCP tools.
  */
 const EXCLUDED_COMMANDS = new Set([
+  'autocomplete',
+  'autocomplete:setup',
+  'commands',
+  // oclif built-ins
+  'help',
   // MCP server itself (would be recursive)
   'mcp-server',
   // oclif plugin commands
   'plugins',
+  'plugins:add',
   'plugins:inspect',
   'plugins:install',
-  'plugins:add',
   'plugins:link',
+  'plugins:remove',
   'plugins:reset',
   'plugins:uninstall',
   'plugins:unlink',
-  'plugins:remove',
   'plugins:update',
-  // oclif built-ins
-  'help',
-  'commands',
-  'autocomplete',
-  'autocomplete:setup',
+  'self-update',
   // Self-update (not useful for MCP)
   'update',
-  'self-update',
 ])
 
 /**

@@ -35,7 +35,7 @@ export function isPlainOutput(): boolean {
 }
 
 // eslint-disable-next-line no-control-regex
-const ANSI_REGEX = /\x1B\[[0-9;]*[a-zA-Z]/g;
+const ANSI_REGEX = /\u001B\[[0-9;]*[a-zA-Z]/g;
 
 /**
  * Strip ANSI escape codes from a string

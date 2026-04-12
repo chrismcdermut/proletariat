@@ -8,7 +8,7 @@
 import * as path from 'node:path'
 import { execSync } from 'node:child_process'
 import { type DatabaseDriver, openDriver } from '../database/driver.js'
-import type { Board, Ticket, Column } from '../pmo/types.js'
+import type { Board, Ticket, Column , PMOStorage } from '../pmo/types.js'
 import { getWorkspaceInfo, getAllAgentsStatus, getAgentTmuxSessions } from '../agents/commands.js'
 import type { WorkspaceInfo, AgentStatus } from '../agents/commands.js'
 import { ExecutionStorage } from '../execution/index.js'
@@ -22,7 +22,6 @@ import {
 } from '../execution/session-utils.js'
 import { listOpenPRs } from '../pr/index.js'
 import type { PRInfo } from '../pr/index.js'
-import type { PMOStorage } from '../pmo/types.js'
 
 // =============================================================================
 // Dashboard Data Interface
@@ -273,7 +272,7 @@ export function gatherPRData(): DashboardPR[] {
     const openPRs: PRInfo[] = listOpenPRs()
 
     // Try to get CI status
-    let ciMap: Map<number, string> = new Map()
+    const ciMap: Map<number, string> = new Map()
     try {
       const ciResult = execSync(
         'gh pr list --json number,statusCheckRollup',

@@ -228,7 +228,7 @@ export default class SessionPoke extends PromptCommand {
               const curLines = currentContent.split('\n')
               const lastPreLine = preLines[preLines.length - 1]
               const matchIdx = curLines.lastIndexOf(lastPreLine)
-              if (matchIdx >= 0) {
+              if (matchIdx !== -1) {
                 responseContent = curLines.slice(matchIdx + 1).join('\n')
               } else {
                 responseContent = currentContent

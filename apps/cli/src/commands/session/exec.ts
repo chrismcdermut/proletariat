@@ -227,7 +227,7 @@ export default class SessionExec extends PromptCommand {
           stdout: stdout.trim(),
           stderr: stderr.trim(),
         }, createMetadata('session exec', flags))
-        return
+        
       } else {
         if (stdout.trim()) {
           process.stdout.write(stdout)

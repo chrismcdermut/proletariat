@@ -120,7 +120,7 @@ export class WorkService {
       }
 
       // Try to resolve linked ticket
-      const linked = await this.resolveLinkedTicket(prNumber, prInfo.headBranch, undefined)
+      const linked = await this.resolveLinkedTicket(prNumber, prInfo.headBranch)
       if (linked) {
         ticket = linked
         ticketId = linked.id

@@ -72,7 +72,7 @@ function deriveTrelloLabels(card: TrelloCardPayload): string[] {
   }
   return card.labels
     .map(label => label.name?.trim())
-    .filter((name): name is string => Boolean(name))
+    .filter(Boolean)
 }
 
 function deriveTrelloPriority(labels: string[]): string | null {

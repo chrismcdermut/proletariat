@@ -102,7 +102,7 @@ export class PRService {
     }
 
     // Ensure remote is up to date
-    ensureRemoteUpToDate(cwd, undefined)
+    ensureRemoteUpToDate(cwd)
 
     // Push branch if needed
     if (!hasBranchBeenPushed(currentBranch, cwd)) {

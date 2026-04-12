@@ -17,8 +17,7 @@
  * Resolution logic is provider-agnostic.
  */
 
-import type { TicketProvider } from './types.js'
-import type { ProviderStorage } from './types.js'
+import type { TicketProvider , ProviderStorage } from './types.js'
 import { SettingsStore } from '../database/settings-store.js'
 import { DEFAULT_INTENTS, matchIntentByAliases, getDefaultIntent } from './state-intents.js'
 import { TransitionMapStore } from './transition-map.js'

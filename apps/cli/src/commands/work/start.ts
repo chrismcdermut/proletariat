@@ -524,7 +524,7 @@ export default class WorkStart extends PMOCommand {
     jsonMode: boolean,
   ): Promise<{ source: IssueSource; key: string; sourceResolution: { method: string; provider: string } }> {
     let source = input.source
-    let key = input.key
+    const key = input.key
     let sourceResolutionMethod = 'flag'
 
     // If no explicit source flag, try workspace default source
@@ -689,7 +689,7 @@ export default class WorkStart extends PMOCommand {
       let envelopeTicket: Ticket | undefined
 
       // Handle --from shorthand: parse provider:key into source + key
-      let fromFlag = flags.from as string | undefined
+      const fromFlag = flags.from as string | undefined
       let fromIssueActive = flags['from-issue']
 
       if (fromFlag) {
@@ -2669,7 +2669,7 @@ export default class WorkStart extends PMOCommand {
         const columnNames = board ? board.columns.map(col => col.name) : []
 
         // Try direct column name match for the intent (handles case where intent IS the column name)
-        let targetColumnName: string | null = findColumnByName(columnNames, targetIntent)
+        const targetColumnName: string | null = findColumnByName(columnNames, targetIntent)
 
         if (!targetColumnName) {
           // Use intent-based resolution via state resolution engine
@@ -2870,7 +2870,7 @@ export default class WorkStart extends PMOCommand {
       const tp = await this.resolveTicketProvider(rawId, projectId || '')
       // eslint-disable-next-line no-await-in-loop
       const gr = await tp.getTicket(rawId)
-      let ticket = (gr.success && gr.ticket) ? gr.ticket : null
+      const ticket = (gr.success && gr.ticket) ? gr.ticket : null
 
       if (!ticket) {
         if (jsonMode) {
@@ -2998,7 +2998,7 @@ export default class WorkStart extends PMOCommand {
 
     // Get all tickets from provider — no local PMO fallback
     const batchProvider = this.resolveProjectProvider('')
-    const batchListResult = await batchProvider.listTickets(undefined)
+    const batchListResult = await batchProvider.listTickets()
     if (!batchListResult.success) {
       db.close()
       this.log(styles.muted(`Failed to list tickets: ${batchListResult.error}`))

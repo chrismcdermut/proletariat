@@ -12,6 +12,20 @@ export default [
   prettier,
   {
     rules: {
+      // === Code quality rules (PRLT-1298) ===
+      // Prevent silent error swallowing — every catch must have a body
+      'no-empty': ['error', { allowEmptyCatch: false }],
+      // Prevent dead code
+      'no-unreachable': 'error',
+      // Catch unused imports and variables
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
+      // Audit explicit any usage (warn, not block)
+      '@typescript-eslint/no-explicit-any': 'warn',
+
       // Disable all perfectionist sorting rules
       // These slow down development without catching real issues
       'perfectionist/sort-classes': 'off',
@@ -103,9 +117,6 @@ export default [
 
       // These are sometimes necessary in loops for sequential operations
       'no-await-in-loop': 'warn',
-
-      // Allow explicit any with warning - real issue but shouldn't block
-      '@typescript-eslint/no-explicit-any': 'warn',
 
       // Allow case declarations - common pattern
       'no-case-declarations': 'off',

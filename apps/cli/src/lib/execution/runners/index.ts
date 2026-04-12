@@ -23,9 +23,8 @@ import {
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
   normalizeEnvironment,
-} from './shared.js'
+ RunnerResult, ensureTmuxServerHasKeychainAccess } from './shared.js'
 
-import { RunnerResult, ensureTmuxServerHasKeychainAccess } from './shared.js'
 import { runHost } from './host.js'
 import { runDevcontainer } from './devcontainer.js'
 import { runDocker } from './docker.js'

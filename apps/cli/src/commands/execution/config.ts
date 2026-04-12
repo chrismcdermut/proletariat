@@ -472,7 +472,7 @@ export default class ExecutionConfig extends PromptCommand {
 
     if (jsonMode) {
       outputSuccessAsJson({ key, value }, createMetadata('execution config', {}))
-      return
+      
     } else {
       this.log(styles.success(`Set ${key} = ${value}`))
     }

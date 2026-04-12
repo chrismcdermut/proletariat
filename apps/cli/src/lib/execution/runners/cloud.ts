@@ -12,14 +12,12 @@ import {
   ExecutionContext,
   ExecutionConfig,
   validateCodexMode,
-} from './shared.js'
 
-import {
   RunnerResult,
   buildPrompt,
   getExecutorCommand,
-  isClaudeExecutor,
-} from './shared.js'
+  isClaudeExecutor} from './shared.js'
+
 
 /**
  * Run command on a remote machine (cloud) via SSH.

@@ -13,9 +13,8 @@ import {
   ExecutorType,
   ExecutionContext,
   ExecutionConfig,
-} from './shared.js'
+ RunnerResult } from './shared.js'
 
-import { RunnerResult } from './shared.js'
 import { runHost } from './host.js'
 
 // =============================================================================
@@ -83,9 +82,9 @@ export function buildSrtCommand(
 
   // Network: merge sandbox domains with firewall allowlist and action-level allowlist (PRLT-1079)
   const allDomains = new Set([
-    ...config.sandbox.networkDomains,
-    ...config.firewall.allowlistDomains,
     ...(context.networkAllowlist || []),
+    ...config.firewall.allowlistDomains,
+    ...config.sandbox.networkDomains,
   ])
   for (const domain of allDomains) {
     args.push(`--net-allow=${domain}`)
@@ -120,8 +119,8 @@ export async function runSandbox(
     if (config.sandbox.fallbackToHost) {
       // Log warning via stderr (will be visible in terminal)
       process.stderr.write(
-        '\x1b[33m⚠️  srt (sandbox-runtime) not installed. Falling back to host execution.\n' +
-        '   Install srt for filesystem + network isolation: https://github.com/anthropic-experimental/sandbox-runtime\x1b[0m\n'
+        '\u001B[33m⚠️  srt (sandbox-runtime) not installed. Falling back to host execution.\n' +
+        '   Install srt for filesystem + network isolation: https://github.com/anthropic-experimental/sandbox-runtime\u001B[0m\n'
       )
       // Fall back to host runner
       return runHost(context, executor, config, displayMode)

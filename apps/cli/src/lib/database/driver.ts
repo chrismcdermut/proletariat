@@ -134,7 +134,7 @@ export class BetterSqlite3Driver implements DatabaseDriver {
 
   /**
    * Access the underlying better-sqlite3 Database instance.
-   * @internal Use for Drizzle ORM interop only.
+   * @internal
    */
   get raw(): Database.Database {
     return this.db

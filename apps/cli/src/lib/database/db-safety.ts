@@ -521,8 +521,8 @@ export function checkSchemaCompleteness(db: Database.Database): SchemaCheckResul
         // Only report core workspace tables as missing.
         // PMO tables may legitimately not exist if PMO was partially initialized.
         const coreWorkspaceTables = new Set([
-          'workspace', 'repositories', 'agents', 'agent_themes',
-          'agent_theme_names', 'agent_worktrees', 'workspace_settings', 'media_items',
+          'agent_theme_names', 'agent_themes', 'agent_worktrees', 'agents',
+          'media_items', 'repositories', 'workspace', 'workspace_settings',
         ])
         if (coreWorkspaceTables.has(table)) {
           missingTables.push(table)

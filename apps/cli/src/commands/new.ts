@@ -214,7 +214,7 @@ export default class New extends Command {
         this.outputFirstTimeJsonPrompt(flags);
       } else {
         outputPromptAsJson(
-          buildPromptConfig('input', 'name', 'Enter a name for your headquarters:', undefined, undefined),
+          buildPromptConfig('input', 'name', 'Enter a name for your headquarters:'),
           createMetadata('new', flags as Record<string, unknown>),
         );
       }

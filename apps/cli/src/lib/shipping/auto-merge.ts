@@ -18,8 +18,7 @@ import {
   getPRChecks,
   mergePR,
 } from '../pr/index.js'
-import type { AutoMergeProvider } from './types.js'
-import type { WhenGreenOptions, WhenGreenResult } from './types.js'
+import type { AutoMergeProvider , WhenGreenOptions, WhenGreenResult } from './types.js'
 import { execSync } from 'node:child_process'
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000  // 60 minutes

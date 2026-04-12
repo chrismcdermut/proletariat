@@ -9,9 +9,8 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../../lib/prompt-json.js'
-import { WorkHookStorage } from '../../../lib/work-lifecycle/hooks/index.js'
+import { WorkHookStorage , HOOKABLE_EVENTS } from '../../../lib/work-lifecycle/hooks/index.js'
 import type { HookableEvent } from '../../../lib/work-lifecycle/hooks/index.js'
-import { HOOKABLE_EVENTS } from '../../../lib/work-lifecycle/hooks/index.js'
 import { openWorkspaceDatabase } from '../../../lib/database/index.js'
 
 export default class WorkHooksList extends PromptCommand {

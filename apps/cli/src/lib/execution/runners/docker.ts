@@ -12,15 +12,13 @@ import {
   ExecutionContext,
   ExecutionConfig,
   validateCodexMode,
-} from './shared.js'
 
-import {
   RunnerResult,
   buildPrompt,
   getExecutorCommand,
   isClaudeExecutor,
-  checkDockerDaemon,
-} from './shared.js'
+  checkDockerDaemon} from './shared.js'
+
 
 /**
  * Run command in a detached Docker container.

@@ -14,17 +14,15 @@ import {
   ExecutionContext,
   ExecutionConfig,
   getSetTitleCommands,
-} from './shared.js'
 
-import {
   RunnerResult,
   buildTmuxWindowName,
   buildWindowTitle,
   shouldUseControlMode,
   buildTmuxMouseOption,
   buildTmuxAttachCommand,
-  configureITermTmuxWindowMode,
-} from './shared.js'
+  configureITermTmuxWindowMode} from './shared.js'
+
 
 /**
  * Run devcontainer command in tmux session INSIDE the container.

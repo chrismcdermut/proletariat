@@ -110,7 +110,7 @@ export function normalizeShortcutStory(
 
   const labels = (story.labels || [])
     .map(label => label.name?.trim())
-    .filter((name): name is string => Boolean(name))
+    .filter(Boolean)
 
   const stateName = workflowStates?.get(story.workflow_state_id ?? 0)?.name || 'Unknown'
   const externalKey = deriveExternalKey(story)
