@@ -433,7 +433,8 @@ describe('Poller Ready Status Resolution', () => {
         id TEXT PRIMARY KEY,
         ticket_id TEXT NOT NULL,
         agent_name TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'starting'
+        status TEXT NOT NULL DEFAULT 'starting',
+        role TEXT NOT NULL DEFAULT 'worker'
       )
     `)
     return db

@@ -724,7 +724,8 @@ describe('@smoke Session Commands E2E Tests', () => {
           session_id TEXT,
           container_id TEXT,
           started_at TEXT,
-          completed_at TEXT
+          completed_at TEXT,
+          role TEXT NOT NULL DEFAULT 'worker'
         );
 
         INSERT INTO agent_work (id, ticket_id, agent_name, executor, environment, status, session_id, started_at)

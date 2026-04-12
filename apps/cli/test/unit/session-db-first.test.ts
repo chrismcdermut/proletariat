@@ -57,6 +57,7 @@ describe('@smoke Session DB-First (PRLT-1139)', () => {
             display_mode TEXT DEFAULT 'terminal',
             permission_mode TEXT DEFAULT 'safe',
             cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
+            role TEXT NOT NULL DEFAULT 'worker',
             status TEXT NOT NULL,
             branch TEXT,
             pid TEXT,

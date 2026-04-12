@@ -55,7 +55,8 @@ function createTestDb(): Database.Database {
       status TEXT NOT NULL DEFAULT 'starting',
       lifecycle_state TEXT,
       container_id TEXT,
-      last_heartbeat TEXT
+      last_heartbeat TEXT,
+      role TEXT NOT NULL DEFAULT 'worker'
     )
   `)
 

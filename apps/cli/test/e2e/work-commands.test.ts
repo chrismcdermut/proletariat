@@ -559,6 +559,7 @@ function setupTestDatabase(db: Database.Database) {
       sandboxed INTEGER DEFAULT 1,
       permission_mode TEXT DEFAULT 'safe',
       cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
+      role TEXT NOT NULL DEFAULT 'worker',
       status TEXT NOT NULL DEFAULT 'running',
       branch TEXT,
       pid TEXT,
