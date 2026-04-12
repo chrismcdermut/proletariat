@@ -332,33 +332,11 @@ function setupTestDatabase(db: Database.Database) {
 
   const now = new Date().toISOString();
 
-  // Create a workflow first (new schema)
+  // [DEAD - PRLT-1299] pmo_workflows, pmo_workflow_statuses tables removed.
+  // Insert project without workflow_id (column removed in PRLT-1299).
   db.prepare(`
-    INSERT INTO pmo_workflows (id, name, description, is_builtin, created_at, updated_at)
-    VALUES ('test-workflow', 'Test Workflow', 'Test workflow for base command', 0, ?, ?)
-  `).run(now, now);
-
-  // Insert workflow statuses
-  const statuses = [
-    { id: 'status-backlog', name: 'Backlog', category: 'backlog', position: 0, isDefault: 1 },
-    { id: 'status-todo', name: 'Todo', category: 'unstarted', position: 1 },
-    { id: 'status-in-progress', name: 'In Progress', category: 'started', position: 2 },
-    { id: 'status-in-review', name: 'In Review', category: 'started', position: 3 },
-    { id: 'status-done', name: 'Done', category: 'completed', position: 4 },
-    { id: 'status-canceled', name: 'Canceled', category: 'canceled', position: 5 },
-  ];
-
-  for (const status of statuses) {
-    db.prepare(`
-      INSERT INTO pmo_workflow_statuses (id, workflow_id, name, category, position, is_default, created_at)
-      VALUES (?, 'test-workflow', ?, ?, ?, ?, ?)
-    `).run(status.id, status.name, status.category, status.position, status.isDefault || 0, now);
-  }
-
-  // Insert project with workflow_id reference
-  db.prepare(`
-    INSERT INTO pmo_projects (id, name, description, workflow_id, created_at, updated_at)
-    VALUES ('test-project', 'Test Project', 'Test project for base command', 'test-workflow', ?, ?)
+    INSERT INTO pmo_projects (id, name, description, created_at, updated_at)
+    VALUES ('test-project', 'Test Project', 'Test project for base command', ?, ?)
   `).run(now, now);
 
   db.prepare(`

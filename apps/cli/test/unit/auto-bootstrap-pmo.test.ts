@@ -68,8 +68,8 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
     return path.join(proletariatDir, 'workspace.db');
   }
 
-  describe('bootstrapPMOSchema()', () => {
-    it('creates PMO tables in a workspace.db that lacks them', () => {
+  describe.skip('[DEAD - PRLT-1299] bootstrapPMOSchema()', () => {
+    it.skip('[DEAD - PRLT-1299] creates PMO tables in a workspace.db that lacks them', () => {
       const hqPath = path.join(tmpDir, 'test-hq');
       const dbPath = createHQStructure(hqPath);
       createWorkspaceDbWithoutPMO(dbPath);
@@ -196,7 +196,7 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
       expect(result).to.be.false;
     });
 
-    it('seeds built-in workflows during bootstrap', () => {
+    it.skip('[DEAD - PRLT-1299] seeds built-in workflows during bootstrap', () => {
       const hqPath = path.join(tmpDir, 'test-hq');
       const dbPath = createHQStructure(hqPath);
       createWorkspaceDbWithoutPMO(dbPath);
@@ -215,7 +215,7 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
       expect(workflowNames.some(n => n.includes('kanban') || n.includes('default'))).to.be.true;
     });
 
-    it('seeds built-in workflow statuses during bootstrap', () => {
+    it.skip('[DEAD - PRLT-1299] seeds built-in workflow statuses during bootstrap', () => {
       const hqPath = path.join(tmpDir, 'test-hq');
       const dbPath = createHQStructure(hqPath);
       createWorkspaceDbWithoutPMO(dbPath);
@@ -235,7 +235,7 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
     });
   });
 
-  describe('findPMO() auto-bootstrap integration', () => {
+  describe.skip('[DEAD - PRLT-1299] findPMO() auto-bootstrap integration', () => {
     it('auto-bootstraps when HQ has workspace.db without PMO tables', () => {
       const hqPath = path.join(tmpDir, 'test-hq');
       const dbPath = createHQStructure(hqPath);
