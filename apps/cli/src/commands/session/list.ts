@@ -15,6 +15,7 @@ import {
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'
 import { visualPadEnd } from '../../lib/string-utils.js'
+import { SessionStore } from '../../lib/session-store.js'
 
 interface VerifiedSession {
   sessionId: string
@@ -25,6 +26,8 @@ interface VerifiedSession {
   containerId?: string
   exists: boolean  // Whether the tmux session actually exists
   source: 'db' | 'discovered'  // Whether session was found in DB or discovered from tmux
+  role?: string  // Session role: worker, orchestrator, daemon, headless
+  daemonType?: string  // For daemon sessions: reconciler, etc.
 }
 
 export default class SessionList extends PMOCommand {
@@ -237,6 +240,43 @@ export default class SessionList extends PMOCommand {
         }
       }
 
+      // Daemon sessions from global SessionStore (sessions.db)
+      const globalStore = new SessionStore()
+      try {
+        const daemonSessions = globalStore.listByRole('daemon', 'running')
+        for (const daemon of daemonSessions) {
+          // Skip daemons we already matched (by session name)
+          if (matchedHostSessions.has(daemon.sessionName)) continue
+
+          const alive = globalStore.isTmuxSessionAlive(daemon.sessionName)
+
+          // Mark dead daemon sessions as done so they don't linger
+          if (!alive) {
+            globalStore.updateStatus(daemon.id, 'done')
+            if (!flags.all) continue
+          }
+
+          sessions.push({
+            sessionId: daemon.sessionName,
+            ticketId: daemon.daemonType ? `DAEMON:${daemon.daemonType}` : 'DAEMON',
+            agentName: daemon.agentName,
+            status: alive ? 'running' : 'stale',
+            environment: 'host',
+            exists: alive,
+            source: 'db',
+            role: 'daemon',
+            daemonType: daemon.daemonType,
+          })
+
+          // Track so orphan detection doesn't double-count
+          if (alive) {
+            matchedHostSessions.add(daemon.sessionName)
+          }
+        }
+      } finally {
+        globalStore.close()
+      }
+
       if (jsonMode) {
         this.log(JSON.stringify(sessions, null, 2))
         return
@@ -260,7 +300,8 @@ export default class SessionList extends PMOCommand {
         this.log('  ' + '─'.repeat(88))
 
         for (const session of sessions) {
-          const typeIcon = session.environment === 'container' ? '🐳 container' : '💻 host'
+          const typeIcon = session.role === 'daemon' ? '⚙️  daemon' :
+                          session.environment === 'container' ? '🐳 container' : '💻 host'
           const statusColor = session.status === 'running' ? styles.success :
                              session.status === 'starting' ? styles.warning :
                              session.status === 'stale' ? styles.error :
