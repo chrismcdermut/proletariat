@@ -157,40 +157,6 @@ export const pmoPhaseTemplates = sqliteTable('pmo_phase_templates', {
 })
 
 /**
- * Shared workflow definitions
- */
-export const pmoWorkflows = sqliteTable('pmo_workflows', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull().unique(),
-  description: text('description'),
-  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  idxBuiltin: index('idx_pmo_workflows_builtin').on(table.isBuiltin),
-}))
-
-/**
- * Workflow statuses (board columns)
- */
-export const pmoWorkflowStatuses = sqliteTable('pmo_workflow_statuses', {
-  id: text('id').primaryKey(),
-  workflowId: text('workflow_id').notNull(),
-  name: text('name').notNull(),
-  category: text('category').notNull(),
-  position: integer('position').notNull().default(0),
-  color: text('color'),
-  description: text('description'),
-  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  uniqWorkflowName: unique().on(table.workflowId, table.name),
-  idxWorkflow: index('idx_pmo_workflow_statuses_workflow').on(table.workflowId),
-  idxCategory: index('idx_pmo_workflow_statuses_category').on(table.workflowId, table.category),
-  idxPosition: index('idx_pmo_workflow_statuses_position').on(table.workflowId, table.position),
-}))
-
-/**
  * Projects
  */
 export const pmoProjects = sqliteTable('pmo_projects', {
@@ -200,186 +166,15 @@ export const pmoProjects = sqliteTable('pmo_projects', {
   description: text('description'),
   status: text('status').notNull().default('active'),
   phaseId: text('phase_id'),
-  workflowId: text('workflow_id'),
   isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
   targetDate: text('target_date'),
   initiativeId: text('initiative_id'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
-  idxInitiative: index('idx_pmo_projects_initiative').on(table.initiativeId),
   idxStatus: index('idx_pmo_projects_status').on(table.status),
   idxPhase: index('idx_pmo_projects_phase').on(table.phaseId),
-  idxWorkflow: index('idx_pmo_projects_workflow').on(table.workflowId),
   idxArchived: index('idx_pmo_projects_archived').on(table.isArchived),
-}))
-
-/**
- * Initiatives (high-level groupings)
- */
-export const pmoInitiatives = sqliteTable('pmo_initiatives', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  objective: text('objective'),
-  keyResults: text('key_results'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
-})
-
-/**
- * Specifications
- */
-export const pmoSpecs = sqliteTable('pmo_specs', {
-  id: text('id').primaryKey(),
-  title: text('title').notNull(),
-  status: text('status').default('draft'),
-  type: text('type'),
-  tags: text('tags'),
-  dependsOn: text('depends_on'),
-  problem: text('problem'),
-  solution: text('solution'),
-  decisions: text('decisions'),
-  notNow: text('not_now'),
-  uiUx: text('ui_ux'),
-  acceptanceCriteria: text('acceptance_criteria'),
-  openQuestions: text('open_questions'),
-  requirementsFunctional: text('requirements_functional'),
-  requirementsTechnical: text('requirements_technical'),
-  context: text('context'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  idxStatus: index('idx_pmo_specs_status').on(table.status),
-  idxType: index('idx_pmo_specs_type').on(table.type),
-}))
-
-/**
- * Spec-to-spec dependencies
- */
-export const pmoSpecDependencies = sqliteTable('pmo_spec_dependencies', {
-  specId: text('spec_id').notNull(),
-  dependsOnSpecId: text('depends_on_spec_id').notNull(),
-  dependencyType: text('dependency_type').notNull().default('depends_on'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.specId, table.dependsOnSpecId, table.dependencyType] }),
-  idxDependsOn: index('idx_pmo_spec_deps_depends_on').on(table.dependsOnSpecId),
-}))
-
-/**
- * Epics
- */
-export const pmoEpics = sqliteTable('pmo_epics', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id').notNull(),
-  title: text('title').notNull(),
-  description: text('description'),
-  status: text('status').notNull().default('active'),
-  position: integer('position').notNull().default(0),
-  filePath: text('file_path'),
-  specId: text('spec_id'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  idxProject: index('idx_pmo_epics_project').on(table.projectId),
-  idxSpec: index('idx_pmo_epics_spec').on(table.specId),
-  idxPosition: index('idx_pmo_epics_position').on(table.projectId, table.position),
-}))
-
-/**
- * Epic-to-epic dependencies
- */
-export const pmoEpicDependencies = sqliteTable('pmo_epic_dependencies', {
-  epicId: text('epic_id').notNull(),
-  dependsOnEpicId: text('depends_on_epic_id').notNull(),
-  dependencyType: text('dependency_type').notNull().default('blocks'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.epicId, table.dependsOnEpicId, table.dependencyType] }),
-  idxDependsOn: index('idx_pmo_epic_deps_depends_on').on(table.dependsOnEpicId),
-}))
-
-/**
- * Project-to-spec associations
- */
-export const pmoProjectSpecs = sqliteTable('pmo_project_specs', {
-  projectId: text('project_id').notNull(),
-  specId: text('spec_id').notNull(),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.projectId, table.specId] }),
-  idxSpec: index('idx_pmo_project_specs_spec').on(table.specId),
-  idxProject: index('idx_pmo_project_specs_project').on(table.projectId),
-}))
-
-/**
- * Tickets
- */
-export const pmoTickets = sqliteTable('pmo_tickets', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id').notNull().default('default'),
-  title: text('title').notNull(),
-  description: text('description'),
-  priority: text('priority'),
-  category: text('category'),
-  status: text('status').notNull().default('backlog'),
-  statusId: text('status_id'),
-  owner: text('owner'),
-  assignee: text('assignee'),
-  branch: text('branch'),
-  specId: text('spec_id'),
-  epicId: text('epic_id'),
-  labels: text('labels').notNull().default('[]'),
-  position: integer('position').notNull().default(0),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
-  lastSyncedFromSpec: text('last_synced_from_spec'),
-  lastSyncedFromBoard: text('last_synced_from_board'),
-}, (table) => ({
-  idxProject: index('idx_pmo_tickets_project').on(table.projectId),
-  idxStatus: index('idx_pmo_tickets_status').on(table.status),
-  idxOwner: index('idx_pmo_tickets_owner').on(table.owner),
-  idxAssignee: index('idx_pmo_tickets_assignee').on(table.assignee),
-  idxSpec: index('idx_pmo_tickets_spec').on(table.specId),
-  idxEpic: index('idx_pmo_tickets_epic').on(table.epicId),
-  idxPriority: index('idx_pmo_tickets_priority').on(table.priority),
-  idxCategory: index('idx_pmo_tickets_category').on(table.category),
-  idxStatusId: index('idx_pmo_tickets_status_id').on(table.statusId),
-  idxStatusPosition: index('idx_pmo_tickets_status_position').on(table.statusId, table.position),
-}))
-
-/**
- * Board views (saved filter/display configurations)
- */
-export const pmoBoardViews = sqliteTable('pmo_board_views', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id').notNull(),
-  name: text('name').notNull(),
-  description: text('description'),
-  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
-  filters: text('filters').notNull().default('{}'),
-  groupBy: text('group_by'),
-  sortBy: text('sort_by'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  uniqProjectName: unique().on(table.projectId, table.name),
-  idxProject: index('idx_pmo_board_views_project').on(table.projectId),
-  idxDefault: index('idx_pmo_board_views_default').on(table.projectId, table.isDefault),
-}))
-
-/**
- * Subtasks
- */
-export const pmoSubtasks = sqliteTable('pmo_subtasks', {
-  id: text('id').notNull(),
-  ticketId: text('ticket_id').notNull(),
-  title: text('title').notNull(),
-  done: integer('done', { mode: 'boolean' }).default(false),
-  position: integer('position').notNull(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.ticketId, table.id] }),
-  idxTicket: index('idx_pmo_subtasks_ticket').on(table.ticketId),
 }))
 
 /**
@@ -393,79 +188,6 @@ export const pmoTicketMetadata = sqliteTable('pmo_ticket_metadata', {
   pk: primaryKey({ columns: [table.ticketId, table.key] }),
 }))
 
-/**
- * Ticket-to-ticket dependencies
- */
-export const pmoTicketDependencies = sqliteTable('pmo_ticket_dependencies', {
-  ticketId: text('ticket_id').notNull(),
-  dependsOnTicketId: text('depends_on_ticket_id').notNull(),
-  dependencyType: text('dependency_type').notNull().default('blocks'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.ticketId, table.dependsOnTicketId, table.dependencyType] }),
-  idxDependsOn: index('idx_pmo_ticket_deps_depends_on').on(table.dependsOnTicketId),
-}))
-
-/**
- * Ticket affected paths (scope hints for agents)
- */
-export const pmoTicketAffectedPaths = sqliteTable('pmo_ticket_affected_paths', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  ticketId: text('ticket_id').notNull(),
-  pathPattern: text('path_pattern').notNull(),
-  pathType: text('path_type').notNull().default('file'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  idxTicket: index('idx_pmo_ticket_paths_ticket').on(table.ticketId),
-}))
-
-/**
- * Ticket acceptance criteria
- */
-export const pmoTicketAcceptanceCriteria = sqliteTable('pmo_ticket_acceptance_criteria', {
-  id: text('id').notNull(),
-  ticketId: text('ticket_id').notNull(),
-  criterion: text('criterion').notNull(),
-  verifiable: integer('verifiable', { mode: 'boolean' }).default(true),
-  verified: integer('verified', { mode: 'boolean' }).default(false),
-  verifiedAt: text('verified_at'),
-  verifiedBy: text('verified_by'),
-  position: integer('position').notNull().default(0),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.ticketId, table.id] }),
-  idxTicket: index('idx_pmo_ticket_criteria_ticket').on(table.ticketId),
-}))
-
-/**
- * Ticket-to-spec associations
- */
-export const pmoTicketSpecs = sqliteTable('pmo_ticket_specs', {
-  ticketId: text('ticket_id').notNull(),
-  specId: text('spec_id').notNull(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.ticketId, table.specId] }),
-  idxSpec: index('idx_pmo_ticket_specs_spec').on(table.specId),
-}))
-
-/**
- * Ticket assignments
- */
-export const pmoTicketAssignments = sqliteTable('pmo_ticket_assignments', {
-  ticketId: text('ticket_id').notNull(),
-  agentName: text('agent_name').notNull(),
-  assignedAt: text('assigned_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.ticketId, table.agentName] }),
-  idxAgent: index('idx_pmo_assignments_agent').on(table.agentName),
-}))
-
-/**
- * Cache metadata
- */
-export const pmoCacheMetadata = sqliteTable('pmo_cache_metadata', {
-  key: text('key').primaryKey(),
-  value: text('value').notNull(),
-})
 
 /**
  * PMO settings
@@ -545,19 +267,6 @@ export const pmoExternalExecutionMap = sqliteTable('pmo_external_execution_map',
 }))
 
 /**
- * Linked execution IDs for external mappings.
- */
-export const pmoExternalExecutionLinks = sqliteTable('pmo_external_execution_links', {
-  provider: text('provider').notNull(),
-  externalId: text('external_id').notNull(),
-  executionId: text('execution_id').notNull(),
-  linkedAt: text('linked_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.provider, table.externalId, table.executionId] }),
-  idxExecutionId: index('idx_pmo_external_execution_links_execution_id').on(table.executionId),
-}))
-
-/**
  * Linked PR URLs for external mappings.
  */
 export const pmoExternalExecutionPrs = sqliteTable('pmo_external_execution_prs', {
@@ -571,11 +280,11 @@ export const pmoExternalExecutionPrs = sqliteTable('pmo_external_execution_prs',
 }))
 
 /**
- * Generic external issue ↔ PMO ticket mapping (replaces provider-specific tables).
+ * Registry of tickets prlt knows about (provider-agnostic).
+ * Keyed by (provider, external_id). No local ticket reference.
  */
 export const pmoExternalIssueMap = sqliteTable('pmo_external_issue_map', {
-  pmoTicketId: text('pmo_ticket_id').notNull(),
-  provider: text('provider', { enum: ['linear', 'jira', 'shortcut', 'trello', 'github'] }).notNull(),
+  provider: text('provider', { enum: ['linear', 'jira', 'shortcut', 'trello', 'github', 'asana', 'clickup', 'monday'] }).notNull(),
   externalId: text('external_id').notNull(),
   externalKey: text('external_key').notNull(),
   externalUrl: text('external_url').notNull(),
@@ -583,10 +292,8 @@ export const pmoExternalIssueMap = sqliteTable('pmo_external_issue_map', {
   syncDirection: text('sync_direction', { enum: ['inbound', 'outbound', 'bidirectional'] }).notNull().default('inbound'),
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.pmoTicketId, table.provider] }),
-  unqProviderExternalId: unique('unq_pmo_external_issue_map_provider_external_id').on(table.provider, table.externalId),
+  pk: primaryKey({ columns: [table.provider, table.externalId] }),
   idxProvider: index('idx_pmo_external_issue_map_provider').on(table.provider),
-  idxExternalId: index('idx_pmo_external_issue_map_external_id').on(table.provider, table.externalId),
   idxExternalKey: index('idx_pmo_external_issue_map_external_key_eim').on(table.provider, table.externalKey),
   idxTeamKey: index('idx_pmo_external_issue_map_team_key').on(table.provider, table.teamKey),
 }))
@@ -659,137 +366,6 @@ export const pmoTicketTemplates = sqliteTable('pmo_ticket_templates', {
   idxBuiltin: index('idx_pmo_ticket_templates_builtin').on(table.isBuiltin),
 }))
 
-/**
- * Categories (ticket and status type classifications)
- */
-export const pmoCategories = sqliteTable('pmo_categories', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  type: text('type').notNull(),
-  description: text('description'),
-  color: text('color'),
-  position: integer('position').notNull().default(0),
-  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  uniqNameType: unique().on(table.name, table.type),
-  idxType: index('idx_pmo_categories_type').on(table.type),
-}))
-
-/**
- * Label groups
- */
-export const pmoLabelGroups = sqliteTable('pmo_label_groups', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull().unique(),
-  description: text('description'),
-  isExclusive: integer('is_exclusive', { mode: 'boolean' }).notNull().default(false),
-  isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(false),
-  position: integer('position').notNull().default(0),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-})
-
-/**
- * Labels
- */
-export const pmoLabels = sqliteTable('pmo_labels', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  color: text('color'),
-  description: text('description'),
-  groupId: text('group_id'),
-  position: integer('position').notNull().default(0),
-  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  idxGroup: index('idx_pmo_labels_group').on(table.groupId),
-}))
-
-/**
- * Ticket-to-label associations
- */
-export const pmoTicketLabels = sqliteTable('pmo_ticket_labels', {
-  ticketId: text('ticket_id').notNull(),
-  labelId: text('label_id').notNull(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.ticketId, table.labelId] }),
-  idxLabel: index('idx_pmo_ticket_labels_label').on(table.labelId),
-}))
-
-/**
- * Roadmaps (named collections of projects)
- */
-export const pmoRoadmaps = sqliteTable('pmo_roadmaps', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull().unique(),
-  description: text('description'),
-  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  idxDefault: index('idx_pmo_roadmaps_default').on(table.isDefault),
-}))
-
-/**
- * Roadmap-to-project associations
- */
-export const pmoRoadmapProjects = sqliteTable('pmo_roadmap_projects', {
-  roadmapId: text('roadmap_id').notNull(),
-  projectId: text('project_id').notNull(),
-  position: integer('position').notNull().default(0),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.roadmapId, table.projectId] }),
-  idxRoadmap: index('idx_pmo_roadmap_projects_roadmap').on(table.roadmapId),
-  idxProject: index('idx_pmo_roadmap_projects_project').on(table.projectId),
-  idxPosition: index('idx_pmo_roadmap_projects_position').on(table.roadmapId, table.position),
-}))
-
-// =============================================================================
-// Legacy/Deprecated Tables (kept for migration compatibility)
-// =============================================================================
-
-/**
- * @deprecated Use pmoWorkflowStatuses instead
- */
-export const pmoColumns = sqliteTable('pmo_columns', {
-  id: text('id').notNull(),
-  projectId: text('project_id').notNull().default('default'),
-  name: text('name').notNull(),
-  position: integer('position').notNull(),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.projectId, table.id] }),
-}))
-
-/**
- * @deprecated Tickets now use status_id directly
- */
-export const pmoBoardTickets = sqliteTable('pmo_board_tickets', {
-  projectId: text('project_id').notNull(),
-  ticketId: text('ticket_id').notNull(),
-  columnId: text('column_id').notNull(),
-  position: integer('position').notNull(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.projectId, table.ticketId] }),
-}))
-
-/**
- * @deprecated Use pmoWorkflowStatuses instead
- */
-export const pmoStatuses = sqliteTable('pmo_statuses', {
-  id: text('id').primaryKey(),
-  projectId: text('project_id').notNull(),
-  name: text('name').notNull(),
-  category: text('category').notNull(),
-  position: integer('position').notNull().default(0),
-  color: text('color'),
-  description: text('description'),
-  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
-}, (table) => ({
-  uniqProjectName: unique().on(table.projectId, table.name),
-}))
 
 // =============================================================================
 // Relations
@@ -834,99 +410,10 @@ export const agentWorktreesRelations = relations(agentWorktrees, ({ one }) => ({
   }),
 }))
 
-export const pmoProjectsRelations = relations(pmoProjects, ({ one, many }) => ({
+export const pmoProjectsRelations = relations(pmoProjects, ({ one }) => ({
   phase: one(pmoPhases, {
     fields: [pmoProjects.phaseId],
     references: [pmoPhases.id],
-  }),
-  workflow: one(pmoWorkflows, {
-    fields: [pmoProjects.workflowId],
-    references: [pmoWorkflows.id],
-  }),
-  tickets: many(pmoTickets),
-  epics: many(pmoEpics),
-  boardViews: many(pmoBoardViews),
-  projectSpecs: many(pmoProjectSpecs),
-  roadmapProjects: many(pmoRoadmapProjects),
-}))
-
-export const pmoWorkflowsRelations = relations(pmoWorkflows, ({ many }) => ({
-  statuses: many(pmoWorkflowStatuses),
-  projects: many(pmoProjects),
-}))
-
-export const pmoWorkflowStatusesRelations = relations(pmoWorkflowStatuses, ({ one, many }) => ({
-  workflow: one(pmoWorkflows, {
-    fields: [pmoWorkflowStatuses.workflowId],
-    references: [pmoWorkflows.id],
-  }),
-  tickets: many(pmoTickets),
-}))
-
-export const pmoTicketsRelations = relations(pmoTickets, ({ one, many }) => ({
-  project: one(pmoProjects, {
-    fields: [pmoTickets.projectId],
-    references: [pmoProjects.id],
-  }),
-  status: one(pmoWorkflowStatuses, {
-    fields: [pmoTickets.statusId],
-    references: [pmoWorkflowStatuses.id],
-  }),
-  spec: one(pmoSpecs, {
-    fields: [pmoTickets.specId],
-    references: [pmoSpecs.id],
-  }),
-  epic: one(pmoEpics, {
-    fields: [pmoTickets.epicId],
-    references: [pmoEpics.id],
-  }),
-  subtasks: many(pmoSubtasks),
-  metadata: many(pmoTicketMetadata),
-  acceptanceCriteria: many(pmoTicketAcceptanceCriteria),
-  ticketSpecs: many(pmoTicketSpecs),
-  assignments: many(pmoTicketAssignments),
-  affectedPaths: many(pmoTicketAffectedPaths),
-  agentWork: many(pmoAgentWork),
-}))
-
-export const pmoSubtasksRelations = relations(pmoSubtasks, ({ one }) => ({
-  ticket: one(pmoTickets, {
-    fields: [pmoSubtasks.ticketId],
-    references: [pmoTickets.id],
-  }),
-}))
-
-export const pmoSpecsRelations = relations(pmoSpecs, ({ many }) => ({
-  tickets: many(pmoTickets),
-  ticketSpecs: many(pmoTicketSpecs),
-  projectSpecs: many(pmoProjectSpecs),
-  epics: many(pmoEpics),
-}))
-
-export const pmoEpicsRelations = relations(pmoEpics, ({ one, many }) => ({
-  project: one(pmoProjects, {
-    fields: [pmoEpics.projectId],
-    references: [pmoProjects.id],
-  }),
-  spec: one(pmoSpecs, {
-    fields: [pmoEpics.specId],
-    references: [pmoSpecs.id],
-  }),
-  tickets: many(pmoTickets),
-}))
-
-export const pmoRoadmapsRelations = relations(pmoRoadmaps, ({ many }) => ({
-  roadmapProjects: many(pmoRoadmapProjects),
-}))
-
-export const pmoRoadmapProjectsRelations = relations(pmoRoadmapProjects, ({ one }) => ({
-  roadmap: one(pmoRoadmaps, {
-    fields: [pmoRoadmapProjects.roadmapId],
-    references: [pmoRoadmaps.id],
-  }),
-  project: one(pmoProjects, {
-    fields: [pmoRoadmapProjects.projectId],
-    references: [pmoProjects.id],
   }),
 }))
 
@@ -955,24 +442,6 @@ export type NewDbAgentWorktree = typeof agentWorktrees.$inferInsert
 export type DbPmoProject = typeof pmoProjects.$inferSelect
 export type NewDbPmoProject = typeof pmoProjects.$inferInsert
 
-export type DbPmoWorkflow = typeof pmoWorkflows.$inferSelect
-export type NewDbPmoWorkflow = typeof pmoWorkflows.$inferInsert
-
-export type DbPmoWorkflowStatus = typeof pmoWorkflowStatuses.$inferSelect
-export type NewDbPmoWorkflowStatus = typeof pmoWorkflowStatuses.$inferInsert
-
-export type DbPmoTicket = typeof pmoTickets.$inferSelect
-export type NewDbPmoTicket = typeof pmoTickets.$inferInsert
-
-export type DbPmoSpec = typeof pmoSpecs.$inferSelect
-export type NewDbPmoSpec = typeof pmoSpecs.$inferInsert
-
-export type DbPmoEpic = typeof pmoEpics.$inferSelect
-export type NewDbPmoEpic = typeof pmoEpics.$inferInsert
-
-export type DbPmoSubtask = typeof pmoSubtasks.$inferSelect
-export type NewDbPmoSubtask = typeof pmoSubtasks.$inferInsert
-
 export type DbPmoPhase = typeof pmoPhases.$inferSelect
 export type NewDbPmoPhase = typeof pmoPhases.$inferInsert
 
@@ -982,12 +451,6 @@ export type NewDbPmoAction = typeof pmoActions.$inferInsert
 export type DbPmoTicketTemplate = typeof pmoTicketTemplates.$inferSelect
 export type NewDbPmoTicketTemplate = typeof pmoTicketTemplates.$inferInsert
 
-export type DbPmoRoadmap = typeof pmoRoadmaps.$inferSelect
-export type NewDbPmoRoadmap = typeof pmoRoadmaps.$inferInsert
-
-export type DbPmoBoardView = typeof pmoBoardViews.$inferSelect
-export type NewDbPmoBoardView = typeof pmoBoardViews.$inferInsert
-
 export type DbPmoAgentWorkRecord = typeof pmoAgentWork.$inferSelect
 export type NewDbPmoAgentWorkRecord = typeof pmoAgentWork.$inferInsert
 
@@ -996,9 +459,6 @@ export type NewDbPmoExternalIssueMap = typeof pmoExternalIssueMap.$inferInsert
 
 export type DbPmoExternalExecutionMap = typeof pmoExternalExecutionMap.$inferSelect
 export type NewDbPmoExternalExecutionMap = typeof pmoExternalExecutionMap.$inferInsert
-
-export type DbPmoExternalExecutionLink = typeof pmoExternalExecutionLinks.$inferSelect
-export type NewDbPmoExternalExecutionLink = typeof pmoExternalExecutionLinks.$inferInsert
 
 export type DbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferSelect
 export type NewDbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferInsert
