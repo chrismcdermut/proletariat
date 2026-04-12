@@ -1106,6 +1106,8 @@ export interface PMOStorage {
   createWorkflowRule(rule: Partial<WorkflowRule>): Promise<WorkflowRule>
   updateWorkflowRule(id: string, changes: Partial<WorkflowRule>): Promise<WorkflowRule>
   deleteWorkflowRule(id: string): Promise<void>
+  getWorkflowRulesForIntent(toIntent: string): Promise<WorkflowRule[]>
+  /** @deprecated Use getWorkflowRulesForIntent */
   getWorkflowRulesForState(toState: string): Promise<WorkflowRule[]>
 
   // Project Operations

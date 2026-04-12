@@ -4,6 +4,9 @@
  * Subscribes to ticket:status_changed events on the global EventBus and
  * evaluates workflow rules when a ticket enters a new state.
  *
+ * Rules use intent-based wiring (from_intent/to_intent). The evaluator
+ * matches against intent names, not provider state names.
+ *
  * For on_enter rules, emits a work:rule_matched event so that
  * downstream systems (orchestrators, hooks) can fire the associated action.
  * For manual rules, the match is logged but no action is auto-fired.
@@ -17,8 +20,8 @@ import type { WorkflowRuleTrigger } from '../pmo/types.js'
 
 interface WorkflowRuleRow {
   id: string
-  from_state: string | null
-  to_state: string
+  from_intent: string | null
+  to_intent: string
   action_id: string
   trigger: string
   enabled: number
@@ -63,10 +66,10 @@ export class WorkflowRuleEvaluator {
     if (!event.newStatusName) return
 
     try {
-      // Find all enabled rules where to_state matches the new status
+      // Find all enabled rules where to_intent matches the new status
       const rows = this.db.prepare(`
         SELECT * FROM ${PMO_TABLES.workflow_rules}
-        WHERE to_state = ? AND enabled = 1
+        WHERE to_intent = ? AND enabled = 1
       `).all(event.newStatusName) as WorkflowRuleRow[]
 
       if (rows.length === 0) return
@@ -74,8 +77,8 @@ export class WorkflowRuleEvaluator {
       const bus = getEventBus()
 
       for (const row of rows) {
-        // If from_state is set, it must match the previous status
-        if (row.from_state && row.from_state !== event.previousStatusName) {
+        // If from_intent is set, it must match the previous status
+        if (row.from_intent && row.from_intent !== event.previousStatusName) {
           continue
         }
 
@@ -87,8 +90,8 @@ export class WorkflowRuleEvaluator {
             projectId: event.projectId,
             actionId: row.action_id,
             trigger: row.trigger as WorkflowRuleTrigger,
-            fromState: row.from_state,
-            toState: row.to_state,
+            fromState: row.from_intent,
+            toState: row.to_intent,
             timestamp: new Date(),
           })
         }

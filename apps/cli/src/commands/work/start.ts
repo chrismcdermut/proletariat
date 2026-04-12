@@ -18,6 +18,7 @@ import {
 import { FlagResolver } from '../../lib/flags/index.js'
 import { getWorkColumnSetting, findColumnByName, resolveReviewGate, isValidReviewGateMode } from '../../lib/work-lifecycle/settings.js'
 import { moveTicketByIntent } from '../../lib/work-lifecycle/transition.js'
+import type { TransitionIntent } from '../../lib/providers/state-intents.js'
 import { getTicketExternalMetadata, resolveExternalTicketId } from '../../lib/external-issues/utils.js'
 import type { ReviewGateMode } from '../../lib/pmo/types.js'
 import { WorkAction } from '../../lib/pmo/types.js'
@@ -1784,7 +1785,19 @@ export default class WorkStart extends PMOCommand {
         }
       }
 
-      const executor = (flags.executor as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+      // Executor inheritance chain: per-invocation flag > action override > workspace default > hardcoded default
+      let executor: ExecutorType
+      if (flags.executor) {
+        executor = flags.executor as ExecutorType
+      } else if (selectedAction?.executor) {
+        executor = selectedAction.executor as ExecutorType
+      } else {
+        // Check workspace default executor setting
+        const workspaceDefaultExecutor = db.prepare(
+          "SELECT value FROM workspace_settings WHERE key = 'execution.default_executor'"
+        ).get() as { value: string } | undefined
+        executor = (workspaceDefaultExecutor?.value as ExecutorType) || DEFAULT_EXECUTION_CONFIG.defaultExecutor
+      }
 
       // Default to interactive output mode (streaming UI)
       // Can be overridden via --output flag if needed
@@ -2646,28 +2659,25 @@ export default class WorkStart extends PMOCommand {
           this.log(styles.muted(`   Assigned to: ${assignedAgent}`))
         }
 
-        // Move ticket to target column based on action's toState or default 'started' intent
+        // Move ticket to target column based on action's toIntent or default 'started' intent
         // Skip PMO board operations for external-only tickets (no PMO record to move)
         if (!isExternalOnly) {
-        // If action has a to_state, try direct match first; otherwise use intent resolution
-        const targetStateName = selectedAction?.toState
+        // Resolve target intent: action's to_intent, falling back to 'started'
+        const targetIntent = (selectedAction?.toIntent || 'started') as TransitionIntent
 
         const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null
         const columnNames = board ? board.columns.map(col => col.name) : []
 
-        let targetColumnName: string | null = null
-        if (targetStateName) {
-          // Try direct state name match first (backward compat with action toState)
-          targetColumnName = findColumnByName(columnNames, targetStateName)
-        }
+        // Try direct column name match for the intent (handles case where intent IS the column name)
+        let targetColumnName: string | null = findColumnByName(columnNames, targetIntent)
 
         if (!targetColumnName) {
-          // Use intent-based resolution — 'started' intent
+          // Use intent-based resolution via state resolution engine
           const transition = await moveTicketByIntent({
             db,
             storage: this.storage,
             ticket,
-            intent: 'started',
+            intent: targetIntent,
             providerName: 'pmo',
             resolveProvider: (tid, pid) => this.resolveTicketProvider(tid, pid),
             log: (msg) => this.log(styles.muted(`   ${msg}`)),

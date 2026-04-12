@@ -684,6 +684,10 @@ export class SQLiteStorage implements PMOStorage {
     return this.workflowRuleStorage.deleteWorkflowRule(id)
   }
 
+  async getWorkflowRulesForIntent(toIntent: string): Promise<WorkflowRule[]> {
+    return this.workflowRuleStorage.getWorkflowRulesForIntent(toIntent)
+  }
+
   async getWorkflowRulesForState(toState: string): Promise<WorkflowRule[]> {
     return this.workflowRuleStorage.getWorkflowRulesForState(toState)
   }
