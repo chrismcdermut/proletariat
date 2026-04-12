@@ -70,10 +70,32 @@ function installFakePrlt(packageDir: string, binDir: string): void {
 // ---------------------------------------------------------------------------
 
 describe('npm ENOTEMPTY retry (PRLT-1228, PRLT-1276)', () => {
+  // =========================================================================
+  // PRLT-1276 regression: sandbox safety net
+  // =========================================================================
+  describe('PRLT-1276: npm sandbox safety net', () => {
+    it('PRLT_NPM_MODULES_DIR_OVERRIDE is set by the mocha root hook', () => {
+      // The npm-sandbox.ts root hook MUST set this env var before any test
+      // runs, so no test can accidentally operate on the real global npm
+      // prefix. If this fails, the root hook is missing or broken.
+      expect(process.env.PRLT_NPM_MODULES_DIR_OVERRIDE).to.be.a('string')
+      expect(process.env.PRLT_NPM_MODULES_DIR_OVERRIDE!.length).to.be.greaterThan(0)
+    })
+
+    it('getNpmGlobalModulesDir returns the override, not the real prefix', () => {
+      // With the root hook active, getNpmGlobalModulesDir() must return
+      // the sandboxed path. If it returns a path under ~/.nvm or
+      // /usr/local, the sandbox is broken.
+      const result = getNpmGlobalModulesDir()
+      expect(result).to.not.be.null
+      expect(result).to.equal(process.env.PRLT_NPM_MODULES_DIR_OVERRIDE)
+    })
+  })
+
   describe('getNpmGlobalModulesDir', () => {
     it('returns a path ending in lib/node_modules when npm is available', () => {
-      // No override — exercises the real code path. We don't care about the
-      // exact value, only that it ends with the expected suffix.
+      // Temporarily clear the override to exercise the real code path.
+      // This is READ-ONLY — getNpmGlobalModulesDir only runs `npm prefix -g`.
       const previous = process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
       delete process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
       try {
@@ -81,9 +103,8 @@ describe('npm ENOTEMPTY retry (PRLT-1228, PRLT-1276)', () => {
         expect(result).to.not.be.null
         expect(result!).to.match(/lib\/node_modules$/)
       } finally {
-        if (previous !== undefined) {
-          process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = previous
-        }
+        // Always restore — the root hook set this, so previous is non-null
+        process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = previous!
       }
     })
 
@@ -659,6 +680,69 @@ describe('npm ENOTEMPTY retry (PRLT-1228, PRLT-1276)', () => {
       // Both backups should be cleaned up
       expect(fs.existsSync(oldBackup)).to.be.false
       expect(fs.existsSync(newBackup)).to.be.false
+    })
+  })
+
+  // =========================================================================
+  // PRLT-1276: race-condition regression tests for restoreNpmPackageBackup
+  // =========================================================================
+  describe('PRLT-1276: restoreNpmPackageBackup race-condition safety', () => {
+    let fake: ReturnType<typeof createFakeNpmPrefix>
+    let previousOverride: string | undefined
+
+    beforeEach(() => {
+      fake = createFakeNpmPrefix()
+      previousOverride = process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = fake.modulesDir
+    })
+
+    afterEach(() => {
+      if (previousOverride === undefined) {
+        delete process.env.PRLT_NPM_MODULES_DIR_OVERRIDE
+      } else {
+        process.env.PRLT_NPM_MODULES_DIR_OVERRIDE = previousOverride
+      }
+      fake.cleanup()
+    })
+
+    it('preserves the original when backup has been stolen by another process', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+      fs.writeFileSync(path.join(fake.packageDir, 'marker.txt'), 'original')
+
+      // Simulate: backup was created but then deleted by a concurrent process
+      const info = backupNpmPackageDir()!
+      // Put the original back (simulating a concurrent successful install)
+      fs.mkdirSync(fake.packageDir, { recursive: true })
+      fs.writeFileSync(path.join(fake.packageDir, 'marker.txt'), 'new-install')
+      // Delete the backup (simulating concurrent discardNpmPackageBackup)
+      fs.rmSync(info.backupPath, { recursive: true, force: true })
+
+      // restoreNpmPackageBackup must NOT destroy the new install when the
+      // backup is gone — this was the PRLT-1276 race condition.
+      const ok = restoreNpmPackageBackup(info)
+      expect(ok).to.be.false
+
+      // The new install must still be intact
+      expect(fs.existsSync(fake.packageDir), 'package dir must survive').to.be.true
+      expect(fs.readFileSync(path.join(fake.packageDir, 'marker.txt'), 'utf-8')).to.equal('new-install')
+    })
+
+    it('does not leave temp rename artifacts on restore failure', () => {
+      installFakePrlt(fake.packageDir, fake.binDir)
+
+      const info = backupNpmPackageDir()!
+      // Restore original (simulating concurrent restore)
+      fs.mkdirSync(fake.packageDir, { recursive: true })
+      // Delete backup
+      fs.rmSync(info.backupPath, { recursive: true, force: true })
+
+      restoreNpmPackageBackup(info)
+
+      // No .prlt-restore-tmp-* directories should be left behind
+      const proletariatDir = path.join(fake.modulesDir, '@proletariat')
+      const entries = fs.readdirSync(proletariatDir)
+      const tempArtifacts = entries.filter(e => e.includes('prlt-restore-tmp'))
+      expect(tempArtifacts).to.have.lengthOf(0)
     })
   })
 })

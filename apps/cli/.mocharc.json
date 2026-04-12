@@ -1,6 +1,7 @@
 {
   "require": [
     "ts-node/register",
+    "test/setup/npm-sandbox.ts",
     "test/setup/native-sqlite-check.ts",
     "test/setup/worker-graceful-exit.ts"
   ],

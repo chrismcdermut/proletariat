@@ -522,18 +522,50 @@ export function backupNpmPackageDir(): NpmPackageBackup | null {
 
 /**
  * Restore the backup created by {@link backupNpmPackageDir} after a failed
- * retry. Removes any partially-installed content at the original path,
- * renames the backup back into place, and re-creates bin symlinks that npm
- * may have removed during the failed install.
+ * retry. Moves any partially-installed content aside, renames the backup
+ * back into place, and re-creates bin symlinks that npm may have removed
+ * during the failed install.
+ *
+ * PRLT-1276 race-condition fix: we never delete the original path before
+ * confirming the backup rename succeeds. In concurrent environments
+ * (multiple agents), another process may discard our backup between our
+ * existence check and our rename. The old code deleted first then renamed,
+ * which could leave both the original and backup gone if the rename failed.
  */
 export function restoreNpmPackageBackup(info: NpmPackageBackup): boolean {
   try {
     if (info.backupPath) {
-      // Clear out any partial install from the failed retry
+      // Move (not delete) any partial install aside first, so we can
+      // roll back if the backup rename fails.
+      const tempPath = `${info.originalPath}.prlt-restore-tmp-${Date.now()}-${process.pid}`
+      let hadOriginal = false
+
       if (fs.existsSync(info.originalPath)) {
-        fs.rmSync(info.originalPath, { recursive: true, force: true })
+        try {
+          fs.renameSync(info.originalPath, tempPath)
+          hadOriginal = true
+        } catch {
+          // Can't move the original aside — leave it in place rather
+          // than risk losing both copies.
+          return false
+        }
       }
-      fs.renameSync(info.backupPath, info.originalPath)
+
+      try {
+        fs.renameSync(info.backupPath, info.originalPath)
+      } catch {
+        // Backup is gone (race with another process) or rename failed.
+        // Restore the original we just moved aside.
+        if (hadOriginal) {
+          try { fs.renameSync(tempPath, info.originalPath) } catch { /* best effort */ }
+        }
+        return false
+      }
+
+      // Rename succeeded — clean up the old partial install
+      if (hadOriginal) {
+        try { fs.rmSync(tempPath, { recursive: true, force: true }) } catch { /* best effort */ }
+      }
     }
 
     // Restore any bin symlinks that npm removed during the failed install.
