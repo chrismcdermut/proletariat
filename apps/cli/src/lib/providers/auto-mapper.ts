@@ -139,6 +139,39 @@ export function autoMapIntents(
 }
 
 /**
+ * Validate existing transition_map entries against provider states.
+ * Flags mappings that reference states which no longer exist on the board.
+ *
+ * Call this during `prlt init` or `prlt connect` to catch drift between
+ * prlt's transition_map and the provider's actual workflow states.
+ *
+ * @param existingMappings - Current transition_map entries from the store
+ * @param providerStates - Current states from the provider API
+ * @returns Array of validation issues (empty = all good)
+ */
+export function validateTransitionMap(
+  existingMappings: Array<{ intent: string; providerStateName: string }>,
+  providerStates: BoardState[],
+): Array<{ intent: string; mappedState: string; issue: string }> {
+  const issues: Array<{ intent: string; mappedState: string; issue: string }> = []
+  const stateNames = new Set(providerStates.map(s => s.name.toLowerCase()))
+
+  for (const mapping of existingMappings) {
+    if (!stateNames.has(mapping.providerStateName.toLowerCase())) {
+      issues.push({
+        intent: mapping.intent,
+        mappedState: mapping.providerStateName,
+        issue: `State "${mapping.providerStateName}" does not exist on the provider board. ` +
+          `Ticket moves for "${mapping.intent}" will silently fail. ` +
+          `Run 'prlt linear connect --force' to re-map.`,
+      })
+    }
+  }
+
+  return issues
+}
+
+/**
  * Format intent mappings for display to the user.
  *
  * @param mappings - The auto-guessed mappings

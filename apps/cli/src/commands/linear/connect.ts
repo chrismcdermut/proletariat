@@ -21,7 +21,7 @@ import {
   getLinearApiKey,
 } from '../../lib/linear/index.js'
 import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
-import { autoMapIntents, formatMappingTable, type IntentMapping } from '../../lib/providers/auto-mapper.js'
+import { autoMapIntents, formatMappingTable, validateTransitionMap, type IntentMapping } from '../../lib/providers/auto-mapper.js'
 import { TransitionMapStore } from '../../lib/providers/transition-map.js'
 import type { TransitionIntent } from '../../lib/providers/state-intents.js'
 
@@ -495,6 +495,23 @@ export default class LinearConnect extends PMOCommand {
         this.log(colors.textMuted(`  Saved ${mappings.length} state mappings`))
       } else {
         this.log(colors.textMuted('  Skipped state mapping. You can configure later with "prlt config set state-map.<intent> <state-name>"'))
+      }
+
+      // Validate existing transition_map against provider states (PRLT-1299)
+      // This catches drift where prlt's mappings reference states that no longer exist
+      const store2 = new TransitionMapStore(db)
+      const existingMappings = store2.listMappings('linear')
+      const issues = validateTransitionMap(
+        existingMappings.map(m => ({ intent: m.intent, providerStateName: m.providerStateName })),
+        sortedStates.map(s => ({ id: s.id, name: s.name, type: s.type, position: s.position })),
+      )
+
+      if (issues.length > 0 && !jsonMode) {
+        this.log('')
+        this.log(colors.warning('  ⚠ Transition map validation issues:'))
+        for (const issue of issues) {
+          this.log(colors.warning(`    • ${issue.intent}: ${issue.issue}`))
+        }
       }
     } catch (error) {
       // Non-fatal — don't block connect for mapping failures
