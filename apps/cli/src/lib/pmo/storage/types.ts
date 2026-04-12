@@ -1,6 +1,9 @@
 /**
  * Internal types for storage modules.
  * These types are shared between storage modules but not exported publicly.
+ *
+ * Dead row types (TicketRow, StatusRow, SpecRow, EpicRow, etc.) were removed
+ * in PRLT-1299. The provider is now the source of truth for those entities.
  */
 
 import type Database from 'better-sqlite3'
@@ -28,76 +31,6 @@ export interface StorageContext {
  * These mirror the database schema columns.
  */
 
-export interface TicketRow {
-  id: string
-  project_id: string
-  title: string
-  description: string | null
-  priority: string | null
-  category: string | null
-  status_id: string
-  owner: string | null
-  assignee: string | null
-  branch: string | null
-  spec_id: string | null
-  epic_id: string | null
-  labels: string | null
-  column_id: string | null
-  column_name: string | null
-  project_name: string | null
-  position: number | null
-  created_at: string
-  updated_at: string
-  last_synced_from_spec: string | null
-  last_synced_from_board: string | null
-}
-
-export interface StatusRow {
-  id: string
-  project_id: string
-  name: string
-  category: string
-  position: number
-  color: string | null
-  description: string | null
-  is_default: number
-  created_at: string
-}
-
-export interface SpecRow {
-  id: string
-  title: string
-  status: string
-  type: string | null
-  tags: string | null
-  depends_on?: string | null  // Legacy field, no longer used (dependencies via spec_dependencies table)
-  problem: string | null
-  solution: string | null
-  decisions: string | null
-  not_now: string | null
-  ui_ux: string | null
-  acceptance_criteria: string | null
-  open_questions: string | null
-  requirements_functional: string | null
-  requirements_technical: string | null
-  context: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface EpicRow {
-  id: string
-  project_id: string
-  title: string
-  description: string | null
-  status: string
-  position: number
-  file_path: string | null
-  spec_id: string | null
-  created_at: string
-  updated_at: string
-}
-
 export interface ProjectRow {
   id: string
   name: string
@@ -105,63 +38,11 @@ export interface ProjectRow {
   description: string | null
   status: string
   phase_id: string | null
-  workflow_id: string | null
   is_archived: number
   target_date: string | null
-  initiative_id: string | null
   created_at: string
   updated_at: string
 }
-
-export interface WorkflowRow {
-  id: string
-  name: string
-  description: string | null
-  is_builtin: number
-  created_at: string
-  updated_at: string
-}
-
-export interface WorkflowStatusRow {
-  id: string
-  workflow_id: string
-  name: string
-  category: string
-  position: number
-  color: string | null
-  description: string | null
-  is_default: number
-  created_at: string
-}
-
-export interface ColumnRow {
-  id: string
-  project_id: string
-  name: string
-  position: number
-  created_at: string
-}
-
-export interface SubtaskRow {
-  id: string
-  ticket_id: string
-  title: string
-  done: number
-  position: number
-}
-
-export interface AcceptanceCriterionRow {
-  id: string
-  ticket_id: string
-  criterion: string
-  verifiable: number
-  verified: number
-  verified_at: string | null
-  verified_by: string | null
-  position: number
-}
-
-// REMOVED: WorkflowTemplateRow - workflows are now used directly (no separate template concept)
 
 export interface PhaseRow {
   id: string
@@ -217,20 +98,6 @@ export interface WorkflowRuleRow {
   updated_at: string | null
 }
 
-export interface BoardViewRow {
-  id: string
-  project_id: string
-  name: string
-  description: string | null
-  is_default: number
-  filters: string | null
-  group_by: string | null
-  sort_by: string | null
-  columns: string | null
-  created_at: string
-  updated_at: string
-}
-
 export interface TicketTemplateRow {
   id: string
   name: string
@@ -245,22 +112,6 @@ export interface TicketTemplateRow {
   default_labels: string
   suggested_subtasks: string | null
   is_builtin: number
-  created_at: string
-}
-
-export interface RoadmapRow {
-  id: string
-  name: string
-  description: string | null
-  is_default: number
-  created_at: string
-  updated_at: string
-}
-
-export interface RoadmapProjectRow {
-  roadmap_id: string
-  project_id: string
-  position: number
   created_at: string
 }
 
@@ -295,9 +146,4 @@ export interface LabelRow {
   position: number
   is_builtin: number
   created_at: string
-}
-
-export interface TicketLabelRow {
-  ticket_id: string
-  label_id: string
 }
