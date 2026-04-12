@@ -28,16 +28,6 @@ export { GitHubIssuesTicketProvider } from './github-provider.js'
 export { JiraTicketProvider } from './jira-provider.js'
 export { AsanaTicketProvider } from './asana-provider.js'
 export { EventEmittingProvider, type StatusResolver } from './event-emitting-provider.js'
-export { ProviderStatusMappingStore, type StatusMapping } from './status-mapping.js'
-export {
-  ProviderTriggerStore,
-  TriggerHandler,
-  initTriggerHandler,
-  stopTriggerHandler,
-  TRIGGER_EVENTS,
-  type TriggerEvent,
-  type TriggerConfig,
-} from './trigger-config.js'
 export { resolveTicketProvider, resolveProjectProvider } from './resolver.js'
 export {
   move,
