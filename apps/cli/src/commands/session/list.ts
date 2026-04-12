@@ -25,6 +25,7 @@ interface VerifiedSession {
   sessionId: string
   ticketId: string
   agentName: string
+  role: string     // worker, orchestrator, daemon
   status: string
   environment: 'host' | 'container'
   containerId?: string
@@ -173,6 +174,7 @@ export default class SessionList extends PromptCommand {
             sessionId: actualSessionId,
             ticketId: exec.ticketId,
             agentName: exec.agentName,
+            role: exec.role || 'worker',
             status: exists ? exec.status : 'stale',
             environment: isContainer ? 'container' : 'host',
             containerId,
@@ -209,6 +211,7 @@ export default class SessionList extends PromptCommand {
               sessionId: exec.sessionId,
               ticketId: exec.ticketId,
               agentName: exec.agentName,
+              role: exec.role || 'worker',
               status: 'running',
               environment: isContainer ? 'container' : 'host',
               containerId,
@@ -262,6 +265,7 @@ export default class SessionList extends PromptCommand {
             sessionId: actualSessionId,
             ticketId: mExec.ticketId || mExec.id,
             agentName: mExec.agentName,
+            role: 'worker',
             status: exists ? mExec.status : 'stale',
             environment: isContainer ? 'container' : 'host',
             containerId: mExec.containerId,
@@ -290,6 +294,7 @@ export default class SessionList extends PromptCommand {
               sessionId: sessionName,
               ticketId: parsed.ticketId,
               agentName: parsed.agentName,
+              role: 'worker',
               status: 'orphan',
               environment: 'host',
               exists: true,
@@ -308,6 +313,7 @@ export default class SessionList extends PromptCommand {
               sessionId: sessionName,
               ticketId: parsed.ticketId,
               agentName: parsed.agentName,
+              role: 'worker',
               status: 'orphan',
               environment: 'container',
               containerId,
@@ -331,10 +337,11 @@ export default class SessionList extends PromptCommand {
         this.log(
           styles.muted(
             '  ' +
-            visualPadEnd('Session', 34) +
+            visualPadEnd('Session', 30) +
             visualPadEnd('Ticket', 12) +
+            visualPadEnd('Role', 14) +
             visualPadEnd('Agent', 18) +
-            visualPadEnd('Type', 15) +
+            visualPadEnd('Type', 12) +
             'Status'
           )
         )
@@ -354,17 +361,21 @@ export default class SessionList extends PromptCommand {
             statusText = 'died'
           }
 
+          // Show '—' for ticket ID on daemon sessions
+          const displayTicketId = session.role === 'daemon' ? '\u2014' : session.ticketId
+
           // Truncate long session names to fit column
-          const displaySession = session.sessionId.length > 32
-            ? session.sessionId.substring(0, 29) + '...'
+          const displaySession = session.sessionId.length > 28
+            ? session.sessionId.substring(0, 25) + '...'
             : session.sessionId
 
           this.log(
             '  ' +
-            visualPadEnd(displaySession, 34) +
-            visualPadEnd(session.ticketId, 12) +
+            visualPadEnd(displaySession, 30) +
+            visualPadEnd(displayTicketId, 12) +
+            visualPadEnd(session.role, 14) +
             visualPadEnd(session.agentName, 18) +
-            visualPadEnd(typeIcon, 15) +
+            visualPadEnd(typeIcon, 12) +
             statusColor(statusText)
           )
         }

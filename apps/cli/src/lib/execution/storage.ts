@@ -430,6 +430,10 @@ export class ExecutionStorage {
     const bus = getEventBus()
 
     for (const exec of activeExecutions) {
+      // Never mark daemon executions as stale — they're supposed to run forever
+      // and will be restarted by the orchestrator if they die
+      if (exec.role === 'daemon') continue
+
       if (!exec.sessionId) {
         // Executions without sessionId might be stale from early termination
         // Check if they're older than 5 minutes and mark as stopped

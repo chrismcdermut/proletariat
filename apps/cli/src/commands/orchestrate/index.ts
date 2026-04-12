@@ -35,6 +35,12 @@ import {
 } from '../../lib/orchestrate/index.js'
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
+import { ExecutionStorage } from '../../lib/execution/index.js'
+import {
+  isReconcilerRunning,
+  spawnReconcilerDaemon,
+  registerReconcilerExecution,
+} from '../reconcile/index.js'
 export default class Orchestrate extends PromptCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
 
@@ -233,6 +239,37 @@ export default class Orchestrate extends PromptCommand {
       // Daemon mode: start the engine and run until stopped
       engine.start()
 
+      // =====================================================================
+      // Auto-spawn the reconciler daemon if not already running
+      // =====================================================================
+      const executionStorage = new ExecutionStorage(db)
+      if (!isReconcilerRunning()) {
+        const sessionName = spawnReconcilerDaemon(workspaceInfo.path, 30)
+        if (sessionName) {
+          registerReconcilerExecution(executionStorage, sessionName)
+          if (!jsonMode) {
+            this.log(styles.muted('  Reconciler daemon started'))
+          }
+        } else if (!jsonMode) {
+          this.log(styles.warning('  Failed to start reconciler daemon'))
+        }
+      } else if (!jsonMode) {
+        this.log(styles.muted('  Reconciler daemon already running'))
+      }
+
+      // Periodic reconciler health check — restart if it dies
+      const reconcilerHealthTimer = setInterval(() => {
+        if (!isReconcilerRunning()) {
+          const sessionName = spawnReconcilerDaemon(workspaceInfo.path, 30)
+          if (sessionName) {
+            registerReconcilerExecution(executionStorage, sessionName)
+            if (verbose) {
+              this.log(styles.warning('[orchestrate] Reconciler died — restarted'))
+            }
+          }
+        }
+      }, 60_000) // Check every 60 seconds
+
       // Prevent oclif from killing the daemon — oclif's error handler calls
       // process.exit(0) after run() resolves, which terminates the daemon.
       // Override process.exit to ignore clean exits while the daemon is running.
@@ -299,6 +336,7 @@ export default class Orchestrate extends PromptCommand {
       await new Promise<void>((resolve) => {
         const cleanup = () => {
           clearInterval(keepAlive)
+          clearInterval(reconcilerHealthTimer)
           daemonRunning = false
           process.exit = originalExit
           engine.stop()

@@ -28,6 +28,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { RECONCILER_SESSION_NAME } from '../reconcile/index.js'
 
 interface PruneResult {
   staleExecutionsCleaned: number
@@ -158,6 +159,17 @@ export default class SessionPrune extends PromptCommand {
 
       const matchedHostSessions = new Set<string>()
       const matchedContainerSessions = new Set<string>()
+
+      // Protect daemon sessions from being killed as orphans.
+      // Daemon sessions (reconciler, etc.) use a known naming pattern.
+      matchedHostSessions.add(RECONCILER_SESSION_NAME)
+
+      // Also protect any active daemon executions tracked in the DB
+      for (const exec of activeExecutions) {
+        if (exec.role === 'daemon' && exec.sessionId) {
+          matchedHostSessions.add(exec.sessionId)
+        }
+      }
 
       for (const exec of activeExecutions) {
         const isContainer = isContainerEnvironment(exec.environment)
