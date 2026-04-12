@@ -10,7 +10,7 @@ export default class ActionCreate extends PMOCommand {
 
   static examples = [
     '<%= config.bin %> <%= command.id %> "Security Review" --prompt "Review for vulnerabilities..."',
-    '<%= config.bin %> <%= command.id %> "Write Docs" --prompt "Document this feature..." --from-intent "Done"',
+    '<%= config.bin %> <%= command.id %> test --to-intent testing --prompt "Run QA tests..."',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
   ];
 

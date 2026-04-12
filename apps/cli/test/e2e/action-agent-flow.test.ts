@@ -552,7 +552,7 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
 
     it('should complete create with all optional flags and verify all fields', async () => {
       // Create action with all optional fields
-      const output = await execInProcess('action create "Full Options Action" --prompt "Full prompt" --description "Full description" --from-state started --to-state completed --machine');
+      const output = await execInProcess('action create "Full Options Action" --prompt "Full prompt" --description "Full description" --from-intent started --to-intent completed --machine');
       expect(output).to.include('Created action');
 
       // Verify all fields were saved correctly
@@ -560,8 +560,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         name: string;
         prompt: string;
         description: string;
-        from_state: string;
-        to_state: string;
+        from_intent: string;
+        to_intent: string;
         is_builtin: number;
       };
 
@@ -569,8 +569,8 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
       expect(action.name).to.equal('Full Options Action');
       expect(action.prompt).to.equal('Full prompt');
       expect(action.description).to.equal('Full description');
-      expect(action.from_state).to.equal('started');
-      expect(action.to_state).to.equal('completed');
+      expect(action.from_intent).to.equal('started');
+      expect(action.to_intent).to.equal('completed');
       expect(action.is_builtin).to.equal(0);
     });
 
@@ -648,24 +648,24 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.prompt).to.equal('Test prompt');
       });
 
-      it('Step 4: should show fromState input after description provided', async () => {
+      it('Step 4: should show fromIntent input after description provided', async () => {
         const output = await execInProcess('action create "Step4 Test" --prompt "Test prompt" --description "Test desc" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
         expect(json).to.not.be.null;
         expect(json!.prompt.type).to.equal('input');
-        expect(json!.prompt.name).to.equal('fromState');
-        expect(json!.prompt.message).to.include('From state');
+        expect(json!.prompt.name).to.equal('fromIntent');
+        expect(json!.prompt.message).to.include('From intent');
       });
 
-      it('should show toState input after fromState provided', async () => {
-        const output = await execInProcess('action create "ToState Test" --prompt "Test" --description "Test" --from-state "In Progress" --interactive --machine');
+      it('should show toIntent input after fromIntent provided', async () => {
+        const output = await execInProcess('action create "ToIntent Test" --prompt "Test" --description "Test" --from-intent "In Progress" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
         expect(json).to.not.be.null;
         expect(json!.prompt.type).to.equal('input');
-        expect(json!.prompt.name).to.equal('toState');
-        expect(json!.prompt.message).to.include('To state');
+        expect(json!.prompt.name).to.equal('toIntent');
+        expect(json!.prompt.message).to.include('To intent');
       });
 
       it('should complete full create flow and verify database', async () => {
@@ -681,12 +681,12 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         const step3 = extractJson<MachinePromptResponse>(await execInProcess('action create "Full Flow" --prompt "Flow prompt" --interactive --machine'));
         expect(step3!.prompt.name).to.equal('description');
 
-        // Step 4: Get fromState input
+        // Step 4: Get fromIntent input
         const step4 = extractJson<MachinePromptResponse>(await execInProcess('action create "Full Flow" --prompt "Flow prompt" --description "Flow desc" --interactive --machine'));
-        expect(step4!.prompt.name).to.equal('fromState');
+        expect(step4!.prompt.name).to.equal('fromIntent');
 
         // Final: Create with all flags (skip interactive prompts)
-        const finalOutput = await execInProcess('action create "Full Flow Final" --prompt "Final prompt" --description "Final desc" --from-state started --to-state completed --machine');
+        const finalOutput = await execInProcess('action create "Full Flow Final" --prompt "Final prompt" --description "Final desc" --from-intent started --to-intent completed --machine');
         expect(finalOutput).to.include('Created action');
 
         // Verify in database
@@ -694,13 +694,13 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
           name: string;
           prompt: string;
           description: string;
-          to_state: string;
+          to_intent: string;
         };
         expect(action).to.exist;
         expect(action.name).to.equal('Full Flow Final');
         expect(action.prompt).to.equal('Final prompt');
         expect(action.description).to.equal('Final desc');
-        expect(action.to_state).to.equal('completed');
+        expect(action.to_intent).to.equal('completed');
       });
     });
 
@@ -744,14 +744,14 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
         expect(json!.metadata.flags.description).to.equal('New desc');
       });
 
-      it('Step 4: should show fromState input after prompt provided', async () => {
+      it('Step 4: should show fromIntent input after prompt provided', async () => {
         const output = await execInProcess('action update update-multi-step --name "New Name" --description "New desc" --prompt "New prompt" --interactive --machine');
         const json = extractJson<MachinePromptResponse>(output);
 
         expect(json).to.not.be.null;
         expect(json!.prompt.type).to.equal('input');
-        expect(json!.prompt.name).to.equal('fromState');
-        expect(json!.prompt.message).to.include('From state');
+        expect(json!.prompt.name).to.equal('fromIntent');
+        expect(json!.prompt.message).to.include('From intent');
       });
 
       it('should complete multi-step update and verify database changes', async () => {
@@ -866,18 +866,18 @@ describe('Action Commands E2E - Agent Flow (--machine)', function (this: Mocha.S
     });
 
     it('should handle action create with all optional flags', async () => {
-      const output = await execInProcess('action create "Full Options" --prompt "Test" --description "Test desc" --from-state started --to-state completed --machine');
+      const output = await execInProcess('action create "Full Options" --prompt "Test" --description "Test desc" --from-intent started --to-intent completed --machine');
       expect(output).to.include('Created action');
 
       const action = db.prepare('SELECT * FROM pmo_actions WHERE id = ?').get('full-options') as {
         name: string;
         description: string;
-        from_state: string;
-        to_state: string;
+        from_intent: string;
+        to_intent: string;
       };
       expect(action.description).to.equal('Test desc');
-      expect(action.from_state).to.equal('started');
-      expect(action.to_state).to.equal('completed');
+      expect(action.from_intent).to.equal('started');
+      expect(action.to_intent).to.equal('completed');
     });
 
     it('should handle empty action list gracefully', async () => {
