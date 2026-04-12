@@ -73,8 +73,13 @@ export async function runDevcontainerInTmux(
     const claudeCmd = cmdMatch ? cmdMatch[1] : devcontainerCmd
 
     const containerPostExec = context.isEphemeral
-      ? `echo ""\necho "✅ Ephemeral agent work complete. Session will auto-close in 5s..."\nsleep 5\nexit 0`
-      : `echo ""\necho "✅ Agent work complete. Press Enter to close or run more commands."\nexec bash`
+      ? `echo ""
+echo "✅ Ephemeral agent work complete. Session will auto-close in 5s..."
+sleep 5
+exit 0`
+      : `echo ""
+echo "✅ Agent work complete. Press Enter to close or run more commands."
+exec bash`
 
     const promptWaitBlock = promptContainerPath
       ? `# TKT-099: Wait for prompt file to sync from host into container
@@ -91,6 +96,7 @@ fi
 
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
+export PRLT_AGENT=1  # PRLT-1300: prevent concurrent npm install -g race
 export COLORTERM=truecolor
 unset CI
 unset CLAUDECODE
@@ -122,7 +128,7 @@ ${containerPostExec}
     } catch { /* Session doesn't exist */ }
 
     // Create tmux session
-    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "bash ${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "bash ${scriptPath}"${mouseOption} \; set-option -g set-titles on \; set-option -g set-titles-string "#{window_name}"`
     try {
       execSync(`docker exec ${actualContainerId} bash -c '${createSessionCmd}'`, { stdio: 'pipe' })
     } catch (error) {
@@ -181,7 +187,7 @@ ${containerPostExec}
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -d -t \\"${sessionName}\\""
+                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -d -t \"${sessionName}\""
               end tell
             end tell
           end tell
@@ -194,7 +200,7 @@ ${containerPostExec}
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -d -t \\"${sessionName}\\""
+                write text "docker exec -it ${actualContainerId} tmux -u -CC attach -d -t \"${sessionName}\""
               end tell
             end tell
           end tell
