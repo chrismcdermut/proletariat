@@ -35,6 +35,11 @@ import {
 } from '../../lib/orchestrate/index.js'
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
+import {
+  ensureDaemonRunning,
+  isDaemonAlive,
+  reconcilerDaemonSpec,
+} from '../../lib/session/daemon-manager.js'
 export default class Orchestrate extends PromptCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
 
@@ -271,6 +276,32 @@ export default class Orchestrate extends PromptCommand {
         this.log('')
       }
 
+      // PRLT-1287: Auto-spawn reconciler daemon on orchestrate startup.
+      // The reconciler is Tier 2 infrastructure — the orchestrator supervises
+      // it and restarts it if it dies.
+      const reconcilerSpec = reconcilerDaemonSpec()
+      const reconcilerSession = ensureDaemonRunning(workspaceInfo.path, reconcilerSpec)
+      if (reconcilerSession) {
+        logFn(`  Reconciler daemon running (session: ${reconcilerSession})`)
+      } else {
+        logFn(`  Warning: failed to start reconciler daemon`)
+      }
+
+      // PRLT-1287: Daemon health check timer — periodically checks if
+      // supervised daemons are alive and restarts them if they died.
+      const daemonHealthInterval = 60_000 // Check every 60s
+      const daemonHealthTimer = setInterval(() => {
+        if (!isDaemonAlive(workspaceInfo.path, 'reconciler')) {
+          logFn(`  [daemon-supervisor] Reconciler daemon died — restarting...`)
+          const restarted = ensureDaemonRunning(workspaceInfo.path, reconcilerSpec)
+          if (restarted) {
+            logFn(`  [daemon-supervisor] Reconciler daemon restarted (session: ${restarted})`)
+          } else {
+            logFn(`  [daemon-supervisor] Failed to restart reconciler daemon`)
+          }
+        }
+      }, daemonHealthInterval)
+
       // Set up polling if configured
       const pollInterval = parsedFlags['poll-interval'] as number
       let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -299,6 +330,7 @@ export default class Orchestrate extends PromptCommand {
       await new Promise<void>((resolve) => {
         const cleanup = () => {
           clearInterval(keepAlive)
+          clearInterval(daemonHealthTimer)
           daemonRunning = false
           process.exit = originalExit
           engine.stop()

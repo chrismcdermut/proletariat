@@ -40,7 +40,7 @@ export default class SessionList extends PromptCommand {
     }),
     role: Flags.string({
       description: 'Filter by session role',
-      options: ['orchestrator', 'worker', 'headless'],
+      options: ['orchestrator', 'worker', 'headless', 'daemon'],
     }),
     all: Flags.boolean({
       char: 'a',

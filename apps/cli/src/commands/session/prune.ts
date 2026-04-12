@@ -184,9 +184,12 @@ export default class SessionPrune extends PromptCommand {
       }
 
       // Find orphan host sessions (match prlt pattern but not tracked in DB)
+      // PRLT-1287: Never prune daemon sessions — they are long-running
+      // infrastructure processes (reconciler, etc.) meant to run forever.
       const orphanHostSessions: string[] = []
       for (const sessionName of hostTmuxSessions) {
         if (matchedHostSessions.has(sessionName)) continue
+        if (sessionName.startsWith('prlt-daemon-')) continue
         const parsed = parseSessionName(sessionName)
         if (parsed) {
           orphanHostSessions.push(sessionName)
