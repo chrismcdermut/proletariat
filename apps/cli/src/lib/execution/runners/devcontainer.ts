@@ -33,6 +33,7 @@ import {
   checkDockerDaemon,
   ensureDockerContainer,
   copyClaudeCredentials,
+  refreshCredentialVolume,
   ensureWorkflowScope,
 } from './shared.js'
 
@@ -235,6 +236,11 @@ export async function runDevcontainer(
     // Copy Claude credentials into agent directory so container can access them
     if (isClaudeExecutor(executor)) {
       copyClaudeCredentials(context.agentDir)
+
+      // PRLT-1296: Refresh credential volume with fresh host credentials before each spawn.
+      // OAuth tokens expire every ~24h; the volume is a snapshot that goes stale.
+      // This ensures containers always get the host's current (auto-refreshed) tokens.
+      refreshCredentialVolume()
     }
 
     // Start or reuse container using raw Docker commands

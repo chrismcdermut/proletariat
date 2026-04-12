@@ -137,6 +137,21 @@ ${containerPostExec}
       } catch {
         return { success: false, error: `Failed to verify tmux session "${sessionName}" inside container.` }
       }
+
+      // PRLT-1296: Early-exit detection — if Claude dies immediately (e.g., auth failure),
+      // the tmux session disappears within seconds. Wait briefly and re-check so we can
+      // report failure instead of falsely reporting 'running'.
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      try {
+        execSync(`docker exec ${actualContainerId} tmux has-session -t "${sessionName}" 2>&1`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] })
+      } catch {
+        // Session died within 5 seconds of creation — likely auth failure or immediate crash
+        return {
+          success: false,
+          error: `Agent session "${sessionName}" exited immediately after spawn. This usually indicates an authentication failure (expired/invalid credentials) or a Claude Code startup error. Check container logs: docker logs ${actualContainerId}`,
+        }
+      }
+
       return { success: true, containerId: actualContainerId, sessionId: sessionName }
     }
 
