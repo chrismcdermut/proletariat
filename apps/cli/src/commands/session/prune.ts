@@ -25,6 +25,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { SessionStore } from '../../lib/session-store.js'
 
 interface PruneResult {
   staleExecutionsCleaned: number
@@ -149,10 +150,25 @@ export default class SessionPrune extends PMOCommand {
         }
       }
 
+      // Build set of daemon session names to protect from pruning.
+      // Daemon sessions (role='daemon') are supposed to run forever.
+      const daemonSessionNames = new Set<string>()
+      const globalStore = new SessionStore()
+      try {
+        const runningDaemons = globalStore.listByRole('daemon', 'running')
+        for (const daemon of runningDaemons) {
+          daemonSessionNames.add(daemon.sessionName)
+        }
+      } finally {
+        globalStore.close()
+      }
+
       // Find orphan host sessions (match prlt pattern but not tracked in DB)
+      // IMPORTANT: Skip daemon sessions — they are supposed to run forever
       const orphanHostSessions: string[] = []
       for (const sessionName of hostTmuxSessions) {
         if (matchedHostSessions.has(sessionName)) continue
+        if (daemonSessionNames.has(sessionName)) continue  // Protect daemons
         const parsed = parseSessionName(sessionName)
         if (parsed) {
           orphanHostSessions.push(sessionName)
