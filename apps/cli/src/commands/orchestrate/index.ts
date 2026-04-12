@@ -12,6 +12,7 @@
 
 import { Flags } from '@oclif/core'
 import * as path from 'node:path'
+import { execSync } from 'node:child_process'
 import { SqliteDatabase } from '../../lib/database/sqlite.js'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { styles } from '../../lib/styles.js'
@@ -33,6 +34,8 @@ import {
 import type { PresetName, OrchestrateActionResult } from '../../lib/orchestrate/index.js'
 import { initHookManager } from '../../lib/work-lifecycle/hooks/index.js'
 import { initWorkLifecycleAdapter } from '../../lib/work-lifecycle/adapter.js'
+import { SessionStore } from '../../lib/session-store.js'
+import { RECONCILER_SESSION_NAME } from '../reconcile/index.js'
 export default class Orchestrate extends PMOCommand {
   static description = 'Start the autonomous pipeline daemon with event-driven hooks'
 
@@ -183,9 +186,12 @@ export default class Orchestrate extends PMOCommand {
       // Daemon mode: start the engine and run until stopped
       engine.start()
 
+      // Auto-spawn reconciler daemon if not already running
+      const reconcilerSpawned = this.ensureReconcilerDaemon(verbose)
+
       if (jsonMode) {
         outputSuccessAsJson(
-          { status: 'running', mode: 'daemon' },
+          { status: 'running', mode: 'daemon', reconciler: reconcilerSpawned },
           createMetadata('orchestrate', flags),
         )
       } else {
@@ -199,6 +205,10 @@ export default class Orchestrate extends PMOCommand {
           const hookCount = (db.prepare('SELECT COUNT(*) as count FROM pmo_work_hooks WHERE enabled = 1').get() as { count: number })?.count ?? 0
           this.log(styles.muted(`  ${hookCount} active hooks`))
         } catch { /* ignore */ }
+
+        if (reconcilerSpawned) {
+          this.log(styles.muted('  Reconciler daemon: running'))
+        }
 
         if (parsedFlags['poll-interval'] && (parsedFlags['poll-interval'] as number) > 0) {
           this.log(styles.muted(`  Polling every ${parsedFlags['poll-interval']}s for external events`))
@@ -216,11 +226,17 @@ export default class Orchestrate extends PMOCommand {
         }, pollInterval * 1000)
       }
 
+      // Set up reconciler health supervision (check every 60s)
+      const reconcilerHealthTimer = setInterval(() => {
+        this.superviseReconcilerDaemon(verbose)
+      }, 60_000)
+
       // Keep the process alive until signal
       await new Promise<void>((resolve) => {
         const cleanup = () => {
           engine.stop()
           if (pollTimer) clearInterval(pollTimer)
+          clearInterval(reconcilerHealthTimer)
           this.log(styles.muted('\n  Orchestrate daemon stopped'))
           resolve()
         }
@@ -230,6 +246,104 @@ export default class Orchestrate extends PMOCommand {
       })
     } finally {
       db.close()
+    }
+  }
+
+  /**
+   * Ensure the reconciler daemon is running. Spawns it if not.
+   * Returns true if reconciler is running (either already was or just spawned).
+   */
+  private ensureReconcilerDaemon(verbose: boolean): boolean {
+    const store = new SessionStore()
+    try {
+      const existing = store.getRunningDaemon('reconciler')
+      if (existing && store.isTmuxSessionAlive(existing.sessionName)) {
+        if (verbose) {
+          this.log(styles.muted('[orchestrate] Reconciler daemon already running'))
+        }
+        return true
+      }
+
+      // Mark stale record as done
+      if (existing) {
+        store.updateStatus(existing.id, 'done')
+      }
+
+      return this.spawnReconcilerDaemon(store, verbose)
+    } finally {
+      store.close()
+    }
+  }
+
+  /**
+   * Spawn the reconciler daemon as a tmux session.
+   */
+  private spawnReconcilerDaemon(store: SessionStore, verbose: boolean): boolean {
+    let prltPath: string
+    try {
+      prltPath = execSync('which prlt', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+    } catch {
+      prltPath = 'prlt'
+    }
+
+    try {
+      execSync(
+        `tmux new-session -d -s "${RECONCILER_SESSION_NAME}" "${prltPath} reconcile --watch --foreground --interval 30"`,
+        { stdio: 'pipe' },
+      )
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      this.log(styles.warning(`[orchestrate] Failed to spawn reconciler daemon: ${msg}`))
+      return false
+    }
+
+    store.create({
+      agentName: 'reconciler',
+      runner: 'daemon',
+      task: 'session-reconciliation',
+      workdir: process.cwd(),
+      sessionName: RECONCILER_SESSION_NAME,
+      environment: 'host',
+      permissionMode: 'safe',
+      role: 'daemon',
+      daemonType: 'reconciler',
+    })
+
+    if (verbose) {
+      this.log(styles.success('[orchestrate] Reconciler daemon spawned'))
+    }
+    return true
+  }
+
+  /**
+   * Check if reconciler daemon is still alive. Restart if dead.
+   * Called periodically by the orchestrator's health supervision timer.
+   */
+  private superviseReconcilerDaemon(verbose: boolean): void {
+    const store = new SessionStore()
+    try {
+      const existing = store.getRunningDaemon('reconciler')
+
+      if (!existing) {
+        // No record at all — spawn fresh
+        if (verbose) {
+          this.log(styles.warning('[orchestrate] Reconciler daemon not found, spawning...'))
+        }
+        this.spawnReconcilerDaemon(store, verbose)
+        return
+      }
+
+      if (store.isTmuxSessionAlive(existing.sessionName)) {
+        // Still alive, nothing to do
+        return
+      }
+
+      // Dead — mark as done and restart
+      store.updateStatus(existing.id, 'done')
+      this.log(styles.warning('[orchestrate] Reconciler daemon died, restarting...'))
+      this.spawnReconcilerDaemon(store, verbose)
+    } finally {
+      store.close()
     }
   }
 
