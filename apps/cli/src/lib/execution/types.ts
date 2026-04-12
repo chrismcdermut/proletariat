@@ -138,6 +138,21 @@ export type ExecutionStatus =
   | 'stopped'     // Manually terminated
 
 // =============================================================================
+// Execution Role
+// =============================================================================
+
+/**
+ * ExecutionRole — What kind of session this is.
+ * - worker: Standard agent working on a ticket (default)
+ * - orchestrator: Pipeline orchestrator managing agents
+ * - daemon: Long-running infrastructure process (reconciler, rebase coordinator, etc.)
+ */
+export type ExecutionRole =
+  | 'worker'        // Standard ticket worker (default)
+  | 'orchestrator'  // Pipeline orchestrator
+  | 'daemon'        // Long-running infrastructure daemon
+
+// =============================================================================
 // Agent Work Record
 // =============================================================================
 
@@ -151,6 +166,7 @@ export interface AgentWork {
   sessionManager?: SessionManager // How session is managed inside environment (tmux/direct)
   permissionMode: PermissionMode  // Permission mode used for this execution
   cleanupPolicy: CleanupPolicy   // Container cleanup policy for this execution
+  role: ExecutionRole            // Session role: worker, orchestrator, or daemon
   status: ExecutionStatus
   branch?: string
   pid?: string

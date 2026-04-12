@@ -387,7 +387,8 @@ export const PMO_TABLE_SCHEMAS = {
       completed_at TIMESTAMP,
       exit_code INTEGER,
       error_message TEXT,
-      cleanup_policy TEXT NOT NULL DEFAULT 'on-exit'
+      cleanup_policy TEXT NOT NULL DEFAULT 'on-exit',
+      role TEXT NOT NULL DEFAULT 'worker'
     )`,
 
   // Runtime ticket cache (provider-agnostic, replaces PMO dependency for agent_work)
