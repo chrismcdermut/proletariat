@@ -236,6 +236,29 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
   });
 
   describe('findPMO() auto-bootstrap integration', () => {
+    // PRLT-1301: Save/restore env vars so the workspace-sandbox root hook
+    // doesn't interfere with findPMO's HQ resolution in these tests.
+    let savedHqPath: string | undefined;
+    let savedTestEnv: string | undefined;
+
+    beforeEach(() => {
+      savedHqPath = process.env.PRLT_HQ_PATH;
+      savedTestEnv = process.env.PRLT_TEST_ENV;
+    });
+
+    afterEach(() => {
+      if (savedHqPath !== undefined) {
+        process.env.PRLT_HQ_PATH = savedHqPath;
+      } else {
+        delete process.env.PRLT_HQ_PATH;
+      }
+      if (savedTestEnv !== undefined) {
+        process.env.PRLT_TEST_ENV = savedTestEnv;
+      } else {
+        delete process.env.PRLT_TEST_ENV;
+      }
+    });
+
     it('auto-bootstraps when HQ has workspace.db without PMO tables', () => {
       const hqPath = path.join(tmpDir, 'test-hq');
       const dbPath = createHQStructure(hqPath);
@@ -244,6 +267,10 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
       // Save and override cwd — use realpath to normalize macOS /private/var symlinks
       const originalCwd = process.cwd();
       process.chdir(hqPath);
+
+      // Clear HQ env vars so findPMO uses cwd-based discovery (which triggers auto-bootstrap)
+      delete process.env.PRLT_HQ_PATH;
+      delete process.env.PRLT_TEST_ENV;
 
       try {
         const pmoPath = findPMO();
@@ -270,6 +297,10 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
       const originalCwd = process.cwd();
       process.chdir(emptyDir);
 
+      // Clear HQ env vars so findPMO relies on cwd-based discovery (which should find nothing)
+      delete process.env.PRLT_HQ_PATH;
+      delete process.env.PRLT_TEST_ENV;
+
       try {
         const pmoPath = findPMO();
         expect(pmoPath).to.be.null;
@@ -280,6 +311,31 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
   });
 
   describe('Error messages', () => {
+    // PRLT-1301: Save/restore env vars so the workspace-sandbox root hook
+    // doesn't interfere with "no HQ" error path testing.
+    let savedHqPath: string | undefined;
+    let savedTestEnv: string | undefined;
+
+    beforeEach(() => {
+      savedHqPath = process.env.PRLT_HQ_PATH;
+      savedTestEnv = process.env.PRLT_TEST_ENV;
+      delete process.env.PRLT_HQ_PATH;
+      delete process.env.PRLT_TEST_ENV;
+    });
+
+    afterEach(() => {
+      if (savedHqPath !== undefined) {
+        process.env.PRLT_HQ_PATH = savedHqPath;
+      } else {
+        delete process.env.PRLT_HQ_PATH;
+      }
+      if (savedTestEnv !== undefined) {
+        process.env.PRLT_TEST_ENV = savedTestEnv;
+      } else {
+        delete process.env.PRLT_TEST_ENV;
+      }
+    });
+
     it('getPMOContext error message does not reference "prlt pmo init"', async () => {
       // getPMOContext should throw with updated error message when no workspace found
       const { getPMOContext } = await import('../../src/lib/pmo/pmo-context.js');

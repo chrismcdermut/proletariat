@@ -185,6 +185,8 @@ exec $SHELL
 # Auto-generated script for ticket ${context.ticketId}
 # PRLT-1300: prevent agent processes from running npm install -g (race condition deletes binary)
 export PRLT_AGENT=1
+# PRLT-1301: provide isolated test DB path so agent tests never touch the real workspace.db
+export PRLT_TEST_WORKSPACE_DB="/tmp/prlt-test-workspace-$$.db"
 SCRIPT_PATH="${scriptPath}"
 # TKT-941: Export PROMPT_PATH so it's available inside srt sandbox child processes.
 # When running in sandbox mode, the executor is wrapped with:

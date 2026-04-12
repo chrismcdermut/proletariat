@@ -97,6 +97,7 @@ fi
     const tmuxScript = `#!/bin/bash
 export TERM=xterm-256color
 export PRLT_AGENT=1  # PRLT-1300: prevent concurrent npm install -g race
+export PRLT_TEST_WORKSPACE_DB="/tmp/prlt-test-workspace-$$.db"  # PRLT-1301: isolate agent test DB
 export COLORTERM=truecolor
 unset CI
 unset CLAUDECODE
