@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
-import { PMO_TABLES } from '../pmo/schema.js'
+// PMO_TABLES no longer contains these dead table names; use string literals.
+// The migration will have already dropped these tables, but the code needs to compile.
 import type { TrelloCardMap } from './types.js'
 import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
 
@@ -20,8 +21,8 @@ export class TrelloMapper {
 
   private ensureTable(): void {
     this.driver.exec(`
-      CREATE TABLE IF NOT EXISTS ${PMO_TABLES.trello_card_map} (
-        pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      CREATE TABLE IF NOT EXISTS pmo_trello_card_map (
+        pmo_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
         trello_card_id TEXT NOT NULL,
         trello_board_id TEXT,
         last_synced_at TIMESTAMP,
@@ -33,13 +34,13 @@ export class TrelloMapper {
 
     this.driver.exec(`
       CREATE INDEX IF NOT EXISTS idx_pmo_trello_card_map_card_id
-        ON ${PMO_TABLES.trello_card_map}(trello_card_id)
+        ON pmo_trello_card_map(trello_card_id)
     `)
   }
 
   createOrUpdateMapping(pmoTicketId: string, trelloCardId: string, trelloBoardId?: string): void {
     this.driver.prepare(`
-      INSERT INTO ${PMO_TABLES.trello_card_map}
+      INSERT INTO pmo_trello_card_map
         (pmo_ticket_id, trello_card_id, trello_board_id, last_synced_at, created_at)
       VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       ON CONFLICT(pmo_ticket_id) DO UPDATE SET
@@ -51,7 +52,7 @@ export class TrelloMapper {
 
   getByTicketId(ticketId: string): TrelloCardMap | null {
     const row = this.driver.prepare<Record<string, unknown>>(`
-      SELECT * FROM ${PMO_TABLES.trello_card_map} WHERE pmo_ticket_id = ?
+      SELECT * FROM pmo_trello_card_map WHERE pmo_ticket_id = ?
     `).get(ticketId)
 
     return row ? this.rowToMap(row) : null
@@ -59,7 +60,7 @@ export class TrelloMapper {
 
   getByCardId(trelloCardId: string): TrelloCardMap | null {
     const row = this.driver.prepare<Record<string, unknown>>(`
-      SELECT * FROM ${PMO_TABLES.trello_card_map} WHERE trello_card_id = ?
+      SELECT * FROM pmo_trello_card_map WHERE trello_card_id = ?
     `).get(trelloCardId)
 
     return row ? this.rowToMap(row) : null
@@ -67,7 +68,7 @@ export class TrelloMapper {
 
   listMappings(): TrelloCardMap[] {
     const rows = this.driver.prepare<Record<string, unknown>>(`
-      SELECT * FROM ${PMO_TABLES.trello_card_map} ORDER BY created_at DESC
+      SELECT * FROM pmo_trello_card_map ORDER BY created_at DESC
     `).all()
 
     return rows.map((row) => this.rowToMap(row))
@@ -75,7 +76,7 @@ export class TrelloMapper {
 
   updateSyncTimestamp(ticketId: string): void {
     this.driver.prepare(`
-      UPDATE ${PMO_TABLES.trello_card_map}
+      UPDATE pmo_trello_card_map
       SET last_synced_at = CURRENT_TIMESTAMP
       WHERE pmo_ticket_id = ?
     `).run(ticketId)

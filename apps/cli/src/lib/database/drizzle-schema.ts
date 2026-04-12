@@ -270,6 +270,19 @@ export const pmoExternalExecutionMap = sqliteTable('pmo_external_execution_map',
 }))
 
 /**
+ * Linked execution IDs for external mappings.
+ */
+export const pmoExternalExecutionLinks = sqliteTable('pmo_external_execution_links', {
+  provider: text('provider').notNull(),
+  externalId: text('external_id').notNull(),
+  executionId: text('execution_id').notNull(),
+  linkedAt: text('linked_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.provider, table.externalId, table.executionId] }),
+  idxExecutionId: index('idx_pmo_external_execution_links_execution_id').on(table.executionId),
+}))
+
+/**
  * Linked PR URLs for external mappings.
  */
 export const pmoExternalExecutionPrs = sqliteTable('pmo_external_execution_prs', {
@@ -571,6 +584,9 @@ export type NewDbPmoExternalIssueMap = typeof pmoExternalIssueMap.$inferInsert
 
 export type DbPmoExternalExecutionMap = typeof pmoExternalExecutionMap.$inferSelect
 export type NewDbPmoExternalExecutionMap = typeof pmoExternalExecutionMap.$inferInsert
+
+export type DbPmoExternalExecutionLink = typeof pmoExternalExecutionLinks.$inferSelect
+export type NewDbPmoExternalExecutionLink = typeof pmoExternalExecutionLinks.$inferInsert
 
 export type DbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferSelect
 export type NewDbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferInsert

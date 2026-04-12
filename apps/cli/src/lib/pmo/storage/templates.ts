@@ -118,7 +118,7 @@ export class TemplateStorage {
   ): Promise<TicketTemplate> {
     // Get the ticket
     const ticket = this.ctx.db.prepare(`
-      SELECT * FROM ${T.tickets} WHERE id = ?
+      SELECT * FROM pmo_tickets WHERE id = ?
     `).get(ticketId) as {
       title: string
       description: string | null
@@ -136,7 +136,7 @@ export class TemplateStorage {
 
     // Get subtasks
     const subtasks = this.ctx.db.prepare(`
-      SELECT title FROM ${T.subtasks} WHERE ticket_id = ? ORDER BY position
+      SELECT title FROM pmo_subtasks WHERE ticket_id = ? ORDER BY position
     `).all(ticketId) as Array<{ title: string }>
 
     // Create template from ticket

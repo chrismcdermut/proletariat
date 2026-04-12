@@ -45,7 +45,7 @@ export class LinearMapper {
   private ensureTable(): void {
     this.driver.exec(`
       CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_issue_map} (
-        pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+        pmo_ticket_id TEXT NOT NULL REFERENCES pmo_tickets(id) ON DELETE CASCADE,
         provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
         external_id TEXT NOT NULL,
         external_key TEXT NOT NULL,

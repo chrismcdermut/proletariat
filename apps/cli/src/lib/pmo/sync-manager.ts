@@ -84,7 +84,7 @@ function computeHash(content: string): string {
  * Get sync metadata from database
  */
 export function getSyncMetadata(storage: SQLiteStorage): SyncMetadata | null {
-  const meta = storage.getCacheMetadata();
+  const meta = storage.getCacheMetadata() as { cacheBuiltAt: number; boardMtime: number; contentHash?: string } | null;
   if (!meta) return null;
 
   return {

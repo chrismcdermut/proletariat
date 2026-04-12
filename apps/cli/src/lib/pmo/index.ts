@@ -54,8 +54,6 @@ export {
   PMO_TABLE_SCHEMAS,
   PMO_INDEXES,
   PMO_SCHEMA_SQL,
-  EXPECTED_TICKET_COLUMNS,
-  validateTicketSchema,
 } from './schema.js';
 
 

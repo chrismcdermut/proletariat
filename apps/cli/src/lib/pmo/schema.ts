@@ -36,6 +36,7 @@ export const PMO_TABLES = {
   external_issue_map: 'pmo_external_issue_map',
   // Provider-agnostic external issue/execution mapping
   external_execution_map: 'pmo_external_execution_map',
+  external_execution_links: 'pmo_external_execution_links',
   external_execution_prs: 'pmo_external_execution_prs',
   // Work lifecycle hooks
   work_hooks: 'pmo_work_hooks',  // Configurable event-driven actions for work events
@@ -281,6 +282,18 @@ export const PMO_TABLE_SCHEMAS = {
       PRIMARY KEY (provider, external_id)
     )`,
 
+  external_execution_links: `
+    CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_links} (
+      provider TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      execution_id TEXT NOT NULL,
+      linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (provider, external_id, execution_id),
+      FOREIGN KEY (provider, external_id)
+        REFERENCES ${PMO_TABLES.external_execution_map}(provider, external_id)
+        ON DELETE CASCADE
+    )`,
+
   external_execution_prs: `
     CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_execution_prs} (
       provider TEXT NOT NULL,
@@ -338,6 +351,7 @@ export const PMO_INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_external_key ON ${PMO_TABLES.external_issue_map}(provider, external_key);
   CREATE INDEX IF NOT EXISTS idx_pmo_external_issue_map_team_key ON ${PMO_TABLES.external_issue_map}(provider, team_key);
   CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_map_external_key ON ${PMO_TABLES.external_execution_map}(provider, external_key);
+  CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_links_execution_id ON ${PMO_TABLES.external_execution_links}(execution_id);
   CREATE INDEX IF NOT EXISTS idx_pmo_external_execution_prs_pr_url ON ${PMO_TABLES.external_execution_prs}(pr_url);
   CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_event ON ${PMO_TABLES.work_hooks}(event);
   CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_enabled ON ${PMO_TABLES.work_hooks}(enabled);
@@ -369,6 +383,7 @@ export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.labels,
   PMO_TABLE_SCHEMAS.external_issue_map,
   PMO_TABLE_SCHEMAS.external_execution_map,
+  PMO_TABLE_SCHEMAS.external_execution_links,
   PMO_TABLE_SCHEMAS.external_execution_prs,
   PMO_TABLE_SCHEMAS.work_hooks,
   PMO_INDEXES,

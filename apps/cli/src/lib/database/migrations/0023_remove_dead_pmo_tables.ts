@@ -12,8 +12,8 @@
 import type { Migration } from '../migrator.js'
 
 export const removeDeadPmoTables: Migration = {
-  id: '0023_remove_dead_pmo_tables',
-  description: 'Drop dead PMO tables — local ticket store, local workflows, vestigial tables',
+  id: '0023',
+  name: 'remove_dead_pmo_tables',
 
   up(db) {
     // =========================================================================
@@ -204,9 +204,4 @@ export const removeDeadPmoTables: Migration = {
     }
   },
 
-  down(_db) {
-    // This migration is not reversible — dropped tables contain data that cannot be recovered.
-    // To roll back, restore from a database backup.
-    throw new Error('Migration 0023 (remove dead PMO tables) is not reversible. Restore from backup.')
-  },
 }
