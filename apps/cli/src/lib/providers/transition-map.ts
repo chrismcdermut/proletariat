@@ -138,4 +138,28 @@ export class TransitionMapStore {
     const mapping = this.getMapping(provider, intent)
     return mapping?.providerStateName ?? null
   }
+
+  /**
+   * Validate that all transition_map entries for a provider match actual
+   * provider states. Returns a list of mappings whose provider_state_name
+   * does not exist in the given set of valid state names.
+   *
+   * Called during `prlt init` / `prlt connect` to flag stale or invalid
+   * mappings that would cause silent failures when moving tickets.
+   *
+   * @param provider - The provider name (e.g., 'linear')
+   * @param validStateNames - Set of state names currently available on the provider (case-insensitive)
+   * @returns Array of invalid mappings with their intent and stale state name
+   */
+  validateMappings(
+    provider: string,
+    validStateNames: Set<string>,
+  ): Array<{ intent: string; mappedState: string }> {
+    const mappings = this.listMappings(provider)
+    const lowerValidNames = new Set([...validStateNames].map(n => n.toLowerCase()))
+
+    return mappings
+      .filter(m => !lowerValidNames.has(m.providerStateName.toLowerCase()))
+      .map(m => ({ intent: m.intent, mappedState: m.providerStateName }))
+  }
 }

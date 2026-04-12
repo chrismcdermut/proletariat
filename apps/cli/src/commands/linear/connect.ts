@@ -465,6 +465,17 @@ export default class LinearConnect extends PMOCommand {
             providerStateId: m.stateId,
           })
         }
+
+        // Validate stored mappings against provider states (PRLT-1299)
+        const validNames = new Set(sortedStates.map(s => s.name))
+        const invalid = store.validateMappings('linear', validNames)
+        if (invalid.length > 0) {
+          this.log(JSON.stringify({
+            warning: 'transition_map_stale',
+            message: 'Some transition mappings reference states that do not exist on this board',
+            invalid,
+          }))
+        }
         return
       }
 
@@ -493,6 +504,18 @@ export default class LinearConnect extends PMOCommand {
           })
         }
         this.log(colors.textMuted(`  Saved ${mappings.length} state mappings`))
+
+        // Validate stored mappings against provider states (PRLT-1299)
+        const validNames = new Set(sortedStates.map(s => s.name))
+        const invalid = store.validateMappings('linear', validNames)
+        if (invalid.length > 0) {
+          this.log('')
+          this.log(colors.warning('⚠ Some transition mappings reference states that do not exist on this board:'))
+          for (const { intent, mappedState } of invalid) {
+            this.log(colors.textMuted(`  ${intent} → "${mappedState}" (not found)`))
+          }
+          this.log(colors.textMuted('  Run "prlt config set state-map.<intent> <state-name>" to fix'))
+        }
       } else {
         this.log(colors.textMuted('  Skipped state mapping. You can configure later with "prlt config set state-map.<intent> <state-name>"'))
       }
