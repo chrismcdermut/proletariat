@@ -189,7 +189,8 @@ export function normalizeLinearIssue(rawIssue: unknown): IssueEnvelope {
 
   const labels = (issue.labels?.nodes || [])
     .map(label => label.name?.trim())
-    .filter(Boolean)
+    // eslint-disable-next-line unicorn/prefer-native-coercion-functions -- type predicate needed for TS narrowing
+    .filter((name): name is string => Boolean(name))
 
   const projectKey = issue.team?.key || issue.identifier.split('-')[0]
 

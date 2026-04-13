@@ -20,7 +20,6 @@ import {
   getGitHubRepo,
   findPRForTicket,
   listOpenPRs,
-  _isGHInstalled,
 } from '../lib/pr/index.js'
 import type { PRInfo } from '../lib/pr/index.js'
 import {
@@ -40,7 +39,6 @@ import type {
   ShipWorkResult,
   ShipAllOptions,
   ShipAllResult,
-  _ShipDryRunDetails,
 } from './types.js'
 
 /**
@@ -120,7 +118,8 @@ export class WorkService {
       }
 
       // Try to resolve linked ticket
-      const linked = await this.resolveLinkedTicket(prNumber, prInfo.headBranch)
+      // eslint-disable-next-line unicorn/no-useless-undefined -- required third argument
+      const linked = await this.resolveLinkedTicket(prNumber, prInfo.headBranch, undefined)
       if (linked) {
         ticket = linked
         ticketId = linked.id
@@ -348,7 +347,7 @@ export class WorkService {
       method = 'squash',
       whenGreen = false,
       deleteBranch = true,
-      _rebaseSiblings = true,
+      rebaseSiblings: _rebaseSiblings = true,
       cwd,
     } = options
 

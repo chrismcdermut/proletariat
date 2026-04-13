@@ -12,7 +12,6 @@ import {
   getAgentWorktrees,
   addAgentsToDatabase,
   removeAgentsFromDatabase,
-  _addEphemeralAgentToDatabase,
   tryAddEphemeralAgentToDatabase,
   getEphemeralAgentNames,
   getActiveTheme,

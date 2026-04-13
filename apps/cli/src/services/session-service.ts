@@ -17,7 +17,6 @@ import {
 import type {
   UnifiedSession,
   CollectOptions,
-  _GroupedSessions,
   SessionRole,
 } from '../lib/session/renderer.js'
 import { ServiceError } from './types.js'

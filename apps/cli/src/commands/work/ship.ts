@@ -7,8 +7,6 @@ import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
 import {
   requireGhCli,
-  _getGitHubRepo,
-  type _PRInfo,
 } from '../../lib/pr/index.js';
 import {
   shouldOutputJson,

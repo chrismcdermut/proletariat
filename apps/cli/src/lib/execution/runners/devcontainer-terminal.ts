@@ -10,7 +10,6 @@ import {
   fs,
   path,
   os,
-  _DisplayMode,
   ExecutionContext,
   ExecutionConfig,
   getSetTitleCommands,

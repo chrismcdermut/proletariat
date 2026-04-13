@@ -110,7 +110,8 @@ export function normalizeShortcutStory(
 
   const labels = (story.labels || [])
     .map(label => label.name?.trim())
-    .filter(Boolean)
+    // eslint-disable-next-line unicorn/prefer-native-coercion-functions -- type predicate needed for TS narrowing
+    .filter((name): name is string => Boolean(name))
 
   const stateName = workflowStates?.get(story.workflow_state_id ?? 0)?.name || 'Unknown'
   const externalKey = deriveExternalKey(story)

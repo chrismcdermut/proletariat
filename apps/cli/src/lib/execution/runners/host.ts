@@ -3,11 +3,11 @@
  */
 
 import {
-  execSync, fs, path, os, _spawn,
-  DisplayMode, _OutputMode, PermissionMode, ExecutorType,
+  execSync, fs, path, os,
+  DisplayMode, PermissionMode, ExecutorType,
   ExecutionContext, ExecutionConfig, getSetTitleCommands,
   resolveCodexExecutionContext, validateCodexMode, getCodexCommand, resolveToolsForSpawn,
-  RunnerResult, _buildSessionName, buildWindowTitle, buildTmuxWindowName,
+  RunnerResult, buildWindowTitle, buildTmuxWindowName,
   buildPrompt, buildOrchestratorSystemPrompt, getExecutorCommand, isClaudeExecutor,
   shouldUseControlMode, buildTmuxMouseOption, buildTmuxAttachCommand, configureITermTmuxWindowMode,
 } from './shared.js'
@@ -46,7 +46,7 @@ export async function runHost(
     }
   }
 
-  const { cmd, _args } = getExecutorCommand(executor, prompt, skipPermissions)
+  const { cmd, args: _args } = getExecutorCommand(executor, prompt, skipPermissions)
 
   // Write command to temp script to avoid shell escaping issues
   // Use HQ .proletariat/scripts if available, otherwise fallback to home dir

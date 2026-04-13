@@ -10,7 +10,6 @@ import {
 } from '../../lib/prompt-json.js'
 import {
   LinearClient,
-  _isLinearConfigured,
   loadLinearConfig,
   saveLinearApiKey,
   saveLinearDefaultTeam,

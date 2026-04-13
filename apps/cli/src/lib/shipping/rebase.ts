@@ -14,7 +14,6 @@ import type {
   GitProvider,
   RebaseSiblingOptions,
   SiblingRebaseResult,
-  _UpdateBranchResult,
 } from './types.js'
 import { GitHubProvider } from './github.js'
 

@@ -95,10 +95,7 @@ import { TicketRefStore } from '../../lib/execution/ticket-refs.js'
 import { getLinearApiKey, loadLinearConfig } from '../../lib/linear/config.js'
 import { ExternalIssueAdapterError, type IssueSource, type NormalizedIssueEnvelope } from '../../lib/external-issues/types.js'
 import {
-  _parseWorkSourceRef,
-  _formatWorkSourceRef,
   loadDefaultWorkSource,
-  _getRegisteredWorkSources,
   getConnectedIntegrations,
   isLocalTicketId,
 } from '../../lib/work-source/index.js'

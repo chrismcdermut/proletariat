@@ -11,7 +11,6 @@ import { execSync, execFileSync } from 'node:child_process'
 import type { AgentRunner, AgentSession, SpawnConfig } from './agent-runner.js'
 import {
   runHost,
-  _buildSessionName,
 } from '../execution/runners.js'
 import { DEFAULT_EXECUTION_CONFIG } from '../execution/types.js'
 import type { ExecutionContext, ExecutionConfig } from '../execution/types.js'

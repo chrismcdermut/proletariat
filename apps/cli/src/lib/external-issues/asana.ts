@@ -71,7 +71,8 @@ function deriveAsanaLabels(task: AsanaApiTask): string[] {
   }
   return task.tags
     .map(tag => tag.name?.trim())
-    .filter(Boolean)
+    // eslint-disable-next-line unicorn/prefer-native-coercion-functions -- type predicate needed for TS narrowing
+    .filter((name): name is string => Boolean(name))
 }
 
 /**

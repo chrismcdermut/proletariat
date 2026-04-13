@@ -509,7 +509,7 @@ export default class BranchCreate extends PMOCommand {
     ], null)
 
     // Get owner (defaults to GitHub username)
-    const { _owner } = await this.prompt<{ owner: string }>([
+    const { owner: _owner } = await this.prompt<{ owner: string }>([
       {
         type: 'input',
         name: 'owner',

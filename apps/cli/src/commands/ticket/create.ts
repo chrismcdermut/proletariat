@@ -12,8 +12,6 @@ import {
   outputErrorAsJson,
   outputDryRunSuccessAsJson,
   outputDryRunErrorsAsJson,
-  _outputPromptAsJson,
-  _buildPromptConfig,
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
