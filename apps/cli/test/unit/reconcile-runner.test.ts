@@ -85,7 +85,9 @@ function makeStubLookup(prs: PRInfo[]): { lookup: PRLookupFn; calls: PRLookupRef
   return { lookup, calls }
 }
 
-describe('Tier 2 Reconciler — runner (PRLT-1280)', () => {
+// PRLT-1299: Local ticket store removed — reconciler tests use dead SQLiteStorage methods
+// (createTicket, listTickets, moveTicket, updateTicket, createProject)
+describe.skip('Tier 2 Reconciler — runner (PRLT-1280)' /* PRLT-1299: removed */, () => {
   let testDir: string
   let storage: SQLiteStorage
   let db: Database.Database

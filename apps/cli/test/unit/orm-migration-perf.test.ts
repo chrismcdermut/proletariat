@@ -79,7 +79,8 @@ const PERF_CEILING = {
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('@perf ORM Migration Performance Comparison', function (this: Mocha.Suite) {
+// PRLT-1299: Local ticket store removed — all perf benchmarks use dead SQLiteStorage methods
+describe.skip('@perf ORM Migration Performance Comparison' /* PRLT-1299: removed */, function (this: Mocha.Suite) {
   // Increase timeout for performance tests
   this.timeout(120_000);
 

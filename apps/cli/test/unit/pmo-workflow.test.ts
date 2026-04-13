@@ -6,7 +6,8 @@ import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 import { StateCategory, STATE_CATEGORY_ORDER } from '../../src/lib/pmo/types.js';
 
-describe('@smoke PMO Workflow Status', () => {
+// PRLT-1299: Local workflow/status/ticket tables removed — all tests use dead SQLiteStorage methods
+describe.skip('@smoke PMO Workflow Status' /* PRLT-1299: removed */, () => {
   let testDir: string;
   let storage: SQLiteStorage;
   const projectId = 'default';

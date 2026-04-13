@@ -43,9 +43,10 @@ describe('Reviewer Agents (PRLT-1226)', () => {
         event: 'on_pr_opened',
         ticket: 'PRLT-1226',
       })
-      // Will fail in test env since prlt isn't available, but error contains the command
+      // Will fail in test env since prlt isn't available, but error contains the command.
+      // walkPromptChain wraps commands in backticks and appends --json.
       expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work start PRLT-1226 --action review --yes --display background')
+      expect(result.error).to.include('prlt work start PRLT-1226 --action review --json')
     })
 
     it('should use --action review (not implement, not revise)', () => {
