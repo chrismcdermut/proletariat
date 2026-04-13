@@ -104,6 +104,18 @@ export default class Watch extends PromptCommand {
       }
 
       // Daemon mode
+
+      // Prevent oclif from killing the daemon — oclif's error handler calls
+      // process.exit(0) after run() resolves, which terminates the daemon.
+      // Override process.exit to ignore clean exits while the daemon is running.
+      // (Same workaround as PRLT-1211 in orchestrate command.)
+      const originalExit = process.exit
+      let daemonRunning = true
+      process.exit = ((code?: number) => {
+        if (daemonRunning && (code === 0 || code === undefined)) return
+        originalExit(code as number)
+      }) as never
+
       if (!jsonMode) {
         this.log('')
         this.log(styles.title('Watch daemon started'))
@@ -120,10 +132,15 @@ export default class Watch extends PromptCommand {
       this.log('')
 
       if (jsonMode) {
-        outputSuccessAsJson(
-          { status: 'running', mode: 'daemon', target: flags.target, pollInterval: flags['poll-interval'] },
-          createMetadata('watch', flags),
-        )
+        // In daemon mode, output JSON status without throwing ExitError.
+        // outputSuccessAsJson throws oclif ExitError which would kill the daemon loop.
+        console.log(JSON.stringify({
+          type: 'success',
+          prompt: null,
+          success: true,
+          result: { status: 'running', mode: 'daemon', target: flags.target, pollInterval: flags['poll-interval'] },
+          metadata: createMetadata('watch', flags),
+        }, null, 2))
       }
 
       // Poll loop
@@ -159,6 +176,8 @@ export default class Watch extends PromptCommand {
         const cleanup = () => {
           clearInterval(pollTimer)
           clearInterval(keepAlive)
+          daemonRunning = false
+          process.exit = originalExit
           this.log(styles.muted('\n  Watch daemon stopped'))
           resolve()
         }
