@@ -76,7 +76,14 @@ export default class Watch extends PromptCommand {
     try {
       const poller = new SimplePoller({
         db,
-        log: (msg) => { if (verbose) this.log(styles.muted(msg)) },
+        log: (msg) => {
+          // Always log warnings and repo discovery messages; other messages only in verbose mode
+          if (msg.includes('Warning') || msg.includes('Discovered')) {
+            this.log(styles.muted(msg))
+          } else if (verbose) {
+            this.log(styles.muted(msg))
+          }
+        },
         cwd: workspaceInfo.path,
       })
 
@@ -151,12 +158,11 @@ export default class Watch extends PromptCommand {
           const result = await poller.poll()
 
           if (result.message) {
-            if (verbose) {
-              this.log('')
-              this.log(styles.info('Changes detected:'))
-              this.log(result.message)
-              this.log('')
-            }
+            // Always log changes — this is the core purpose of the watcher
+            this.log('')
+            this.log(styles.info(`[watch] ${result.changes.length} change(s) detected:`))
+            this.log(result.message)
+            this.log('')
 
             // Poke the orchestrator
             this.pokeTarget(flags.target, result.message, verbose)
