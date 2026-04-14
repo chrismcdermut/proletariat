@@ -1,4 +1,8 @@
 import { expect } from 'chai'
+import { execSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import * as os from 'node:os'
 import { SimplePoller } from '../../src/lib/orchestrate/simple-poller.js'
 
 // =============================================================================
@@ -61,6 +65,35 @@ function createPoller(db: ReturnType<typeof createMockDb>, log?: (msg: string) =
     log: log ?? (() => {}),
     cwd: '/nonexistent-test-dir',
   })
+}
+
+/**
+ * Create a temp directory with git init for repo discovery tests.
+ * Returns the directory path. Caller must clean up.
+ */
+function createTempGitRepo(name: string): string {
+  const dir = path.join(os.tmpdir(), `prlt-test-${name}-${Date.now()}`)
+  fs.mkdirSync(dir, { recursive: true })
+  execSync('git init', { cwd: dir, stdio: ['pipe', 'pipe', 'pipe'] })
+  return dir
+}
+
+/**
+ * Create a temp HQ-like workspace with repos/ subdirectory.
+ * Returns the workspace root path. Caller must clean up.
+ */
+function createTempHQWorkspace(repoNames: string[]): string {
+  const wsRoot = path.join(os.tmpdir(), `prlt-test-hq-${Date.now()}`)
+  const reposDir = path.join(wsRoot, 'repos')
+  fs.mkdirSync(reposDir, { recursive: true })
+
+  for (const name of repoNames) {
+    const repoDir = path.join(reposDir, name)
+    fs.mkdirSync(repoDir, { recursive: true })
+    execSync('git init', { cwd: repoDir, stdio: ['pipe', 'pipe', 'pipe'] })
+  }
+
+  return wsRoot
 }
 
 // =============================================================================
@@ -463,6 +496,82 @@ describe('SimplePoller', () => {
       const r3 = await poller.poll()
       expect(r3.changes).to.have.length(1)
       expect(r3.changes[0].summary).to.include('completed')
+    })
+  })
+
+  // ===========================================================================
+  // Repo Directory Resolution (PRLT-1313 fix)
+  // ===========================================================================
+
+  describe('resolveRepoDirs', () => {
+    it('should return empty array when cwd is undefined', () => {
+      const dirs = SimplePoller.resolveRepoDirs(undefined)
+      expect(dirs).to.deep.equal([])
+    })
+
+    it('should return [cwd] when cwd is a git repo', () => {
+      const repoDir = createTempGitRepo('single-repo')
+      try {
+        const dirs = SimplePoller.resolveRepoDirs(repoDir)
+        expect(dirs).to.have.length(1)
+        expect(dirs[0]).to.equal(repoDir)
+      } finally {
+        fs.rmSync(repoDir, { recursive: true, force: true })
+      }
+    })
+
+    it('should discover repos in repos/ subdirectory for HQ workspace', () => {
+      const wsRoot = createTempHQWorkspace(['repo-a', 'repo-b'])
+      try {
+        const dirs = SimplePoller.resolveRepoDirs(wsRoot)
+        expect(dirs).to.have.length(2)
+        expect(dirs.map(d => path.basename(d)).sort()).to.deep.equal(['repo-a', 'repo-b'])
+      } finally {
+        fs.rmSync(wsRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('should skip non-git directories in repos/', () => {
+      const wsRoot = createTempHQWorkspace(['git-repo'])
+      // Add a non-git directory alongside the git repo
+      fs.mkdirSync(path.join(wsRoot, 'repos', 'not-a-repo'), { recursive: true })
+      try {
+        const dirs = SimplePoller.resolveRepoDirs(wsRoot)
+        expect(dirs).to.have.length(1)
+        expect(path.basename(dirs[0])).to.equal('git-repo')
+      } finally {
+        fs.rmSync(wsRoot, { recursive: true, force: true })
+      }
+    })
+
+    it('should return empty array for non-git dir without repos/', () => {
+      const tmpDir = path.join(os.tmpdir(), `prlt-test-norepo-${Date.now()}`)
+      fs.mkdirSync(tmpDir, { recursive: true })
+      try {
+        const logs: string[] = []
+        const dirs = SimplePoller.resolveRepoDirs(tmpDir, (msg) => logs.push(msg))
+        expect(dirs).to.deep.equal([])
+        expect(logs.some(l => l.includes('Warning'))).to.be.true
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+      }
+    })
+
+    it('should return empty array for non-existent path', () => {
+      const dirs = SimplePoller.resolveRepoDirs('/nonexistent-test-dir-12345')
+      expect(dirs).to.deep.equal([])
+    })
+
+    it('should log discovery count for HQ workspace', () => {
+      const wsRoot = createTempHQWorkspace(['alpha', 'beta', 'gamma'])
+      try {
+        const logs: string[] = []
+        const dirs = SimplePoller.resolveRepoDirs(wsRoot, (msg) => logs.push(msg))
+        expect(dirs).to.have.length(3)
+        expect(logs.some(l => l.includes('3 repo(s)'))).to.be.true
+      } finally {
+        fs.rmSync(wsRoot, { recursive: true, force: true })
+      }
     })
   })
 })
