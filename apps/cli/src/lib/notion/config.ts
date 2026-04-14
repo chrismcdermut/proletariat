@@ -13,7 +13,8 @@ const NOTION_CONFIG_KEYS = {
 } as const
 
 export function isNotionConfigured(db: Database.Database): boolean {
-  return hasCredential(db, NOTION_CONFIG_KEYS.apiKey)
+  if (hasCredential(db, NOTION_CONFIG_KEYS.apiKey)) return true
+  return !!(process.env.PRLT_NOTION_API_KEY || process.env.NOTION_API_KEY)
 }
 
 export function loadNotionConfig(db: Database.Database): NotionConfig | null {
