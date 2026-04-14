@@ -9,7 +9,8 @@ import { PMO_TABLES } from '../../src/lib/pmo/schema.js'
  * Unit tests for ticket external key resolution (PRLT-1066).
  * Verifies that getTicket() resolves external keys (PRLT-xxx) to local tickets.
  */
-describe('@smoke Ticket external key resolution', () => {
+// PRLT-1299: Local ticket store removed — getTicket/createTicket/init are dead methods
+describe.skip('@smoke Ticket external key resolution' /* PRLT-1299: removed */, () => {
   let tmpDir: string
   let storage: SQLiteStorage
 

@@ -41,20 +41,19 @@ export class LinearMapper {
   /**
    * Ensure the external_issue_map table exists.
    * Uses CREATE TABLE IF NOT EXISTS to match the schema defined in schema.ts.
+   * PRLT-1299: pmo_ticket_id FK removed — tickets table no longer exists locally.
    */
   private ensureTable(): void {
     this.driver.exec(`
       CREATE TABLE IF NOT EXISTS ${PMO_TABLES.external_issue_map} (
-        pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
-        provider TEXT NOT NULL CHECK (provider IN ('linear', 'jira', 'shortcut', 'trello', 'github')),
+        provider TEXT NOT NULL,
         external_id TEXT NOT NULL,
         external_key TEXT NOT NULL,
         external_url TEXT NOT NULL,
         team_key TEXT NOT NULL,
         sync_direction TEXT NOT NULL DEFAULT 'inbound',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (pmo_ticket_id, provider),
-        UNIQUE (provider, external_id)
+        PRIMARY KEY (provider, external_id)
       )
     `)
     this.driver.exec(`
@@ -227,11 +226,10 @@ export class LinearMapper {
    */
   createMapping(map: Omit<LinearIssueMap, 'lastSyncedAt'>): void {
     this.driver.prepare(`
-      INSERT INTO ${PMO_TABLES.external_issue_map}
-        (pmo_ticket_id, provider, external_id, external_key, external_url, team_key, sync_direction, created_at)
-      VALUES (?, 'linear', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT OR REPLACE INTO ${PMO_TABLES.external_issue_map}
+        (provider, external_id, external_key, external_url, team_key, sync_direction, created_at)
+      VALUES ('linear', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(
-      map.pmoTicketId,
       map.linearIssueId,
       map.linearIdentifier,
       map.linearUrl,
@@ -257,11 +255,9 @@ export class LinearMapper {
    * Get a mapping by PMO ticket ID.
    */
   getByTicketId(ticketId: string): LinearIssueMap | null {
-    const row = this.driver.prepare(`
-      SELECT * FROM ${PMO_TABLES.external_issue_map} WHERE pmo_ticket_id = ? AND provider = 'linear'
-    `).get(ticketId) as Record<string, unknown> | undefined
-
-    return row ? this.rowToMap(row) : null
+    // PRLT-1299: pmo_ticket_id column removed. Look up via external_execution_map snapshot.
+    const mapping = this.externalMappingStore.getByExternalKey('linear', ticketId)
+    return mapping ? this.externalMappingToLinearMap(mapping) : null
   }
 
   /**
@@ -332,8 +328,9 @@ export class LinearMapper {
    * Delete a mapping by PMO ticket ID.
    */
   deleteMapping(pmoTicketId: string): void {
+    // PRLT-1299: pmo_ticket_id column removed. Delete by external_key as fallback.
     this.driver.prepare(`
-      DELETE FROM ${PMO_TABLES.external_issue_map} WHERE pmo_ticket_id = ? AND provider = 'linear'
+      DELETE FROM ${PMO_TABLES.external_issue_map} WHERE provider = 'linear' AND external_key = ?
     `).run(pmoTicketId)
   }
 
@@ -342,7 +339,7 @@ export class LinearMapper {
    */
   private rowToMap(row: Record<string, unknown>): LinearIssueMap {
     return {
-      pmoTicketId: row.pmo_ticket_id as string,
+      pmoTicketId: '', // PRLT-1299: pmo_ticket_id column removed
       linearIssueId: row.external_id as string,
       linearIdentifier: row.external_key as string,
       linearTeamKey: row.team_key as string,

@@ -363,11 +363,12 @@ describe('Database Migration System', () => {
         expect(tables, `missing table: ${t}`).to.include(t)
       }
 
-      // PMO tables
-      for (const t of ['pmo_projects', 'pmo_tickets', 'pmo_actions', 'pmo_workflows',
-        'pmo_workflow_statuses', 'pmo_workflow_rules', 'pmo_work_hooks', 'agent_work',
-        'containers', 'pmo_labels', 'pmo_label_groups', 'pmo_ticket_labels',
-        'pmo_roadmaps', 'pmo_roadmap_projects', 'pmo_external_issue_map',
+      // PMO tables (PRLT-1299: dead tables removed — pmo_tickets, pmo_workflows,
+      // pmo_workflow_statuses, pmo_labels, pmo_label_groups, pmo_ticket_labels,
+      // pmo_roadmaps, pmo_roadmap_projects dropped)
+      for (const t of ['pmo_projects', 'pmo_actions',
+        'pmo_workflow_rules', 'pmo_work_hooks', 'agent_work',
+        'containers', 'pmo_external_issue_map',
         'pmo_external_execution_map', 'pmo_ticket_templates']) {
         expect(tables, `missing table: ${t}`).to.include(t)
       }
@@ -566,42 +567,41 @@ describe('Database Migration System', () => {
       // Verify some columns/tables are missing before catch-up
       expect(columnExists(db, 'agents', 'mount_mode')).to.be.false
       expect(columnExists(db, 'agent_worktrees', 'commits_ahead')).to.be.false
-      expect(columnExists(db, 'pmo_tickets', 'position')).to.be.false
-      expect(columnExists(db, 'pmo_tickets', 'epic_id')).to.be.false
       expect(columnExists(db, 'agent_work', 'lifecycle_state')).to.be.false
       expect(columnExists(db, 'pmo_work_hooks', 'mode')).to.be.false
-      expect(columnExists(db, 'pmo_projects', 'workflow_id')).to.be.false
       expect(tableExists(db, 'media_items')).to.be.false
-      expect(tableExists(db, 'pmo_labels')).to.be.false
 
-      // Run remaining migrations (0006–0016 including catch-up)
+      // Run remaining migrations (0006+ including catch-up and PRLT-1299 drop)
       runDrizzleMigrations(db, ALL_MIGRATIONS)
 
-      // All columns should now exist
+      // All surviving columns should now exist
       expect(columnExists(db, 'agents', 'mount_mode')).to.be.true
       expect(columnExists(db, 'agent_worktrees', 'commits_ahead')).to.be.true
       expect(columnExists(db, 'agent_worktrees', 'is_clean')).to.be.true
-      expect(columnExists(db, 'pmo_tickets', 'position')).to.be.true
-      expect(columnExists(db, 'pmo_tickets', 'status_id')).to.be.true
-      expect(columnExists(db, 'pmo_tickets', 'labels')).to.be.true
       expect(columnExists(db, 'pmo_actions', 'review_gate')).to.be.true
       expect(columnExists(db, 'pmo_actions', 'network_allowlist')).to.be.true
       expect(columnExists(db, 'agent_work', 'lifecycle_state')).to.be.true
       expect(columnExists(db, 'agent_work', 'cleanup_policy')).to.be.true
       expect(columnExists(db, 'pmo_work_hooks', 'mode')).to.be.true
       expect(columnExists(db, 'pmo_work_hooks', 'source')).to.be.true
-      expect(columnExists(db, 'pmo_projects', 'workflow_id')).to.be.true
-      expect(columnExists(db, 'pmo_projects', 'is_archived')).to.be.true
       expect(columnExists(db, 'containers', 'image')).to.be.true
 
-      // Missing tables should have been created
+      // Missing tables should have been created (then some dropped by PRLT-1299)
       expect(tableExists(db, 'media_items')).to.be.true
-      expect(tableExists(db, 'pmo_labels')).to.be.true
-      expect(tableExists(db, 'pmo_label_groups')).to.be.true
-      expect(tableExists(db, 'pmo_ticket_labels')).to.be.true
-      expect(tableExists(db, 'pmo_roadmaps')).to.be.true
       expect(tableExists(db, 'pmo_ticket_templates')).to.be.true
       expect(tableExists(db, 'pmo_external_issue_map')).to.be.true
+
+      // PRLT-1299: Dead tables dropped by migration 0024
+      expect(tableExists(db, 'pmo_tickets')).to.be.false
+      expect(tableExists(db, 'pmo_workflows')).to.be.false
+      expect(tableExists(db, 'pmo_workflow_statuses')).to.be.false
+      expect(tableExists(db, 'pmo_ticket_labels')).to.be.false
+      expect(tableExists(db, 'pmo_roadmaps')).to.be.false
+      expect(tableExists(db, 'pmo_roadmap_projects')).to.be.false
+
+      // Surviving tables (still in schema)
+      expect(tableExists(db, 'pmo_labels')).to.be.true
+      expect(tableExists(db, 'pmo_label_groups')).to.be.true
 
       db.close()
     })

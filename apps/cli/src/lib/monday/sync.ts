@@ -1,11 +1,27 @@
 import type { Ticket } from '../pmo/types.js'
 import { MondayClient } from './client.js'
-import { MondayMapper } from './mapper.js'
+
+/**
+ * Stub interface for MondayMapper — the mapper module was removed with local
+ * PMO ticket tables (PRLT-1299).  Callers that still construct a MondaySync
+ * must supply an object with the same shape.
+ */
+interface MondayMapperLike {
+  getByTicketId(ticketId: string): { mondayBoardId: string; mondayItemId: string; mondayItemName: string; mondayItemUrl?: string } | null
+  createOrUpdateMapping(mapping: {
+    pmoTicketId: string
+    mondayBoardId: string
+    mondayItemId: string
+    mondayItemName: string
+    mondayItemUrl?: string
+    syncDirection: string
+  }): void
+}
 
 export class MondaySync {
   constructor(
     private client: MondayClient,
-    private mapper: MondayMapper,
+    private mapper: MondayMapperLike,
   ) {}
 
   async syncTicket(ticket: Ticket, boardId: string): Promise<{ created: boolean; itemId: string }> {

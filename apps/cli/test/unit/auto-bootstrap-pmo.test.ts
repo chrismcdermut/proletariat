@@ -86,16 +86,10 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
       const result = bootstrapPMOSchema(dbPath, hqPath);
       expect(result).to.be.true;
 
-      // Verify PMO tables now exist
+      // Verify PMO tables now exist (PRLT-1299: pmo_tickets and pmo_workflows removed)
       const dbAfter = new Database(dbPath);
       const pmoProjects = dbAfter.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
-      ).get() as { name: string } | undefined;
-      const pmoTickets = dbAfter.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_tickets'"
-      ).get() as { name: string } | undefined;
-      const pmoWorkflows = dbAfter.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_workflows'"
       ).get() as { name: string } | undefined;
       const pmoSettings = dbAfter.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_settings'"
@@ -103,8 +97,6 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
       dbAfter.close();
 
       expect(pmoProjects).to.not.be.undefined;
-      expect(pmoTickets).to.not.be.undefined;
-      expect(pmoWorkflows).to.not.be.undefined;
       expect(pmoSettings).to.not.be.undefined;
     });
 
@@ -196,43 +188,10 @@ describe('PRLT-1239: Auto-bootstrap PMO on first use', () => {
       expect(result).to.be.false;
     });
 
-    it('seeds built-in workflows during bootstrap', () => {
-      const hqPath = path.join(tmpDir, 'test-hq');
-      const dbPath = createHQStructure(hqPath);
-      createWorkspaceDbWithoutPMO(dbPath);
+    // PRLT-1299: pmo_workflows and pmo_workflow_statuses tables removed
+    it.skip('seeds built-in workflows during bootstrap' /* PRLT-1299: removed */, () => {});
 
-      bootstrapPMOSchema(dbPath, hqPath);
-
-      const db = new Database(dbPath);
-      const workflows = db.prepare(
-        "SELECT id, name FROM pmo_workflows WHERE is_builtin = 1"
-      ).all() as { id: string; name: string }[];
-      db.close();
-
-      // Should have at least the default/kanban built-in workflow
-      expect(workflows.length).to.be.greaterThan(0);
-      const workflowNames = workflows.map(w => w.name.toLowerCase());
-      expect(workflowNames.some(n => n.includes('kanban') || n.includes('default'))).to.be.true;
-    });
-
-    it('seeds built-in workflow statuses during bootstrap', () => {
-      const hqPath = path.join(tmpDir, 'test-hq');
-      const dbPath = createHQStructure(hqPath);
-      createWorkspaceDbWithoutPMO(dbPath);
-
-      bootstrapPMOSchema(dbPath, hqPath);
-
-      const db = new Database(dbPath);
-      const statuses = db.prepare(
-        "SELECT name FROM pmo_workflow_statuses"
-      ).all() as { name: string }[];
-      db.close();
-
-      // Should have standard statuses like Backlog, In Progress, Done
-      const statusNames = statuses.map(s => s.name);
-      expect(statusNames).to.include('Backlog');
-      expect(statusNames).to.include('Done');
-    });
+    it.skip('seeds built-in workflow statuses during bootstrap' /* PRLT-1299: removed */, () => {});
   });
 
   describe('findPMO() auto-bootstrap integration', () => {

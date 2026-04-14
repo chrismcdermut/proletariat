@@ -19,9 +19,10 @@ export class AsanaMapper {
   }
 
   private ensureTable(): void {
+    // PRLT-1299: FK to pmo_tickets removed — tickets table no longer exists locally.
     this.driver.exec(`
       CREATE TABLE IF NOT EXISTS ${PMO_TABLES.asana_task_map} (
-        pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+        pmo_ticket_id TEXT NOT NULL,
         asana_task_gid TEXT NOT NULL,
         asana_project_gid TEXT,
         last_synced_at TIMESTAMP,

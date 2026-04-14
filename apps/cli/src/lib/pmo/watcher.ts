@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { watch, FSWatcher } from 'chokidar';
 import { SQLiteStorage } from './storage-sqlite.js';
-import { parseBoard } from './markdown.js';
+// PRLT-1299: parseBoard import removed — board sync disabled (local ticket store removed).
 import { onShutdown } from '../signal-handler.js';
 
 export interface WatcherOptions {
@@ -130,17 +130,18 @@ export function startWatcher(
 
   /**
    * Perform sync from board.md to SQLite
+   * PRLT-1299: Disabled — local ticket store removed. Board.md sync is no longer
+   * possible since there are no local ticket tables to rebuild into.
    */
   async function doSync(): Promise<SyncStats> {
     const startTime = Date.now();
 
-    // Read and hash content
+    // Read and hash content (for change detection only)
     const content = fs.readFileSync(boardPath, 'utf-8');
     const currentHash = computeHash(content);
 
-    // Check if content actually changed
     if (currentHash === lastHash) {
-      logger('📋 board.md unchanged (hash match), skipping sync');
+      logger('📋 board.md unchanged (hash match), skipping');
       return {
         syncedAt: new Date(),
         ticketCount: 0,
@@ -148,45 +149,22 @@ export function startWatcher(
       };
     }
 
-    // Parse and sync
-    const board = parseBoard(content);
-    const storage = new SQLiteStorage(dbPath);
+    lastHash = currentHash;
 
-    try {
-      storage.rebuildFromBoard(board);
+    // PRLT-1299: No-op — local ticket tables removed. Log the change but don't sync.
+    logger('📋 board.md changed but local ticket store removed (PRLT-1299). No sync performed.');
 
-      // Update cache metadata
-      const stats = fs.statSync(boardPath);
-      storage.setCacheMetadata({
-        boardMtime: stats.mtimeMs,
-        cacheBuiltAt: Date.now(),
-        contentHash: currentHash,
-      });
+    const syncStats: SyncStats = {
+      syncedAt: new Date(),
+      ticketCount: 0,
+      durationMs: Date.now() - startTime,
+    };
 
-      // Count tickets
-      const ticketCount = board.columns.reduce(
-        (sum, col) => sum + col.tickets.length,
-        0
-      );
-
-      lastHash = currentHash;
-
-      const syncStats: SyncStats = {
-        syncedAt: new Date(),
-        ticketCount,
-        durationMs: Date.now() - startTime,
-      };
-
-      logger(`📥 Synced board.md → SQLite (${ticketCount} tickets, ${syncStats.durationMs}ms)`);
-
-      if (onSync) {
-        onSync(syncStats);
-      }
-
-      return syncStats;
-    } finally {
-      await storage.close();
+    if (onSync) {
+      onSync(syncStats);
     }
+
+    return syncStats;
   }
 
   /**

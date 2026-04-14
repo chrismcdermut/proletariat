@@ -1,5 +1,12 @@
+/**
+ * Monday.com Item ↔ Ticket Mapper
+ *
+ * PRLT-1299: Simplified — FK to pmo_tickets removed since the local ticket
+ * store is dead. The mapper still maintains its own mapping table for
+ * outbound sync operations.
+ */
+
 import type Database from 'better-sqlite3'
-import { PMO_TABLES } from '../pmo/schema.js'
 import type { MondayItemMap } from './types.js'
 import { type DatabaseDriver, wrapDatabase } from '../database/driver.js'
 
@@ -19,12 +26,13 @@ export class MondayMapper {
   }
 
   private ensureTable(): void {
+    // PRLT-1299: FK to pmo_tickets removed — tickets table no longer exists locally.
     this.driver.exec(`
-      CREATE TABLE IF NOT EXISTS ${PMO_TABLES.monday_item_map} (
-        pmo_ticket_id TEXT NOT NULL REFERENCES ${PMO_TABLES.tickets}(id) ON DELETE CASCADE,
+      CREATE TABLE IF NOT EXISTS pmo_monday_item_map (
+        pmo_ticket_id TEXT NOT NULL,
         monday_board_id TEXT NOT NULL,
         monday_item_id TEXT NOT NULL,
-        monday_item_name TEXT NOT NULL,
+        monday_item_name TEXT,
         monday_item_url TEXT,
         sync_direction TEXT NOT NULL DEFAULT 'outbound',
         last_synced_at TIMESTAMP,
@@ -36,18 +44,20 @@ export class MondayMapper {
 
     this.driver.exec(`
       CREATE INDEX IF NOT EXISTS idx_pmo_monday_item_map_item_id
-      ON ${PMO_TABLES.monday_item_map}(monday_item_id)
-    `)
-
-    this.driver.exec(`
-      CREATE INDEX IF NOT EXISTS idx_pmo_monday_item_map_board_id
-      ON ${PMO_TABLES.monday_item_map}(monday_board_id)
+        ON pmo_monday_item_map(monday_item_id)
     `)
   }
 
-  createOrUpdateMapping(map: Omit<MondayItemMap, 'lastSyncedAt' | 'createdAt'>): void {
+  createOrUpdateMapping(mapping: {
+    pmoTicketId: string
+    mondayBoardId: string
+    mondayItemId: string
+    mondayItemName: string
+    mondayItemUrl?: string
+    syncDirection: string
+  }): void {
     this.driver.prepare(`
-      INSERT INTO ${PMO_TABLES.monday_item_map}
+      INSERT INTO pmo_monday_item_map
         (pmo_ticket_id, monday_board_id, monday_item_id, monday_item_name, monday_item_url, sync_direction, last_synced_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       ON CONFLICT(pmo_ticket_id) DO UPDATE SET
@@ -58,52 +68,37 @@ export class MondayMapper {
         sync_direction = excluded.sync_direction,
         last_synced_at = CURRENT_TIMESTAMP
     `).run(
-      map.pmoTicketId,
-      map.mondayBoardId,
-      map.mondayItemId,
-      map.mondayItemName,
-      map.mondayItemUrl ?? null,
-      map.syncDirection,
+      mapping.pmoTicketId,
+      mapping.mondayBoardId,
+      mapping.mondayItemId,
+      mapping.mondayItemName,
+      mapping.mondayItemUrl ?? null,
+      mapping.syncDirection,
     )
   }
 
   getByTicketId(ticketId: string): MondayItemMap | null {
     const row = this.driver.prepare<Record<string, unknown>>(`
-      SELECT * FROM ${PMO_TABLES.monday_item_map} WHERE pmo_ticket_id = ?
+      SELECT * FROM pmo_monday_item_map WHERE pmo_ticket_id = ?
     `).get(ticketId)
 
     return row ? this.rowToMap(row) : null
   }
 
-  getByMondayItemId(itemId: string): MondayItemMap | null {
+  getByItemId(mondayItemId: string): MondayItemMap | null {
     const row = this.driver.prepare<Record<string, unknown>>(`
-      SELECT * FROM ${PMO_TABLES.monday_item_map} WHERE monday_item_id = ?
-    `).get(itemId)
+      SELECT * FROM pmo_monday_item_map WHERE monday_item_id = ?
+    `).get(mondayItemId)
 
     return row ? this.rowToMap(row) : null
   }
 
   listMappings(): MondayItemMap[] {
     const rows = this.driver.prepare<Record<string, unknown>>(`
-      SELECT * FROM ${PMO_TABLES.monday_item_map} ORDER BY created_at DESC
+      SELECT * FROM pmo_monday_item_map ORDER BY created_at DESC
     `).all()
 
     return rows.map((row) => this.rowToMap(row))
-  }
-
-  updateSyncTimestamp(ticketId: string): void {
-    this.driver.prepare(`
-      UPDATE ${PMO_TABLES.monday_item_map}
-      SET last_synced_at = CURRENT_TIMESTAMP
-      WHERE pmo_ticket_id = ?
-    `).run(ticketId)
-  }
-
-  deleteMapping(ticketId: string): void {
-    this.driver.prepare(`
-      DELETE FROM ${PMO_TABLES.monday_item_map}
-      WHERE pmo_ticket_id = ?
-    `).run(ticketId)
   }
 
   private rowToMap(row: Record<string, unknown>): MondayItemMap {
@@ -111,7 +106,7 @@ export class MondayMapper {
       pmoTicketId: row.pmo_ticket_id as string,
       mondayBoardId: row.monday_board_id as string,
       mondayItemId: row.monday_item_id as string,
-      mondayItemName: row.monday_item_name as string,
+      mondayItemName: (row.monday_item_name as string | null) ?? '',
       mondayItemUrl: (row.monday_item_url as string | null) ?? undefined,
       syncDirection: row.sync_direction as MondayItemMap['syncDirection'],
       lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at as string) : undefined,

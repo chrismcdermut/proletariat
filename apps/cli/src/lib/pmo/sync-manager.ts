@@ -22,15 +22,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { SQLiteStorage } from './storage-sqlite.js';
-import { parseBoard } from './markdown.js';
+// PRLT-1299: parseBoard import removed — board sync disabled.
 import { initWorkLifecycleAdapter } from '../work-lifecycle/adapter.js';
 import { initOutboundSync } from '../external-issues/outbound-sync.js';
 import { initHookManager } from '../work-lifecycle/hooks/index.js';
 import { initWorkflowRuleEvaluator } from '../work-lifecycle/rule-evaluator.js';
 import { initActionChaining } from '../work-lifecycle/action-chaining.js';
 import { initContainerCleanupHook } from '../work-lifecycle/container-cleanup-hook.js';
-import { initTriggerHandler } from '../providers/trigger-config.js';
-import { resolveTicketProvider } from '../providers/resolver.js';
+// PRLT-1299: resolveTicketProvider import removed — no longer used here after trigger handler removal.
 
 /**
  * Get the board path for a project
@@ -82,32 +81,22 @@ function computeHash(content: string): string {
 
 /**
  * Get sync metadata from database
+ * PRLT-1299: Returns null — cache metadata table removed with local ticket store.
  */
-export function getSyncMetadata(storage: SQLiteStorage): SyncMetadata | null {
-  const meta = storage.getCacheMetadata();
-  if (!meta) return null;
-
-  return {
-    lastSyncAt: meta.cacheBuiltAt,
-    lastBoardMtime: meta.boardMtime,
-    lastDbWriteAt: meta.cacheBuiltAt,
-    contentHash: meta.contentHash,
-  };
+export function getSyncMetadata(_storage: SQLiteStorage): SyncMetadata | null {
+  return null;
 }
 
 /**
  * Update sync metadata after a sync operation
+ * PRLT-1299: No-op — cache metadata table removed with local ticket store.
  */
 export function updateSyncMetadata(
-  storage: SQLiteStorage,
-  boardMtime: number,
-  contentHash?: string
+  _storage: SQLiteStorage,
+  _boardMtime: number,
+  _contentHash?: string
 ): void {
-  storage.setCacheMetadata({
-    boardMtime,
-    cacheBuiltAt: Date.now(),
-    contentHash,
-  });
+  // No-op — cache metadata removed
 }
 
 /**
@@ -154,58 +143,19 @@ export function boardContentChanged(
 
 /**
  * Auto-sync from board.md if it has changes
- * Uses hybrid mtime + content approach:
- * 1. If mtime unchanged -> skip (fast path)
- * 2. If mtime changed -> check content hash
- * 3. If content same -> just update mtime, skip sync
- * 4. If content different -> perform sync
  *
- * Returns: true if sync performed, false otherwise
+ * PRLT-1299: Disabled — local ticket store removed. Board.md sync is no longer
+ * possible since there are no local ticket tables to rebuild into.
+ * Returns false (no sync performed).
  */
 export function autoSyncFromBoard(
-  pmoPath: string,
-  storage: SQLiteStorage,
-  logger?: (msg: string) => void,
-  projectId: string = 'default'
+  _pmoPath: string,
+  _storage: SQLiteStorage,
+  _logger?: (msg: string) => void,
+  _projectId: string = 'default'
 ): boolean {
-  const boardPath = getBoardPath(pmoPath, projectId);
-
-  if (!fs.existsSync(boardPath)) {
-    return false;
-  }
-
-  // Fast path: mtime unchanged
-  if (!boardMtimeChanged(pmoPath, storage, projectId)) {
-    return false;
-  }
-
-  // Mtime changed - read content and check hash
-  const markdown = fs.readFileSync(boardPath, 'utf-8');
-  const stats = fs.statSync(boardPath);
-  const contentHash = computeHash(markdown);
-
-  // Check if content actually changed
-  if (!boardContentChanged(pmoPath, storage, markdown)) {
-    // Content same, just update mtime (file was touched but not modified)
-    updateSyncMetadata(storage, stats.mtimeMs, contentHash);
-    if (logger) {
-      logger(`📋 ${path.basename(boardPath)} touched but unchanged, updated mtime`);
-    }
-    return false;
-  }
-
-  // Content changed - perform full sync
-  const board = parseBoard(markdown, projectId);
-  storage.rebuildFromBoard(board);
-
-  // Update sync metadata with new mtime and hash
-  updateSyncMetadata(storage, stats.mtimeMs, contentHash);
-
-  if (logger) {
-    logger(`📥 Auto-synced from ${path.basename(boardPath)}`);
-  }
-
-  return true;
+  // PRLT-1299: Local ticket store removed. Board sync disabled.
+  return false;
 }
 
 /**
@@ -309,25 +259,8 @@ export function getStorageWithAutoSync(
   // Initialize container cleanup hook (auto-removes Docker containers when agents stop)
   initContainerCleanupHook();
 
-  // Initialize configurable trigger handler (agent_started, pr_created, etc. → target column)
-  initTriggerHandler(storage.getDatabase(), async (ticketId, projectId, targetStatus) => {
-    try {
-      await storage.moveTicket(projectId, ticketId, targetStatus);
-    } catch {
-      // Trigger-driven moves are non-fatal
-    }
-
-    // Sync to external provider (e.g., Linear) if ticket was imported from one
-    try {
-      const ticket = await storage.getTicketById(ticketId);
-      const provider = resolveTicketProvider(ticketId, projectId, storage.getDatabase(), storage, ticket?.metadata);
-      if (provider.name !== 'pmo') {
-        await provider.moveTicket(ticketId, targetStatus);
-      }
-    } catch {
-      // Non-fatal — don't block triggers for provider sync failures
-    }
-  });
+  // PRLT-1299: initTriggerHandler removed — trigger-config.ts deleted with dead tables.
+  // Trigger-driven ticket moves now go through the provider directly.
 
   return storage;
 }

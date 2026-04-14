@@ -1,16 +1,14 @@
 /**
  * Project operations.
- * Board columns are now derived from workflow statuses (single source of truth).
  *
- * This module uses Drizzle ORM for type-safe database queries.
+ * PRLT-1299: Board/column/ticket operations removed — the provider
+ * (Linear, Jira, etc.) is the source of truth for tickets and workflows.
+ * Only project CRUD remains.
  */
 
-import { eq, and, like, or, asc, desc, sql, count } from 'drizzle-orm'
+import { eq, and, like, or, asc, desc, sql } from 'drizzle-orm'
 import {
   pmoProjects,
-  pmoTickets,
-  pmoWorkflows,
-  pmoWorkflowStatuses,
 } from '../../database/drizzle-schema.js'
 import {
   Board,
@@ -22,9 +20,7 @@ import {
 } from '../types.js'
 import { slugify } from '../../utils/text.js'
 import { generateEntityId } from '../utils.js'
-import { generateBoardMarkdown } from '../markdown.js'
-import { StorageContext, TicketRow } from './types.js'
-import { rowToTicket, wrapSqliteError } from './helpers.js'
+import { StorageContext } from './types.js'
 
 export class ProjectStorage {
   constructor(private ctx: StorageContext) {}
@@ -95,6 +91,8 @@ export class ProjectStorage {
 
   /**
    * Initialize a project with a workflow.
+   * PRLT-1299: Simplified — just creates/updates the project row.
+   * Workflow statuses are managed by the provider.
    * @deprecated Use createProject with a template instead.
    */
   async init(projectId: string, config: BoardConfig): Promise<Board> {
@@ -122,78 +120,19 @@ export class ProjectStorage {
       })
       .run()
 
-    return this.getBoard(projectId)
-  }
-
-  /**
-   * Get the project board.
-   * Columns are derived from the project's workflow statuses.
-   * Tickets are sorted by priority (P0 first) then created_at (oldest first).
-   *
-   * @param projectIdOrName - Project ID, name, or slug. Will be resolved to actual ID.
-   */
-  async getBoard(projectIdOrName: string): Promise<Board> {
-    // Resolve project identifier to actual ID
-    const resolvedId = this.resolveProjectId(projectIdOrName)
-    if (!resolvedId) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}. Run init() first.`)
-    }
-
-    // Get project metadata with workflow using resolved ID
-    const projectRow = this.ctx.drizzle
-      .select({
-        id: pmoProjects.id,
-        name: pmoProjects.name,
-        workflowId: pmoProjects.workflowId,
-        updatedAt: pmoProjects.updatedAt,
-      })
-      .from(pmoProjects)
-      .where(eq(pmoProjects.id, resolvedId))
-      .get()
-
-    if (!projectRow) {
-      throw new PMOError('NOT_FOUND', `Project not found: ${projectIdOrName}. Run init() first.`)
-    }
-
-    // Get workflow statuses as columns
-    const workflowId = projectRow.workflowId || 'default'
-    const statusRows = this.ctx.drizzle
-      .select()
-      .from(pmoWorkflowStatuses)
-      .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
-      .orderBy(asc(pmoWorkflowStatuses.position))
-      .all()
-
-    // Build columns from statuses, with tickets sorted by priority then created_at
-    const columns: Column[] = await Promise.all(
-      statusRows.map(async (status) => ({
-        id: status.id,
-        name: status.name,
-        position: status.position,
-        status: status.category,
-        tickets: await this.getTicketsForStatus(status.id, resolvedId),
-      }))
-    )
-
+    // Return an empty board — columns/tickets are now provider-managed
     return {
-      id: projectRow.id,
-      name: projectRow.name,
-      columns,
-      updatedAt: new Date(projectRow.updatedAt!),
+      id: projectId,
+      name: projectName,
+      columns: [],
+      updatedAt: new Date(),
     }
-  }
-
-  /**
-   * Get the board as markdown.
-   */
-  async getBoardMarkdown(projectId: string): Promise<string> {
-    const board = await this.getBoard(projectId)
-    return generateBoardMarkdown(board)
   }
 
   /**
    * Create a new project.
-   * Assigns a workflow based on the workflow ID (defaults to 'default' workflow).
+   * PRLT-1299: No longer looks up workflows in local DB — just records the
+   * workflow ID for provider resolution.
    */
   async createProject(
     project: { id?: string; name: string; template?: string; description?: string }
@@ -202,17 +141,7 @@ export class ProjectStorage {
     const workflowId = project.template || 'default'
     const now = Date.now()
 
-    // Try to find a workflow with matching ID
-    const workflow = this.ctx.drizzle
-      .select({ id: pmoWorkflows.id })
-      .from(pmoWorkflows)
-      .where(eq(pmoWorkflows.id, workflowId))
-      .get()
-
-    // Use the requested workflow if it exists, otherwise fall back to default
-    const finalWorkflowId = workflow ? workflowId : 'default'
-
-    // Insert project with workflow
+    // Insert project
     try {
       this.ctx.drizzle
         .insert(pmoProjects)
@@ -221,7 +150,7 @@ export class ProjectStorage {
           name: project.name,
           template: workflowId,
           description: project.description || null,
-          workflowId: finalWorkflowId,
+          workflowId,
           createdAt: String(now),
           updatedAt: String(now),
         })
@@ -231,116 +160,31 @@ export class ProjectStorage {
             name: project.name,
             template: workflowId,
             description: project.description || null,
-            workflowId: finalWorkflowId,
+            workflowId,
             createdAt: String(now),
             updatedAt: String(now),
           },
         })
         .run()
     } catch (err) {
-      wrapSqliteError('Project', 'create', err)
+      if (err instanceof Error && err.message?.includes('UNIQUE constraint')) {
+        throw new PMOError('CONFLICT', `Project already exists: ${id}`)
+      }
+      throw err
     }
 
-    return this.getBoard(id)
-  }
-
-  /**
-   * Get project board by ID, name, or slug.
-   */
-  async getProjectBoard(projectIdOrName: string): Promise<Board | null> {
-    // Resolve project identifier to actual ID
-    const resolvedId = this.resolveProjectId(projectIdOrName)
-    if (!resolvedId) {
-      return null
-    }
-
-    const projectRow = this.ctx.drizzle
-      .select({
-        id: pmoProjects.id,
-        name: pmoProjects.name,
-        template: pmoProjects.template,
-        description: pmoProjects.description,
-        workflowId: pmoProjects.workflowId,
-        updatedAt: pmoProjects.updatedAt,
-      })
-      .from(pmoProjects)
-      .where(eq(pmoProjects.id, resolvedId))
-      .get()
-
-    if (!projectRow) {
-      return null
-    }
-
-    // Get workflow statuses as columns
-    const workflowId = projectRow.workflowId || 'default'
-    const statusRows = this.ctx.drizzle
-      .select()
-      .from(pmoWorkflowStatuses)
-      .where(eq(pmoWorkflowStatuses.workflowId, workflowId))
-      .orderBy(asc(pmoWorkflowStatuses.position))
-      .all()
-
-    const columns: Column[] = await Promise.all(
-      statusRows.map(async (status) => ({
-        id: status.id,
-        name: status.name,
-        position: status.position,
-        status: status.category,
-        tickets: await this.getTicketsForStatus(status.id, resolvedId),
-      }))
-    )
-
+    // Return an empty board — columns/tickets are now provider-managed
     return {
-      id: projectRow.id,
-      name: projectRow.name,
-      columns,
-      updatedAt: new Date(projectRow.updatedAt!),
+      id,
+      name: project.name,
+      columns: [],
+      updatedAt: new Date(now),
     }
-  }
-
-  /**
-   * Get tickets for a status (column).
-   * Tickets are sorted by position (force-ranked) then created_at as tiebreaker.
-   */
-  private async getTicketsForStatus(statusId: string, projectId: string) {
-    const ticketRows = this.ctx.drizzle
-      .select({
-        id: pmoTickets.id,
-        project_id: pmoTickets.projectId,
-        title: pmoTickets.title,
-        description: pmoTickets.description,
-        priority: pmoTickets.priority,
-        category: pmoTickets.category,
-        status_id: pmoTickets.statusId,
-        owner: pmoTickets.owner,
-        assignee: pmoTickets.assignee,
-        branch: pmoTickets.branch,
-        spec_id: pmoTickets.specId,
-        epic_id: pmoTickets.epicId,
-        labels: pmoTickets.labels,
-        position: pmoTickets.position,
-        created_at: pmoTickets.createdAt,
-        updated_at: pmoTickets.updatedAt,
-        last_synced_from_spec: pmoTickets.lastSyncedFromSpec,
-        last_synced_from_board: pmoTickets.lastSyncedFromBoard,
-        column_id: sql<string | null>`NULL`,
-        column_name: sql<string | null>`NULL`,
-        project_name: sql<string | null>`NULL`,
-      })
-      .from(pmoTickets)
-      .leftJoin(pmoWorkflowStatuses, eq(pmoTickets.statusId, pmoWorkflowStatuses.id))
-      .where(and(
-        eq(pmoTickets.statusId, statusId),
-        eq(pmoTickets.projectId, projectId)
-      ))
-      .orderBy(asc(pmoTickets.position), asc(pmoTickets.createdAt))
-      .all() as unknown as TicketRow[]
-
-    return Promise.all(ticketRows.map((row) => rowToTicket(this.ctx.drizzle, row)))
   }
 
   /**
    * List project summaries.
+   * PRLT-1299: ticketCount always 0 — tickets are provider-managed.
    */
   async listProjectSummaries(): Promise<
     Array<{
@@ -357,11 +201,8 @@ export class ProjectStorage {
         name: pmoProjects.name,
         template: pmoProjects.template,
         description: pmoProjects.description,
-        ticketCount: count(pmoTickets.id),
       })
       .from(pmoProjects)
-      .leftJoin(pmoTickets, eq(pmoProjects.id, pmoTickets.projectId))
-      .groupBy(pmoProjects.id)
       .orderBy(asc(pmoProjects.createdAt))
       .all()
 
@@ -370,7 +211,7 @@ export class ProjectStorage {
       name: p.name,
       template: p.template,
       description: p.description,
-      ticketCount: p.ticketCount,
+      ticketCount: 0,
     }))
   }
 
@@ -399,10 +240,8 @@ export class ProjectStorage {
       }
     } catch (err) {
       if (err instanceof PMOError) throw err
-      wrapSqliteError('Project', 'delete', err)
+      throw err
     }
-
-    // Tickets are deleted via CASCADE
   }
 
   /**

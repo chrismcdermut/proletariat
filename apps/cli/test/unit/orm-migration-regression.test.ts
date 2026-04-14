@@ -23,7 +23,9 @@ import * as os from 'node:os';
 import Database from 'better-sqlite3';
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js';
 
-describe('ORM Migration Regression Suite', () => {
+// PRLT-1299: Local ticket store removed — all regression tests use dead SQLiteStorage methods
+// (createTicket, getTicket, listTickets, moveTicket, deleteTicket, getBoard, etc.)
+describe.skip('ORM Migration Regression Suite' /* PRLT-1299: removed */, () => {
   let testDir: string;
   let storage: SQLiteStorage;
   const projectId = 'regression-project';
