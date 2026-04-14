@@ -16,5 +16,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Thezenmonster/mcp-verdict-action@v1
         with:
-          packages: "@proletariat/cli"
           fail-on: block
