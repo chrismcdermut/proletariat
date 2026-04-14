@@ -6,16 +6,15 @@
  * and StatusStorage for workflow operations.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, like, or, asc, desc, sql } from 'drizzle-orm'
+import { pmoTicketTemplates } from '../../database/drizzle-schema.js'
 import {
   PMOError,
   TicketTemplate,
   TicketTemplateFilter,
 } from '../types.js'
 import { slugify } from '../../utils/text.js'
-import type { StorageContext, TicketTemplateRow } from './types.js'
-
-const T = PMO_TABLES
+import type { StorageContext } from './types.js'
 
 export class TemplateStorage {
   constructor(private ctx: StorageContext) {}
@@ -28,26 +27,27 @@ export class TemplateStorage {
    * List ticket templates.
    */
   async listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]> {
-    let query = `SELECT * FROM ${T.ticket_templates}`
-    const conditions: string[] = []
-    const params: unknown[] = []
+    const conditions = []
 
     if (filter?.isBuiltin !== undefined) {
-      conditions.push('is_builtin = ?')
-      params.push(filter.isBuiltin ? 1 : 0)
+      conditions.push(eq(pmoTicketTemplates.isBuiltin, filter.isBuiltin))
     }
     if (filter?.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)')
       const searchPattern = `%${filter.search}%`
-      params.push(searchPattern, searchPattern)
+      conditions.push(
+        or(
+          like(pmoTicketTemplates.name, searchPattern),
+          like(pmoTicketTemplates.description, searchPattern)
+        )
+      )
     }
 
-    if (conditions.length > 0) {
-      query += ` WHERE ${conditions.join(' AND ')}`
-    }
-    query += ' ORDER BY is_builtin DESC, name ASC'
-
-    const rows = this.ctx.db.prepare(query).all(...params) as TicketTemplateRow[]
+    const rows = this.ctx.drizzle
+      .select()
+      .from(pmoTicketTemplates)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(pmoTicketTemplates.isBuiltin), asc(pmoTicketTemplates.name))
+      .all()
 
     return rows.map((row) => this.rowToTicketTemplate(row))
   }
@@ -56,9 +56,11 @@ export class TemplateStorage {
    * Get a ticket template by ID.
    */
   async getTicketTemplate(id: string): Promise<TicketTemplate | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.ticket_templates} WHERE id = ?
-    `).get(id) as TicketTemplateRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoTicketTemplates)
+      .where(eq(pmoTicketTemplates.id, id))
+      .get()
 
     if (!row) return null
 
@@ -72,9 +74,11 @@ export class TemplateStorage {
     template: Partial<TicketTemplate> & { name: string }
   ): Promise<TicketTemplate> {
     // Check for duplicate name
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.ticket_templates} WHERE LOWER(name) = LOWER(?)
-    `).get(template.name) as { id: string } | undefined
+    const existing = this.ctx.drizzle
+      .select({ id: pmoTicketTemplates.id })
+      .from(pmoTicketTemplates)
+      .where(sql`LOWER(${pmoTicketTemplates.name}) = LOWER(${template.name})`)
+      .get()
     if (existing) {
       throw new PMOError('CONFLICT', `Template "${template.name}" already exists`)
     }
@@ -82,28 +86,25 @@ export class TemplateStorage {
     const id = template.id || slugify(template.name)
     const now = new Date().toISOString()
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.ticket_templates} (
-        id, name, description, is_builtin, title_pattern, description_template,
-        default_priority, default_category, default_status_id, default_assignee,
-        default_owner, default_labels, suggested_subtasks, created_at
-      )
-      VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      template.name,
-      template.description || null,
-      template.titlePattern || null,
-      template.descriptionTemplate || null,
-      template.defaultPriority || null,
-      template.defaultCategory || null,
-      template.defaultStatusId || null,
-      template.defaultAssignee || null,
-      template.defaultOwner || null,
-      JSON.stringify(template.defaultLabels || []),
-      JSON.stringify(template.suggestedSubtasks || []),
-      now
-    )
+    this.ctx.drizzle
+      .insert(pmoTicketTemplates)
+      .values({
+        id,
+        name: template.name,
+        description: template.description || null,
+        isBuiltin: false,
+        titlePattern: template.titlePattern || null,
+        descriptionTemplate: template.descriptionTemplate || null,
+        defaultPriority: template.defaultPriority || null,
+        defaultCategory: template.defaultCategory || null,
+        defaultStatusId: template.defaultStatusId || null,
+        defaultAssignee: template.defaultAssignee || null,
+        defaultOwner: template.defaultOwner || null,
+        defaultLabels: JSON.stringify(template.defaultLabels || []),
+        suggestedSubtasks: JSON.stringify(template.suggestedSubtasks || []),
+        createdAt: now,
+      })
+      .run()
 
     return (await this.getTicketTemplate(id))!
   }
@@ -124,67 +125,40 @@ export class TemplateStorage {
       throw new PMOError('INVALID', 'Cannot modify built-in templates')
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updateValues: Record<string, unknown> = {}
 
     if (changes.name !== undefined) {
       // Check for duplicate
-      const dup = this.ctx.db.prepare(`
-        SELECT id FROM ${T.ticket_templates}
-        WHERE LOWER(name) = LOWER(?) AND id != ?
-      `).get(changes.name, id)
+      const dup = this.ctx.drizzle
+        .select({ id: pmoTicketTemplates.id })
+        .from(pmoTicketTemplates)
+        .where(and(
+          sql`LOWER(${pmoTicketTemplates.name}) = LOWER(${changes.name})`,
+          sql`${pmoTicketTemplates.id} != ${id}`
+        ))
+        .get()
       if (dup) {
         throw new PMOError('CONFLICT', `Template "${changes.name}" already exists`)
       }
-      updates.push('name = ?')
-      params.push(changes.name)
+      updateValues.name = changes.name
     }
-    if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
-    }
-    if (changes.titlePattern !== undefined) {
-      updates.push('title_pattern = ?')
-      params.push(changes.titlePattern || null)
-    }
-    if (changes.descriptionTemplate !== undefined) {
-      updates.push('description_template = ?')
-      params.push(changes.descriptionTemplate || null)
-    }
-    if (changes.defaultPriority !== undefined) {
-      updates.push('default_priority = ?')
-      params.push(changes.defaultPriority || null)
-    }
-    if (changes.defaultCategory !== undefined) {
-      updates.push('default_category = ?')
-      params.push(changes.defaultCategory || null)
-    }
-    if (changes.defaultStatusId !== undefined) {
-      updates.push('default_status_id = ?')
-      params.push(changes.defaultStatusId || null)
-    }
-    if (changes.defaultAssignee !== undefined) {
-      updates.push('default_assignee = ?')
-      params.push(changes.defaultAssignee || null)
-    }
-    if (changes.defaultOwner !== undefined) {
-      updates.push('default_owner = ?')
-      params.push(changes.defaultOwner || null)
-    }
-    if (changes.defaultLabels !== undefined) {
-      updates.push('default_labels = ?')
-      params.push(JSON.stringify(changes.defaultLabels))
-    }
-    if (changes.suggestedSubtasks !== undefined) {
-      updates.push('suggested_subtasks = ?')
-      params.push(JSON.stringify(changes.suggestedSubtasks))
-    }
+    if (changes.description !== undefined) updateValues.description = changes.description || null
+    if (changes.titlePattern !== undefined) updateValues.titlePattern = changes.titlePattern || null
+    if (changes.descriptionTemplate !== undefined) updateValues.descriptionTemplate = changes.descriptionTemplate || null
+    if (changes.defaultPriority !== undefined) updateValues.defaultPriority = changes.defaultPriority || null
+    if (changes.defaultCategory !== undefined) updateValues.defaultCategory = changes.defaultCategory || null
+    if (changes.defaultStatusId !== undefined) updateValues.defaultStatusId = changes.defaultStatusId || null
+    if (changes.defaultAssignee !== undefined) updateValues.defaultAssignee = changes.defaultAssignee || null
+    if (changes.defaultOwner !== undefined) updateValues.defaultOwner = changes.defaultOwner || null
+    if (changes.defaultLabels !== undefined) updateValues.defaultLabels = JSON.stringify(changes.defaultLabels)
+    if (changes.suggestedSubtasks !== undefined) updateValues.suggestedSubtasks = JSON.stringify(changes.suggestedSubtasks)
 
-    if (updates.length > 0) {
-      params.push(id)
-      this.ctx.db.prepare(`UPDATE ${T.ticket_templates} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updateValues).length > 0) {
+      this.ctx.drizzle
+        .update(pmoTicketTemplates)
+        .set(updateValues)
+        .where(eq(pmoTicketTemplates.id, id))
+        .run()
     }
 
     return (await this.getTicketTemplate(id))!
@@ -203,27 +177,30 @@ export class TemplateStorage {
       throw new PMOError('INVALID', 'Cannot delete built-in templates')
     }
 
-    this.ctx.db.prepare(`DELETE FROM ${T.ticket_templates} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoTicketTemplates)
+      .where(eq(pmoTicketTemplates.id, id))
+      .run()
   }
 
-  private rowToTicketTemplate(row: TicketTemplateRow): TicketTemplate {
+  private rowToTicketTemplate(row: typeof pmoTicketTemplates.$inferSelect): TicketTemplate {
     return {
       id: row.id,
       name: row.name,
       description: row.description || undefined,
-      isBuiltin: row.is_builtin === 1,
-      titlePattern: row.default_title || undefined,
-      descriptionTemplate: row.default_description || undefined,
-      defaultPriority: row.default_priority || undefined,
-      defaultCategory: row.default_category || undefined,
-      defaultStatusId: row.default_status_id || undefined,
-      defaultAssignee: row.default_assignee || undefined,
-      defaultOwner: row.default_owner || undefined,
-      defaultLabels: row.default_labels ? JSON.parse(row.default_labels) : [],
-      suggestedSubtasks: row.suggested_subtasks
-        ? JSON.parse(row.suggested_subtasks)
+      isBuiltin: row.isBuiltin === true,
+      titlePattern: row.titlePattern || undefined,
+      descriptionTemplate: row.descriptionTemplate || undefined,
+      defaultPriority: row.defaultPriority || undefined,
+      defaultCategory: row.defaultCategory || undefined,
+      defaultStatusId: row.defaultStatusId || undefined,
+      defaultAssignee: row.defaultAssignee || undefined,
+      defaultOwner: row.defaultOwner || undefined,
+      defaultLabels: row.defaultLabels ? JSON.parse(row.defaultLabels) : [],
+      suggestedSubtasks: row.suggestedSubtasks
+        ? JSON.parse(row.suggestedSubtasks)
         : [],
-      createdAt: new Date(row.created_at),
+      createdAt: new Date(row.createdAt!),
     }
   }
 }
