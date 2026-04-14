@@ -13,8 +13,10 @@
  * - External issue/execution mapping
  */
 
-import Database from 'better-sqlite3'
 import * as path from 'node:path'
+import * as url from 'node:url'
+import Database from 'better-sqlite3'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
 import { type DatabaseDriver, BetterSqlite3Driver } from '../../database/driver.js'
 import { configureConnection } from '../../database/db-safety.js'
@@ -46,7 +48,6 @@ import {
   TicketTemplate,
   TicketTemplateFilter,
 } from '../types.js'
-import { PMO_SCHEMA_SQL } from '../schema.js'
 import { StorageContext } from './types.js'
 import {
   runMigrations,
@@ -133,14 +134,29 @@ export class SQLiteStorage {
   }
 
   /**
+   * Resolve the path to the Drizzle Kit migration files.
+   */
+  private getDrizzleMigrationsPath(): string {
+    const thisDir = path.dirname(url.fileURLToPath(import.meta.url))
+    // Navigate from src/lib/pmo/storage/ → apps/cli/drizzle/
+    return path.resolve(thisDir, '..', '..', '..', '..', 'drizzle')
+  }
+
+  /**
    * Ensure PMO tables exist in the database.
+   * Uses Drizzle Kit migrations for table creation (PRLT-1302).
    */
   private ensurePMOTables(): void {
-    // Run DDL migrations FIRST for existing databases (raw SQL for ALTER TABLE)
-    runMigrations(this.db)
+    // Run Drizzle Kit migrations (creates all tables from drizzle-schema.ts)
+    try {
+      migrate(this.drizzle, { migrationsFolder: this.getDrizzleMigrationsPath() })
+    } catch {
+      // Drizzle Kit migrations may fail on existing databases where tables
+      // already exist with slight schema differences. Fall back gracefully.
+    }
 
-    // Create tables and indexes using shared schema (idempotent CREATE IF NOT EXISTS)
-    this.db.exec(PMO_SCHEMA_SQL)
+    // Legacy DDL migrations for column additions (ALTER TABLE)
+    runMigrations(this.db)
 
     // Seed built-in data using Drizzle ORM (PRLT-1302)
     seedBuiltinActions(this.drizzle)

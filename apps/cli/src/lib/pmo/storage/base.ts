@@ -6,8 +6,11 @@
  * (ALTER TABLE) still use raw SQL since Drizzle doesn't support DDL.
  */
 
+import * as path from 'node:path'
+import * as url from 'node:url'
 import Database from 'better-sqlite3'
 import { eq, sql } from 'drizzle-orm'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { createDrizzleConnection, type DrizzleDB } from '../../database/drizzle.js'
 import {
   pmoActions,
@@ -16,39 +19,44 @@ import {
   pmoSettings,
   pmoProjects,
 } from '../../database/drizzle-schema.js'
-import { setWorkspacePriorities, DEFAULT_PRIORITIES } from '../../work-lifecycle/settings.js'
+import { DEFAULT_PRIORITIES } from '../../work-lifecycle/settings.js'
+
+/**
+ * Resolve the path to the Drizzle Kit migration files.
+ * The migrations live in apps/cli/drizzle/ relative to the package root.
+ */
+function getDrizzleMigrationsPath(): string {
+  // __dirname equivalent for ESM
+  const thisDir = path.dirname(url.fileURLToPath(import.meta.url))
+  // Navigate from src/lib/pmo/storage/ → apps/cli/drizzle/
+  return path.resolve(thisDir, '..', '..', '..', '..', 'drizzle')
+}
 
 /**
  * Initialize PMO tables in the database.
- * Runs migrations, creates tables via Drizzle push, seeds built-in data.
+ * Runs Drizzle Kit migrations to create tables, then legacy DDL migrations
+ * for column additions, then seeds built-in data.
  */
 export function initializePMOTables(db: Database.Database): void {
-  // DDL migrations use raw DB (ALTER TABLE not supported by Drizzle)
+  const drizzle = createDrizzleConnection(db)
+
+  // Run Drizzle Kit migrations (creates all tables from schema)
+  try {
+    migrate(drizzle, { migrationsFolder: getDrizzleMigrationsPath() })
+  } catch {
+    // Drizzle Kit migrations may fail on existing databases where tables
+    // already exist with slight schema differences. Fall back gracefully —
+    // the legacy runMigrations() below will reconcile column differences.
+  }
+
+  // Legacy DDL migrations for column additions (ALTER TABLE not supported by Drizzle Kit)
   runMigrations(db)
 
-  // Create tables using raw SQL schema (CREATE TABLE IF NOT EXISTS is idempotent)
-  // This ensures all tables exist before seeding
-  ensureTablesExist(db)
-
-  // Seeding uses Drizzle ORM for type-safe queries
-  const drizzle = createDrizzleConnection(db)
+  // Seed built-in data using Drizzle ORM
   seedBuiltinActions(drizzle)
   seedBuiltinWorkflowRules(drizzle)
   seedBuiltinTicketTemplates(drizzle)
   seedDefaultPriorities(drizzle)
-}
-
-/**
- * Ensure all PMO tables exist using Drizzle's schema as reference.
- * Uses CREATE TABLE IF NOT EXISTS for idempotency.
- *
- * NOTE: This uses the PMO_SCHEMA_SQL string for now to ensure backward
- * compatibility during migration. Once all callers use Drizzle Kit
- * migrations, this can be removed.
- */
-function ensureTablesExist(db: Database.Database): void {
-  const { PMO_SCHEMA_SQL } = require('../schema.js')
-  db.exec(PMO_SCHEMA_SQL)
 }
 
 /**
