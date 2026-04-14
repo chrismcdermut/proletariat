@@ -6,6 +6,7 @@
  * (ALTER TABLE) still use raw SQL since Drizzle doesn't support DDL.
  */
 
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as url from 'node:url'
 import Database from 'better-sqlite3'
@@ -19,6 +20,7 @@ import {
   pmoSettings,
   pmoProjects,
 } from '../../database/drizzle-schema.js'
+import { PMO_SCHEMA_SQL } from '../schema.js'
 import { DEFAULT_PRIORITIES } from '../../work-lifecycle/settings.js'
 
 /**
@@ -33,21 +35,35 @@ function getDrizzleMigrationsPath(): string {
 }
 
 /**
+ * Create tables using Drizzle Kit migrations, falling back to legacy
+ * PMO_SCHEMA_SQL if migration files are unavailable (e.g., in tests).
+ */
+function ensureTablesExist(db: Database.Database, drizzle: DrizzleDB): void {
+  const migrationsPath = getDrizzleMigrationsPath()
+
+  if (fs.existsSync(migrationsPath)) {
+    try {
+      migrate(drizzle, { migrationsFolder: migrationsPath })
+      return
+    } catch {
+      // Fall through to legacy schema creation
+    }
+  }
+
+  // Fallback: use legacy PMO_SCHEMA_SQL (CREATE TABLE IF NOT EXISTS)
+  db.exec(PMO_SCHEMA_SQL)
+}
+
+/**
  * Initialize PMO tables in the database.
- * Runs Drizzle Kit migrations to create tables, then legacy DDL migrations
- * for column additions, then seeds built-in data.
+ * Creates tables via Drizzle Kit migrations (with legacy fallback),
+ * runs DDL column migrations, then seeds built-in data.
  */
 export function initializePMOTables(db: Database.Database): void {
   const drizzle = createDrizzleConnection(db)
 
-  // Run Drizzle Kit migrations (creates all tables from schema)
-  try {
-    migrate(drizzle, { migrationsFolder: getDrizzleMigrationsPath() })
-  } catch {
-    // Drizzle Kit migrations may fail on existing databases where tables
-    // already exist with slight schema differences. Fall back gracefully —
-    // the legacy runMigrations() below will reconcile column differences.
-  }
+  // Create tables (Drizzle Kit migrations → legacy SQL fallback)
+  ensureTablesExist(db, drizzle)
 
   // Legacy DDL migrations for column additions (ALTER TABLE not supported by Drizzle Kit)
   runMigrations(db)

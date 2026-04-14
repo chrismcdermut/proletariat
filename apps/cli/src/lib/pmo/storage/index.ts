@@ -13,6 +13,7 @@
  * - External issue/execution mapping
  */
 
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as url from 'node:url'
 import Database from 'better-sqlite3'
@@ -48,6 +49,7 @@ import {
   TicketTemplate,
   TicketTemplateFilter,
 } from '../types.js'
+import { PMO_SCHEMA_SQL } from '../schema.js'
 import { StorageContext } from './types.js'
 import {
   runMigrations,
@@ -144,15 +146,27 @@ export class SQLiteStorage {
 
   /**
    * Ensure PMO tables exist in the database.
-   * Uses Drizzle Kit migrations for table creation (PRLT-1302).
+   * Uses Drizzle Kit migrations for table creation (PRLT-1302),
+   * with fallback to legacy PMO_SCHEMA_SQL for environments
+   * where migration files are unavailable (e.g., tests).
    */
   private ensurePMOTables(): void {
-    // Run Drizzle Kit migrations (creates all tables from drizzle-schema.ts)
-    try {
-      migrate(this.drizzle, { migrationsFolder: this.getDrizzleMigrationsPath() })
-    } catch {
-      // Drizzle Kit migrations may fail on existing databases where tables
-      // already exist with slight schema differences. Fall back gracefully.
+    // Try Drizzle Kit migrations first
+    const migrationsPath = this.getDrizzleMigrationsPath()
+    let tablesCreated = false
+
+    if (fs.existsSync(migrationsPath)) {
+      try {
+        migrate(this.drizzle, { migrationsFolder: migrationsPath })
+        tablesCreated = true
+      } catch {
+        // Fall through to legacy schema creation
+      }
+    }
+
+    if (!tablesCreated) {
+      // Fallback: use legacy PMO_SCHEMA_SQL (CREATE TABLE IF NOT EXISTS)
+      this.db.exec(PMO_SCHEMA_SQL)
     }
 
     // Legacy DDL migrations for column additions (ALTER TABLE)
