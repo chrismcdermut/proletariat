@@ -46,13 +46,14 @@ import {
   TicketTemplate,
   TicketTemplateFilter,
 } from '../types.js'
-import { PMO_TABLES, PMO_SCHEMA_SQL } from '../schema.js'
+import { PMO_SCHEMA_SQL } from '../schema.js'
 import { StorageContext } from './types.js'
 import {
   runMigrations,
   seedBuiltinActions,
   seedBuiltinWorkflowRules,
   seedBuiltinTicketTemplates,
+  seedDefaultPriorities,
 } from './base.js'
 import { ProjectStorage } from './projects.js'
 import { TemplateStorage } from './templates.js'
@@ -135,16 +136,17 @@ export class SQLiteStorage {
    * Ensure PMO tables exist in the database.
    */
   private ensurePMOTables(): void {
-    // Run migrations FIRST for existing databases
+    // Run DDL migrations FIRST for existing databases (raw SQL for ALTER TABLE)
     runMigrations(this.db)
 
-    // Create tables and indexes using shared schema
+    // Create tables and indexes using shared schema (idempotent CREATE IF NOT EXISTS)
     this.db.exec(PMO_SCHEMA_SQL)
 
-    // Seed built-in data
-    seedBuiltinActions(this.db)
-    seedBuiltinWorkflowRules(this.db)
-    seedBuiltinTicketTemplates(this.db)
+    // Seed built-in data using Drizzle ORM (PRLT-1302)
+    seedBuiltinActions(this.drizzle)
+    seedBuiltinWorkflowRules(this.drizzle)
+    seedBuiltinTicketTemplates(this.drizzle)
+    seedDefaultPriorities(this.drizzle)
   }
 
   // ===========================================================================
