@@ -10,6 +10,8 @@
  */
 
 import { execSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import type Database from 'better-sqlite3'
 import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks } from '../pr/index.js'
 import { getWorkflowConfig } from '../work-lifecycle/settings.js'
@@ -34,6 +36,8 @@ interface PRState {
   ciState: 'pending' | 'success' | 'failure' | 'unknown'
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
   reviewDecision: string | null
+  /** The git repo directory this PR was discovered from. */
+  repoDir: string
 }
 
 /** Tracked agent state for diffing. */
@@ -73,8 +77,11 @@ export class SimplePoller {
   private log: (msg: string) => void
   private cwd?: string
 
-  /** Last-seen PR states. */
-  private lastPRs = new Map<number, PRState>()
+  /** Git repo directories to poll for PRs. Resolved from cwd on construction. */
+  private repoDirs: string[]
+
+  /** Last-seen PR states, keyed by "repoDir:prNumber" for multi-repo support. */
+  private lastPRs = new Map<string, PRState>()
 
   /** Last-seen agent states. */
   private lastAgents = new Map<string, AgentState>()
@@ -92,6 +99,59 @@ export class SimplePoller {
     this.db = options.db
     this.log = options.log
     this.cwd = options.cwd
+    this.repoDirs = SimplePoller.resolveRepoDirs(options.cwd, options.log)
+  }
+
+  /**
+   * Resolve git repo directories to poll for PRs.
+   *
+   * If cwd is itself a git repo, use it directly.
+   * If cwd has a repos/ subdirectory (HQ workspace), scan for git repos inside.
+   * Otherwise, return empty (no GitHub polling possible).
+   */
+  static resolveRepoDirs(cwd?: string, log?: (msg: string) => void): string[] {
+    if (!cwd) return []
+
+    // Check if cwd itself is a git repo
+    if (SimplePoller.isGitRepo(cwd)) {
+      return [cwd]
+    }
+
+    // HQ workspace: check for repos/ subdirectory
+    const reposDir = path.join(cwd, 'repos')
+    if (fs.existsSync(reposDir)) {
+      try {
+        const entries = fs.readdirSync(reposDir, { withFileTypes: true })
+        const dirs = entries
+          .filter(e => e.isDirectory())
+          .map(e => path.join(reposDir, e.name))
+          .filter(d => SimplePoller.isGitRepo(d))
+
+        if (dirs.length > 0) {
+          log?.(`[watch] Discovered ${dirs.length} repo(s) in ${reposDir}`)
+          return dirs
+        }
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    log?.(`[watch] Warning: ${cwd} is not a git repo and no repos/ subdirectory found. GitHub polling disabled.`)
+    return []
+  }
+
+  /** Check if a directory is inside a git repository. */
+  private static isGitRepo(dir: string): boolean {
+    try {
+      execSync('git rev-parse --git-dir', {
+        cwd: dir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+      })
+      return true
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -124,122 +184,132 @@ export class SimplePoller {
       this.ghAvailable = isGHInstalled() && isGHAuthenticated()
     }
     if (!this.ghAvailable) return []
+    if (this.repoDirs.length === 0) return []
 
     const changes: PollChange[] = []
+    /** Keys of PRs seen this cycle (for detecting disappeared PRs). */
+    const currentPRKeys = new Set<string>()
 
-    try {
-      const openPRs = listOpenPRs(this.cwd)
-      const currentPRNumbers = new Set<number>()
+    for (const repoDir of this.repoDirs) {
+      try {
+        const openPRs = listOpenPRs(repoDir)
+        this.log(`[watch] Polled ${openPRs.length} open PR(s) from ${path.basename(repoDir)}`)
 
-      for (const pr of openPRs) {
-        currentPRNumbers.add(pr.number)
-        const ticketId = this.extractTicketFromBranch(pr.headBranch)
-        const label = `#${pr.number}${ticketId ? ` (${ticketId})` : ''}`
+        for (const pr of openPRs) {
+          const prKey = `${repoDir}:${pr.number}`
+          currentPRKeys.add(prKey)
+          const ticketId = this.extractTicketFromBranch(pr.headBranch)
+          const label = `#${pr.number}${ticketId ? ` (${ticketId})` : ''}`
 
-        // Get CI status
-        let ciState: PRState['ciState'] = 'unknown'
-        try {
-          const checks = getPRChecks(pr.number, this.cwd)
-          if (checks.length > 0) {
-            const allDone = checks.every(c => c.status === 'COMPLETED' || c.conclusion)
-            if (allDone) {
-              const allPassed = checks.every(c =>
-                c.conclusion === 'SUCCESS' || c.conclusion === 'NEUTRAL' || c.conclusion === 'SKIPPED',
-              )
-              ciState = allPassed ? 'success' : 'failure'
-            } else {
-              ciState = 'pending'
-            }
-          }
-        } catch {
-          // Non-fatal
-        }
-
-        // Get mergeable state
-        let mergeable: PRState['mergeable'] = 'UNKNOWN'
-        try {
-          const result = execSync(
-            `gh pr view ${pr.number} --json mergeable -q .mergeable`,
-            { cwd: this.cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-          ).trim()
-          if (result === 'CONFLICTING') mergeable = 'CONFLICTING'
-          else if (result === 'MERGEABLE') mergeable = 'MERGEABLE'
-        } catch {
-          // Non-fatal
-        }
-
-        // Get review decision
-        let reviewDecision: string | null = null
-        try {
-          const result = execSync(
-            `gh pr view ${pr.number} --json reviewDecision -q .reviewDecision`,
-            { cwd: this.cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-          ).trim()
-          if (result) reviewDecision = result
-        } catch {
-          // Non-fatal
-        }
-
-        const current: PRState = {
-          number: pr.number,
-          title: pr.title,
-          headBranch: pr.headBranch,
-          url: pr.url,
-          ciState,
-          mergeable,
-          reviewDecision,
-        }
-
-        // Diff against last state
-        const prev = this.lastPRs.get(pr.number)
-        if (prev) {
-          if (prev.ciState !== ciState && ciState !== 'unknown') {
-            if (ciState === 'success') {
-              changes.push({ category: 'github', summary: `${label}: CI green, ${mergeable === 'MERGEABLE' ? 'mergeable' : mergeable === 'CONFLICTING' ? 'has merge conflicts' : 'mergeable state unknown'}` })
-            } else if (ciState === 'failure') {
-              changes.push({ category: 'github', summary: `${label}: CI failed` })
-            }
-          }
-          if (prev.mergeable !== 'CONFLICTING' && mergeable === 'CONFLICTING') {
-            changes.push({ category: 'github', summary: `${label}: now has merge conflicts` })
-          }
-          if (prev.mergeable === 'CONFLICTING' && mergeable === 'MERGEABLE') {
-            changes.push({ category: 'github', summary: `${label}: conflicts resolved, now mergeable` })
-          }
-          if (prev.reviewDecision !== reviewDecision && reviewDecision) {
-            changes.push({ category: 'github', summary: `${label}: review ${reviewDecision}` })
-          }
-        }
-
-        this.lastPRs.set(pr.number, current)
-      }
-
-      // Detect PRs that disappeared (merged or closed)
-      for (const [prNum, prev] of this.lastPRs) {
-        if (!currentPRNumbers.has(prNum)) {
-          const ticketId = this.extractTicketFromBranch(prev.headBranch)
-          const label = `#${prNum}${ticketId ? ` (${ticketId})` : ''}`
-
-          // Check if it was merged
+          // Get CI status
+          let ciState: PRState['ciState'] = 'unknown'
           try {
-            const result = execSync(
-              `gh pr view ${prNum} --json state -q .state`,
-              { cwd: this.cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-            ).trim()
-            if (result === 'MERGED') {
-              changes.push({ category: 'github', summary: `${label}: merged since last poll` })
-            } else {
-              changes.push({ category: 'github', summary: `${label}: closed since last poll` })
+            const checks = getPRChecks(pr.number, repoDir)
+            if (checks.length > 0) {
+              const allDone = checks.every(c => c.status === 'COMPLETED' || c.conclusion)
+              if (allDone) {
+                const allPassed = checks.every(c =>
+                  c.conclusion === 'SUCCESS' || c.conclusion === 'NEUTRAL' || c.conclusion === 'SKIPPED',
+                )
+                ciState = allPassed ? 'success' : 'failure'
+              } else {
+                ciState = 'pending'
+              }
             }
           } catch {
-            changes.push({ category: 'github', summary: `${label}: no longer open` })
+            // Non-fatal
           }
 
-          this.lastPRs.delete(prNum)
+          // Get mergeable state
+          let mergeable: PRState['mergeable'] = 'UNKNOWN'
+          try {
+            const result = execSync(
+              `gh pr view ${pr.number} --json mergeable -q .mergeable`,
+              { cwd: repoDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+            ).trim()
+            if (result === 'CONFLICTING') mergeable = 'CONFLICTING'
+            else if (result === 'MERGEABLE') mergeable = 'MERGEABLE'
+          } catch {
+            // Non-fatal
+          }
+
+          // Get review decision
+          let reviewDecision: string | null = null
+          try {
+            const result = execSync(
+              `gh pr view ${pr.number} --json reviewDecision -q .reviewDecision`,
+              { cwd: repoDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+            ).trim()
+            if (result) reviewDecision = result
+          } catch {
+            // Non-fatal
+          }
+
+          const current: PRState = {
+            number: pr.number,
+            title: pr.title,
+            headBranch: pr.headBranch,
+            url: pr.url,
+            ciState,
+            mergeable,
+            reviewDecision,
+            repoDir,
+          }
+
+          // Diff against last state
+          const prev = this.lastPRs.get(prKey)
+          if (!prev) {
+            // New PR detected
+            changes.push({ category: 'github', summary: `${label}: new PR opened — "${pr.title}"` })
+          } else {
+            if (prev.ciState !== ciState && ciState !== 'unknown') {
+              if (ciState === 'success') {
+                changes.push({ category: 'github', summary: `${label}: CI green, ${mergeable === 'MERGEABLE' ? 'mergeable' : mergeable === 'CONFLICTING' ? 'has merge conflicts' : 'mergeable state unknown'}` })
+              } else if (ciState === 'failure') {
+                changes.push({ category: 'github', summary: `${label}: CI failed` })
+              }
+            }
+            if (prev.mergeable !== 'CONFLICTING' && mergeable === 'CONFLICTING') {
+              changes.push({ category: 'github', summary: `${label}: now has merge conflicts` })
+            }
+            if (prev.mergeable === 'CONFLICTING' && mergeable === 'MERGEABLE') {
+              changes.push({ category: 'github', summary: `${label}: conflicts resolved, now mergeable` })
+            }
+            if (prev.reviewDecision !== reviewDecision && reviewDecision) {
+              changes.push({ category: 'github', summary: `${label}: review ${reviewDecision}` })
+            }
+          }
+
+          this.lastPRs.set(prKey, current)
         }
+      } catch (err) {
+        this.log(`[watch] GitHub poll error for ${path.basename(repoDir)}: ${err instanceof Error ? err.message : String(err)}`)
       }
-    } catch (err) {
-      this.log(`[watch] GitHub poll error: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    // Detect PRs that disappeared (merged or closed)
+    for (const [prKey, prev] of this.lastPRs) {
+      if (!currentPRKeys.has(prKey)) {
+        const ticketId = this.extractTicketFromBranch(prev.headBranch)
+        const label = `#${prev.number}${ticketId ? ` (${ticketId})` : ''}`
+
+        // Check if it was merged
+        try {
+          const result = execSync(
+            `gh pr view ${prev.number} --json state -q .state`,
+            { cwd: prev.repoDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+          ).trim()
+          if (result === 'MERGED') {
+            changes.push({ category: 'github', summary: `${label}: merged since last poll` })
+          } else {
+            changes.push({ category: 'github', summary: `${label}: closed since last poll` })
+          }
+        } catch {
+          changes.push({ category: 'github', summary: `${label}: no longer open` })
+        }
+
+        this.lastPRs.delete(prKey)
+      }
     }
 
     return changes
