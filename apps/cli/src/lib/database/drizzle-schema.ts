@@ -224,6 +224,8 @@ export const pmoAgentWork = sqliteTable('agent_work', {
   startedAt: text('started_at').default(sql`CURRENT_TIMESTAMP`),
   completedAt: text('completed_at'),
   exitCode: integer('exit_code'),
+  errorMessage: text('error_message'),
+  cleanupPolicy: text('cleanup_policy').notNull().default('on-exit'),
   gcCleanedAt: text('gc_cleaned_at'),
 }, (table) => ({
   idxAgent: index('idx_agent_work_agent').on(table.agentName),
@@ -337,6 +339,8 @@ export const pmoActions = sqliteTable('pmo_actions', {
   permissionMode: text('permission_mode'),
   timeout: integer('timeout'),
   model: text('model'),
+  reviewGate: text('review_gate'),
+  networkAllowlist: text('network_allowlist'),
   modifiesCode: integer('modifies_code', { mode: 'boolean' }).notNull().default(true),
   isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
@@ -425,6 +429,49 @@ export const pmoLabels = sqliteTable('pmo_labels', {
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
 }, (table) => ({
   idxGroup: index('idx_pmo_labels_group').on(table.groupId),
+}))
+
+/**
+ * Runtime ticket cache (provider-agnostic)
+ */
+export const pmoTicketRefs = sqliteTable('ticket_refs', {
+  id: text('id').primaryKey(),
+  provider: text('provider').notNull().default('pmo'),
+  externalId: text('external_id'),
+  externalKey: text('external_key'),
+  externalUrl: text('external_url'),
+  title: text('title').notNull(),
+  description: text('description'),
+  status: text('status'),
+  priority: text('priority'),
+  category: text('category'),
+  assignee: text('assignee'),
+  projectId: text('project_id'),
+  cachedAt: text('cached_at').default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  uniqProviderExternal: unique().on(table.provider, table.externalId),
+  idxProvider: index('idx_ticket_refs_provider').on(table.provider),
+  idxExternalKey: index('idx_ticket_refs_external_key').on(table.provider, table.externalKey),
+  idxStatus: index('idx_ticket_refs_status').on(table.status),
+  idxProject: index('idx_ticket_refs_project').on(table.projectId),
+}))
+
+/**
+ * Work lifecycle hooks: configurable event-driven actions
+ */
+export const pmoWorkHooks = sqliteTable('pmo_work_hooks', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  event: text('event').notNull(),
+  actionType: text('action_type').notNull(),
+  actionValue: text('action_value').notNull(),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  description: text('description'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  idxEvent: index('idx_pmo_work_hooks_event').on(table.event),
+  idxEnabled: index('idx_pmo_work_hooks_enabled').on(table.enabled),
 }))
 
 // =============================================================================
@@ -528,3 +575,12 @@ export type NewDbPmoExternalExecutionPr = typeof pmoExternalExecutionPrs.$inferI
 
 export type DbMediaItem = typeof mediaItems.$inferSelect
 export type NewDbMediaItem = typeof mediaItems.$inferInsert
+
+export type DbPmoWorkflowRule = typeof pmoWorkflowRules.$inferSelect
+export type NewDbPmoWorkflowRule = typeof pmoWorkflowRules.$inferInsert
+
+export type DbPmoTicketRef = typeof pmoTicketRefs.$inferSelect
+export type NewDbPmoTicketRef = typeof pmoTicketRefs.$inferInsert
+
+export type DbPmoWorkHook = typeof pmoWorkHooks.$inferSelect
+export type NewDbPmoWorkHook = typeof pmoWorkHooks.$inferInsert

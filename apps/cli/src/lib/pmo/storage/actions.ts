@@ -6,12 +6,11 @@
  * to provider states at runtime.
  */
 
-import { PMO_TABLES } from '../schema.js'
+import { eq, and, or, like, isNull, asc, desc, sql } from 'drizzle-orm'
+import { pmoActions } from '../../database/drizzle-schema.js'
 import { PMOError, WorkAction, WorkActionFilter, ActionExecutor, ActionEnvironment, ActionPermissionMode, ReviewGateMode } from '../types.js'
 import { slugify } from '../../utils/text.js'
-import { StorageContext, WorkActionRow } from './types.js'
-
-const T = PMO_TABLES
+import { StorageContext } from './types.js'
 
 export class ActionStorage {
   constructor(private ctx: StorageContext) {}
@@ -20,34 +19,38 @@ export class ActionStorage {
    * List work actions.
    */
   async listActions(filter?: WorkActionFilter): Promise<WorkAction[]> {
-    let sql = `SELECT * FROM ${T.actions}`
-    const conditions: string[] = []
-    const params: unknown[] = []
+    const conditions = []
 
     if (filter?.isBuiltin !== undefined) {
-      conditions.push('is_builtin = ?')
-      params.push(filter.isBuiltin ? 1 : 0)
+      conditions.push(eq(pmoActions.isBuiltin, filter.isBuiltin))
     }
 
     // Support both fromIntent (new) and fromState (deprecated)
     const intentFilter = filter?.fromIntent || filter?.fromState
     if (intentFilter) {
-      conditions.push('(from_intent = ? OR from_intent IS NULL)')
-      params.push(intentFilter)
+      conditions.push(or(eq(pmoActions.fromIntent, intentFilter), isNull(pmoActions.fromIntent)))
     }
 
     if (filter?.search) {
-      conditions.push('(name LIKE ? OR description LIKE ?)')
-      params.push(`%${filter.search}%`, `%${filter.search}%`)
+      conditions.push(
+        or(
+          like(pmoActions.name, `%${filter.search}%`),
+          like(pmoActions.description, `%${filter.search}%`)
+        )
+      )
     }
 
-    if (conditions.length > 0) {
-      sql += ` WHERE ${conditions.join(' AND ')}`
-    }
-
-    sql += ' ORDER BY is_builtin DESC, is_default DESC, position ASC, name ASC'
-
-    const rows = this.ctx.db.prepare(sql).all(...params) as WorkActionRow[]
+    const rows = this.ctx.drizzle
+      .select()
+      .from(pmoActions)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(
+        desc(pmoActions.isBuiltin),
+        desc(pmoActions.isDefault),
+        asc(pmoActions.position),
+        asc(pmoActions.name)
+      )
+      .all()
 
     return rows.map((row) => this.rowToAction(row))
   }
@@ -56,9 +59,11 @@ export class ActionStorage {
    * Get a work action by ID.
    */
   async getAction(id: string): Promise<WorkAction | null> {
-    const row = this.ctx.db.prepare(`SELECT * FROM ${T.actions} WHERE id = ?`).get(
-      id
-    ) as WorkActionRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoActions)
+      .where(eq(pmoActions.id, id))
+      .get()
 
     if (!row) return null
 
@@ -79,9 +84,11 @@ export class ActionStorage {
     const id = action.id || slugify(action.name)
 
     // Check for duplicate name
-    const existing = this.ctx.db.prepare(`
-      SELECT id FROM ${T.actions} WHERE LOWER(name) = LOWER(?)
-    `).get(action.name)
+    const existing = this.ctx.drizzle
+      .select({ id: pmoActions.id })
+      .from(pmoActions)
+      .where(sql`LOWER(${pmoActions.name}) = LOWER(${action.name})`)
+      .get()
     if (existing) {
       throw new PMOError('CONFLICT', `Action with name "${action.name}" already exists`)
     }
@@ -93,32 +100,31 @@ export class ActionStorage {
     const fromIntent = action.fromIntent ?? action.fromState ?? null
     const toIntent = action.toIntent ?? action.toState ?? null
 
-    this.ctx.db.prepare(`
-      INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_intent, to_intent,
-        executor, environment, permission_mode, timeout, model, review_gate, network_allowlist, modifies_code, is_default, is_builtin, position, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      action.name,
-      action.description || null,
-      action.prompt,
-      action.endPrompt || null,
-      fromIntent,
-      toIntent,
-      action.executor || null,
-      action.environment || null,
-      action.permissionMode || null,
-      action.timeout || null,
-      action.model || null,
-      action.reviewGate || null,
-      action.networkAllowlist?.length ? JSON.stringify(action.networkAllowlist) : null,
-      modifiesCode ? 1 : 0,
-      action.isDefault ? 1 : 0,
-      action.isBuiltin ? 1 : 0,
-      action.position || 0,
-      now,
-      now
-    )
+    this.ctx.drizzle
+      .insert(pmoActions)
+      .values({
+        id,
+        name: action.name,
+        description: action.description || null,
+        prompt: action.prompt,
+        endPrompt: action.endPrompt || null,
+        fromIntent,
+        toIntent,
+        executor: action.executor || null,
+        environment: action.environment || null,
+        permissionMode: action.permissionMode || null,
+        timeout: action.timeout || null,
+        model: action.model || null,
+        reviewGate: action.reviewGate || null,
+        networkAllowlist: action.networkAllowlist?.length ? JSON.stringify(action.networkAllowlist) : null,
+        modifiesCode,
+        isDefault: action.isDefault || false,
+        isBuiltin: action.isBuiltin || false,
+        position: action.position || 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run()
 
     return {
       id,
@@ -159,86 +165,51 @@ export class ActionStorage {
 
     // Check for duplicate name if name is changing
     if (changes.name && changes.name.toLowerCase() !== existing.name.toLowerCase()) {
-      const dup = this.ctx.db.prepare(`
-        SELECT id FROM ${T.actions} WHERE LOWER(name) = LOWER(?) AND id != ?
-      `).get(changes.name, id)
+      const dup = this.ctx.drizzle
+        .select({ id: pmoActions.id })
+        .from(pmoActions)
+        .where(and(
+          sql`LOWER(${pmoActions.name}) = LOWER(${changes.name})`,
+          sql`${pmoActions.id} != ${id}`
+        ))
+        .get()
       if (dup) {
         throw new PMOError('CONFLICT', `Action "${changes.name}" already exists`)
       }
     }
 
-    const updates: string[] = []
-    const params: unknown[] = []
+    const updateValues: Record<string, unknown> = {}
 
-    if (changes.name !== undefined) {
-      updates.push('name = ?')
-      params.push(changes.name)
-    }
-    if (changes.description !== undefined) {
-      updates.push('description = ?')
-      params.push(changes.description || null)
-    }
-    if (changes.prompt !== undefined) {
-      updates.push('prompt = ?')
-      params.push(changes.prompt)
-    }
-    if (changes.endPrompt !== undefined) {
-      updates.push('end_prompt = ?')
-      params.push(changes.endPrompt || null)
-    }
+    if (changes.name !== undefined) updateValues.name = changes.name
+    if (changes.description !== undefined) updateValues.description = changes.description || null
+    if (changes.prompt !== undefined) updateValues.prompt = changes.prompt
+    if (changes.endPrompt !== undefined) updateValues.endPrompt = changes.endPrompt || null
     // Support both fromIntent (new) and fromState (deprecated)
     if (changes.fromIntent !== undefined || changes.fromState !== undefined) {
-      updates.push('from_intent = ?')
-      params.push(changes.fromIntent ?? changes.fromState ?? null)
+      updateValues.fromIntent = changes.fromIntent ?? changes.fromState ?? null
     }
     if (changes.toIntent !== undefined || changes.toState !== undefined) {
-      updates.push('to_intent = ?')
-      params.push(changes.toIntent ?? changes.toState ?? null)
+      updateValues.toIntent = changes.toIntent ?? changes.toState ?? null
     }
-    if (changes.executor !== undefined) {
-      updates.push('executor = ?')
-      params.push(changes.executor || null)
-    }
-    if (changes.environment !== undefined) {
-      updates.push('environment = ?')
-      params.push(changes.environment || null)
-    }
-    if (changes.permissionMode !== undefined) {
-      updates.push('permission_mode = ?')
-      params.push(changes.permissionMode || null)
-    }
-    if (changes.timeout !== undefined) {
-      updates.push('timeout = ?')
-      params.push(changes.timeout || null)
-    }
-    if (changes.model !== undefined) {
-      updates.push('model = ?')
-      params.push(changes.model || null)
-    }
-    if (changes.reviewGate !== undefined) {
-      updates.push('review_gate = ?')
-      params.push(changes.reviewGate || null)
-    }
+    if (changes.executor !== undefined) updateValues.executor = changes.executor || null
+    if (changes.environment !== undefined) updateValues.environment = changes.environment || null
+    if (changes.permissionMode !== undefined) updateValues.permissionMode = changes.permissionMode || null
+    if (changes.timeout !== undefined) updateValues.timeout = changes.timeout || null
+    if (changes.model !== undefined) updateValues.model = changes.model || null
+    if (changes.reviewGate !== undefined) updateValues.reviewGate = changes.reviewGate || null
     if (changes.networkAllowlist !== undefined) {
-      updates.push('network_allowlist = ?')
-      params.push(changes.networkAllowlist?.length ? JSON.stringify(changes.networkAllowlist) : null)
+      updateValues.networkAllowlist = changes.networkAllowlist?.length ? JSON.stringify(changes.networkAllowlist) : null
     }
-    if (changes.modifiesCode !== undefined) {
-      updates.push('modifies_code = ?')
-      params.push(changes.modifiesCode ? 1 : 0)
-    }
-    if (changes.isDefault !== undefined) {
-      updates.push('is_default = ?')
-      params.push(changes.isDefault ? 1 : 0)
-    }
+    if (changes.modifiesCode !== undefined) updateValues.modifiesCode = changes.modifiesCode
+    if (changes.isDefault !== undefined) updateValues.isDefault = changes.isDefault
 
-    if (updates.length > 0) {
-      updates.push('updated_at = ?')
-      params.push(new Date().toISOString())
-      params.push(id)
-      this.ctx.db.prepare(`UPDATE ${T.actions} SET ${updates.join(', ')} WHERE id = ?`).run(
-        ...params
-      )
+    if (Object.keys(updateValues).length > 0) {
+      updateValues.updatedAt = new Date().toISOString()
+      this.ctx.drizzle
+        .update(pmoActions)
+        .set(updateValues)
+        .where(eq(pmoActions.id, id))
+        .run()
     }
 
     return (await this.getAction(id))!
@@ -257,7 +228,10 @@ export class ActionStorage {
       throw new PMOError('INVALID', 'Cannot delete built-in actions')
     }
 
-    this.ctx.db.prepare(`DELETE FROM ${T.actions} WHERE id = ?`).run(id)
+    this.ctx.drizzle
+      .delete(pmoActions)
+      .where(eq(pmoActions.id, id))
+      .run()
   }
 
   /**
@@ -267,27 +241,36 @@ export class ActionStorage {
    */
   async getSuggestedAction(intentOrStateName: string): Promise<WorkAction | null> {
     // First try to find a default action with exact from_intent match
-    const exactMatch = this.ctx.db.prepare(`
-      SELECT * FROM ${T.actions}
-      WHERE from_intent = ? AND is_default = 1
-      ORDER BY position ASC
-      LIMIT 1
-    `).get(intentOrStateName) as WorkActionRow | undefined
+    const exactMatch = this.ctx.drizzle
+      .select()
+      .from(pmoActions)
+      .where(and(
+        eq(pmoActions.fromIntent, intentOrStateName),
+        eq(pmoActions.isDefault, true)
+      ))
+      .orderBy(asc(pmoActions.position))
+      .limit(1)
+      .get()
 
     if (exactMatch) {
       return this.rowToAction(exactMatch)
     }
 
     // Fall back to any action matching this intent (exact match first, then null from_intent)
-    const anyMatch = this.ctx.db.prepare(`
-      SELECT * FROM ${T.actions}
-      WHERE from_intent = ? OR from_intent IS NULL
-      ORDER BY
-        CASE WHEN from_intent = ? THEN 0 ELSE 1 END,
-        is_default DESC,
-        position ASC
-      LIMIT 1
-    `).get(intentOrStateName, intentOrStateName) as WorkActionRow | undefined
+    const anyMatch = this.ctx.drizzle
+      .select()
+      .from(pmoActions)
+      .where(or(
+        eq(pmoActions.fromIntent, intentOrStateName),
+        isNull(pmoActions.fromIntent)
+      ))
+      .orderBy(
+        sql`CASE WHEN ${pmoActions.fromIntent} = ${intentOrStateName} THEN 0 ELSE 1 END`,
+        desc(pmoActions.isDefault),
+        asc(pmoActions.position)
+      )
+      .limit(1)
+      .get()
 
     if (anyMatch) {
       return this.rowToAction(anyMatch)
@@ -302,42 +285,43 @@ export class ActionStorage {
    * when a ticket reaches a particular intent state.
    */
   async getActionByFromIntent(intent: string): Promise<WorkAction | null> {
-    const row = this.ctx.db.prepare(`
-      SELECT * FROM ${T.actions}
-      WHERE from_intent = ?
-      ORDER BY is_default DESC, position ASC
-      LIMIT 1
-    `).get(intent) as WorkActionRow | undefined
+    const row = this.ctx.drizzle
+      .select()
+      .from(pmoActions)
+      .where(eq(pmoActions.fromIntent, intent))
+      .orderBy(desc(pmoActions.isDefault), asc(pmoActions.position))
+      .limit(1)
+      .get()
 
     if (!row) return null
     return this.rowToAction(row)
   }
 
-  private rowToAction(row: WorkActionRow): WorkAction {
+  private rowToAction(row: typeof pmoActions.$inferSelect): WorkAction {
     return {
       id: row.id,
       name: row.name,
       description: row.description || undefined,
       prompt: row.prompt,
-      endPrompt: row.end_prompt || undefined,
-      fromIntent: row.from_intent || undefined,
-      toIntent: row.to_intent || undefined,
+      endPrompt: row.endPrompt || undefined,
+      fromIntent: row.fromIntent || undefined,
+      toIntent: row.toIntent || undefined,
       // Deprecated compat aliases
-      fromState: row.from_intent || undefined,
-      toState: row.to_intent || undefined,
+      fromState: row.fromIntent || undefined,
+      toState: row.toIntent || undefined,
       executor: (row.executor as ActionExecutor) || undefined,
       environment: (row.environment as ActionEnvironment) || undefined,
-      permissionMode: (row.permission_mode as ActionPermissionMode) || undefined,
+      permissionMode: (row.permissionMode as ActionPermissionMode) || undefined,
       timeout: row.timeout || undefined,
       model: row.model || undefined,
-      reviewGate: (row.review_gate as ReviewGateMode) || undefined,
-      networkAllowlist: row.network_allowlist ? JSON.parse(row.network_allowlist) : undefined,
-      modifiesCode: row.modifies_code === 1,
-      isDefault: row.is_default === 1,
-      isBuiltin: row.is_builtin === 1,
+      reviewGate: (row.reviewGate as ReviewGateMode) || undefined,
+      networkAllowlist: row.networkAllowlist ? JSON.parse(row.networkAllowlist) : undefined,
+      modifiesCode: row.modifiesCode === true,
+      isDefault: row.isDefault === true,
+      isBuiltin: row.isBuiltin === true,
       position: row.position,
-      createdAt: new Date(row.created_at),
-      updatedAt: row.updated_at ? new Date(row.updated_at) : undefined,
+      createdAt: new Date(row.createdAt!),
+      updatedAt: row.updatedAt ? new Date(row.updatedAt) : undefined,
     }
   }
 }

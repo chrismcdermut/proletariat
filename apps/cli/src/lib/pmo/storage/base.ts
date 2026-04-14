@@ -1,25 +1,78 @@
 /**
  * Base storage module with database initialization, migrations, and seeding.
  * This module handles database setup and provides shared utilities.
+ *
+ * PRLT-1302: Seeding and queries now use Drizzle ORM. Only DDL migrations
+ * (ALTER TABLE) still use raw SQL since Drizzle doesn't support DDL.
  */
 
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import * as url from 'node:url'
 import Database from 'better-sqlite3'
-import { PMO_TABLES, PMO_SCHEMA_SQL } from '../schema.js'
-import { setWorkspacePriorities, DEFAULT_PRIORITIES } from '../../work-lifecycle/settings.js'
+import { eq, sql } from 'drizzle-orm'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
+import { createDrizzleConnection, type DrizzleDB } from '../../database/drizzle.js'
+import {
+  pmoActions,
+  pmoWorkflowRules,
+  pmoTicketTemplates,
+  pmoSettings,
+  pmoProjects,
+} from '../../database/drizzle-schema.js'
+import { PMO_SCHEMA_SQL } from '../schema.js'
+import { DEFAULT_PRIORITIES } from '../../work-lifecycle/settings.js'
 
-const T = PMO_TABLES
+/**
+ * Resolve the path to the Drizzle Kit migration files.
+ * The migrations live in apps/cli/drizzle/ relative to the package root.
+ */
+function getDrizzleMigrationsPath(): string {
+  // __dirname equivalent for ESM
+  const thisDir = path.dirname(url.fileURLToPath(import.meta.url))
+  // Navigate from src/lib/pmo/storage/ → apps/cli/drizzle/
+  return path.resolve(thisDir, '..', '..', '..', '..', 'drizzle')
+}
+
+/**
+ * Create tables using Drizzle Kit migrations, falling back to legacy
+ * PMO_SCHEMA_SQL if migration files are unavailable (e.g., in tests).
+ */
+function ensureTablesExist(db: Database.Database, drizzle: DrizzleDB): void {
+  const migrationsPath = getDrizzleMigrationsPath()
+
+  if (fs.existsSync(migrationsPath)) {
+    try {
+      migrate(drizzle, { migrationsFolder: migrationsPath })
+      return
+    } catch {
+      // Fall through to legacy schema creation
+    }
+  }
+
+  // Fallback: use legacy PMO_SCHEMA_SQL (CREATE TABLE IF NOT EXISTS)
+  db.exec(PMO_SCHEMA_SQL)
+}
 
 /**
  * Initialize PMO tables in the database.
- * Runs migrations, creates tables, seeds built-in data.
+ * Creates tables via Drizzle Kit migrations (with legacy fallback),
+ * runs DDL column migrations, then seeds built-in data.
  */
 export function initializePMOTables(db: Database.Database): void {
+  const drizzle = createDrizzleConnection(db)
+
+  // Create tables (Drizzle Kit migrations → legacy SQL fallback)
+  ensureTablesExist(db, drizzle)
+
+  // Legacy DDL migrations for column additions (ALTER TABLE not supported by Drizzle Kit)
   runMigrations(db)
-  db.exec(PMO_SCHEMA_SQL)
-  seedBuiltinActions(db)
-  seedBuiltinWorkflowRules(db)
-  seedBuiltinTicketTemplates(db)
-  seedDefaultPriorities(db)
+
+  // Seed built-in data using Drizzle ORM
+  seedBuiltinActions(drizzle)
+  seedBuiltinWorkflowRules(drizzle)
+  seedBuiltinTicketTemplates(drizzle)
+  seedDefaultPriorities(drizzle)
 }
 
 /**
@@ -27,6 +80,9 @@ export function initializePMOTables(db: Database.Database): void {
  * Most dead-table migrations have been removed (PRLT-1299).
  * The formal migration system (0024_drop_dead_pmo_tables) handles table drops.
  * This function handles inline column additions for surviving tables.
+ *
+ * NOTE: DDL operations (ALTER TABLE) must use raw SQL since Drizzle
+ * doesn't support DDL statements directly.
  */
 export function runMigrations(db: Database.Database): void {
   const tableExists = (name: string): boolean => {
@@ -36,17 +92,17 @@ export function runMigrations(db: Database.Database): void {
     return !!result
   }
 
-  if (!tableExists(T.projects)) {
+  if (!tableExists('pmo_projects')) {
     return
   }
 
   // Migration: Add status and target_date columns to projects table
-  const projectsColumns = db.pragma(`table_info(${T.projects})`) as Array<{ name: string }>
+  const projectsColumns = db.pragma('table_info(pmo_projects)') as Array<{ name: string }>
   const projectsColumnNames = new Set(projectsColumns.map(c => c.name))
 
   if (!projectsColumnNames.has('status')) {
     try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`)
+      db.exec("ALTER TABLE pmo_projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
     } catch {
       // Column may already exist
     }
@@ -54,7 +110,7 @@ export function runMigrations(db: Database.Database): void {
 
   if (!projectsColumnNames.has('target_date')) {
     try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN target_date TIMESTAMP`)
+      db.exec('ALTER TABLE pmo_projects ADD COLUMN target_date TIMESTAMP')
     } catch {
       // Column may already exist
     }
@@ -62,7 +118,7 @@ export function runMigrations(db: Database.Database): void {
 
   if (!projectsColumnNames.has('phase_id')) {
     try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN phase_id TEXT`)
+      db.exec('ALTER TABLE pmo_projects ADD COLUMN phase_id TEXT')
     } catch {
       // Column may already exist
     }
@@ -70,24 +126,24 @@ export function runMigrations(db: Database.Database): void {
 
   if (!projectsColumnNames.has('is_archived')) {
     try {
-      db.exec(`ALTER TABLE ${T.projects} ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0`)
+      db.exec('ALTER TABLE pmo_projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0')
     } catch {
       // Column may already exist
     }
   }
 
   // Migration: Add position column to actions table
-  if (tableExists(T.actions)) {
-    const actionsColumns = db.pragma(`table_info(${T.actions})`) as Array<{ name: string }>
+  if (tableExists('pmo_actions')) {
+    const actionsColumns = db.pragma('table_info(pmo_actions)') as Array<{ name: string }>
     const actionsColumnNames = new Set(actionsColumns.map(c => c.name))
     if (!actionsColumnNames.has('position')) {
       try {
-        db.exec(`ALTER TABLE ${T.actions} ADD COLUMN position INTEGER NOT NULL DEFAULT 0`)
+        db.exec('ALTER TABLE pmo_actions ADD COLUMN position INTEGER NOT NULL DEFAULT 0')
         const positionMap: Record<string, number> = {
           groom: 0, implement: 1, continue: 2, test: 3, review: 4, revise: 5
         }
         for (const [id, pos] of Object.entries(positionMap)) {
-          db.prepare(`UPDATE ${T.actions} SET position = ? WHERE id = ?`).run(pos, id)
+          db.prepare('UPDATE pmo_actions SET position = ? WHERE id = ?').run(pos, id)
         }
       } catch {
         // Column may already exist
@@ -96,7 +152,7 @@ export function runMigrations(db: Database.Database): void {
 
     if (!actionsColumnNames.has('end_prompt')) {
       try {
-        db.exec(`ALTER TABLE ${T.actions} ADD COLUMN end_prompt TEXT`)
+        db.exec('ALTER TABLE pmo_actions ADD COLUMN end_prompt TEXT')
       } catch {
         // Column may already exist
       }
@@ -104,8 +160,8 @@ export function runMigrations(db: Database.Database): void {
   }
 
   // Migration: Add new columns to ticket_templates table
-  if (tableExists(T.ticket_templates)) {
-    const templateColumns = db.pragma(`table_info(${T.ticket_templates})`) as Array<{ name: string }>
+  if (tableExists('pmo_ticket_templates')) {
+    const templateColumns = db.pragma('table_info(pmo_ticket_templates)') as Array<{ name: string }>
     const templateColumnNames = new Set(templateColumns.map(c => c.name))
 
     const newTemplateColumns = [
@@ -118,7 +174,7 @@ export function runMigrations(db: Database.Database): void {
     for (const col of newTemplateColumns) {
       if (!templateColumnNames.has(col.name)) {
         try {
-          db.exec(`ALTER TABLE ${T.ticket_templates} ADD COLUMN ${col.sql}`)
+          db.exec(`ALTER TABLE pmo_ticket_templates ADD COLUMN ${col.sql}`)
         } catch {
           // Column may already exist
         }
@@ -127,24 +183,24 @@ export function runMigrations(db: Database.Database): void {
   }
 
   // Migration: Convert legacy priority values in ticket templates
-  if (tableExists(T.ticket_templates)) {
+  if (tableExists('pmo_ticket_templates')) {
     try {
-      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P0' WHERE default_priority = 'URGENT'`)
-      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P1' WHERE default_priority = 'HIGH'`)
-      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P2' WHERE default_priority = 'MEDIUM'`)
-      db.exec(`UPDATE ${T.ticket_templates} SET default_priority = 'P3' WHERE default_priority = 'LOW'`)
+      db.exec("UPDATE pmo_ticket_templates SET default_priority = 'P0' WHERE default_priority = 'URGENT'")
+      db.exec("UPDATE pmo_ticket_templates SET default_priority = 'P1' WHERE default_priority = 'HIGH'")
+      db.exec("UPDATE pmo_ticket_templates SET default_priority = 'P2' WHERE default_priority = 'MEDIUM'")
+      db.exec("UPDATE pmo_ticket_templates SET default_priority = 'P3' WHERE default_priority = 'LOW'")
     } catch {
       // Ignore errors if migration already ran
     }
   }
 
   // Migration: Add error_message column to agent_work table (TKT-1082)
-  if (tableExists(T.agent_work)) {
-    const agentWorkColumns = db.pragma(`table_info(${T.agent_work})`) as Array<{ name: string }>
+  if (tableExists('agent_work')) {
+    const agentWorkColumns = db.pragma('table_info(agent_work)') as Array<{ name: string }>
     const agentWorkColumnNames = new Set(agentWorkColumns.map(c => c.name))
     if (!agentWorkColumnNames.has('error_message')) {
       try {
-        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN error_message TEXT`)
+        db.exec('ALTER TABLE agent_work ADD COLUMN error_message TEXT')
       } catch {
         // Column may already exist
       }
@@ -152,7 +208,7 @@ export function runMigrations(db: Database.Database): void {
 
     if (!agentWorkColumnNames.has('external_source')) {
       try {
-        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_source TEXT`)
+        db.exec('ALTER TABLE agent_work ADD COLUMN external_source TEXT')
       } catch {
         // Column may already exist
       }
@@ -160,7 +216,7 @@ export function runMigrations(db: Database.Database): void {
 
     if (!agentWorkColumnNames.has('external_key')) {
       try {
-        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_key TEXT`)
+        db.exec('ALTER TABLE agent_work ADD COLUMN external_key TEXT')
       } catch {
         // Column may already exist
       }
@@ -168,7 +224,7 @@ export function runMigrations(db: Database.Database): void {
 
     if (!agentWorkColumnNames.has('external_id')) {
       try {
-        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_id TEXT`)
+        db.exec('ALTER TABLE agent_work ADD COLUMN external_id TEXT')
       } catch {
         // Column may already exist
       }
@@ -176,7 +232,7 @@ export function runMigrations(db: Database.Database): void {
 
     if (!agentWorkColumnNames.has('external_url')) {
       try {
-        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN external_url TEXT`)
+        db.exec('ALTER TABLE agent_work ADD COLUMN external_url TEXT')
       } catch {
         // Column may already exist
       }
@@ -184,15 +240,15 @@ export function runMigrations(db: Database.Database): void {
   }
 
   // Migration: Rename sandboxed column to permission_mode in agent_work table
-  if (tableExists(T.agent_work)) {
-    const awColumns = db.pragma(`table_info(${T.agent_work})`) as Array<{ name: string }>
+  if (tableExists('agent_work')) {
+    const awColumns = db.pragma('table_info(agent_work)') as Array<{ name: string }>
     const awColumnNames = new Set(awColumns.map(c => c.name))
 
     if (awColumnNames.has('sandboxed') && !awColumnNames.has('permission_mode')) {
       try {
-        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'safe'`)
+        db.exec("ALTER TABLE agent_work ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'safe'")
         // Migrate existing data: sandboxed=1 → 'safe', sandboxed=0 → 'danger'
-        db.exec(`UPDATE ${T.agent_work} SET permission_mode = CASE WHEN sandboxed = 1 THEN 'safe' ELSE 'danger' END`)
+        db.exec("UPDATE agent_work SET permission_mode = CASE WHEN sandboxed = 1 THEN 'safe' ELSE 'danger' END")
       } catch {
         // Column may already exist
       }
@@ -200,12 +256,12 @@ export function runMigrations(db: Database.Database): void {
   }
 
   // Migration: Add cleanup_policy column to agent_work table (PRLT-1061)
-  if (tableExists(T.agent_work)) {
-    const awCols2 = db.pragma(`table_info(${T.agent_work})`) as Array<{ name: string }>
+  if (tableExists('agent_work')) {
+    const awCols2 = db.pragma('table_info(agent_work)') as Array<{ name: string }>
     const awColNames2 = new Set(awCols2.map(c => c.name))
     if (!awColNames2.has('cleanup_policy')) {
       try {
-        db.exec(`ALTER TABLE ${T.agent_work} ADD COLUMN cleanup_policy TEXT NOT NULL DEFAULT 'on-exit'`)
+        db.exec("ALTER TABLE agent_work ADD COLUMN cleanup_policy TEXT NOT NULL DEFAULT 'on-exit'")
       } catch {
         // Column may already exist
       }
@@ -216,7 +272,7 @@ export function runMigrations(db: Database.Database): void {
   if (tableExists('workspace_settings')) {
     try {
       const oldSetting = db.prepare(
-        `SELECT value FROM workspace_settings WHERE key = 'execution.sandboxed'`
+        "SELECT value FROM workspace_settings WHERE key = 'execution.sandboxed'"
       ).get() as { value: string } | undefined
       if (oldSetting) {
         const permMode = oldSetting.value === 'true' ? 'safe' : 'danger'
@@ -315,9 +371,9 @@ const PRLT_COMMANDS_RESOLVE = `
 | \`prlt work resolve <id>\` | Agent-assisted resolution of ambiguity questions |`
 
 /**
- * Seed built-in work actions.
+ * Seed built-in work actions using Drizzle ORM.
  */
-export function seedBuiltinActions(db: Database.Database): void {
+export function seedBuiltinActions(drizzle: DrizzleDB): void {
   const builtinActions = [
     {
       id: 'groom',
@@ -421,9 +477,9 @@ Requirements:
 **Tip:** Use \`prlt ticket view <id>\` to see full ticket details at any time.
 
 After updating, output a brief summary of your grooming changes.`,
-      fromIntent: 'backlog',
-      toIntent: 'ready',
-      executor: null,
+      fromIntent: 'backlog' as string | null,
+      toIntent: 'ready' as string | null,
+      executor: null as string | null,
       environment: 'host',
       permissionMode: 'readonly',
       modifiesCode: false,
@@ -558,8 +614,8 @@ ${PRLT_COMMANDS_CODE}`,
 - \`gh pr create\` → use \`prlt work propose {{TICKET_ID}}\` instead
 - \`gh pr merge\` → use \`prlt work ship {{TICKET_ID}}\` instead
 - These raw commands skip ticket lifecycle updates and break board sync.`,
-      fromIntent: 'ready',
-      toIntent: 'started',
+      fromIntent: 'ready' as string | null,
+      toIntent: 'started' as string | null,
       executor: null,
       environment: 'host',
       permissionMode: 'full',
@@ -738,8 +794,8 @@ ${PRLT_COMMANDS_CODE}`,
 **IMPORTANT:** NEVER use \`gh pr merge\` — always use \`prlt work ship {{TICKET_ID}}\`.
 
 **STOP:** After completing the above, your task is done. Do not take any further actions.`,
-      fromIntent: 'needs_review',
-      toIntent: 'completed',
+      fromIntent: 'needs_review' as string | null,
+      toIntent: 'completed' as string | null,
       executor: null,
       environment: 'devcontainer',
       permissionMode: 'bypassPermissions',
@@ -750,128 +806,128 @@ ${PRLT_COMMANDS_CODE}`,
     // NOTE: 'test' action removed — absorbed by 'implement' (ticket says write tests)
   ]
 
-  // Use INSERT OR REPLACE to always update builtin actions with latest prompts
-  // This ensures prompt improvements are applied to existing databases
-  const upsertAction = db.prepare(`
-    INSERT INTO ${T.actions} (id, name, description, prompt, end_prompt, from_intent, to_intent,
-      executor, environment, permission_mode, modifies_code, is_default, is_builtin, position, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      name = excluded.name,
-      description = excluded.description,
-      prompt = excluded.prompt,
-      end_prompt = excluded.end_prompt,
-      from_intent = excluded.from_intent,
-      to_intent = excluded.to_intent,
-      executor = excluded.executor,
-      environment = excluded.environment,
-      permission_mode = excluded.permission_mode,
-      modifies_code = excluded.modifies_code,
-      is_default = excluded.is_default,
-      position = excluded.position,
-      updated_at = excluded.updated_at
-    WHERE is_builtin = 1
-  `)
-
   const now = new Date().toISOString()
   for (const action of builtinActions) {
-    upsertAction.run(
-      action.id,
-      action.name,
-      action.description,
-      action.prompt,
-      action.endPrompt || null,
-      action.fromIntent || null,
-      action.toIntent || null,
-      action.executor || null,
-      action.environment || 'host',
-      action.permissionMode || 'full',
-      action.modifiesCode ? 1 : 0,
-      action.isDefault ? 1 : 0,
-      action.position,
-      now,
-      now
-    )
+    // Use INSERT OR REPLACE via Drizzle's onConflictDoUpdate
+    drizzle
+      .insert(pmoActions)
+      .values({
+        id: action.id,
+        name: action.name,
+        description: action.description,
+        prompt: action.prompt,
+        endPrompt: action.endPrompt || null,
+        fromIntent: action.fromIntent || null,
+        toIntent: action.toIntent || null,
+        executor: action.executor || null,
+        environment: action.environment || 'host',
+        permissionMode: action.permissionMode || 'full',
+        modifiesCode: action.modifiesCode,
+        isDefault: action.isDefault,
+        isBuiltin: true,
+        position: action.position,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: pmoActions.id,
+        set: {
+          name: sql`excluded.name`,
+          description: sql`excluded.description`,
+          prompt: sql`excluded.prompt`,
+          endPrompt: sql`excluded.end_prompt`,
+          fromIntent: sql`excluded.from_intent`,
+          toIntent: sql`excluded.to_intent`,
+          executor: sql`excluded.executor`,
+          environment: sql`excluded.environment`,
+          permissionMode: sql`excluded.permission_mode`,
+          modifiesCode: sql`excluded.modifies_code`,
+          isDefault: sql`excluded.is_default`,
+          position: sql`excluded.position`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+        where: eq(pmoActions.isBuiltin, true),
+      })
+      .run()
   }
 }
 
 /**
- * Seed built-in workflow rules.
+ * Seed built-in workflow rules using Drizzle ORM.
  * Wires default actions to standard intent-based transitions.
  */
-export function seedBuiltinWorkflowRules(db: Database.Database): void {
+export function seedBuiltinWorkflowRules(drizzle: DrizzleDB): void {
   const builtinRules = [
     {
       id: 'backlog-groom',
-      fromIntent: null,
+      fromIntent: null as string | null,
       toIntent: 'backlog',
       actionId: 'groom',
       trigger: 'manual',
     },
     {
       id: 'ready-implement',
-      fromIntent: null,
+      fromIntent: null as string | null,
       toIntent: 'ready',
       actionId: 'implement',
       trigger: 'manual',
     },
     {
       id: 'started-implement',
-      fromIntent: null,
+      fromIntent: null as string | null,
       toIntent: 'started',
       actionId: 'implement',
       trigger: 'manual',
     },
     {
       id: 'completed-review',
-      fromIntent: null,
+      fromIntent: null as string | null,
       toIntent: 'completed',
       actionId: 'review',
       trigger: 'manual',
     },
   ]
 
-  // Verify pmo_workflow_rules table exists
-  const tableExists = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_workflow_rules'"
-  ).get()
-  if (!tableExists) return
-
-  const upsertRule = db.prepare(`
-    INSERT INTO ${T.workflow_rules} (id, from_intent, to_intent, action_id, trigger, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      from_intent = excluded.from_intent,
-      to_intent = excluded.to_intent,
-      action_id = excluded.action_id,
-      trigger = excluded.trigger,
-      updated_at = excluded.updated_at
-  `)
-
   const now = new Date().toISOString()
   for (const rule of builtinRules) {
     // Only insert if the referenced action exists
-    const actionExists = db.prepare(`
-      SELECT id FROM ${T.actions} WHERE id = ?
-    `).get(rule.actionId)
+    const actionExists = drizzle
+      .select({ id: pmoActions.id })
+      .from(pmoActions)
+      .where(eq(pmoActions.id, rule.actionId))
+      .get()
     if (!actionExists) continue
 
-    upsertRule.run(
-      rule.id,
-      rule.fromIntent,
-      rule.toIntent,
-      rule.actionId,
-      rule.trigger,
-      now,
-      now
-    )
+    drizzle
+      .insert(pmoWorkflowRules)
+      .values({
+        id: rule.id,
+        fromIntent: rule.fromIntent,
+        toIntent: rule.toIntent,
+        actionId: rule.actionId,
+        trigger: rule.trigger,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: pmoWorkflowRules.id,
+        set: {
+          fromIntent: sql`excluded.from_intent`,
+          toIntent: sql`excluded.to_intent`,
+          actionId: sql`excluded.action_id`,
+          trigger: sql`excluded.trigger`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      })
+      .run()
   }
 }
 
 /**
- * Seed built-in ticket templates.
+ * Seed built-in ticket templates using Drizzle ORM.
  */
-export function seedBuiltinTicketTemplates(db: Database.Database): void {
+export function seedBuiltinTicketTemplates(drizzle: DrizzleDB): void {
   const builtinTemplates = [
     {
       id: 'bug-report',
@@ -936,6 +992,7 @@ As a [type of user], I want [goal] so that [benefit].
       id: 'task',
       name: 'Task',
       description: 'General task template',
+      titlePattern: undefined as string | undefined,
       descriptionTemplate: `## What
 Describe what needs to be done.
 
@@ -947,7 +1004,7 @@ Any relevant context or notes.
 `,
       defaultPriority: 'P2',
       defaultCategory: 'chore',
-      suggestedSubtasks: [],
+      suggestedSubtasks: [] as Array<{ title: string }>,
     },
     {
       id: 'refactor',
@@ -1002,32 +1059,29 @@ Why is this refactor needed?
     },
   ]
 
-  const insertTemplate = db.prepare(`
-    INSERT OR IGNORE INTO ${T.ticket_templates} (
-      id, name, description, is_builtin, title_pattern, description_template,
-      default_priority, default_category, default_status_id, default_assignee,
-      default_owner, default_labels, suggested_subtasks, created_at
-    )
-    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-
   const now = new Date().toISOString()
   for (const template of builtinTemplates) {
-    insertTemplate.run(
-      template.id,
-      template.name,
-      template.description || null,
-      template.titlePattern || null,
-      template.descriptionTemplate || null,
-      template.defaultPriority || null,
-      template.defaultCategory || null,
-      null,
-      null,
-      null,
-      '[]',
-      JSON.stringify(template.suggestedSubtasks || []),
-      now
-    )
+    // INSERT OR IGNORE — don't overwrite existing builtin templates
+    drizzle
+      .insert(pmoTicketTemplates)
+      .values({
+        id: template.id,
+        name: template.name,
+        description: template.description || null,
+        isBuiltin: true,
+        titlePattern: template.titlePattern || null,
+        descriptionTemplate: template.descriptionTemplate || null,
+        defaultPriority: template.defaultPriority || null,
+        defaultCategory: template.defaultCategory || null,
+        defaultStatusId: null,
+        defaultAssignee: null,
+        defaultOwner: null,
+        defaultLabels: '[]',
+        suggestedSubtasks: JSON.stringify(template.suggestedSubtasks || []),
+        createdAt: now,
+      })
+      .onConflictDoNothing()
+      .run()
   }
 }
 
@@ -1035,26 +1089,34 @@ Why is this refactor needed?
  * Seed default priorities if not already set.
  * Preserves any existing user-defined priority scale.
  */
-export function seedDefaultPriorities(db: Database.Database): void {
-  // getWorkspacePriorities returns DEFAULT_PRIORITIES if not set,
-  // but we need to check if it's actually stored in the DB
-  const row = db.prepare(
-    `SELECT value FROM ${T.settings} WHERE key = 'priorities'`
-  ).get() as { value: string } | undefined
+export function seedDefaultPriorities(drizzle: DrizzleDB): void {
+  const row = drizzle
+    .select({ value: pmoSettings.value })
+    .from(pmoSettings)
+    .where(eq(pmoSettings.key, 'priorities'))
+    .get()
 
   if (!row) {
     // No priorities set yet - seed with defaults
-    setWorkspacePriorities(db, [...DEFAULT_PRIORITIES])
+    // setWorkspacePriorities still needs raw DB, so we use sql`` for this one
+    drizzle
+      .insert(pmoSettings)
+      .values({
+        key: 'priorities',
+        value: JSON.stringify(DEFAULT_PRIORITIES),
+      })
+      .onConflictDoNothing()
+      .run()
   }
 }
 
 /**
  * Update board timestamp for a project.
  */
-export function updateBoardTimestamp(db: Database.Database, projectId: string): void {
-  db.prepare(`
-    UPDATE ${T.projects}
-    SET updated_at = ?
-    WHERE id = ?
-  `).run(Date.now(), projectId)
+export function updateBoardTimestamp(drizzle: DrizzleDB, projectId: string): void {
+  drizzle
+    .update(pmoProjects)
+    .set({ updatedAt: new Date().toISOString() })
+    .where(eq(pmoProjects.id, projectId))
+    .run()
 }

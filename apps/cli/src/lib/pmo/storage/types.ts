@@ -64,56 +64,8 @@ export interface PhaseTemplateRow {
   created_at: string
 }
 
-export interface WorkActionRow {
-  id: string
-  name: string
-  description: string | null
-  prompt: string
-  end_prompt: string | null
-  from_intent: string | null
-  to_intent: string | null
-  executor: string | null
-  environment: string | null
-  permission_mode: string | null
-  timeout: number | null
-  model: string | null
-  review_gate: string | null
-  network_allowlist: string | null
-  modifies_code: number
-  is_default: number
-  is_builtin: number
-  position: number
-  created_at: string
-  updated_at: string | null
-}
-
-export interface WorkflowRuleRow {
-  id: string
-  from_intent: string | null
-  to_intent: string
-  action_id: string
-  trigger: string
-  enabled: number
-  created_at: string
-  updated_at: string | null
-}
-
-export interface TicketTemplateRow {
-  id: string
-  name: string
-  description: string | null
-  default_title: string | null
-  default_description: string | null
-  default_priority: string | null
-  default_category: string | null
-  default_status_id: string | null
-  default_assignee: string | null
-  default_owner: string | null
-  default_labels: string
-  suggested_subtasks: string | null
-  is_builtin: number
-  created_at: string
-}
+// NOTE: WorkActionRow, WorkflowRuleRow, and TicketTemplateRow were removed in PRLT-1302.
+// Those storage modules now use Drizzle ORM's inferred types from drizzle-schema.ts.
 
 export interface CategoryRow {
   id: string

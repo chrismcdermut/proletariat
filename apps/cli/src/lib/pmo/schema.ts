@@ -1,14 +1,18 @@
 /**
- * PMO Schema - Single Source of Truth
+ * PMO Schema — Legacy Raw SQL Definitions
  *
- * All PMO table definitions live here. Both database/index.ts and
- * storage-sqlite.ts import from this file to ensure schema consistency.
+ * PRLT-1302: The single source of truth for table schema is now
+ * `database/drizzle-schema.ts`. The Drizzle ORM schema definitions
+ * drive table creation via Drizzle Kit migrations (`drizzle/`).
+ *
+ * This file is retained only for:
+ * - PMO_TABLES: table name constants used across the codebase
+ * - PMO_TABLE_SCHEMAS / PMO_SCHEMA_SQL: referenced by legacy migrations
+ *   (0001_baseline, 0016_schema_catchup) and db-safety.ts validation.
+ *   These are @deprecated and should NOT be used in new code.
  *
  * PRLT-1299: Dead tables removed. Provider (Linear/Jira) is the source of truth
- * for tickets, workflows, and board state. Local tables retained only for:
- * - Workflow engine (actions, rules, hooks, transition map)
- * - Ticket registry (external issue/execution mappings)
- * - Infrastructure (projects, settings, agent work, containers)
+ * for tickets, workflows, and board state.
  */
 
 // =============================================================================
@@ -48,6 +52,8 @@ export const PMO_TABLES = {
 
 // =============================================================================
 // Individual Table Schemas
+// @deprecated PRLT-1302 — use drizzle-schema.ts for new code.
+// Kept for legacy migrations (0001, 0016) and db-safety.ts only.
 // =============================================================================
 
 export const PMO_TABLE_SCHEMAS = {
@@ -385,6 +391,8 @@ export const PMO_INDEXES = `
 /**
  * All PMO table creation statements combined.
  * Order matters due to foreign key dependencies.
+ * @deprecated PRLT-1302 — Drizzle Kit migrations now handle table creation.
+ * Kept for legacy migration 0001_baseline.ts.
  */
 export const PMO_SCHEMA_SQL = [
   PMO_TABLE_SCHEMAS.phases,  // Project phases (before projects for FK)

@@ -13,8 +13,11 @@
  * - External issue/execution mapping
  */
 
-import Database from 'better-sqlite3'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
+import * as url from 'node:url'
+import Database from 'better-sqlite3'
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { createDrizzleConnection, DrizzleDB } from '../../database/drizzle.js'
 import { type DatabaseDriver, BetterSqlite3Driver } from '../../database/driver.js'
 import { configureConnection } from '../../database/db-safety.js'
@@ -46,13 +49,14 @@ import {
   TicketTemplate,
   TicketTemplateFilter,
 } from '../types.js'
-import { PMO_TABLES, PMO_SCHEMA_SQL } from '../schema.js'
+import { PMO_SCHEMA_SQL } from '../schema.js'
 import { StorageContext } from './types.js'
 import {
   runMigrations,
   seedBuiltinActions,
   seedBuiltinWorkflowRules,
   seedBuiltinTicketTemplates,
+  seedDefaultPriorities,
 } from './base.js'
 import { ProjectStorage } from './projects.js'
 import { TemplateStorage } from './templates.js'
@@ -132,19 +136,47 @@ export class SQLiteStorage {
   }
 
   /**
+   * Resolve the path to the Drizzle Kit migration files.
+   */
+  private getDrizzleMigrationsPath(): string {
+    const thisDir = path.dirname(url.fileURLToPath(import.meta.url))
+    // Navigate from src/lib/pmo/storage/ → apps/cli/drizzle/
+    return path.resolve(thisDir, '..', '..', '..', '..', 'drizzle')
+  }
+
+  /**
    * Ensure PMO tables exist in the database.
+   * Uses Drizzle Kit migrations for table creation (PRLT-1302),
+   * with fallback to legacy PMO_SCHEMA_SQL for environments
+   * where migration files are unavailable (e.g., tests).
    */
   private ensurePMOTables(): void {
-    // Run migrations FIRST for existing databases
+    // Try Drizzle Kit migrations first
+    const migrationsPath = this.getDrizzleMigrationsPath()
+    let tablesCreated = false
+
+    if (fs.existsSync(migrationsPath)) {
+      try {
+        migrate(this.drizzle, { migrationsFolder: migrationsPath })
+        tablesCreated = true
+      } catch {
+        // Fall through to legacy schema creation
+      }
+    }
+
+    if (!tablesCreated) {
+      // Fallback: use legacy PMO_SCHEMA_SQL (CREATE TABLE IF NOT EXISTS)
+      this.db.exec(PMO_SCHEMA_SQL)
+    }
+
+    // Legacy DDL migrations for column additions (ALTER TABLE)
     runMigrations(this.db)
 
-    // Create tables and indexes using shared schema
-    this.db.exec(PMO_SCHEMA_SQL)
-
-    // Seed built-in data
-    seedBuiltinActions(this.db)
-    seedBuiltinWorkflowRules(this.db)
-    seedBuiltinTicketTemplates(this.db)
+    // Seed built-in data using Drizzle ORM (PRLT-1302)
+    seedBuiltinActions(this.drizzle)
+    seedBuiltinWorkflowRules(this.drizzle)
+    seedBuiltinTicketTemplates(this.drizzle)
+    seedDefaultPriorities(this.drizzle)
   }
 
   // ===========================================================================
