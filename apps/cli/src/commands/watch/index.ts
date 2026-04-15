@@ -9,7 +9,7 @@
  */
 
 import { Flags } from '@oclif/core'
-import { execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
@@ -199,12 +199,14 @@ export default class Watch extends PromptCommand {
   /**
    * Poke the target orchestrator agent with a message.
    * Uses `prlt session poke` to send the message to the agent's tmux session.
+   *
+   * Uses execFileSync (no shell) with stdin piping so messages containing
+   * newlines, #, parentheses, quotes, and other shell metacharacters are
+   * delivered intact (PRLT-1314).
    */
   private pokeTarget(target: string, message: string, verbose: boolean): void {
     try {
-      // Use prlt session poke to send the message
-      // Pass message via stdin to handle multi-line safely
-      execSync(`prlt session poke ${target} -`, {
+      execFileSync('prlt', ['session', 'poke', target, '-'], {
         input: message,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -214,9 +216,11 @@ export default class Watch extends PromptCommand {
       if (verbose) {
         this.log(styles.success(`  Poked ${target} with ${message.split('\n').length} lines`))
       }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err)
-      this.log(styles.error(`[watch] Failed to poke ${target}: ${errMsg}`))
+    } catch (err: unknown) {
+      // execFileSync errors include stderr — surface the actual failure reason
+      const stderr = (err as { stderr?: string | Buffer })?.stderr
+      const detail = stderr ? String(stderr).trim() : (err instanceof Error ? err.message : String(err))
+      this.log(styles.error(`[watch] Failed to poke ${target}: ${detail}`))
     }
   }
 }
