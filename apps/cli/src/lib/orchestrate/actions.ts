@@ -8,7 +8,7 @@
  * with manual invocations.
  */
 
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import type { OrchestrateEventContext, OrchestrateActionResult } from './types.js'
@@ -344,7 +344,7 @@ const healthCheck: ActionHandler = (ctx) => {
       return { action: 'health-check', success: false, error: 'No agent in context', durationMs: Date.now() - start }
     }
 
-    execSync(`prlt poke ${ctx.agent} "Are you still working? Please provide a status update."`, { timeout: 30_000, stdio: 'pipe' })
+    execFileSync('prlt', ['poke', ctx.agent, 'Are you still working? Please provide a status update.'], { timeout: 30_000, stdio: 'pipe' })
     return { action: 'health-check', success: true, durationMs: Date.now() - start }
   } catch (err) {
     return { action: 'health-check', success: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
@@ -369,7 +369,7 @@ const resolveConflict: ActionHandler = (ctx, config) => {
   // directly here is intentional.
   try {
     const pokeMsg = 'Your PR has merge conflicts. Please rebase on main and resolve the conflicts.'
-    execSync(`prlt session poke ${ctx.ticket} "${pokeMsg}"`, { timeout: 30_000, stdio: 'pipe' })
+    execFileSync('prlt', ['session', 'poke', ctx.ticket, pokeMsg], { timeout: 30_000, stdio: 'pipe' })
     return { action: 'resolve-conflict', success: true, durationMs: Date.now() - start }
   } catch {
     // Poke failed — agent is likely not running, respawn it via prompt chain
