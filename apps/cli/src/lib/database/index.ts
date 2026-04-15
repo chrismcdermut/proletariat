@@ -138,6 +138,25 @@ export {
   migrateCredentials,
 } from './credential-store.js'
 
+// Repository layer (PRLT-1303: typed data access)
+export {
+  createRepositories,
+  type Repositories,
+  AgentRepository,
+  type IAgentRepository,
+  SessionRepository,
+  type ISessionRepository,
+  WorkflowRepository,
+  type IWorkflowRepository,
+  ProjectRepository,
+  type IProjectRepository,
+  PRRepository,
+  type IPRRepository,
+  TicketRepository,
+  type ITicketRepository,
+  type RepositoryContext,
+} from './repositories/index.js'
+
 // Database safety (WAL, backup, integrity, repair)
 export {
   enableWALMode,
