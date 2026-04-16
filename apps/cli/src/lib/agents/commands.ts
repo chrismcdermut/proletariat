@@ -658,44 +658,77 @@ export async function createEphemeralAgent(
     }
 
     // Create worktrees/clones for each repository
+    // PRLT-1322: Surface failures loudly — previously we silently fell back to
+    // empty directories, which caused containers to launch with empty /workspace
+    // and left agents unable to work on any code.
     if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
+      const repoFailures: string[] = [];
       for (const repo of workspaceInfo.repositories) {
         const sourceRepoPath = path.join(reposPath, repo.name);
         const targetPath = path.join(agentDir, repo.name);
 
-        if (fs.existsSync(sourceRepoPath) && !fs.existsSync(targetPath)) {
-          if (mountMode === 'clone') {
-            // CLONE MODE: Create independent git clone
-            // Resolve local paths to GitHub remotes so agents can push/create PRs
-            try {
-              const resolved = resolveRemoteUrl(sourceRepoPath);
+        if (!fs.existsSync(sourceRepoPath)) {
+          log?.(`⚠️  Source repo not found (skipping): ${sourceRepoPath}`);
+          continue;
+        }
+        if (fs.existsSync(targetPath)) {
+          continue; // Already exists (resumed spawn)
+        }
 
-              if (resolved.url) {
-                execSync(`git clone "${resolved.url}" "${targetPath}"`, {
-                  stdio: 'pipe'
-                });
-              }
-            } catch {
-              // Clone failed (network issue, auth, etc.) — fall back to empty directory so agent can still start
-              if (!fs.existsSync(targetPath)) {
-                fs.mkdirSync(targetPath, { recursive: true });
-              }
+        if (mountMode === 'clone') {
+          // CLONE MODE: Create independent git clone
+          try {
+            const resolved = resolveRemoteUrl(sourceRepoPath);
+            if (!resolved.url) {
+              throw new Error(`Could not resolve remote URL for ${sourceRepoPath}`);
             }
-          } else {
-            // WORKTREE MODE: Create git worktree
-            try {
-              execSync(`git worktree add --detach "${targetPath}"`, {
-                cwd: sourceRepoPath,
-                stdio: 'pipe'
-              });
-            } catch {
-              // Worktree creation failed (source repo issues, path conflicts) — fall back to empty directory
-              if (!fs.existsSync(targetPath)) {
-                fs.mkdirSync(targetPath, { recursive: true });
-              }
+            log?.(`→ Cloning ${repo.name} from ${resolved.url}`);
+            execSync(`git clone "${resolved.url}" "${targetPath}"`, {
+              stdio: 'pipe',
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            repoFailures.push(`clone ${repo.name}: ${message}`);
+            // Clean up partial target if clone wrote anything
+            if (fs.existsSync(targetPath)) {
+              try { fs.rmSync(targetPath, { recursive: true, force: true }); } catch { /* best-effort */ }
             }
           }
+        } else {
+          // WORKTREE MODE: Create git worktree
+          try {
+            log?.(`→ Creating git worktree for ${repo.name}`);
+            execSync(`git worktree add --detach "${targetPath}"`, {
+              cwd: sourceRepoPath,
+              stdio: 'pipe',
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            repoFailures.push(`worktree ${repo.name}: ${message}`);
+          }
         }
+
+        // Verify the target is non-empty (fail-fast if git produced an empty dir)
+        if (fs.existsSync(targetPath)) {
+          const entries = fs.readdirSync(targetPath);
+          if (entries.length === 0) {
+            repoFailures.push(`${repo.name}: created directory is empty (git command produced no files)`);
+          }
+        } else {
+          repoFailures.push(`${repo.name}: target path missing after ${mountMode}`);
+        }
+      }
+
+      if (repoFailures.length > 0) {
+        // Clean up partial on-disk state and surface the failure loudly.
+        cleanupFailedEphemeralAgent(agentDir, workspaceInfo, mountMode);
+        throw new Error(
+          `Failed to populate agent workspace for "${agentName}":\n` +
+          repoFailures.map(f => `  - ${f}`).join('\n') +
+          `\n\nThe agent would have launched with an empty /workspace. ` +
+          `Fix the underlying ${mountMode} error (commonly: source repo dirty, ` +
+          `path conflict, or missing git remote) and retry.`
+        );
       }
     }
 
@@ -749,6 +782,61 @@ export async function createEphemeralAgent(
     `This can happen when many ephemeral agents are being created simultaneously. ` +
     `Suggested remediation: wait a moment and retry, or specify a unique agent name with --agent.`
   );
+}
+
+/**
+ * PRLT-1322: Clean up a fully-spawned ephemeral agent after a pipeline
+ * failure (e.g., docker build failed, container couldn't start, /workspace
+ * verify failed). Leaving these around causes the "ghost agent" bug: the
+ * next spawn generates a new name because the old record still exists in
+ * the DB, and operators see multiple agents for the same ticket.
+ *
+ * Removes (best-effort):
+ *   - Git worktrees (for worktree mode) under the agent dir
+ *   - The agent directory itself
+ *   - The DB row for the agent
+ *   - Any Docker image named prlt-agent-<name>:latest
+ *   - Any Docker container named prlt-agent-<name> (running or stopped)
+ */
+export function cleanupFailedAgentSpawn(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string,
+  options?: { mountMode?: DBMountMode; log?: (msg: string) => void }
+): void {
+  const log = options?.log;
+  const mountMode = options?.mountMode || 'worktree';
+  const ephemeralDir = workspaceInfo.ephemeralAgentsDir || 'temp';
+  const agentDir = path.join(workspaceInfo.path, 'agents', ephemeralDir, agentName);
+
+  // 1. Remove worktrees + directory
+  cleanupFailedEphemeralAgent(agentDir, workspaceInfo, mountMode);
+  log?.(`  ✓ Removed agent dir: ${agentDir}`);
+
+  // 2. Remove DB record so the name can be regenerated later
+  try {
+    removeAgentsFromDatabase(workspaceInfo.path, [agentName]);
+    log?.(`  ✓ Removed agent "${agentName}" from workspace DB`);
+  } catch (err) {
+    log?.(`  ⚠ Failed to remove DB row for "${agentName}": ${err instanceof Error ? err.message : err}`);
+  }
+
+  // 3. Remove the container (if any) so a stopped orphan doesn't linger
+  const containerName = `prlt-agent-${agentName.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  try {
+    execSync(`docker rm -f ${containerName}`, { stdio: 'pipe', timeout: 10000 });
+    log?.(`  ✓ Removed docker container ${containerName}`);
+  } catch {
+    // Container may not exist — that's fine
+  }
+
+  // 4. Remove the image so a retry doesn't reuse a corrupt one
+  const imageName = `${containerName}:latest`;
+  try {
+    execSync(`docker image rm -f ${imageName}`, { stdio: 'pipe', timeout: 10000 });
+    log?.(`  ✓ Removed docker image ${imageName}`);
+  } catch {
+    // Image may not exist or still be referenced — fine
+  }
 }
 
 /**

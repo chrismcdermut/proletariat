@@ -235,10 +235,28 @@ export function getContainerId(containerName: string): string | null {
   }
 }
 
-export function buildDockerImage(agentDir: string, imageName: string, buildArgs: Record<string, string> = {}): boolean {
+/**
+ * Error captured during a Docker spawn pipeline stage (PRLT-1322).
+ * Surfaces stage name, message, and optional stderr so callers can report
+ * meaningful errors instead of silently failing with a null return.
+ */
+export interface SpawnStageError {
+  stage: 'docker-check' | 'image-build' | 'pnpm-cache' | 'container-create' | 'container-setup' | 'workspace-verify'
+  message: string
+  stderr?: string
+}
+
+export function buildDockerImage(
+  agentDir: string,
+  imageName: string,
+  buildArgs: Record<string, string> = {},
+  errorOut?: { error?: SpawnStageError }
+): boolean {
   const dockerfilePath = path.join(agentDir, '.devcontainer', 'Dockerfile')
   if (!fs.existsSync(dockerfilePath)) {
-    console.debug(`[runners:docker] Dockerfile not found at ${dockerfilePath}`)
+    const msg = `Dockerfile not found at ${dockerfilePath}`
+    console.debug(`[runners:docker] ${msg}`)
+    if (errorOut) errorOut.error = { stage: 'image-build', message: msg }
     return false
   }
   try {
@@ -250,7 +268,11 @@ export function buildDockerImage(agentDir: string, imageName: string, buildArgs:
     execSync(buildCmd, { stdio: 'pipe' })
     return true
   } catch (error) {
+    const err = error as NodeJS.ErrnoException & { stderr?: Buffer | string }
+    const stderr = err.stderr ? (Buffer.isBuffer(err.stderr) ? err.stderr.toString() : err.stderr) : undefined
+    const msg = err.message || 'docker build failed'
     console.debug(`[runners:docker] Failed to build image:`, error)
+    if (errorOut) errorOut.error = { stage: 'image-build', message: msg, stderr }
     return false
   }
 }
@@ -299,7 +321,8 @@ export function createDockerContainer(
   imageName: string,
   config: ExecutionConfig,
   executor: ExecutorType = 'claude-code',
-  prltInfo?: { registry: string; version: string }
+  prltInfo?: { registry: string; version: string },
+  errorOut?: { error?: SpawnStageError }
 ): boolean {
   const mounts = buildContainerMounts(context, executor)
 
@@ -355,7 +378,81 @@ export function createDockerContainer(
     execSync(createCmd, { stdio: 'pipe' })
     return true
   } catch (error) {
+    const err = error as NodeJS.ErrnoException & { stderr?: Buffer | string }
+    const stderr = err.stderr ? (Buffer.isBuffer(err.stderr) ? err.stderr.toString() : err.stderr) : undefined
+    const msg = err.message || 'docker run failed'
     console.debug(`[runners:docker] Failed to create container:`, error)
+    if (errorOut) errorOut.error = { stage: 'container-create', message: msg, stderr }
+    return false
+  }
+}
+
+/**
+ * PRLT-1322: Verify that the agent's workspace mount contains at least one
+ * non-hidden entry beyond `.devcontainer`. Catches the "empty /workspace" bug
+ * where worktree creation silently failed before container launch.
+ *
+ * Returns null on success, or a SpawnStageError describing the failure.
+ */
+export function verifyWorkspaceMount(containerId: string): SpawnStageError | null {
+  try {
+    const output = execSync(
+      `docker exec ${containerId} ls -A /workspace`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
+    )
+    const entries = output.split('\n').map(e => e.trim()).filter(Boolean)
+    // Accept any entry that isn't just `.devcontainer` — the bug was /workspace
+    // containing ONLY the devcontainer config with no repo source.
+    const meaningfulEntries = entries.filter(e => e !== '.devcontainer')
+    if (meaningfulEntries.length === 0) {
+      return {
+        stage: 'workspace-verify',
+        message:
+          `Container /workspace is empty (only .devcontainer present). ` +
+          `The repo worktree was not mounted. Entries: [${entries.join(', ') || '(none)'}]. ` +
+          `This usually means git worktree creation failed silently on the host.`,
+      }
+    }
+    return null
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException & { stderr?: Buffer | string }
+    const stderr = err.stderr ? (Buffer.isBuffer(err.stderr) ? err.stderr.toString() : err.stderr) : undefined
+    return {
+      stage: 'workspace-verify',
+      message: `Failed to inspect /workspace in container ${containerId}: ${err.message || 'docker exec failed'}`,
+      stderr,
+    }
+  }
+}
+
+/**
+ * PRLT-1322: Pre-seed Claude Code's onboarding config so the agent doesn't hit
+ * theme-selection or other first-run dialogs inside the container.
+ *
+ * Writes `/home/node/.claude.json` with `hasCompletedOnboarding: true` and a
+ * default dark theme. Claude Code may later rewrite this file on startup, but
+ * because it reads the existing contents first it honors `hasCompletedOnboarding`
+ * and skips the blocking prompts that ambushed ghost containers previously.
+ *
+ * The companion `/home/node/.claude/settings.json` (written by `runContainerSetup`)
+ * is untouched — Claude does not clobber that file.
+ */
+export function seedClaudeOnboarding(containerId: string): boolean {
+  const seed = {
+    hasCompletedOnboarding: true,
+    theme: 'dark',
+    // Skip the "trust this workspace?" dialog for the auto-mounted /workspace.
+    bypassPermissionsModeAccepted: true,
+  }
+  try {
+    execSync(
+      `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude.json'`,
+      { input: JSON.stringify(seed), stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
+    )
+    console.debug(`[runners:docker] Seeded /home/node/.claude.json to bypass Claude onboarding prompts`)
+    return true
+  } catch (error) {
+    console.debug(`[runners:docker] Failed to seed Claude onboarding:`, error)
     return false
   }
 }
@@ -482,10 +579,18 @@ export function runContainerSetup(containerId: string, permissionMode: Permissio
   // NOTE: pnpm store-dir is now configured inside setup-prlt.sh (PRLT-1130)
   // to ensure it's set BEFORE pnpm install runs during workspace setup.
 
-  // PRLT-1240: Do NOT write ~/.claude.json — Claude Code owns that file and
-  // overwrites it on startup, clobbering any settings we write. Instead, we use
-  // -p (print) mode which skips all onboarding prompts entirely.
-  // We still write ~/.claude/settings.json (Claude does not clobber that).
+  // PRLT-1322: Pre-seed /home/node/.claude.json BEFORE claude starts so it
+  // skips the theme selection and trust dialogs. PRLT-1240 noted that Claude
+  // rewrites this file on startup, but because it reads existing contents
+  // first, `hasCompletedOnboarding: true` is honored and blocking prompts are
+  // suppressed. If this file is absent, Claude treats the container as a
+  // first-run user and stops at the theme picker.
+  if (isClaudeExecutor(executor)) {
+    seedClaudeOnboarding(containerId)
+  }
+
+  // PRLT-1240: We also still write ~/.claude/settings.json — Claude Code does
+  // not clobber that file, so permission settings and hooks are persisted.
   if (isClaudeExecutor(executor)) {
     try {
       // Write app settings to settings.json (skipDangerousModePermissionPrompt etc.)
@@ -618,14 +723,27 @@ export function removePnpmStoreCache(): boolean {
 }
 
 /**
- * Ensure a Docker container is running for the agent.
+ * Detailed result of `ensureDockerContainerDetailed`.
+ * PRLT-1322: surfaces the exact pipeline stage that failed so callers can
+ * report "image-build failed" or "workspace-verify failed" instead of a
+ * generic null.
+ */
+export interface EnsureDockerContainerResult {
+  containerId: string | null
+  error?: SpawnStageError
+}
+
+/**
+ * Ensure a Docker container is running for the agent, returning detailed
+ * pipeline stage information on failure (PRLT-1322).
+ *
  * Reuses running containers to preserve in-progress work (TKT-1028).
  */
-export function ensureDockerContainer(
+export function ensureDockerContainerDetailed(
   context: ExecutionContext,
   config: ExecutionConfig,
   executor: ExecutorType = 'claude-code'
-): string | null {
+): EnsureDockerContainerResult {
   const containerName = getContainerName(context.agentName)
   const imageName = getImageName(context.agentName)
 
@@ -634,7 +752,15 @@ export function ensureDockerContainer(
       const containerId = getContainerId(containerName)
       if (containerId) {
         console.debug(`[runners:docker] Reusing running container ${containerName} (${containerId}), skipping setup`)
-        return containerId
+        // PRLT-1322: Even for reused containers, verify /workspace is populated.
+        // A container may be running with an empty mount if the previous spawn
+        // attempt leaked it. Bail out with a clear error rather than silently
+        // handing the agent an empty workspace.
+        const mountError = verifyWorkspaceMount(containerId)
+        if (mountError) {
+          return { containerId: null, error: mountError }
+        }
+        return { containerId }
       }
     }
     console.debug(`[runners:docker] Removing stopped container ${containerName} to create fresh one`)
@@ -680,9 +806,16 @@ export function ensureDockerContainer(
   }
 
   console.debug(`[runners:docker] Building image ${imageName} (PRLT_VERSION=${buildArgs.PRLT_VERSION})`)
-  if (!buildDockerImage(context.agentDir, imageName, buildArgs)) {
+  const buildErrorOut: { error?: SpawnStageError } = {}
+  if (!buildDockerImage(context.agentDir, imageName, buildArgs, buildErrorOut)) {
     if (!imageExists(imageName)) {
-      return null
+      return {
+        containerId: null,
+        error: buildErrorOut.error || {
+          stage: 'image-build',
+          message: `docker build failed for ${imageName} and no cached image is available`,
+        },
+      }
     }
     console.debug(`[runners:docker] Build failed but existing image found, continuing with runtime update`)
   }
@@ -697,13 +830,28 @@ export function ensureDockerContainer(
   ensurePnpmStoreCache(context.agentDir, imageName)
 
   console.debug(`[runners:docker] Creating container ${containerName}`)
-  if (!createDockerContainer(context, containerName, imageName, config, executor, prltInfo)) {
-    return null
+  const createErrorOut: { error?: SpawnStageError } = {}
+  if (!createDockerContainer(context, containerName, imageName, config, executor, prltInfo, createErrorOut)) {
+    // PRLT-1322: Clean up the image if container create failed so a retry
+    // doesn't leave an orphan `prlt-agent-*:latest` image lying around.
+    return {
+      containerId: null,
+      error: createErrorOut.error || {
+        stage: 'container-create',
+        message: `docker run failed for ${containerName}`,
+      },
+    }
   }
 
   const containerId = getContainerId(containerName)
   if (!containerId) {
-    return null
+    return {
+      containerId: null,
+      error: {
+        stage: 'container-create',
+        message: `Container ${containerName} was created but its ID could not be read`,
+      },
+    }
   }
 
   console.debug(`[runners:docker] Running container setup (permissionMode=${config.permissionMode}, executor=${executor})`)
@@ -711,5 +859,39 @@ export function ensureDockerContainer(
     console.debug(`[runners:docker] Setup failed, but continuing...`)
   }
 
-  return containerId
+  // PRLT-1322: Verify /workspace is populated before handing the container
+  // back. Catches the "only .devcontainer" bug at the last possible moment.
+  const mountError = verifyWorkspaceMount(containerId)
+  if (mountError) {
+    // Stop the container so watchers don't list it as "running ready for work"
+    // and so the caller's cleanup sweep can remove the stopped container.
+    try {
+      execSync(`docker stop ${containerId}`, { stdio: 'pipe', timeout: 15000 })
+    } catch {
+      // Best-effort stop; image/container cleanup happens at caller level.
+    }
+    return { containerId: null, error: mountError }
+  }
+
+  return { containerId }
+}
+
+/**
+ * Backward-compatible wrapper that returns just the container ID.
+ * PRLT-1322: New code should prefer `ensureDockerContainerDetailed` so the
+ * caller can surface the failing pipeline stage to the user.
+ */
+export function ensureDockerContainer(
+  context: ExecutionContext,
+  config: ExecutionConfig,
+  executor: ExecutorType = 'claude-code'
+): string | null {
+  const result = ensureDockerContainerDetailed(context, config, executor)
+  if (!result.containerId && result.error) {
+    console.error(
+      `[runners:docker] Spawn pipeline failed at stage "${result.error.stage}": ${result.error.message}` +
+      (result.error.stderr ? `\n  stderr: ${result.error.stderr.trim()}` : '')
+    )
+  }
+  return result.containerId
 }
