@@ -135,7 +135,11 @@ export default class PRMerge extends PMOCommand {
     if (this.hasPMO) {
       try {
         const db = this.storage.getDatabase();
-        const prService = new PRService(db, this.storage as unknown as ProviderStorage & { listTickets: any; updateTicket: any });
+        const prService = new PRService(
+          db,
+          this.storage as unknown as ProviderStorage,
+          (tid, pid) => this.resolveTicketProvider(tid, pid),
+        );
         const linkResult = await prService.resolveLinkedTicket(prNumber, prInfo.headBranch, (flags as { project?: string }).project);
 
         if (linkResult.ticket) {
