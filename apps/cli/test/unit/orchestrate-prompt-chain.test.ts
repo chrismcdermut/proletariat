@@ -628,6 +628,9 @@ describe('DEFAULT_PROMPT_CHOICES value validity (PRLT-1274)', () => {
     // Review agents set modifiesCode=false which would normally skip prChoice
     // entirely, but we guard the default anyway in case a future code path
     // re-emits the prompt for review-style actions.
+    // PRLT-1316: `--action` was removed from the public CLI. Internal
+    // orchestrator callers set the action via PRLT_INTERNAL_ACTION now, so
+    // the follow-up commands emitted by work start no longer include it.
     let i = 0
     const responses: ChainExecutorResult[] = [
       jsonResult({
@@ -636,8 +639,8 @@ describe('DEFAULT_PROMPT_CHOICES value validity (PRLT-1274)', () => {
           type: 'list',
           name: 'environment',
           choices: [
-            { value: 'devcontainer', command: 'prlt work start TKT-1 --action review --environment devcontainer --json' },
-            { value: 'host', command: 'prlt work start TKT-1 --action review --run-on-host --json' },
+            { value: 'devcontainer', command: 'prlt work start TKT-1 --environment devcontainer --json' },
+            { value: 'host', command: 'prlt work start TKT-1 --run-on-host --json' },
           ],
         },
       }, 2),
@@ -647,8 +650,8 @@ describe('DEFAULT_PROMPT_CHOICES value validity (PRLT-1274)', () => {
           type: 'list',
           name: 'permission-mode',
           choices: [
-            { value: 'danger', command: 'prlt work start TKT-1 --action review --run-on-host --permission-mode danger --json' },
-            { value: 'safe', command: 'prlt work start TKT-1 --action review --run-on-host --permission-mode safe --json' },
+            { value: 'danger', command: 'prlt work start TKT-1 --run-on-host --permission-mode danger --json' },
+            { value: 'safe', command: 'prlt work start TKT-1 --run-on-host --permission-mode safe --json' },
           ],
         },
       }, 2),
@@ -658,8 +661,8 @@ describe('DEFAULT_PROMPT_CHOICES value validity (PRLT-1274)', () => {
           type: 'list',
           name: 'prChoice',
           choices: [
-            { value: 'yes', command: 'prlt work start TKT-1 --action review --run-on-host --permission-mode safe --create-pr --json' },
-            { value: 'no', command: 'prlt work start TKT-1 --action review --run-on-host --permission-mode safe --json' },
+            { value: 'yes', command: 'prlt work start TKT-1 --run-on-host --permission-mode safe --create-pr --json' },
+            { value: 'no', command: 'prlt work start TKT-1 --run-on-host --permission-mode safe --json' },
           ],
         },
       }, 2),
@@ -672,7 +675,7 @@ describe('DEFAULT_PROMPT_CHOICES value validity (PRLT-1274)', () => {
     }
 
     const result = walkPromptChain({
-      baseCommand: 'prlt work start TKT-1 --action review',
+      baseCommand: 'prlt work start TKT-1',
       defaults: resolveActionDefaults('spawn-review-agent'),
       executor: exec,
     })

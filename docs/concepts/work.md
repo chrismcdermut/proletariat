@@ -101,15 +101,26 @@ Specify what the agent should do:
 | `custom` | Custom action with provided prompt |
 
 ```bash
-# Implement the ticket
-prlt work start TKT-001 --action implement
+# Implement the ticket (default action — `work start` always uses 'implement')
+prlt work start TKT-001
+prlt work implement TKT-001            # equivalent dedicated verb
 
-# Groom the ticket
-prlt work start TKT-001 --action groom
+# Groom the ticket — use the dedicated verb, not `work start`
+prlt work groom TKT-001
 
-# Custom prompt
+# Review an existing PR
+prlt work review TKT-001
+
+# Resolve ambiguity questions on a ticket
+prlt work resolve TKT-001
+
+# Custom prompt (overrides the default action prompt)
 prlt work start TKT-001 --prompt "Review the code for security issues"
 ```
+
+> The public `--action` flag was removed in PRLT-1316. Use the dedicated verbs
+> above (`work groom`, `work review`, `work implement`, `work resolve`)
+> whenever you need a non-`implement` role prompt.
 
 ## Monitoring Work
 

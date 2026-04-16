@@ -114,7 +114,7 @@ const ORCHESTRATOR_COMMAND_REGISTRY: CommandCategory[] = [
   {
     title: 'Agent Lifecycle',
     commands: [
-      { cmd: 'prlt work start <ticket> --ephemeral --skip-permissions --create-pr --verify-ci --display background --action implement --run-on-host --yes', desc: 'Spawn an agent for a ticket', checkPath: 'work/start' },
+      { cmd: 'prlt work start <ticket> --ephemeral --skip-permissions --create-pr --verify-ci --display background --run-on-host --yes', desc: 'Spawn an agent for a ticket', checkPath: 'work/start' },
       { cmd: 'prlt session list', desc: 'List running sessions', checkPath: 'session/list' },
       { cmd: 'prlt session inspect <agent>', desc: 'Inspect session details', checkPath: 'session/inspect' },
       { cmd: 'prlt session poke <agent> \'message\'', desc: 'Send message to agent', checkPath: 'session/poke' },
@@ -234,9 +234,9 @@ function buildOrchestratorBody(hqName: string, context: ExecutionContext): strin
   prompt += buildOrchestratorCommandReference()
   prompt += `## Spawning Agents\n`
   prompt += `\`\`\`\n`
-  prompt += `script -q /dev/null prlt work start <ticket-id> --ephemeral --skip-permissions --create-pr --verify-ci --display background --action implement --run-on-host --yes\n`
+  prompt += `script -q /dev/null prlt work start <ticket-id> --ephemeral --skip-permissions --create-pr --verify-ci --display background --run-on-host --yes\n`
   prompt += `\`\`\`\n`
-  prompt += `- Review: \`--action review\` (model decides whether to comment, fix, or both)\n\n`
+  prompt += `- Review: use the \`prlt work review <ticket-id>\` verb (model decides whether to comment, fix, or both)\n\n`
   prompt += buildOrchestratorAntiPatterns()
   prompt += buildIntegrationCommandsSection(context.connectedIntegrations)
   prompt += `## Workflow\n`

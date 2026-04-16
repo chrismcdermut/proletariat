@@ -38,6 +38,7 @@ import {
   loadDefaultWorkSource,
   getRegisteredWorkSources,
 } from '../../lib/work-source/index.js'
+import { setInternalAction } from '../../services/action-context.js'
 import {
   isJiraConfigured,
   loadJiraConfig,
@@ -2230,11 +2231,11 @@ export default class WorkSpawn extends PMOCommand {
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (flags.focus) startArgs.push('--focus')
-            // Pass action/prompt - custom action uses --prompt, others use --action
+            // Pass action/prompt - custom action uses --prompt; other actions
+            // ride on the internal action-context channel since PRLT-1316
+            // removed the `--action` CLI flag from `work start`.
             if (batchAction === 'custom' && batchCustomMessage) {
               startArgs.push('--prompt', batchCustomMessage)
-            } else if (batchAction) {
-              startArgs.push('--action', batchAction)
             }
             // Pass --message for additional instructions (non-custom actions)
             if (flags.message && batchAction !== 'custom') {
@@ -2253,11 +2254,10 @@ export default class WorkSpawn extends PMOCommand {
             startArgs.push('--permission-mode', batchPermissionMode)
             if (batchCreatePr) startArgs.push('--create-pr')
             if (batchNoPr) startArgs.push('--no-pr')
-            // Pass action/prompt - custom action uses --prompt, others use --action
+            // Pass action/prompt - custom action uses --prompt; other actions
+            // ride on the internal action-context channel (PRLT-1316).
             if (batchAction === 'custom' && batchCustomMessage) {
               startArgs.push('--prompt', batchCustomMessage)
-            } else {
-              startArgs.push('--action', batchAction || 'implement')
             }
             // Pass --message for additional instructions (non-custom actions)
             if (flags.message && batchAction !== 'custom') {
@@ -2269,6 +2269,14 @@ export default class WorkSpawn extends PMOCommand {
             if (flags.focus) startArgs.push('--focus')
           }
 
+          // Route the chosen action via the internal channel (not a CLI flag).
+          // `custom` actions use --prompt instead, so skip.
+          if (batchAction && batchAction !== 'custom') {
+            setInternalAction(batchAction)
+          } else if (!batchAction && !(flags['per-ticket'])) {
+            // Batch mode default: implement
+            setInternalAction('implement')
+          }
           // eslint-disable-next-line no-await-in-loop
           await this.config.runCommand('work:start', startArgs)
 

@@ -634,7 +634,7 @@ prlt work spawn TKT-010 TKT-011 TKT-012
 Have an agent refine ticket requirements:
 
 ```bash
-prlt work start TKT-042 --action groom
+prlt work groom TKT-042
 ```
 
 Agent adds acceptance criteria, subtasks, estimates.

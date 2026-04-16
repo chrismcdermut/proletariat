@@ -21,6 +21,7 @@ import {
   buildShortcutSpawnContextMessage,
 } from '../../lib/external-issues/shortcut.js'
 import { getShortcutApiToken, loadShortcutConfig } from '../../lib/shortcut/index.js'
+import { setInternalAction } from '../../services/action-context.js'
 
 function buildWorkStartArgs(options: {
   ticketId: string
@@ -30,12 +31,13 @@ function buildWorkStartArgs(options: {
   runOnHost?: boolean
   skipPermissions?: boolean
   createPr?: boolean
-  action?: string
   message?: string
   json?: boolean
   machine?: boolean
   yes?: boolean
 }): string[] {
+  // Note: action is no longer forwarded via `--action` (removed in PRLT-1316).
+  // Callers should route the action through setInternalAction() instead.
   const args = [options.ticketId, '--project', options.projectId, '--ephemeral']
 
   if (options.executor) args.push('--executor', options.executor)
@@ -43,7 +45,6 @@ function buildWorkStartArgs(options: {
   if (options.runOnHost) args.push('--run-on-host')
   if (options.skipPermissions) args.push('--skip-permissions')
   if (options.createPr) args.push('--create-pr')
-  if (options.action) args.push('--action', options.action)
   if (options.message) args.push('--message', options.message)
   if (options.json) args.push('--json')
   if (options.machine) args.push('--machine')
@@ -240,13 +241,14 @@ export default class WorkShortcut extends PMOCommand {
       runOnHost: flags['run-on-host'],
       skipPermissions: flags['skip-permissions'],
       createPr: flags['create-pr'],
-      action: flags.action,
       message: contextMessage,
       json: flags.json,
       machine: flags.machine,
       yes: flags.yes,
     })
 
+    // Action is routed through the internal action-context channel (PRLT-1316).
+    if (flags.action) setInternalAction(flags.action)
     await this.config.runCommand('work:start', args)
   }
 }

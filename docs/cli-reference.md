@@ -350,8 +350,10 @@ prlt work start --from-issue --key ENG-123   # Uses Linear from active source
 
 # Examples — general
 prlt work start TKT-001
-prlt work start TKT-001 --mode docker --action implement
+prlt work start TKT-001 --mode docker
 prlt work start TKT-001 --create-pr        # Explicitly create PR
+# For non-'implement' actions use the dedicated verb (work groom/review/resolve),
+# not `work start` directly — the `--action` flag was removed in PRLT-1316.
 ```
 
 #### `prlt work spawn`

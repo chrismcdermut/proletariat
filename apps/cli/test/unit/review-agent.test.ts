@@ -38,25 +38,26 @@ describe('Reviewer Agents (PRLT-1226)', () => {
       expect(result.error).to.include('No ticket')
     })
 
-    it('should invoke prlt work start with --action review', () => {
+    it('should invoke prlt work start (with review role routed via internal action env var)', () => {
       const result = executeBuiltinAction('spawn-review-agent', {
         event: 'on_pr_opened',
         ticket: 'PRLT-1226',
       })
       // Will fail in test env since prlt isn't available, but error contains the command.
-      // walkPromptChain wraps commands in backticks and appends --json.
+      // PRLT-1316: --action is no longer a CLI flag; the review role is
+      // pinned via PRLT_INTERNAL_ACTION.
       expect(result.success).to.be.false
-      expect(result.error).to.include('prlt work start PRLT-1226 --action review --json')
+      expect(result.error).to.include('prlt work start PRLT-1226 --json')
+      expect(result.error).to.not.include('--action')
     })
 
-    it('should use --action review (not implement, not revise)', () => {
+    it('should not leak action into the command line (review role rides on env var)', () => {
       const result = executeBuiltinAction('spawn-review-agent', {
         event: 'on_pr_opened',
         ticket: 'TKT-TEST',
       })
-      expect(result.error).to.include('--action review')
-      expect(result.error).to.not.include('--action implement')
-      expect(result.error).to.not.include('--action revise')
+      // Make sure `--action <anything>` is gone from the invocation string
+      expect(result.error).to.not.include('--action')
     })
   })
 
