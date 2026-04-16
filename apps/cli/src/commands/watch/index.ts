@@ -6,6 +6,11 @@
  *
  * The orchestrator (LLM agent) reads the poke and decides what to do —
  * merge, rebase, spawn, ignore, ask human. This command does NO decision-making.
+ *
+ * PRLT-1321: By default, `prlt watch` spawns as a supervised tmux daemon so it
+ * survives terminal close and is visible in `prlt session list`. Use
+ * `--foreground` to run in the current terminal (useful for debugging or
+ * inside the daemon's own tmux session).
  */
 
 import { Flags } from '@oclif/core'
@@ -22,6 +27,11 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import { SimplePoller } from '../../lib/orchestrate/simple-poller.js'
+import {
+  getDaemonStatus,
+  spawnDaemon,
+  watchDaemonSpec,
+} from '../../lib/session/daemon-manager.js'
 
 export default class Watch extends PromptCommand {
   static description = 'Poll GitHub/Linear/agents and poke an orchestrator with changes'
@@ -31,6 +41,7 @@ export default class Watch extends PromptCommand {
     '<%= config.bin %> watch --target orchestrator --poll-interval 30',
     '<%= config.bin %> watch --target my-orchestrator --verbose',
     '<%= config.bin %> watch --target orchestrator --once',
+    '<%= config.bin %> watch --target orchestrator --foreground',
   ]
 
   static flags = {
@@ -53,6 +64,11 @@ export default class Watch extends PromptCommand {
       description: 'Run a single poll cycle and exit (useful for testing)',
       default: false,
     }),
+    foreground: Flags.boolean({
+      description:
+        'Run in the current terminal instead of spawning a tmux daemon (used for debugging)',
+      default: false,
+    }),
   }
 
   async run(): Promise<void> {
@@ -69,6 +85,12 @@ export default class Watch extends PromptCommand {
         return
       }
       this.error('Not in a workspace. Run "prlt new" first.')
+    }
+
+    // PRLT-1321: Default behavior — spawn as a supervised tmux daemon unless
+    // the caller explicitly wants --foreground or --once.
+    if (!flags.foreground && !flags.once) {
+      return this.spawnAsDaemon(workspaceInfo.path, flags, jsonMode)
     }
 
     const db = openWorkspaceDatabase(workspaceInfo.path)
@@ -110,7 +132,8 @@ export default class Watch extends PromptCommand {
         return
       }
 
-      // Daemon mode
+      // Daemon mode (runs in the current terminal when --foreground is set,
+      // which is also how the supervised daemon runs itself inside tmux)
 
       // Prevent oclif from killing the daemon — oclif's error handler calls
       // process.exit(0) after run() resolves, which terminates the daemon.
@@ -194,6 +217,78 @@ export default class Watch extends PromptCommand {
     } finally {
       db.close()
     }
+  }
+
+  /**
+   * PRLT-1321: Spawn the watch poller as a supervised tmux daemon.
+   *
+   * Creates a detached tmux session running `prlt watch --foreground ...`,
+   * registers it in machine.db with `ticketId='DAEMON'` / `agentName='daemon-watch'`,
+   * and returns immediately. Attach with `tmux attach -t <session>` or stop
+   * with `prlt watch stop`.
+   */
+  private spawnAsDaemon(
+    hqPath: string,
+    flags: {
+      target: string
+      'poll-interval': number
+      verbose: boolean
+    } & Record<string, unknown>,
+    jsonMode: boolean,
+  ): void {
+    const status = getDaemonStatus(hqPath, 'watch')
+    if (status.alive) {
+      if (jsonMode) {
+        outputSuccessAsJson(
+          {
+            status: 'already_running',
+            sessionName: status.sessionName,
+            target: flags.target,
+            pollInterval: flags['poll-interval'],
+            message: `Watch daemon is already running (session: ${status.sessionName})`,
+          },
+          createMetadata('watch', flags),
+        )
+        return
+      }
+      this.log(styles.success(`Watch daemon is already running (session: ${status.sessionName})`))
+      this.log(styles.muted(`  Target: ${flags.target}`))
+      this.log(styles.muted(`  Attach with: tmux attach -t ${status.sessionName}`))
+      this.log(styles.muted(`  Stop with: prlt watch stop`))
+      return
+    }
+
+    const spec = watchDaemonSpec(flags.target, flags['poll-interval'])
+    const sessionName = spawnDaemon(hqPath, spec)
+
+    if (!sessionName) {
+      const msg = 'Failed to spawn watch daemon (tmux session could not be started).'
+      if (jsonMode) {
+        outputErrorAsJson('DAEMON_SPAWN_FAILED', msg, createMetadata('watch', flags))
+        return
+      }
+      this.log(styles.error(msg))
+      return
+    }
+
+    if (jsonMode) {
+      outputSuccessAsJson(
+        {
+          status: 'started',
+          sessionName,
+          target: flags.target,
+          pollInterval: flags['poll-interval'],
+        },
+        createMetadata('watch', flags),
+      )
+      return
+    }
+
+    this.log(styles.success(`Watch daemon started (session: ${sessionName})`))
+    this.log(styles.muted(`  Target: ${flags.target}`))
+    this.log(styles.muted(`  Poll interval: ${flags['poll-interval']}s`))
+    this.log(styles.muted(`  Attach with: tmux attach -t ${sessionName}`))
+    this.log(styles.muted(`  Stop with:   prlt watch stop`))
   }
 
   /**
