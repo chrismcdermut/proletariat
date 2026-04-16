@@ -139,6 +139,51 @@ function cleanupStaleDaemonRecord(sessionName: string): void {
 }
 
 /**
+ * Stop a daemon: kill its tmux session and mark its machine.db record stopped.
+ *
+ * Returns `{ stopped: true }` if the tmux session existed and was killed,
+ * `{ stopped: false }` if no session was running (nothing to do).
+ */
+export function stopDaemon(
+  hqPath: string,
+  daemonType: string,
+): { stopped: boolean; sessionName: string } {
+  const hqName = getHeadquartersNameFromPath(hqPath)
+  const sessionName = buildDaemonSessionName(hqName, daemonType)
+
+  const alive = isDaemonAlive(hqPath, daemonType)
+  if (alive) {
+    try {
+      execSync(`tmux kill-session -t "${sessionName}"`, {
+        stdio: 'pipe',
+        timeout: 10000,
+      })
+    } catch {
+      // Session may have exited between the liveness check and the kill.
+      // Treat that as "already stopped" and fall through to DB cleanup.
+    }
+  }
+
+  // Always clean up any DB record regardless of whether the tmux kill succeeded —
+  // a stale "running" record should be reset to 'stopped'.
+  try {
+    const machineDb = new MachineDB()
+    try {
+      const exec = machineDb.findBySessionId(sessionName)
+      if (exec && (exec.status === 'running' || exec.status === 'starting')) {
+        machineDb.updateStatus(exec.id, 'stopped')
+      }
+    } finally {
+      machineDb.close()
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  return { stopped: alive, sessionName }
+}
+
+/**
  * Ensure a daemon is running. If it's dead, restart it.
  * Returns the session name if the daemon is running (or was restarted), null otherwise.
  */
@@ -158,5 +203,26 @@ export function reconcilerDaemonSpec(intervalSeconds: number = 300): DaemonSpec 
   return {
     type: 'reconciler',
     command: `prlt reconcile --watch --foreground --interval ${intervalSeconds}`,
+  }
+}
+
+/**
+ * The watch daemon spec builder (PRLT-1321). Constructs the DaemonSpec for the
+ * `prlt watch` poller with the given target and poll interval.
+ *
+ * The daemon runs `prlt watch --foreground --target <target>` inside a tmux
+ * session so it survives terminal close and can be supervised by orchestrate.
+ */
+export function watchDaemonSpec(
+  target: string,
+  pollIntervalSeconds: number = 60,
+): DaemonSpec {
+  // Shell-escape the target name to survive the tmux new-session `sh -c`
+  // wrapper. Target names are agent/session identifiers so this is a light
+  // sanitization pass rather than full quoting.
+  const safeTarget = target.replace(/[^a-zA-Z0-9._-]/g, '')
+  return {
+    type: 'watch',
+    command: `prlt watch --foreground --target ${safeTarget} --poll-interval ${pollIntervalSeconds}`,
   }
 }

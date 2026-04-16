@@ -39,6 +39,7 @@ import {
   ensureDaemonRunning,
   isDaemonAlive,
   reconcilerDaemonSpec,
+  watchDaemonSpec,
 } from '../../lib/session/daemon-manager.js'
 
 export default class Orchestrate extends PromptCommand {
@@ -85,6 +86,19 @@ export default class Orchestrate extends PromptCommand {
     verbose: Flags.boolean({
       description: 'Show detailed output',
       char: 'v',
+      default: false,
+    }),
+    'watch-target': Flags.string({
+      description:
+        'Target agent/session for the auto-spawned watch daemon (PRLT-1321). Defaults to orchestrator-main.',
+      default: 'orchestrator-main',
+    }),
+    'watch-interval': Flags.integer({
+      description: 'Poll interval (seconds) for the auto-spawned watch daemon',
+      default: 60,
+    }),
+    'no-watch': Flags.boolean({
+      description: 'Skip auto-spawning the watch daemon',
       default: false,
     }),
   }
@@ -246,6 +260,21 @@ export default class Orchestrate extends PromptCommand {
         logFn('[daemon] Failed to spawn reconciler daemon — will retry on next health check')
       }
 
+      // PRLT-1321: Auto-spawn watch daemon on orchestrate startup.
+      // Same supervision pattern as the reconciler above. Disable with --no-watch.
+      const watchTarget = parsedFlags['watch-target'] as string
+      const watchInterval = parsedFlags['watch-interval'] as number
+      const watchEnabled = !(parsedFlags['no-watch'] as boolean)
+      const watchSpec = watchDaemonSpec(watchTarget, watchInterval)
+      if (watchEnabled) {
+        const watchSession = ensureDaemonRunning(hqPath, watchSpec)
+        if (watchSession) {
+          logFn(`[daemon] Watch daemon running (${watchSession}, target=${watchTarget})`)
+        } else {
+          logFn('[daemon] Failed to spawn watch daemon — will retry on next health check')
+        }
+      }
+
       // Daemon mode: start the engine and run until stopped
       engine.start()
 
@@ -327,6 +356,17 @@ export default class Orchestrate extends PromptCommand {
             logFn(`[daemon] Reconciler daemon restarted (${restarted})`)
           } else {
             logFn('[daemon] Failed to restart reconciler daemon')
+          }
+        }
+
+        // PRLT-1321: Supervise watch daemon — restart if dead
+        if (watchEnabled && !isDaemonAlive(hqPath, 'watch')) {
+          logFn('[daemon] Watch daemon died — restarting...')
+          const restarted = ensureDaemonRunning(hqPath, watchSpec)
+          if (restarted) {
+            logFn(`[daemon] Watch daemon restarted (${restarted}, target=${watchTarget})`)
+          } else {
+            logFn('[daemon] Failed to restart watch daemon')
           }
         }
       }, 60_000)
