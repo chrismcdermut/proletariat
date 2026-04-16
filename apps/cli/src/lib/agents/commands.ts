@@ -785,6 +785,61 @@ export async function createEphemeralAgent(
 }
 
 /**
+ * PRLT-1322: Clean up a fully-spawned ephemeral agent after a pipeline
+ * failure (e.g., docker build failed, container couldn't start, /workspace
+ * verify failed). Leaving these around causes the "ghost agent" bug: the
+ * next spawn generates a new name because the old record still exists in
+ * the DB, and operators see multiple agents for the same ticket.
+ *
+ * Removes (best-effort):
+ *   - Git worktrees (for worktree mode) under the agent dir
+ *   - The agent directory itself
+ *   - The DB row for the agent
+ *   - Any Docker image named prlt-agent-<name>:latest
+ *   - Any Docker container named prlt-agent-<name> (running or stopped)
+ */
+export function cleanupFailedAgentSpawn(
+  workspaceInfo: WorkspaceInfo,
+  agentName: string,
+  options?: { mountMode?: DBMountMode; log?: (msg: string) => void }
+): void {
+  const log = options?.log;
+  const mountMode = options?.mountMode || 'worktree';
+  const ephemeralDir = workspaceInfo.ephemeralAgentsDir || 'temp';
+  const agentDir = path.join(workspaceInfo.path, 'agents', ephemeralDir, agentName);
+
+  // 1. Remove worktrees + directory
+  cleanupFailedEphemeralAgent(agentDir, workspaceInfo, mountMode);
+  log?.(`  ✓ Removed agent dir: ${agentDir}`);
+
+  // 2. Remove DB record so the name can be regenerated later
+  try {
+    removeAgentsFromDatabase(workspaceInfo.path, [agentName]);
+    log?.(`  ✓ Removed agent "${agentName}" from workspace DB`);
+  } catch (err) {
+    log?.(`  ⚠ Failed to remove DB row for "${agentName}": ${err instanceof Error ? err.message : err}`);
+  }
+
+  // 3. Remove the container (if any) so a stopped orphan doesn't linger
+  const containerName = `prlt-agent-${agentName.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  try {
+    execSync(`docker rm -f ${containerName}`, { stdio: 'pipe', timeout: 10000 });
+    log?.(`  ✓ Removed docker container ${containerName}`);
+  } catch {
+    // Container may not exist — that's fine
+  }
+
+  // 4. Remove the image so a retry doesn't reuse a corrupt one
+  const imageName = `${containerName}:latest`;
+  try {
+    execSync(`docker image rm -f ${imageName}`, { stdio: 'pipe', timeout: 10000 });
+    log?.(`  ✓ Removed docker image ${imageName}`);
+  } catch {
+    // Image may not exist or still be referenced — fine
+  }
+}
+
+/**
  * Clean up on-disk artifacts (directories, worktrees) for a failed ephemeral
  * agent creation attempt. Used when a DB name collision forces a retry.
  */

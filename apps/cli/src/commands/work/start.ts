@@ -26,6 +26,7 @@ import { styles } from '../../lib/styles.js'
 import {
   getWorkspaceInfo,
   createEphemeralAgent,
+  cleanupFailedAgentSpawn,
   getTicketTmuxSession,
   killTmuxSession,
   findWorktreeForBranch,
@@ -2759,6 +2760,24 @@ export default class WorkStart extends PMOCommand {
           status: 'failed',
           errorMessage: result.error,
         })
+
+        // PRLT-1322: Clean up ephemeral agent state left by a failed pipeline.
+        // Without this, a retry would generate a NEW ephemeral name (because the
+        // old record still occupies its slot in the DB) and operators would see
+        // multiple agents for the same ticket — the "ghost agent" bug.
+        if (isEphemeralAgent) {
+          try {
+            cleanupFailedAgentSpawn(workspaceInfo, assignedAgent, {
+              mountMode: flags.clone ? 'clone' : 'worktree',
+              log: (msg) => { if (!jsonMode) this.log(styles.muted(msg)) },
+            })
+          } catch (cleanupErr) {
+            // Cleanup is best-effort; never block the error path on it.
+            if (!jsonMode) {
+              this.log(styles.muted(`  ⚠ Cleanup of failed agent "${assignedAgent}" errored: ${cleanupErr instanceof Error ? cleanupErr.message : cleanupErr}`))
+            }
+          }
+        }
 
         // Track primitive spawn failure
         trackPrimitiveExecuted({
