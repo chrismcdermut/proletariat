@@ -357,8 +357,13 @@ export {
   createDockerContainer,
   runContainerSetup,
   ensureDockerContainer,
+  ensureDockerContainerDetailed,
+  verifyWorkspaceMount,
+  seedClaudeOnboarding,
   checkDockerMemoryCapacity,
 } from './docker-management.js'
+
+export type { SpawnStageError, EnsureDockerContainerResult } from './docker-management.js'
 
 export {
   buildIntegrationCommandsSection,

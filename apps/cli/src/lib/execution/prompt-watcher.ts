@@ -92,6 +92,37 @@ export const KNOWN_PROMPT_PATTERNS: PromptPattern[] = [
     preferredOption: 'Yes, and always allow access to .claude/',
     fallbackOption: 'Yes',
   },
+  // PRLT-1322: Claude Code first-run theme picker. We pre-seed
+  // `/home/node/.claude.json` with `hasCompletedOnboarding: true` inside
+  // containers, but this pattern is a safety net for any container that
+  // still manages to hit the prompt (e.g. reused image without seed, or
+  // Claude Code rewriting the file before reading it).
+  {
+    name: 'claude-theme-selection',
+    headerMatch: 'Choose the text style that looks best',
+    cursorMarker: '❯',
+    action: 'approve',
+    preferredOption: 'Dark mode',
+    fallbackOption: '1',
+  },
+  // PRLT-1322: Claude Code's "shell integration" onboarding prompt.
+  {
+    name: 'claude-shell-integration',
+    headerMatch: 'shell integration',
+    cursorMarker: '❯',
+    action: 'decline',
+    preferredOption: 'No',
+    fallbackOption: 'Skip',
+  },
+  // PRLT-1322: Claude Code's workspace trust dialog.
+  {
+    name: 'claude-workspace-trust',
+    headerMatch: 'Do you trust',
+    cursorMarker: '❯',
+    action: 'approve',
+    preferredOption: 'Yes, proceed',
+    fallbackOption: 'Yes',
+  },
 ]
 
 // =============================================================================

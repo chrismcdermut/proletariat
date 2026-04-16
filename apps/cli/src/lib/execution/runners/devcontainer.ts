@@ -31,7 +31,7 @@ import {
   getExecutorCommand,
   isClaudeExecutor,
   checkDockerDaemon,
-  ensureDockerContainer,
+  ensureDockerContainerDetailed,
   copyClaudeCredentials,
   refreshCredentialVolume,
   ensureWorkflowScope,
@@ -243,12 +243,20 @@ export async function runDevcontainer(
       refreshCredentialVolume()
     }
 
-    // Start or reuse container using raw Docker commands
-    const containerId = ensureDockerContainer(context, config, executor)
+    // PRLT-1322: Use the detailed variant so we can surface which pipeline
+    // stage failed (image build, container create, workspace verify, etc.)
+    // instead of a generic "Failed to start Docker container".
+    const ensureResult = ensureDockerContainerDetailed(context, config, executor)
+    const containerId = ensureResult.containerId
     if (!containerId) {
+      const stageError = ensureResult.error
+      const detail = stageError
+        ? `Stage "${stageError.stage}" failed: ${stageError.message}` +
+          (stageError.stderr ? `\n  stderr: ${stageError.stderr.trim()}` : '')
+        : 'No error details reported by Docker management layer.'
       return {
         success: false,
-        error: 'Failed to start Docker container. Check Docker logs for details.',
+        error: `Docker spawn pipeline failed. ${detail}\nRun with DEBUG=* for full Docker logs, or use --run-on-host to bypass the container.`,
       }
     }
 

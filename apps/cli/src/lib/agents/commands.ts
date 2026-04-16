@@ -658,44 +658,77 @@ export async function createEphemeralAgent(
     }
 
     // Create worktrees/clones for each repository
+    // PRLT-1322: Surface failures loudly — previously we silently fell back to
+    // empty directories, which caused containers to launch with empty /workspace
+    // and left agents unable to work on any code.
     if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
+      const repoFailures: string[] = [];
       for (const repo of workspaceInfo.repositories) {
         const sourceRepoPath = path.join(reposPath, repo.name);
         const targetPath = path.join(agentDir, repo.name);
 
-        if (fs.existsSync(sourceRepoPath) && !fs.existsSync(targetPath)) {
-          if (mountMode === 'clone') {
-            // CLONE MODE: Create independent git clone
-            // Resolve local paths to GitHub remotes so agents can push/create PRs
-            try {
-              const resolved = resolveRemoteUrl(sourceRepoPath);
+        if (!fs.existsSync(sourceRepoPath)) {
+          log?.(`⚠️  Source repo not found (skipping): ${sourceRepoPath}`);
+          continue;
+        }
+        if (fs.existsSync(targetPath)) {
+          continue; // Already exists (resumed spawn)
+        }
 
-              if (resolved.url) {
-                execSync(`git clone "${resolved.url}" "${targetPath}"`, {
-                  stdio: 'pipe'
-                });
-              }
-            } catch {
-              // Clone failed (network issue, auth, etc.) — fall back to empty directory so agent can still start
-              if (!fs.existsSync(targetPath)) {
-                fs.mkdirSync(targetPath, { recursive: true });
-              }
+        if (mountMode === 'clone') {
+          // CLONE MODE: Create independent git clone
+          try {
+            const resolved = resolveRemoteUrl(sourceRepoPath);
+            if (!resolved.url) {
+              throw new Error(`Could not resolve remote URL for ${sourceRepoPath}`);
             }
-          } else {
-            // WORKTREE MODE: Create git worktree
-            try {
-              execSync(`git worktree add --detach "${targetPath}"`, {
-                cwd: sourceRepoPath,
-                stdio: 'pipe'
-              });
-            } catch {
-              // Worktree creation failed (source repo issues, path conflicts) — fall back to empty directory
-              if (!fs.existsSync(targetPath)) {
-                fs.mkdirSync(targetPath, { recursive: true });
-              }
+            log?.(`→ Cloning ${repo.name} from ${resolved.url}`);
+            execSync(`git clone "${resolved.url}" "${targetPath}"`, {
+              stdio: 'pipe',
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            repoFailures.push(`clone ${repo.name}: ${message}`);
+            // Clean up partial target if clone wrote anything
+            if (fs.existsSync(targetPath)) {
+              try { fs.rmSync(targetPath, { recursive: true, force: true }); } catch { /* best-effort */ }
             }
           }
+        } else {
+          // WORKTREE MODE: Create git worktree
+          try {
+            log?.(`→ Creating git worktree for ${repo.name}`);
+            execSync(`git worktree add --detach "${targetPath}"`, {
+              cwd: sourceRepoPath,
+              stdio: 'pipe',
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            repoFailures.push(`worktree ${repo.name}: ${message}`);
+          }
         }
+
+        // Verify the target is non-empty (fail-fast if git produced an empty dir)
+        if (fs.existsSync(targetPath)) {
+          const entries = fs.readdirSync(targetPath);
+          if (entries.length === 0) {
+            repoFailures.push(`${repo.name}: created directory is empty (git command produced no files)`);
+          }
+        } else {
+          repoFailures.push(`${repo.name}: target path missing after ${mountMode}`);
+        }
+      }
+
+      if (repoFailures.length > 0) {
+        // Clean up partial on-disk state and surface the failure loudly.
+        cleanupFailedEphemeralAgent(agentDir, workspaceInfo, mountMode);
+        throw new Error(
+          `Failed to populate agent workspace for "${agentName}":\n` +
+          repoFailures.map(f => `  - ${f}`).join('\n') +
+          `\n\nThe agent would have launched with an empty /workspace. ` +
+          `Fix the underlying ${mountMode} error (commonly: source repo dirty, ` +
+          `path conflict, or missing git remote) and retry.`
+        );
       }
     }
 
