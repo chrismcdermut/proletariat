@@ -25,24 +25,17 @@ import { isReadOnlyHQMount } from '../../container.js'
 import {
   Board,
   BoardConfig,
-  Column,
   CreateTicketInput,
   Epic,
   EpicFilter,
-  PMOStorage,
   Project,
   ProjectFilter,
-  Spec,
-  SpecFilter,
   Subtask,
-  SyncResult,
-  SyncStatus,
   Ticket,
   TicketFilter,
   WorkAction,
   WorkActionFilter,
   Workflow,
-  WorkflowFilter,
   WorkflowRule,
   WorkflowRuleFilter,
   WorkflowStatus,
@@ -275,14 +268,16 @@ export class SQLiteStorage {
   }
 
   // ===========================================================================
-  // PRLT-1299 STUBS — Dead local ticket/workflow/board operations
+  // PRLT-1299/1319 — Dead local ticket/workflow/board operations
   //
-  // These methods existed when SQLiteStorage managed local tickets, workflows,
-  // epics, specs, columns, and board state. Those tables have been removed.
-  // The provider (Linear, Jira, etc.) is now the source of truth.
+  // These methods used to live on SQLiteStorage when it managed local tickets,
+  // workflows, epics, specs, columns, and board state. Those tables have been
+  // removed; the provider (Linear, Jira, etc.) is now the source of truth.
   //
-  // These stubs exist solely to let the codebase compile while callers are
-  // migrated to use resolveTicketProvider() / resolveProjectProvider().
+  // Methods that currently have live callers are kept here as thin runtime
+  // stubs so the code compiles while callers are migrated to the provider
+  // layer. Methods with no remaining callers are fully deleted — attempting to
+  // call them now produces a compile error, which is the whole point.
   // ===========================================================================
 
   private deadMethod(name: string): never {
@@ -292,23 +287,17 @@ export class SQLiteStorage {
     )
   }
 
-  // --- Board / Column stubs ---
+  // --- Board / Column stubs (still have callers) ---
 
   async getBoard(_projectId: string): Promise<Board> { this.deadMethod('getBoard') }
   async getBoardMarkdown(_projectId: string): Promise<string> { this.deadMethod('getBoardMarkdown') }
   getColumnNames(_projectId: string): string[] { this.deadMethod('getColumnNames') }
   async getProjectBoard(_projectId: string): Promise<Board | null> { this.deadMethod('getProjectBoard') }
-  async createColumn(_projectId: string, _name: string, _position?: number): Promise<Column> { this.deadMethod('createColumn') }
-  async renameColumn(_projectId: string, _id: string, _name: string): Promise<Column> { this.deadMethod('renameColumn') }
-  async moveColumn(_projectId: string, _id: string, _position: number): Promise<Column> { this.deadMethod('moveColumn') }
-  async deleteColumn(_projectId: string, _id: string, _cascade?: boolean): Promise<void> { this.deadMethod('deleteColumn') }
 
-  // --- Ticket stubs ---
+  // --- Ticket stubs (still have callers) ---
 
   async createTicket(_projectId: string, _ticket: CreateTicketInput): Promise<Ticket> { this.deadMethod('createTicket') }
   async getTicket(_id: string): Promise<Ticket | null> { this.deadMethod('getTicket') }
-  async getTicketById(_id: string): Promise<Ticket | null> { this.deadMethod('getTicketById') }
-  async getTicketByExternalKey(_key: string): Promise<Ticket | null> { this.deadMethod('getTicketByExternalKey') }
   async updateTicket(_id: string, _changes: Partial<Ticket>): Promise<Ticket> { this.deadMethod('updateTicket') }
   async moveTicket(_projectId: string, _id: string, _column: string, _position?: number): Promise<Ticket> { this.deadMethod('moveTicket') }
   async reorderTicket(_id: string, _opts: { position?: number; afterTicketId?: string }): Promise<Ticket> { this.deadMethod('reorderTicket') }
@@ -317,83 +306,39 @@ export class SQLiteStorage {
   async listTickets(_projectId: string | undefined, _filter?: TicketFilter): Promise<Ticket[]> { this.deadMethod('listTickets') }
   async isTicketBlocked(_ticketId: string): Promise<boolean> { this.deadMethod('isTicketBlocked') }
 
-  // --- Subtask stubs ---
+  // --- Subtask stubs (still have callers in MCP tools) ---
 
   async addSubtask(_ticketId: string, _title: string): Promise<Subtask> { this.deadMethod('addSubtask') }
   async toggleSubtask(_ticketId: string, _subtaskId: string): Promise<Subtask> { this.deadMethod('toggleSubtask') }
   async removeSubtask(_ticketId: string, _subtaskId: string): Promise<void> { this.deadMethod('removeSubtask') }
 
-  // --- Acceptance Criteria stubs ---
+  // --- Acceptance Criteria stubs (still have callers in MCP tools) ---
 
   async addAcceptanceCriterion(_ticketId: string, _criterion: string): Promise<{ id: string; criterion: string; met: boolean }> { this.deadMethod('addAcceptanceCriterion') }
   async removeAcceptanceCriterion(_ticketId: string, _criterionId: string): Promise<void> { this.deadMethod('removeAcceptanceCriterion') }
   async clearAcceptanceCriteria(_ticketId: string): Promise<void> { this.deadMethod('clearAcceptanceCriteria') }
 
-  // --- Dependency stubs ---
+  // --- Dependency stubs (still have callers in MCP tools) ---
 
   async createTicketDependency(_ticketId: string, _blockerId: string, _type: string): Promise<void> { this.deadMethod('createTicketDependency') }
   async deleteTicketDependency(_ticketId: string, _blockerId: string, _type: string): Promise<void> { this.deadMethod('deleteTicketDependency') }
   async getTicketBlockers(_ticketId: string): Promise<Ticket[]> { this.deadMethod('getTicketBlockers') }
 
-  // --- Epic stubs ---
+  // --- Epic stubs (still have callers) ---
 
   async linkTicketToEpic(_ticketId: string, _epicId: string): Promise<void> { this.deadMethod('linkTicketToEpic') }
   async unlinkTicketFromEpic(_ticketId: string): Promise<void> { this.deadMethod('unlinkTicketFromEpic') }
   async linkTicketToSpec(_ticketId: string, _specId: string): Promise<void> { this.deadMethod('linkTicketToSpec') }
-  async createEpic(_projectId: string, _epic: Partial<Epic>): Promise<Epic> { this.deadMethod('createEpic') }
   async getEpic(_id: string): Promise<Epic | null> { this.deadMethod('getEpic') }
   async listEpics(_projectId: string, _filter?: EpicFilter): Promise<Epic[]> { this.deadMethod('listEpics') }
   async getTicketsForEpic(_projectId: string, _epicId: string): Promise<Ticket[]> { this.deadMethod('getTicketsForEpic') }
 
-  // --- Workflow stubs ---
+  // --- Workflow stubs (still have callers in spawn/pull/linear import) ---
 
-  async listWorkflows(_filter?: WorkflowFilter): Promise<Workflow[]> { this.deadMethod('listWorkflows') }
-  async getWorkflow(_id: string): Promise<Workflow | null> { this.deadMethod('getWorkflow') }
   async getProjectWorkflow(_projectId: string): Promise<Workflow | null> { this.deadMethod('getProjectWorkflow') }
   async listStatuses(_workflowId: string): Promise<WorkflowStatus[]> { this.deadMethod('listStatuses') }
-  async getStatus(_id: string): Promise<WorkflowStatus | null> { this.deadMethod('getStatus') }
-  async createStatus(_workflowId: string, _status: Partial<WorkflowStatus>): Promise<WorkflowStatus> { this.deadMethod('createStatus') }
 
-  // --- Spec stubs ---
-
-  async createSpec(_spec: Partial<Spec>): Promise<Spec> { this.deadMethod('createSpec') }
-  async getSpec(_id: string): Promise<Spec | null> { this.deadMethod('getSpec') }
-  async listSpecs(_filter?: SpecFilter): Promise<Spec[]> { this.deadMethod('listSpecs') }
-  async updateSpec(_id: string, _changes: Partial<Spec>): Promise<Spec> { this.deadMethod('updateSpec') }
-  async deleteSpec(_id: string): Promise<void> { this.deadMethod('deleteSpec') }
-  async unlinkTicketFromSpec(_ticketId: string, _specId: string): Promise<void> { this.deadMethod('unlinkTicketFromSpec') }
-  async getTicketsForSpec(_projectId: string, _specId: string): Promise<Ticket[]> { this.deadMethod('getTicketsForSpec') }
-  async getSpecsForTicket(_ticketId: string): Promise<Spec[]> { this.deadMethod('getSpecsForTicket') }
-  async addSpecDependency(_specId: string, _dependsOnId: string): Promise<void> { this.deadMethod('addSpecDependency') }
-  async removeSpecDependency(_specId: string, _dependsOnId: string): Promise<void> { this.deadMethod('removeSpecDependency') }
-  async getSpecDependencies(_specId: string): Promise<Spec[]> { this.deadMethod('getSpecDependencies') }
-  async getSpecDependents(_specId: string): Promise<Spec[]> { this.deadMethod('getSpecDependents') }
-  async linkProjectToSpec(_projectId: string, _specId: string): Promise<void> { this.deadMethod('linkProjectToSpec') }
-  async unlinkProjectFromSpec(_projectId: string, _specId: string): Promise<void> { this.deadMethod('unlinkProjectFromSpec') }
-  async getSpecsForProject(_projectId: string): Promise<Spec[]> { this.deadMethod('getSpecsForProject') }
-  async getProjectsForSpec(_specId: string): Promise<Project[]> { this.deadMethod('getProjectsForSpec') }
-
-  // --- More Epic stubs ---
-
-  async reorderEpic(_projectId: string, _epicId: string, _newPosition: number): Promise<Epic> { this.deadMethod('reorderEpic') }
-  async updateEpic(_id: string, _changes: Partial<Epic>): Promise<Epic> { this.deadMethod('updateEpic') }
-  async deleteEpic(_id: string): Promise<void> { this.deadMethod('deleteEpic') }
-
-  // --- More Workflow stubs ---
-
-  async createWorkflow(_workflow: Partial<Workflow>): Promise<Workflow> { this.deadMethod('createWorkflow') }
-  async updateWorkflow(_id: string, _changes: Partial<Workflow>): Promise<Workflow> { this.deadMethod('updateWorkflow') }
-  async deleteWorkflow(_id: string): Promise<void> { this.deadMethod('deleteWorkflow') }
-  async updateStatus(_id: string, _changes: Partial<WorkflowStatus>): Promise<WorkflowStatus> { this.deadMethod('updateStatus') }
-  async deleteStatus(_id: string): Promise<void> { this.deadMethod('deleteStatus') }
-  async reorderStatus(_id: string, _newPosition: number): Promise<WorkflowStatus> { this.deadMethod('reorderStatus') }
-  async getDefaultStatus(_workflowId: string): Promise<WorkflowStatus | null> { this.deadMethod('getDefaultStatus') }
-
-  // --- Ticket template stubs ---
-
-  async createTicketTemplateFromTicket(_ticketId: string, _name: string, _description?: string): Promise<TicketTemplate> { this.deadMethod('createTicketTemplateFromTicket') }
-
-  // --- Project stubs ---
+  // --- Project ops ---
 
   async archiveProject(id: string): Promise<Project> {
     return this.projectStorage.archiveProject(id)
@@ -402,18 +347,6 @@ export class SQLiteStorage {
   async unarchiveProject(id: string): Promise<Project> {
     return this.projectStorage.unarchiveProject(id)
   }
-
-  // --- Sync stubs ---
-
-  async pull(): Promise<SyncResult> { this.deadMethod('pull') }
-  async push(): Promise<SyncResult> { this.deadMethod('push') }
-  async status(): Promise<SyncStatus> { this.deadMethod('status') }
-
-  // --- Cache stubs ---
-
-  getCacheMetadata(): { cacheBuiltAt: number; boardMtime: number; contentHash?: string } | null { this.deadMethod('getCacheMetadata') }
-  setCacheMetadata(_meta: { boardMtime: number; cacheBuiltAt: number; contentHash?: string }): void { this.deadMethod('setCacheMetadata') }
-  rebuildFromBoard(_board: { columns: Array<{ name: string; tickets: Array<unknown> }> }): void { this.deadMethod('rebuildFromBoard') }
 
   // ===========================================================================
   // Ticket Template Operations
