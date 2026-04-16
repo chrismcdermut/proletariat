@@ -22,6 +22,14 @@ import {
   closePR,
   type PRInfo,
 } from '../pr/index.js'
+import {
+  checkWorktreeLiveness,
+  type LivenessResult,
+} from './liveness.js'
+import {
+  getHostTmuxSessionNames,
+  getContainerTmuxSessionMap,
+} from '../execution/session-utils.js'
 
 // =============================================================================
 // Types
@@ -304,6 +312,28 @@ export function collectGCCandidates(options: GCOptions): GCCandidate[] {
 // =============================================================================
 // Cleanup Execution
 // =============================================================================
+
+/**
+ * Check whether a worktree has any uncommitted changes (staged, unstaged, or
+ * untracked). Used as a last-line safety gate before worktree removal — PRLT-1324
+ * requires that a dirty working tree be preserved even if other signals say
+ * the agent is dead. If inspection fails, we err on the side of "dirty".
+ */
+function hasUncommittedChanges(worktreePath: string): boolean {
+  if (!fs.existsSync(worktreePath)) return false
+  try {
+    const output = execSync('git status --porcelain=v1 --untracked-files=normal', {
+      cwd: worktreePath,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 10000,
+    }).trim()
+    return output.length > 0
+  } catch {
+    // If we can't inspect, treat as dirty to preserve safety.
+    return true
+  }
+}
 
 /**
  * Delete a local git branch.
@@ -639,13 +669,19 @@ export function executeGC(
       }
     }
 
-    // 4. Remove worktree
+    // 4. Remove worktree — but never if it has uncommitted changes (PRLT-1324)
     if (execute) {
-      log?.(`Removing worktree: ${candidate.worktreePath}`)
-      if (removeWorktree(candidate.worktreePath, candidate.sourceRepoPath)) {
-        result.worktreesRemoved.push(candidate.worktreePath)
+      const dirty = hasUncommittedChanges(candidate.worktreePath)
+      if (dirty) {
+        log?.(`Skipping worktree removal (uncommitted changes): ${candidate.worktreePath}`)
+        result.skipped.push(`${candidate.branch} (uncommitted changes)`)
       } else {
-        result.errors.push(`Failed to remove worktree: ${candidate.worktreePath}`)
+        log?.(`Removing worktree: ${candidate.worktreePath}`)
+        if (removeWorktree(candidate.worktreePath, candidate.sourceRepoPath)) {
+          result.worktreesRemoved.push(candidate.worktreePath)
+        } else {
+          result.errors.push(`Failed to remove worktree: ${candidate.worktreePath}`)
+        }
       }
     } else {
       log?.(`[dry-run] Would remove worktree: ${candidate.worktreePath}`)
@@ -824,6 +860,10 @@ export function cleanupTicketWorktrees(
       containerByAgent.set(c.agentName, c)
     }
 
+    // Pre-fetch tmux sessions once per invocation.
+    const hostTmuxSessions = getHostTmuxSessionNames()
+    const containerTmuxSessions = getContainerTmuxSessionMap()
+
     for (const agentName of agentNames) {
       try {
         const container = containerByAgent.get(agentName) ?? null
@@ -853,12 +893,30 @@ export function cleanupTicketWorktrees(
           ? path.join(hqPath, agentRecord.worktree_path)
           : undefined
 
-        // Clean up each worktree
+        // Clean up each worktree — but PRLT-1324 requires a per-worktree
+        // liveness check so we never nuke work that's still being held by a
+        // process, has uncommitted changes, or has an open PR.
         for (const wt of worktrees) {
           const fullWorktreePath = path.isAbsolute(wt.worktree_path)
             ? wt.worktree_path
             : path.join(hqPath, wt.worktree_path)
           const sourceRepoPath = path.join(hqPath, 'repos', wt.repo_name)
+
+          const liveness: LivenessResult = checkWorktreeLiveness(
+            agentName,
+            fullWorktreePath,
+            wt.branch,
+            {
+              hqPath,
+              hostTmuxSessions,
+              containerTmuxSessions,
+              repoPath: sourceRepoPath,
+            },
+          )
+          if (!liveness.safeToDelete) {
+            log?.(`Skipping worktree "${fullWorktreePath}": ${liveness.reasons.join('; ')}`)
+            continue
+          }
 
           if (removeWorktree(fullWorktreePath, sourceRepoPath)) {
             log?.(`Removed worktree: ${fullWorktreePath}`)
@@ -939,24 +997,45 @@ function findAgentNamesForTicket(ticketId: string, hqPath: string): string[] {
 // =============================================================================
 
 /**
- * Find orphaned worktrees — worktrees whose agents have no active tmux session.
- * Unlike `collectGCCandidates` which checks PR status, this function checks
- * whether the agent is still running (useful for post-kill cleanup).
+ * Options for orphaned worktree discovery.
  */
-export function findOrphanedWorktrees(hqPath: string): Array<{
+export interface FindOrphanedWorktreesOptions {
+  /** Minimum worktree age in minutes (default 5) */
+  minWorktreeAgeMinutes?: number
+  /** Heartbeat freshness threshold in minutes (default 10) */
+  heartbeatFreshMinutes?: number
+  /** Log callback for skipped worktrees (reason is passed) */
+  log?: (msg: string) => void
+  /** Skip the GitHub PR check (used by tests) */
+  skipPRCheck?: boolean
+  /** Skip the lsof process-holding check (used by tests) */
+  skipProcessCheck?: boolean
+}
+
+export interface OrphanWorktree {
   worktreePath: string
   branch: string
   agentName: string
   repoName: string
   sourceRepoPath: string
-}> {
-  const orphans: Array<{
-    worktreePath: string
-    branch: string
-    agentName: string
-    repoName: string
-    sourceRepoPath: string
-  }> = []
+}
+
+/**
+ * Find orphaned worktrees — worktrees whose agents have been fully terminated.
+ *
+ * PRLT-1324: This function is the one that catastrophically deleted a live agent's
+ * worktree. It now runs the full `checkWorktreeLiveness` suite per worktree:
+ * DB status + tmux + lsof + open PR + heartbeat freshness + minimum age +
+ * uncommitted changes. If ANY signal indicates liveness, the worktree is
+ * skipped and the reason is logged.
+ */
+export function findOrphanedWorktrees(
+  hqPath: string,
+  options: FindOrphanedWorktreesOptions = {},
+): OrphanWorktree[] {
+  const { log, minWorktreeAgeMinutes, heartbeatFreshMinutes, skipPRCheck, skipProcessCheck } = options
+
+  const orphans: OrphanWorktree[] = []
 
   const reposPath = path.join(hqPath, 'repos')
   if (!fs.existsSync(reposPath)) return orphans
@@ -970,28 +1049,9 @@ export function findOrphanedWorktrees(hqPath: string): Array<{
     return orphans
   }
 
-  // Build set of active tmux session names
-  const activeSessions = new Set<string>()
-  try {
-    const output = execSync(
-      'tmux list-sessions -F "#{session_name}" 2>/dev/null || true',
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 5000 },
-    ).trim()
-    if (output) {
-      for (const s of output.split('\n')) {
-        if (s) activeSessions.add(s)
-      }
-    }
-  } catch {
-    // tmux not available — all worktrees are orphaned
-  }
-
-  // Build container lookup
-  const containers = listAgentContainers()
-  const containerByAgent = new Map<string, ContainerInfo>()
-  for (const c of containers) {
-    containerByAgent.set(c.agentName, c)
-  }
+  // Pre-fetch tmux sessions once to avoid spawning tmux for every worktree.
+  const hostTmuxSessions = getHostTmuxSessionNames()
+  const containerTmuxSessions = getContainerTmuxSessionMap()
 
   for (const repoName of repoDirs) {
     const repoPath = path.join(reposPath, repoName)
@@ -1004,20 +1064,25 @@ export function findOrphanedWorktrees(hqPath: string): Array<{
       const agentName = extractAgentName(wt.worktreePath, hqPath)
       if (!agentName) continue
 
-      // Check if agent is alive (container running or DB status active)
-      const container = containerByAgent.get(agentName) ?? null
-      if (isAgentAlive(agentName, hqPath, container)) continue
+      // Full multi-signal liveness check. See liveness.ts for the rules.
+      const liveness = checkWorktreeLiveness(agentName, wt.worktreePath, wt.branch, {
+        hqPath,
+        minWorktreeAgeMinutes,
+        heartbeatFreshMinutes,
+        hostTmuxSessions,
+        containerTmuxSessions,
+        repoPath,
+        skipPRCheck,
+        skipProcessCheck,
+      })
 
-      // Check if any tmux session matches this agent (exact match on agent name)
-      let hasSession = false
-      for (const sessionName of activeSessions) {
-        // Session names end with the agent name: {ticketId}-{action}-{agentName}
-        if (sessionName.endsWith(`-${agentName}`)) {
-          hasSession = true
-          break
-        }
+      if (!liveness.safeToDelete) {
+        // Log every skipped worktree with the specific reasons the check failed.
+        // This is a P0 requirement (PRLT-1324): operators need to understand
+        // why a worktree was retained, especially when hunting ghost artifacts.
+        log?.(`Skipping worktree "${wt.worktreePath}" (agent: ${agentName}): ${liveness.reasons.join('; ')}`)
+        continue
       }
-      if (hasSession) continue
 
       orphans.push({
         worktreePath: wt.worktreePath,
