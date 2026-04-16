@@ -11,7 +11,7 @@
  * - Services have no dependency on oclif, inquirer, or any CLI framework
  */
 
-import type { Ticket, TicketFilter, Board, StateCategory } from '../lib/pmo/types.js'
+import type { Ticket, TicketFilter, StateCategory } from '../lib/pmo/types.js'
 import type { PRInfo, CreatePRResult } from '../lib/pr/index.js'
 import type { ReconcileReport, ReconcileOptions } from '../lib/reconcile/types.js'
 import type {
@@ -261,8 +261,6 @@ export interface ListTicketsResult {
   success: boolean
   tickets: Ticket[]
   provider: TicketProviderName
-  /** Board info for single-project views */
-  board?: Board
   /** Total count before pagination */
   totalCount: number
 }
