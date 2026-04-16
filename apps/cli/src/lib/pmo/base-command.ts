@@ -77,12 +77,14 @@ export const pmoBaseFlags = {
  *     // Runtime context (this.hqPath, this.db, this.settings) inherited from RuntimeCommand
  *     // PMO context (this.storage, this.pmoPath) added by PMOCommand
  *
- *     // For project-agnostic operations:
- *     const ticket = await this.storage.getTicketById('TKT-123');
+ *     // For a single ticket:
+ *     const provider = await this.resolveTicketProvider('PRLT-123', projectId);
+ *     const ticket = (await provider.getTicket('PRLT-123')).ticket;
  *
  *     // For project-scoped operations:
  *     const projectId = await this.requireProject();
- *     const board = await this.storage.getBoard(projectId);
+ *     const provider = this.resolveProjectProvider(projectId);
+ *     const tickets = await provider.listTickets(projectId);
  *   }
  * }
  * ```
@@ -168,8 +170,10 @@ export abstract class PMOCommand extends RuntimeCommand {
       const projectsWithTickets: typeof projects = [];
       for (const p of projects) {
         // eslint-disable-next-line no-await-in-loop -- Sequential filtering for project selection
-        const tickets = await this.storage.listTickets(p.id);
-        if (tickets.length > 0) {
+        const provider = this.resolveProjectProvider(p.id);
+        // eslint-disable-next-line no-await-in-loop
+        const result = await provider.listTickets(p.id);
+        if (result.success && result.tickets.length > 0) {
           projectsWithTickets.push(p);
         }
       }
@@ -284,15 +288,13 @@ export abstract class PMOCommand extends RuntimeCommand {
   protected async resolveTicketProvider(ticketId: string, projectId: string): Promise<TicketProvider> {
     const db = this.storage.getDatabase();
 
-    // Try local storage first for metadata
-    const ticket = await this.storage.getTicket(ticketId);
-    let metadata = ticket?.metadata ?? null;
-
-    // If no local ticket found and ticket ID looks like an external key (e.g. PRLT-1231),
-    // build synthetic metadata so the resolver routes to the correct provider.
-    if (!ticket && /^[A-Z]+-\d+$/i.test(ticketId)) {
+    // PRLT-1319: Local PMO ticket store is dead. Build synthetic metadata from
+    // the ticket ID pattern so the resolver routes to the correct provider.
+    // Any ticket ID matching PREFIX-NUMBER (e.g. PRLT-1231, ASANA-42) is treated
+    // as an external key; the resolver picks the configured external provider.
+    let metadata: Record<string, string> | null = null;
+    if (/^[A-Z]+-\d+$/i.test(ticketId)) {
       metadata = {
-        external_source: 'linear',
         external_key: ticketId,
       };
     }

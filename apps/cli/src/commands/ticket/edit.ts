@@ -178,9 +178,7 @@ export default class TicketEdit extends PMOCommand {
       }
 
       // Interactive mode - prompt for all editable fields
-      const board = ticket.projectId ? await this.storage.getProjectBoard(ticket.projectId) : null;
-      const columns = board ? board.columns.map(col => col.name) : [];
-      updates = await this.promptForEdits(ticket, columns);
+      updates = await this.promptForEdits(ticket, []);
     } else {
       // Use flag values
       if (flags.title) updates.title = flags.title;
@@ -195,21 +193,20 @@ export default class TicketEdit extends PMOCommand {
       if (flags.assignee) updates.assignee = flags.assignee;
     }
 
-    // Handle subtasks - sequential for consistent ordering
+    // Handle subtasks — compute the final array and send via provider updateTicket
     let subtasksChanged = false;
+    let finalSubtasks = [...(ticket.subtasks ?? [])];
     if (flags['clear-subtasks']) {
-      // Clear all subtasks first - get from ticket object
-      for (const subtask of ticket.subtasks) {
-        // eslint-disable-next-line no-await-in-loop
-        await this.storage.removeSubtask(ticketId!, subtask.id);
-      }
+      finalSubtasks = [];
       subtasksChanged = true;
     }
-
     if (flags['add-subtask'] && flags['add-subtask'].length > 0) {
       for (const subtaskTitle of flags['add-subtask']) {
-        // eslint-disable-next-line no-await-in-loop
-        await this.storage.addSubtask(ticketId!, subtaskTitle);
+        finalSubtasks.push({
+          id: `subtask-${Date.now()}-${finalSubtasks.length}`,
+          title: subtaskTitle,
+          done: false,
+        });
       }
       subtasksChanged = true;
     }
@@ -232,18 +229,23 @@ export default class TicketEdit extends PMOCommand {
       }
     }
 
-    // Handle acceptance criteria
+    // Handle acceptance criteria — compute the final array and send via provider updateTicket
     let acChanged = false;
+    let finalAC = [...(ticket.acceptanceCriteria ?? [])];
     if (flags['clear-ac']) {
-      await this.storage.clearAcceptanceCriteria(ticketId!);
+      finalAC = [];
       acChanged = true;
     }
-
     if (flags['add-ac'] && flags['add-ac'].length > 0) {
-      // Sequential for consistent ordering
       for (const criterion of flags['add-ac']) {
-        // eslint-disable-next-line no-await-in-loop
-        await this.storage.addAcceptanceCriterion(ticketId!, criterion);
+        finalAC.push({
+          id: `ac-${Date.now()}-${finalAC.length}`,
+          ticketId: ticketId!,
+          criterion,
+          verifiable: false,
+          verified: false,
+          position: finalAC.length,
+        });
       }
       acChanged = true;
     }
@@ -255,9 +257,15 @@ export default class TicketEdit extends PMOCommand {
       return;
     }
 
-    // Update the ticket with labels if changed
+    // Update the ticket with labels / subtasks / AC if changed
     if (labelsChanged) {
       (updates as { labels?: string[] }).labels = currentLabels;
+    }
+    if (subtasksChanged) {
+      (updates as { subtasks?: typeof finalSubtasks }).subtasks = finalSubtasks;
+    }
+    if (acChanged) {
+      (updates as { acceptanceCriteria?: typeof finalAC }).acceptanceCriteria = finalAC;
     }
 
     // Update the ticket through provider

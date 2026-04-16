@@ -1002,93 +1002,103 @@ export class PMOError extends Error {
 // Storage Interface
 // =============================================================================
 
+/**
+ * PMOStorage interface.
+ *
+ * Slimmed down by PRLT-1299/PRLT-1319. The provider (Linear, Jira, etc.) is
+ * now the source of truth for tickets — use `resolveTicketProvider()` /
+ * `resolveProjectProvider()` for any ticket work.
+ *
+ * Methods below are either (a) still backed by live tables (actions, workflow
+ * rules, project metadata, ticket templates) or (b) kept as runtime stubs on
+ * SQLiteStorage while migration callers move off them. Stubs are marked
+ * `@deprecated — dead stub` in the interface so the compiler highlights any
+ * new caller. Methods with zero remaining callers have been removed entirely.
+ */
 export interface PMOStorage {
   readonly type: 'sqlite' | 'git' | 'cloud' | 'adapter'
 
   // Board Operations
   init(projectId: string, config: BoardConfig): Promise<Board>
+
+  // ---------------------------------------------------------------------------
+  // Dead runtime stubs kept here only to let existing callers typecheck until
+  // they are migrated to the provider layer. Do NOT add new usages — calling
+  // any of these throws at runtime.
+  // @deprecated Use resolveTicketProvider() / resolveProjectProvider() (PRLT-1319)
+  // ---------------------------------------------------------------------------
+
+  /** @deprecated — dead stub, throws at runtime. Use resolveProjectProvider() (PRLT-1319) */
   getBoard(projectId: string): Promise<Board>
+  /** @deprecated — dead stub, throws at runtime. Use resolveProjectProvider() (PRLT-1319) */
   getBoardMarkdown(projectId: string): Promise<string>
-
-  // Column Operations
+  /** @deprecated — dead stub, throws at runtime. Use resolveProjectProvider() (PRLT-1319) */
   getColumnNames(projectId: string): string[]
-  createColumn(projectId: string, name: string, position?: number): Promise<Column>
-  renameColumn(projectId: string, id: string, name: string): Promise<Column>
-  moveColumn(projectId: string, id: string, position: number): Promise<Column>
-  deleteColumn(projectId: string, id: string, cascade?: boolean): Promise<void>
+  /** @deprecated — dead stub, throws at runtime. Use resolveProjectProvider() (PRLT-1319) */
+  getProjectBoard(projectId: string): Promise<Board | null>
 
-  // Ticket Operations
+  /** @deprecated — dead stub, throws at runtime. Use resolveProjectProvider().createTicket() (PRLT-1319) */
   createTicket(projectId: string, ticket: CreateTicketInput): Promise<Ticket>
+  /** @deprecated — dead stub, throws at runtime. Use resolveTicketProvider().getTicket() (PRLT-1319) */
   getTicket(id: string): Promise<Ticket | null>
-  getTicketByExternalKey(externalKey: string): Promise<Ticket | null>
+  /** @deprecated — dead stub, throws at runtime. Use resolveTicketProvider().updateTicket() (PRLT-1319) */
   updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket>
+  /** @deprecated — dead stub, throws at runtime. Use resolveTicketProvider().moveTicket() (PRLT-1319) */
   moveTicket(projectId: string, id: string, column: string, position?: number): Promise<Ticket>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   reorderTicket(id: string, opts: { position?: number; afterTicketId?: string }): Promise<Ticket>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   moveTicketToProject(ticketId: string, newProjectId: string): Promise<Ticket>
+  /** @deprecated — dead stub, throws at runtime. Use resolveTicketProvider().deleteTicket() (PRLT-1319) */
   deleteTicket(id: string): Promise<void>
+  /** @deprecated — dead stub, throws at runtime. Use resolveProjectProvider().listTickets() (PRLT-1319) */
   listTickets(projectId: string | undefined, filter?: TicketFilter): Promise<Ticket[]>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  isTicketBlocked(ticketId: string): Promise<boolean>
 
-  // Subtask Operations
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   addSubtask(ticketId: string, title: string): Promise<Subtask>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   toggleSubtask(ticketId: string, subtaskId: string): Promise<Subtask>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   removeSubtask(ticketId: string, subtaskId: string): Promise<void>
 
-  // Spec Operations
-  createSpec(spec: Partial<Spec>): Promise<Spec>
-  getSpec(id: string): Promise<Spec | null>
-  listSpecs(filter?: SpecFilter): Promise<Spec[]>
-  updateSpec(id: string, changes: Partial<Spec>): Promise<Spec>
-  deleteSpec(id: string): Promise<void>
-  linkTicketToSpec(ticketId: string, specId: string): Promise<void>
-  unlinkTicketFromSpec(ticketId: string, specId: string): Promise<void>
-  getTicketsForSpec(projectId: string, specId: string): Promise<Ticket[]>
-  getSpecsForTicket(ticketId: string): Promise<Spec[]>
-  addSpecDependency(specId: string, dependsOnId: string): Promise<void>
-  removeSpecDependency(specId: string, dependsOnId: string): Promise<void>
-  getSpecDependencies(specId: string): Promise<Spec[]>
-  getSpecDependents(specId: string): Promise<Spec[]>
-  // Project-Spec associations (many-to-many, specs are global)
-  linkProjectToSpec(projectId: string, specId: string): Promise<void>
-  unlinkProjectFromSpec(projectId: string, specId: string): Promise<void>
-  getSpecsForProject(projectId: string): Promise<Spec[]>
-  getProjectsForSpec(specId: string): Promise<Project[]>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  addAcceptanceCriterion(ticketId: string, criterion: string): Promise<{ id: string; criterion: string; met: boolean }>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  removeAcceptanceCriterion(ticketId: string, criterionId: string): Promise<void>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  clearAcceptanceCriteria(ticketId: string): Promise<void>
 
-  // Epic Operations
-  createEpic(projectId: string, epic: Partial<Epic>): Promise<Epic>
-  getEpic(id: string): Promise<Epic | null>
-  listEpics(projectId: string, filter?: EpicFilter): Promise<Epic[]>
-  reorderEpic(projectId: string, epicId: string, newPosition: number): Promise<Epic>
-  updateEpic(id: string, changes: Partial<Epic>): Promise<Epic>
-  deleteEpic(id: string): Promise<void>
-  getTicketsForEpic(projectId: string, epicId: string): Promise<Ticket[]>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  createTicketDependency(ticketId: string, blockerId: string, type: string): Promise<void>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  deleteTicketDependency(ticketId: string, blockerId: string, type: string): Promise<void>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  getTicketBlockers(ticketId: string): Promise<Ticket[]>
+
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   linkTicketToEpic(ticketId: string, epicId: string): Promise<void>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   unlinkTicketFromEpic(ticketId: string): Promise<void>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  linkTicketToSpec(ticketId: string, specId: string): Promise<void>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  getEpic(id: string): Promise<Epic | null>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  listEpics(projectId: string, filter?: EpicFilter): Promise<Epic[]>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
+  getTicketsForEpic(projectId: string, epicId: string): Promise<Ticket[]>
 
-  // Workflow Operations (shared workflow definitions)
-  listWorkflows(filter?: WorkflowFilter): Promise<Workflow[]>
-  getWorkflow(id: string): Promise<Workflow | null>
-  createWorkflow(workflow: Partial<Workflow>): Promise<Workflow>
-  updateWorkflow(id: string, changes: Partial<Workflow>): Promise<Workflow>
-  deleteWorkflow(id: string): Promise<void>
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   getProjectWorkflow(projectId: string): Promise<Workflow | null>
-
-  // Workflow Status Operations (statuses within workflows = board columns)
+  /** @deprecated — dead stub, throws at runtime (PRLT-1319) */
   listStatuses(workflowId: string): Promise<WorkflowStatus[]>
-  getStatus(id: string): Promise<WorkflowStatus | null>
-  createStatus(workflowId: string, status: Partial<WorkflowStatus>): Promise<WorkflowStatus>
-  updateStatus(id: string, changes: Partial<WorkflowStatus>): Promise<WorkflowStatus>
-  deleteStatus(id: string): Promise<void>
-  reorderStatus(id: string, newPosition: number): Promise<WorkflowStatus>
-  getDefaultStatus(workflowId: string): Promise<WorkflowStatus | null>
-
-  // Note: Workflow templates have been removed. Use workflow commands directly
-  // (prlt workflow list, prlt workflow create, prlt workflow switch)
 
   // Ticket Template Operations
   listTicketTemplates(filter?: TicketTemplateFilter): Promise<TicketTemplate[]>
   getTicketTemplate(id: string): Promise<TicketTemplate | null>
   createTicketTemplate(template: Partial<TicketTemplate> & { name: string }): Promise<TicketTemplate>
-  createTicketTemplateFromTicket(ticketId: string, name: string, description?: string): Promise<TicketTemplate>
   updateTicketTemplate(id: string, changes: Partial<TicketTemplate>): Promise<TicketTemplate>
   deleteTicketTemplate(id: string): Promise<void>
 
@@ -1118,11 +1128,6 @@ export interface PMOStorage {
   listProjects(filter?: ProjectFilter): Promise<Project[]>
   archiveProject(id: string): Promise<Project>
   unarchiveProject(id: string): Promise<Project>
-
-  // Sync Operations
-  pull(): Promise<SyncResult>
-  push(): Promise<SyncResult>
-  status(): Promise<SyncStatus>
 
   // Lifecycle
   close(): Promise<void>

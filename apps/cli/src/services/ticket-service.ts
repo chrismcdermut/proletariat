@@ -9,7 +9,7 @@
  */
 
 import type Database from 'better-sqlite3'
-import type { Ticket, TicketFilter, Board, CreateTicketInput, UpdateTicketInput } from '../lib/pmo/types.js'
+import type { Ticket, TicketFilter, CreateTicketInput, UpdateTicketInput } from '../lib/pmo/types.js'
 import type { ProviderStorage, TicketProvider, TicketProviderName, ProviderListResult } from '../lib/providers/types.js'
 import { resolveProjectProvider, resolveTicketProvider } from '../lib/providers/resolver.js'
 import { ServiceError } from './types.js'
@@ -21,7 +21,6 @@ import type { ListTicketsOptions, ListTicketsResult, GetTicketResult } from './t
  */
 export interface TicketServiceStorage extends ProviderStorage {
   getProject(id: string): Promise<{ id: string; name: string } | null>
-  getProjectBoard(projectId: string): Promise<Board | null>
   listProjectSummaries(): Promise<Array<{ id: string; name: string }>>
 }
 
@@ -60,20 +59,10 @@ export class TicketService {
       }
     }
 
-    // Validate column exists if filtering by column (PMO only)
-    if (filter.column && projectId && source !== 'linear') {
-      const board = await this.storage.getProjectBoard(projectId)
-      if (board) {
-        const validColumns = board.columns.map(c => c.name)
-        if (!validColumns.includes(filter.column)) {
-          throw new ServiceError(
-            'VALIDATION',
-            `Column "${filter.column}" not found. Valid columns: ${validColumns.join(', ')}`,
-            { validColumns },
-          )
-        }
-      }
-    }
+    // Column validation against the local PMO board was removed with the dead
+    // PMO ticket tables (PRLT-1299). The provider (Linear, Jira, etc.) will
+    // validate the column name itself when the list is performed, and local
+    // PMO no longer carries columns, so no pre-flight check is possible here.
 
     // Resolve provider and fetch
     const provider = resolveProjectProvider(
@@ -108,22 +97,13 @@ export class TicketService {
     if (offset) tickets = tickets.slice(offset)
     if (limit) tickets = tickets.slice(0, limit)
 
-    // Get board for single-project views
-    let board: Board | undefined
-    if (projectId) {
-      try {
-        const result = await this.storage.getProjectBoard(projectId)
-        if (result) board = result
-      } catch {
-        // Non-fatal — board info is optional
-      }
-    }
-
+    // Board info on local PMO was removed with the dead PMO ticket tables
+    // (PRLT-1299). Consumers of this service use tickets[*].statusName instead
+    // of the now-absent board structure.
     return {
       success: true,
       tickets,
       provider: listResult.provider,
-      board,
       totalCount,
     }
   }
