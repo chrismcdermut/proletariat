@@ -24,6 +24,12 @@ export { ReconcileService } from './reconcile-service.js'
 export { PRService } from './pr-service.js'
 export type { PRServiceStorage } from './pr-service.js'
 
+export {
+  setInternalAction,
+  resolveInternalAction,
+  resolveActionId,
+} from './action-context.js'
+
 export { ServiceError } from './types.js'
 export type {
   ServiceErrorCode,

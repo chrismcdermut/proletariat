@@ -109,6 +109,7 @@ import { handlePostExecutionTransition } from '../../lib/work-lifecycle/index.js
 import { runPreflightChecks, formatPreflightReport } from '../../lib/execution/preflight.js'
 import { startPromptWatcher } from '../../lib/execution/prompt-watcher.js'
 import { getEventBus } from '../../lib/events/event-bus.js'
+import { resolveInternalAction } from '../../services/action-context.js'
 
 /**
  * Try to execute a git command, return true if successful
@@ -311,10 +312,6 @@ export default class WorkStart extends PMOCommand {
       char: 'e',
       description: 'Override executor',
       options: ['claude-code', 'codex', 'custom'],
-    }),
-    action: Flags.string({
-      description: 'Action to perform (internal — use work groom/implement/review/resolve instead)',
-      hidden: true,
     }),
     prompt: Flags.string({
       char: 'p',
@@ -600,6 +597,15 @@ export default class WorkStart extends PMOCommand {
   async execute(): Promise<void> {
     const { args, flags, argv } = await this.parse(WorkStart)
     let projectId = (flags as { project?: string }).project
+
+    // Resolve the action once, up front. The `--action` CLI flag was removed
+    // in PRLT-1316; dedicated verbs (`work review`, `work groom`,
+    // `work implement`, `work resolve`) and the orchestrator signal the
+    // intended action via the internal action-context channel (module
+    // singleton for in-process, PRLT_INTERNAL_ACTION env var for subprocess).
+    // Users invoking `prlt work start <ticket>` directly always get
+    // 'implement', the configured start action.
+    const internalAction: string | undefined = resolveInternalAction() ?? undefined
 
     // Check for conflicting PR flags
     if (flags['create-pr'] && flags['no-pr']) {
@@ -949,12 +955,13 @@ export default class WorkStart extends PMOCommand {
 
       // In JSON mode with explicit flags, implement two-step confirm-then-execute protocol
       if (jsonMode) {
-        // Check if all required flags for non-interactive execution are provided
-        const hasAction = !!(flags.action || flags.prompt)
+        // Check if all required flags for non-interactive execution are provided.
+        // Action is now always resolved (explicit prompt, internal action, or
+        // the 'implement' default), so it's no longer part of the check.
         const hasDisplay = !!(flags.display || flags['run-on-host'])
         const hasPermissions = !!(flags['permission-mode'] || flags['skip-permissions'])
         const hasAgent = !!(flags.ephemeral || flags.agent)
-        const allFlagsProvided = hasAction && hasDisplay && hasPermissions && hasAgent
+        const allFlagsProvided = hasDisplay && hasPermissions && hasAgent
 
         if (allFlagsProvided && !flags.yes) {
           // All flags provided but no --yes: return confirmation_needed with plan
@@ -984,9 +991,10 @@ export default class WorkStart extends PMOCommand {
             }
           }
 
-          // Build the confirm command with --yes
+          // Build the confirm command with --yes. The `--action` flag was
+          // removed in PRLT-1316 — internal action (if any) is preserved via
+          // the process env var, not propagated onto the re-entry command.
           let confirmCmd = `prlt work start ${ticketId}`
-          if (flags.action) confirmCmd += ` --action ${flags.action}`
           if (flags.prompt) confirmCmd += ` --prompt "${flags.prompt}"`
           if (flags.display) confirmCmd += ` --display ${flags.display}`
           if (flags['run-on-host']) confirmCmd += ' --run-on-host'
@@ -1009,7 +1017,7 @@ export default class WorkStart extends PMOCommand {
               title: ticket.title,
               status: ticket.statusName,
             },
-            action: flags.action || 'implement',
+            action: internalAction || 'implement',
             display: flags.display || (flags['run-on-host'] ? 'host' : 'devcontainer'),
             permissions: (flags['permission-mode'] || (flags['skip-permissions'] ? 'danger' : 'safe')),
             agent: flags.agent || 'ephemeral',
@@ -1470,9 +1478,11 @@ export default class WorkStart extends PMOCommand {
         epicTitle = epic?.title
       }
 
-      // Determine action for this work session
-      // The --action flag is hidden/internal — used by dedicated commands (work groom, work review, etc.)
-      // When called directly, work start always uses 'implement'
+      // Determine action for this work session.
+      // The `--action` CLI flag was removed in PRLT-1316. Internal callers
+      // (work groom/review/implement/resolve, the orchestrator) route through
+      // the action-context channel — see resolveInternalAction() above.
+      // When `work start` is invoked directly it always uses 'implement'.
       let selectedAction: WorkAction | null = null
       let customPrompt: string | undefined
 
@@ -1480,8 +1490,7 @@ export default class WorkStart extends PMOCommand {
         // Custom prompt overrides everything
         customPrompt = flags.prompt
       } else {
-        // Use specified action (internal routing) or default to 'implement'
-        const actionId = flags.action || 'implement'
+        const actionId = internalAction || 'implement'
         selectedAction = await this.storage.getAction(actionId)
         if (!selectedAction) {
           db.close()
@@ -2300,9 +2309,11 @@ export default class WorkStart extends PMOCommand {
         if (isExistingBranch) {
           // Ticket already has a branch linked - just use it
           this.log(styles.muted(`Using existing branch: ${branch}`))
-        } else if (flags.action || flags.force || jsonMode) {
-          // Non-interactive / JSON mode - auto-create branch
-          // JSON mode agents can't interactively enter branch names
+        } else if (internalAction || flags.force || jsonMode) {
+          // Non-interactive / internal-action / JSON mode - auto-create branch.
+          // JSON mode agents can't interactively enter branch names, and
+          // internal callers (work review/groom/resolve/implement, orchestrator)
+          // never want an interactive branch prompt.
           finalBranch = branch
           this.log(styles.muted(`Branch: ${finalBranch}`))
         } else {
@@ -2908,7 +2919,8 @@ export default class WorkStart extends PMOCommand {
     const buildStartArgs = (ticketId: string, projId: string): string[] => {
       const startArgs: string[] = [ticketId, '--project', projId, '--ephemeral']
 
-      if (flags.action) startArgs.push('--action', flags.action as string)
+      // `--action` was removed in PRLT-1316; batch siblings inherit the
+      // action from PRLT_INTERNAL_ACTION (if one was set by the caller).
       if (flags.prompt) startArgs.push('--prompt', flags.prompt as string)
       if (flags.message) startArgs.push('--message', flags.message as string)
       if (flags.display) startArgs.push('--display', flags.display as string)

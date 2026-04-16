@@ -6,6 +6,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { setInternalAction } from '../../services/action-context.js'
 
 export default class WorkGroom extends PMOCommand {
   static description = 'Enrich a ticket with requirements, acceptance criteria, and subtasks'
@@ -84,11 +85,13 @@ export default class WorkGroom extends PMOCommand {
       ticketIds = [selected]
     }
 
-    // Launch work start with groom action for each ticket
+    // Launch work start with groom action for each ticket. The action is
+    // passed through the internal action-context channel rather than an
+    // `--action` CLI flag (PRLT-1316) so users can't bypass the verb layer.
     for (const ticketId of ticketIds) {
       this.log(styles.info(`\nLaunching groom for ${styles.emphasis(ticketId)}...`))
 
-      const workStartArgs = [ticketId, '--action', 'groom']
+      const workStartArgs = [ticketId]
       if (projectId) {
         workStartArgs.push('--project', projectId)
       }
@@ -96,6 +99,7 @@ export default class WorkGroom extends PMOCommand {
         workStartArgs.push('--json')
       }
 
+      setInternalAction('groom')
       // eslint-disable-next-line no-await-in-loop
       await this.config.runCommand('work:start', workStartArgs)
     }

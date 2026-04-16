@@ -78,7 +78,7 @@ Requirements:
 Have an agent groom the ticket:
 
 ```bash
-prlt work start TKT-042 --action groom
+prlt work groom TKT-042
 ```
 
 The agent will:
@@ -171,7 +171,7 @@ gh pr review --request-changes -b "Please add input validation"
 Agent can address feedback:
 
 ```bash
-prlt work start TKT-042 --action implement --force
+prlt work start TKT-042 --force
 # Agent reads PR comments and makes changes
 ```
 
@@ -249,7 +249,7 @@ prlt ticket create \
   --priority P0
 
 # Start immediately (skip grooming for urgent bugs)
-prlt work start TKT-043 --action implement
+prlt work start TKT-043
 ```
 
 ### Documentation Flow
@@ -259,8 +259,8 @@ prlt ticket create \
   --title "Document API endpoints" \
   --category docs
 
-# Use docs action
-prlt work start TKT-044 --action implement
+# Implement
+prlt work start TKT-044
 ```
 
 ### Refactor Flow

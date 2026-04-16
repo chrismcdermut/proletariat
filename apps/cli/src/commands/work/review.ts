@@ -6,6 +6,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { setInternalAction } from '../../services/action-context.js'
 
 export default class WorkReview extends PMOCommand {
   static description = 'Evaluate the output/PR for a ticket (model decides whether to comment, fix, or both)'
@@ -87,11 +88,13 @@ export default class WorkReview extends PMOCommand {
       ticketIds = [selected]
     }
 
-    // Launch work start with review action for each ticket
+    // Launch work start with review action for each ticket. The action is
+    // passed through the internal action-context channel rather than an
+    // `--action` CLI flag (PRLT-1316) so users can't bypass the verb layer.
     for (const ticketId of ticketIds) {
       this.log(styles.info(`\nLaunching review for ${styles.emphasis(ticketId)}...`))
 
-      const workStartArgs = [ticketId, '--action', 'review']
+      const workStartArgs = [ticketId]
       if (projectId) {
         workStartArgs.push('--project', projectId)
       }
@@ -99,6 +102,7 @@ export default class WorkReview extends PMOCommand {
         workStartArgs.push('--json')
       }
 
+      setInternalAction('review')
       // eslint-disable-next-line no-await-in-loop
       await this.config.runCommand('work:start', workStartArgs)
     }

@@ -6,6 +6,7 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { setInternalAction } from '../../services/action-context.js'
 
 export default class WorkImplement extends PMOCommand {
   static description = 'Spawn agent to implement, continue, revise, or test a ticket (context-driven)'
@@ -89,11 +90,15 @@ export default class WorkImplement extends PMOCommand {
       ticketIds = [selected]
     }
 
-    // Launch work start with implement action for each ticket
+    // Launch work start with implement action for each ticket. The action is
+    // passed through the internal action-context channel rather than an
+    // `--action` CLI flag (PRLT-1316) so users can't bypass the verb layer.
+    // (Note: 'implement' is also the default, so this is essentially a no-op
+    // handoff, but we set it explicitly to make the routing clear.)
     for (const ticketId of ticketIds) {
       this.log(styles.info(`\nLaunching implement for ${styles.emphasis(ticketId)}...`))
 
-      const workStartArgs = [ticketId, '--action', 'implement']
+      const workStartArgs = [ticketId]
       if (projectId) {
         workStartArgs.push('--project', projectId)
       }
@@ -104,6 +109,7 @@ export default class WorkImplement extends PMOCommand {
         workStartArgs.push('--json')
       }
 
+      setInternalAction('implement')
       // eslint-disable-next-line no-await-in-loop
       await this.config.runCommand('work:start', workStartArgs)
     }

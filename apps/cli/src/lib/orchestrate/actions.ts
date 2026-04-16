@@ -54,6 +54,33 @@ export function setChainExecutorForTesting(executor: ChainExecutor | null): void
 export const AGENT_SPAWN_TIMEOUT_MS = 180_000
 
 /**
+ * Env var channel read by `work start` to know which action to run, since
+ * the public `--action` flag was removed in PRLT-1316. Exported so tests
+ * can assert on it.
+ */
+export const INTERNAL_ACTION_ENV = 'PRLT_INTERNAL_ACTION'
+
+/**
+ * Run `fn` with PRLT_INTERNAL_ACTION set to `action`, then restore the prior
+ * value (or clear it if it was unset). Child processes spawned inside `fn`
+ * inherit the env var — this is how the orchestrator tells a subprocess
+ * `work start` which action to fire without a user-visible CLI flag.
+ */
+export function runWithInternalAction<T>(action: string, fn: () => T): T {
+  const previous = process.env[INTERNAL_ACTION_ENV]
+  process.env[INTERNAL_ACTION_ENV] = action
+  try {
+    return fn()
+  } finally {
+    if (previous === undefined) {
+      delete process.env[INTERNAL_ACTION_ENV]
+    } else {
+      process.env[INTERNAL_ACTION_ENV] = previous
+    }
+  }
+}
+
+/**
  * Merge a PR via `prlt work ship`.
  *
  * Walks the JSON prompt chain so that any prompts emitted by `prlt work ship`
@@ -281,9 +308,10 @@ const cleanupContainer: ActionHandler = (ctx) => {
 }
 
 /**
- * Spawn a fix agent after CI failure. Uses --action revise so the agent
- * launches into the revise role prompt; everything else (environment,
- * display, permission mode, …) comes from prompt-chain defaults.
+ * Spawn a fix agent after CI failure. Selects the `revise` role prompt via the
+ * PRLT_INTERNAL_ACTION env var (see PRLT-1316 — the public flag for picking an
+ * action was removed so users cannot bypass the verb layer). Everything else
+ * (environment, display, permission mode, …) comes from prompt-chain defaults.
  */
 const spawnFixAgent: ActionHandler = (ctx, config) => {
   const start = Date.now()
@@ -291,12 +319,12 @@ const spawnFixAgent: ActionHandler = (ctx, config) => {
     return { action: 'spawn-fix-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
   }
 
-  const result = walkPromptChain({
-    baseCommand: `prlt work start ${ctx.ticket} --action revise`,
+  const result = runWithInternalAction('revise', () => walkPromptChain({
+    baseCommand: `prlt work start ${ctx.ticket}`,
     defaults: resolveActionDefaults('spawn-fix-agent', config),
     timeoutMs: AGENT_SPAWN_TIMEOUT_MS,
     executor: chainExecutor,
-  })
+  }))
 
   return {
     action: 'spawn-fix-agent',
@@ -311,7 +339,9 @@ const spawnFixAgent: ActionHandler = (ctx, config) => {
  *
  * Review agents are non-destructive — they read the diff and post comments,
  * so they default to host environment (faster, no container spin-up) and
- * safe permission mode. --action review pins the read-only role prompt.
+ * safe permission mode. The `review` role prompt is pinned via the
+ * PRLT_INTERNAL_ACTION env var (see PRLT-1316 — the public flag for picking
+ * an action was removed).
  */
 const spawnReviewAgent: ActionHandler = (ctx, config) => {
   const start = Date.now()
@@ -319,12 +349,12 @@ const spawnReviewAgent: ActionHandler = (ctx, config) => {
     return { action: 'spawn-review-agent', success: false, error: 'No ticket in context', durationMs: Date.now() - start }
   }
 
-  const result = walkPromptChain({
-    baseCommand: `prlt work start ${ctx.ticket} --action review`,
+  const result = runWithInternalAction('review', () => walkPromptChain({
+    baseCommand: `prlt work start ${ctx.ticket}`,
     defaults: resolveActionDefaults('spawn-review-agent', config),
     timeoutMs: AGENT_SPAWN_TIMEOUT_MS,
     executor: chainExecutor,
-  })
+  }))
 
   return {
     action: 'spawn-review-agent',
@@ -355,7 +385,8 @@ const healthCheck: ActionHandler = (ctx) => {
  * Resolve a merge conflict on a PR by poking the running agent or respawning a stopped one.
  * If the agent is running, it gets poked with a rebase instruction.
  * If the agent is stopped, it gets respawned via the JSON prompt chain
- * with --action resolve.
+ * with the `resolve` role prompt (pinned via PRLT_INTERNAL_ACTION since
+ * PRLT-1316 dropped the public flag for picking an action).
  * No action is taken on PRs with no associated ticket.
  */
 const resolveConflict: ActionHandler = (ctx, config) => {
@@ -375,12 +406,12 @@ const resolveConflict: ActionHandler = (ctx, config) => {
     // Poke failed — agent is likely not running, respawn it via prompt chain
   }
 
-  const result = walkPromptChain({
-    baseCommand: `prlt work start ${ctx.ticket} --action resolve`,
+  const result = runWithInternalAction('resolve', () => walkPromptChain({
+    baseCommand: `prlt work start ${ctx.ticket}`,
     defaults: resolveActionDefaults('resolve-conflict', config),
     timeoutMs: AGENT_SPAWN_TIMEOUT_MS,
     executor: chainExecutor,
-  })
+  }))
 
   return {
     action: 'resolve-conflict',

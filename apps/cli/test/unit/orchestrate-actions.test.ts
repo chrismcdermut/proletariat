@@ -6,6 +6,7 @@ import {
   executeBuiltinAction,
   ACTION_HANDLERS,
   AGENT_SPAWN_TIMEOUT_MS,
+  INTERNAL_ACTION_ENV,
   setChainExecutorForTesting,
 } from '../../src/lib/orchestrate/actions.js'
 import type { ChainExecutor } from '../../src/lib/orchestrate/prompt-chain.js'
@@ -176,8 +177,13 @@ describe('Orchestrate Built-in Actions', () => {
 
   describe('CLI invocation strings (via prompt chain executor)', () => {
     let calls: string[] = []
+    let envSnapshots: Array<string | undefined> = []
     const successExecutor: ChainExecutor = (command) => {
       calls.push(command)
+      // Capture the env var state at executor dispatch time. The
+      // orchestrator sets PRLT_INTERNAL_ACTION around walkPromptChain so
+      // subprocesses inherit it; we verify that by snapshotting here.
+      envSnapshots.push(process.env[INTERNAL_ACTION_ENV])
       return {
         stdout: JSON.stringify({
           type: 'success',
@@ -193,11 +199,13 @@ describe('Orchestrate Built-in Actions', () => {
 
     beforeEach(() => {
       calls = []
+      envSnapshots = []
       setChainExecutorForTesting(successExecutor)
     })
 
     afterEach(() => {
       setChainExecutorForTesting(null)
+      delete process.env[INTERNAL_ACTION_ENV]
     })
 
     it('merge-pr should call: prlt work ship <ticket> --pr <number> --json (no --yes)', () => {
@@ -246,24 +254,32 @@ describe('Orchestrate Built-in Actions', () => {
       expect(calls[0]).to.not.include('--display')
     })
 
-    it('spawn-fix-agent should call: prlt work start <ticket> --action revise --json', () => {
+    it('spawn-fix-agent should call: prlt work start <ticket> --json with PRLT_INTERNAL_ACTION=revise', () => {
       const result = executeBuiltinAction('spawn-fix-agent', {
         event: 'on_ci_failed',
         ticket: 'PRLT-400',
       })
       expect(result.success).to.be.true
-      expect(calls[0]).to.equal('prlt work start PRLT-400 --action revise --json')
+      // PRLT-1316: action is no longer a CLI flag; it rides on an env var.
+      expect(calls[0]).to.equal('prlt work start PRLT-400 --json')
+      expect(calls[0]).to.not.include('--action')
       expect(calls[0]).to.not.include('--yes')
+      expect(envSnapshots[0]).to.equal('revise')
+      // env var is restored after the call
+      expect(process.env[INTERNAL_ACTION_ENV]).to.be.undefined
     })
 
-    it('spawn-review-agent should call: prlt work start <ticket> --action review --json', () => {
+    it('spawn-review-agent should call: prlt work start <ticket> --json with PRLT_INTERNAL_ACTION=review', () => {
       const result = executeBuiltinAction('spawn-review-agent', {
         event: 'on_pr_opened',
         ticket: 'PRLT-450',
       })
       expect(result.success).to.be.true
-      expect(calls[0]).to.equal('prlt work start PRLT-450 --action review --json')
+      expect(calls[0]).to.equal('prlt work start PRLT-450 --json')
+      expect(calls[0]).to.not.include('--action')
       expect(calls[0]).to.not.include('--yes')
+      expect(envSnapshots[0]).to.equal('review')
+      expect(process.env[INTERNAL_ACTION_ENV]).to.be.undefined
     })
 
     it('move-ticket should call: prlt ticket move <ticket> "<target>" --json', () => {
@@ -412,18 +428,21 @@ describe('Orchestrate Built-in Actions', () => {
       expect(src).to.not.include('--display background')
     })
 
-    it('spawn-fix-agent must not hardcode --yes or --display flags', () => {
+    it('spawn-fix-agent must not hardcode --yes or --display flags and must route revise via internal action', () => {
       const src = getHandlerSource('spawnFixAgent')
       expect(src).to.include('walkPromptChain')
-      expect(src).to.include('--action revise')
+      // PRLT-1316: --action is gone, role prompt is pinned via env var.
+      expect(src).to.include("runWithInternalAction('revise'")
+      expect(src).to.not.include('--action')
       expect(src).to.not.include('--yes')
       expect(src).to.not.include('--display background')
     })
 
-    it('spawn-review-agent must not hardcode --yes or --display flags', () => {
+    it('spawn-review-agent must not hardcode --yes or --display flags and must route review via internal action', () => {
       const src = getHandlerSource('spawnReviewAgent')
       expect(src).to.include('walkPromptChain')
-      expect(src).to.include('--action review')
+      expect(src).to.include("runWithInternalAction('review'")
+      expect(src).to.not.include('--action')
       expect(src).to.not.include('--yes')
       expect(src).to.not.include('--display background')
     })
