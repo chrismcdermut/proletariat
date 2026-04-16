@@ -28,7 +28,6 @@ import { TrelloMapper } from '../trello/mapper.js'
 import { isAsanaConfigured } from '../asana/config.js'
 import { AsanaMapper } from '../asana/mapper.js'
 import { isNotionConfigured } from '../notion/config.js'
-import type { StateCategory } from '../pmo/types.js'
 import type { TicketProvider, ProviderStorage } from './types.js'
 import { PMOTicketProvider } from './pmo-provider.js'
 import { LinearTicketProvider } from './linear-provider.js'
@@ -46,55 +45,15 @@ import { EventEmittingProvider, type StatusResolver } from './event-emitting-pro
  * for event emission.
  */
 function createDbStatusResolver(db: Database.Database, storage: ProviderStorage): StatusResolver {
-  // storage param kept for interface compatibility — resolver uses db directly
+  // storage param kept for interface compatibility; resolver no longer has a
+  // local workflow table to query (PRLT-1299) — status resolution is a no-op.
+  void db
   void storage
   return {
-    resolveStatusByName(projectId: string, statusName: string) {
-      try {
-        const row = db.prepare(`
-          SELECT ws.id, ws.name, ws.category
-          FROM pmo_workflow_statuses ws
-          JOIN pmo_projects p ON p.workflow_id = ws.workflow_id
-          WHERE p.id = ? AND LOWER(ws.name) = LOWER(?)
-        `).get(projectId, statusName) as { id: string; name: string; category: string } | undefined
-
-        if (row) {
-          return { id: row.id, name: row.name, category: row.category as StateCategory }
-        }
-
-        // Fallback: search by status ID
-        const byId = db.prepare(`
-          SELECT id, name, category FROM pmo_workflow_statuses WHERE id = ?
-        `).get(statusName) as { id: string; name: string; category: string } | undefined
-
-        if (byId) {
-          return { id: byId.id, name: byId.name, category: byId.category as StateCategory }
-        }
-      } catch {
-        // Non-fatal: status resolution is best-effort
-      }
+    resolveStatusByName(_projectId: string, _statusName: string) {
       return null
     },
-
-    getTicketStatus(ticketId: string) {
-      try {
-        const row = db.prepare(`
-          SELECT t.status_id, ws.name, ws.category
-          FROM pmo_tickets t
-          LEFT JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-          WHERE t.id = ?
-        `).get(ticketId) as { status_id: string | null; name: string | null; category: string | null } | undefined
-
-        if (row) {
-          return {
-            statusId: row.status_id,
-            statusName: row.name,
-            statusCategory: (row.category as StateCategory) ?? null,
-          }
-        }
-      } catch {
-        // Non-fatal: status resolution is best-effort
-      }
+    getTicketStatus(_ticketId: string) {
       return null
     },
   }
