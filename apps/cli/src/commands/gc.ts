@@ -52,6 +52,14 @@ export default class GC extends PromptCommand {
       description: 'Also find and clean orphaned worktrees (agents with no running session)',
       default: false,
     }),
+    'min-age-minutes': Flags.integer({
+      description: 'Minimum age in minutes before a worktree is eligible for orphan cleanup (protects freshly-spawned agents)',
+      default: 5,
+    }),
+    'heartbeat-minutes': Flags.integer({
+      description: 'Worktrees with a heartbeat more recent than this (minutes) are skipped by orphan cleanup',
+      default: 10,
+    }),
   }
 
   async run(): Promise<void> {
@@ -161,7 +169,11 @@ export default class GC extends PromptCommand {
     // Orphan worktree cleanup (--orphans flag)
     let orphansRemoved = 0
     if (flags.orphans) {
-      const orphans = findOrphanedWorktrees(workspaceInfo.path)
+      const orphans = findOrphanedWorktrees(workspaceInfo.path, {
+        minWorktreeAgeMinutes: flags['min-age-minutes'],
+        heartbeatFreshMinutes: flags['heartbeat-minutes'],
+        log,
+      })
       if (orphans.length > 0) {
         if (!jsonMode) {
           this.log(colors.primary(`\nFound ${orphans.length} orphaned worktree(s):`))

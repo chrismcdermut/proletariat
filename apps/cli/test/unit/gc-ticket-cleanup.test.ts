@@ -243,8 +243,15 @@ describe('GC findOrphanedWorktrees with git repo', () => {
         stdio: 'pipe',
       })
 
-      // Now find orphans — the worktree has no running tmux session
-      const orphans = findOrphanedWorktrees(tmpDir)
+      // Now find orphans — the worktree has no running tmux session.
+      // PRLT-1324: bypass the 5-minute minimum-age grace for this unit test by
+      // passing minWorktreeAgeMinutes: 0 (the worktree is brand new). Also
+      // skip the PR check (requires gh auth) and lsof check (can be flaky in CI).
+      const orphans = findOrphanedWorktrees(tmpDir, {
+        minWorktreeAgeMinutes: 0,
+        skipPRCheck: true,
+        skipProcessCheck: true,
+      })
 
       // Should find the orphaned worktree
       expect(orphans).to.have.length(1)
