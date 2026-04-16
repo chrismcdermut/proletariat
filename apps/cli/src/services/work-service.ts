@@ -45,11 +45,11 @@ import type {
 
 /**
  * Storage interface needed by WorkService.
+ *
+ * Kept nominally aligned with ProviderStorage; WorkService now routes all
+ * ticket reads/writes through the provider layer (PRLT-1319).
  */
-export interface WorkServiceStorage extends ProviderStorage {
-  listTickets(projectId: string | undefined, filter?: unknown): Promise<Ticket[]>
-  updateTicket(id: string, changes: Partial<Ticket>): Promise<Ticket>
-}
+export type WorkServiceStorage = ProviderStorage
 
 /**
  * Callback for resolving a ticket provider given a ticket ID and project ID.
@@ -126,8 +126,11 @@ export class WorkService {
         ticketId = linked.id
       }
     } else if (ticketId) {
-      // Ticket provided — find its PR
-      ticket = await this.storage.getTicket(ticketId)
+      // Ticket provided — resolve via the provider (Linear / Jira / etc.)
+      // since the local PMO ticket store is gone (PRLT-1299 / PRLT-1319).
+      const provider = await this.resolveProvider(ticketId, '')
+      const getResult = await provider.getTicket(ticketId)
+      ticket = (getResult.success && getResult.ticket) ? getResult.ticket : null
       if (!ticket) {
         throw new ServiceError('NOT_FOUND', `Ticket "${ticketId}" not found.`)
       }
@@ -251,9 +254,12 @@ export class WorkService {
     // --- Transition ticket ---
     let newState: string | undefined
     if (ticket && ticketId && !noTransition) {
-      // Update PR metadata
+      // Update PR metadata through the provider (local PMO ticket store is
+      // dead — PRLT-1299). Swallow provider errors so they don't block the
+      // actual state transition below.
       try {
-        await this.storage.updateTicket(ticketId, {
+        const provider = await this.resolveProvider(ticketId, ticket.projectId || '')
+        await provider.updateTicket(ticketId, {
           metadata: {
             ...ticket.metadata,
             pr_state: 'MERGED',
@@ -261,7 +267,9 @@ export class WorkService {
           },
         })
       } catch (err) {
-        if ((err as { code?: string }).code !== 'SQLITE_READONLY') throw err
+        if ((err as { code?: string }).code !== 'SQLITE_READONLY') {
+          this.logger.warn(`Failed to record PR merge metadata: ${err instanceof Error ? err.message : String(err)}`)
+        }
       }
 
       try {
@@ -433,37 +441,36 @@ export class WorkService {
     headBranch: string,
     projectId: string | undefined,
   ): Promise<Ticket | null> {
-    // 1. PR metadata on tickets
-    const allTickets = await this.storage.listTickets(projectId)
-    const byMetadata = allTickets.find(t =>
-      t.metadata?.pr_number === String(prNumber) ||
-      t.metadata?.pr_url?.endsWith(`/pull/${prNumber}`) ||
-      t.metadata?.pr_url?.endsWith(`/${prNumber}`)
-    )
-    if (byMetadata) return byMetadata
+    void prNumber
+    // The local PMO ticket store was removed (PRLT-1299 / PRLT-1319), so we
+    // can no longer scan local tickets by PR metadata. Fall back to the
+    // agent_work table (still live) and ticket-ID parsing off the branch.
 
-    // 2. agent_work table
+    // 1. agent_work table — maps branch → ticket ID
     try {
       const row = this.db.prepare(
         `SELECT ticket_id FROM ${PMO_TABLES.agent_work} WHERE branch = ? LIMIT 1`
       ).get(headBranch) as { ticket_id: string } | undefined
       if (row?.ticket_id) {
-        const ticket = await this.storage.getTicket(row.ticket_id)
-        if (ticket) return ticket
+        const provider = await this.resolveProvider(row.ticket_id, projectId ?? '')
+        const res = await provider.getTicket(row.ticket_id)
+        if (res.success && res.ticket) return res.ticket
       }
     } catch {
       // Continue
     }
 
-    // 3. Branch name parsing
+    // 2. Branch name parsing — {ticketId}/{type}/{slug}
     const branchResult = validateBranchName(headBranch)
     if (branchResult.valid && branchResult.parts?.ticketId) {
       const parsedId = branchResult.parts.ticketId
-      const direct = await this.storage.getTicket(parsedId)
-      if (direct) return direct
-
-      const byKey = allTickets.find(t => t.metadata?.external_key === parsedId)
-      if (byKey) return byKey
+      try {
+        const provider = await this.resolveProvider(parsedId, projectId ?? '')
+        const res = await provider.getTicket(parsedId)
+        if (res.success && res.ticket) return res.ticket
+      } catch {
+        // Non-fatal — provider may not be configured
+      }
     }
 
     return null
