@@ -792,6 +792,94 @@ export function formatRelativeAge(start?: Date, now: Date = new Date()): string 
   return `~${day}d`
 }
 
+// =============================================================================
+// Session identifier resolution (PRLT-1323)
+// =============================================================================
+//
+// `session poke` and related commands need to find a running session by a
+// short user-supplied identifier: an agent name, a ticket ID, a tmux session
+// name, or a role shorthand like "orchestrator". This helper centralises the
+// lookup so it works identically for workers, orchestrators, and daemons —
+// any running tmux pane with a matching record is fair game, regardless of
+// whether the execution table lists it as "running" at the moment.
+
+/**
+ * Result of resolving a user-supplied session identifier.
+ *   - `match`: exactly one session matched
+ *   - `multiple`: the identifier was ambiguous (e.g. "orchestrator" with several running)
+ *   - `none`: no running session matched
+ */
+export type SessionResolveResult =
+  | { kind: 'match'; session: UnifiedSession }
+  | { kind: 'multiple'; candidates: UnifiedSession[] }
+  | { kind: 'none' }
+
+/**
+ * Find a session by user-supplied identifier.
+ *
+ * Lookup strategies, tried in order. The first strategy that yields any
+ * candidates wins — within those candidates we prefer ones whose runtime
+ * is alive (`exists: true`) and fall back to stale DB rows so the caller
+ * can surface a precise tmux-level failure.
+ *
+ *   1. Exact agent name match (e.g. "orchestrator-main", "daemon-reconciler", "fair-knight")
+ *   2. Exact ticket ID match (e.g. "PRLT-123")
+ *   3. Exact tmux session name match (e.g. "prlt-orchestrator-proletariat-main")
+ *   4. Role shorthand:
+ *      - "orchestrator" → any orchestrator role session
+ *      - daemon shorthand: "reconciler" → "daemon-reconciler"
+ *
+ * This is intentionally role-agnostic: workers, orchestrators, and daemons
+ * are all resolvable by the same code path — fixing PRLT-1323 where
+ * `session poke` could not find orchestrator sessions.
+ */
+export function findSessionByIdentifier(
+  sessions: UnifiedSession[],
+  identifier: string,
+): SessionResolveResult {
+  // Prefer alive sessions; fall back to stale DB rows so the caller can
+  // surface a precise tmux-level failure instead of a generic "no session".
+  const classify = (matches: UnifiedSession[]): SessionResolveResult => {
+    const alive = matches.filter(s => s.exists)
+    const pool = alive.length > 0 ? alive : matches
+    if (pool.length === 0) return { kind: 'none' }
+    if (pool.length === 1) return { kind: 'match', session: pool[0] }
+    return { kind: 'multiple', candidates: pool }
+  }
+
+  // Strategy 1: exact agent name
+  const byAgent = sessions.filter(s => s.agentName === identifier)
+  if (byAgent.length > 0) return classify(byAgent)
+
+  // Strategy 2: exact ticket ID
+  const byTicket = sessions.filter(s => s.ticketId === identifier)
+  if (byTicket.length > 0) return classify(byTicket)
+
+  // Strategy 3: exact tmux session name
+  const bySessionId = sessions.filter(s => s.sessionId === identifier)
+  if (bySessionId.length > 0) return classify(bySessionId)
+
+  // Strategy 4a: "orchestrator" shorthand — any orchestrator-role session
+  if (identifier === 'orchestrator') {
+    const orchs = sessions.filter(
+      s =>
+        s.role === 'orchestrator' ||
+        s.agentName === 'orchestrator' ||
+        s.agentName.startsWith('orchestrator-'),
+    )
+    if (orchs.length > 0) return classify(orchs)
+  }
+
+  // Strategy 4b: daemon shorthand — "reconciler" → "daemon-reconciler"
+  const daemonCandidate = `daemon-${identifier}`
+  const byDaemonPrefix = sessions.filter(
+    s => s.role === 'daemon' && s.agentName === daemonCandidate,
+  )
+  if (byDaemonPrefix.length > 0) return classify(byDaemonPrefix)
+
+  return { kind: 'none' }
+}
+
 /**
  * Group elsewhere sessions by hqPath/hqName for nicer rendering.
  * Sessions without an hqPath are bucketed under "(no HQ)".

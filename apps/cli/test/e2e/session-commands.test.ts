@@ -516,7 +516,9 @@ describe('@smoke Session Commands E2E Tests', () => {
 
       expect(json).to.not.be.null;
       expect(json!.error).to.exist;
-      expect(['NO_ACTIVE_EXECUTION', 'NOT_IN_WORKSPACE']).to.include(json!.error.code);
+      // PRLT-1323: machine-wide lookup may match stale records for this ticket
+      // across registered HQs; MULTIPLE_MATCHES is also a valid outcome.
+      expect(['NO_ACTIVE_EXECUTION', 'NOT_IN_WORKSPACE', 'MULTIPLE_MATCHES']).to.include(json!.error.code);
     });
 
     it('should output JSON error NO_ACTIVE_EXECUTION when execution exists but is not running', () => {
@@ -741,8 +743,10 @@ describe('@smoke Session Commands E2E Tests', () => {
 
         expect(json).to.not.be.null;
         expect(json!.error).to.exist;
-        // Should reach runtime stage (SEND_FAILED, SESSION_NOT_FOUND, or NOT_IN_WORKSPACE), NOT fail at PMO/git init
-        expect(['SESSION_NOT_FOUND', 'SEND_FAILED', 'NOT_IN_WORKSPACE']).to.include(json!.error.code);
+        // Should reach a post-PMO stage — NOT fail at PMO/git init.
+        // PRLT-1323: machine-wide lookup may swallow the workspace open error
+        // in no-PMO environments and surface NO_ACTIVE_EXECUTION instead.
+        expect(['SESSION_NOT_FOUND', 'SEND_FAILED', 'NOT_IN_WORKSPACE', 'NO_ACTIVE_EXECUTION']).to.include(json!.error.code);
         // Error message should NOT contain git errors
         expect(json!.error.message).to.not.include('fatal: not a git repository');
         expect(json!.error.message).to.not.include('PMO not found');

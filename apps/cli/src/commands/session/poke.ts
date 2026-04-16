@@ -1,19 +1,15 @@
 import { Args, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
-import type Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
-import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { openWorkspaceDatabase } from '../../lib/database/index.js'
-import { ExecutionStorage } from '../../lib/execution/index.js'
 import {
   type ResolvedSession,
   captureTmuxPane,
   sendTmuxMessage,
-  isSessionAlive,
-  resolveSessionForExecution,
-  getHostTmuxSessionNames,
-  getContainerTmuxSessionMap,
 } from '../../lib/execution/session-utils.js'
+import {
+  collectAllSessions,
+  findSessionByIdentifier,
+} from '../../lib/session/renderer.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
@@ -269,125 +265,65 @@ export default class SessionPoke extends PromptCommand {
   }
 
   /**
-   * Resolve an agent identifier (name or ticket ID) to a running session.
-   * Uses the shared session resolution path from session-utils.
+   * Resolve an agent identifier (name, ticket ID, or tmux session name) to a
+   * running session.
+   *
+   * PRLT-1323: Uses the unified machine-wide session collection so this works
+   * for workers, orchestrators, AND daemons — any running tmux pane with a
+   * tracked record (workspace.db, machine.db, or tmux/Docker discovery) is
+   * reachable by identifier. No "active execution" row is required.
    */
   private resolveAgentSession(
     identifier: string,
     jsonMode: boolean,
     flags: Record<string, unknown>,
   ): ResolvedSession | null {
-    let executionStorage: ExecutionStorage | null = null
-    let db: Database.Database | null = null
+    // Collect every known session on the machine — across all registered HQs,
+    // machine.db, and discovered tmux/Docker sessions (orchestrators, daemons).
+    // includeAll: true so stale DB records are still considered; the helper
+    // prefers alive sessions and only falls back to stale rows when no live
+    // match exists (so tmux-level failures surface clearly to the caller).
+    const sessions = collectAllSessions({ includeAll: true })
+    const result = findSessionByIdentifier(sessions, identifier)
 
-    try {
-      const workspaceInfo = getWorkspaceInfo()
-      db = openWorkspaceDatabase(workspaceInfo.path)
-      executionStorage = new ExecutionStorage(db)
-    } catch {
+    if (result.kind === 'none') {
       if (jsonMode) {
         outputErrorAsJson(
-          'NOT_IN_WORKSPACE',
-          'Not in a workspace. Run from a proletariat HQ directory.',
+          'NO_ACTIVE_EXECUTION',
+          `Agent "${identifier}" has no active session. Use \`prlt session list\` to see running sessions.`,
           createMetadata('session poke', flags),
         )
       }
       this.log('')
-      this.log(styles.error('Not in a workspace. Run from a proletariat HQ directory.'))
+      this.log(styles.error(`Agent "${identifier}" has no active session.`))
+      this.log(styles.muted('Use `prlt session list` to see running sessions.'))
       this.log('')
       return null
     }
 
-    try {
-      // Get active executions (same query as session list)
-      const runningExecutions = executionStorage.listExecutions({ status: 'running' })
-      const startingExecutions = executionStorage.listExecutions({ status: 'starting' })
-      const activeExecutions = [...runningExecutions, ...startingExecutions]
-
-      // Find matching execution by exact agent name or exact ticket ID
-      let match = activeExecutions.find(exec =>
-        exec.agentName === identifier || exec.ticketId === identifier,
-      )
-
-      // Orchestrator prefix matching: when identifier is "orchestrator",
-      // find executions with agentName "orchestrator" or "orchestrator-*"
-      if (!match && identifier === 'orchestrator') {
-        const orchestratorMatches = activeExecutions.filter(exec =>
-          exec.agentName === 'orchestrator' || exec.agentName.startsWith('orchestrator-'),
+    if (result.kind === 'multiple') {
+      const names = result.candidates.map(c => c.agentName).join(', ')
+      if (jsonMode) {
+        outputErrorAsJson(
+          'MULTIPLE_MATCHES',
+          `Multiple sessions match "${identifier}": ${names}. Specify one directly.`,
+          createMetadata('session poke', flags),
         )
-
-        if (orchestratorMatches.length === 1) {
-          match = orchestratorMatches[0]
-        } else if (orchestratorMatches.length > 1) {
-          const names = orchestratorMatches.map(e => e.agentName).join(', ')
-          if (jsonMode) {
-            outputErrorAsJson(
-              'MULTIPLE_ORCHESTRATORS',
-              `Multiple orchestrators running: ${names}. Specify one directly.`,
-              createMetadata('session poke', flags),
-            )
-          }
-          this.log('')
-          this.log(styles.error(`Multiple orchestrators running: ${names}. Specify one directly.`))
-          this.log('')
-          return null
-        }
       }
+      this.log('')
+      this.log(styles.error(`Multiple sessions match "${identifier}": ${names}.`))
+      this.log(styles.muted('Specify the full agent name to disambiguate.'))
+      this.log('')
+      return null
+    }
 
-      // PRLT-1077: Self-healing recovery for background-mode spawns.
-      // Uses shared isSessionAlive() — same logic as session list's recovery path.
-      if (!match) {
-        const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
-        const stoppedCandidate = stoppedExecutions.find(exec =>
-          exec.agentName === identifier || exec.ticketId === identifier,
-        )
-
-        if (stoppedCandidate?.sessionId) {
-          if (isSessionAlive(stoppedCandidate)) {
-            executionStorage.updateStatus(stoppedCandidate.id, 'running')
-            match = { ...stoppedCandidate, status: 'running' as const }
-          }
-        }
-      }
-
-      if (!match) {
-        if (jsonMode) {
-          outputErrorAsJson(
-            'NO_ACTIVE_EXECUTION',
-            `Agent "${identifier}" has no active session. Use \`prlt session list\` to see running sessions.`,
-            createMetadata('session poke', flags),
-          )
-        }
-        this.log('')
-        this.log(styles.error(`Agent "${identifier}" has no active session.`))
-        this.log(styles.muted('Use `prlt session list` to see running sessions.'))
-        this.log('')
-        return null
-      }
-
-      // Use shared session resolution — same discovery logic as session list
-      const hostTmuxSessions = getHostTmuxSessionNames()
-      const containerTmuxSessions = getContainerTmuxSessionMap()
-      const resolved = resolveSessionForExecution(match, hostTmuxSessions, containerTmuxSessions)
-
-      if (!resolved) {
-        if (jsonMode) {
-          outputErrorAsJson(
-            'SESSION_NOT_FOUND',
-            `Could not find tmux session for agent "${match.agentName}" (${match.ticketId}). The session may not have started yet.`,
-            createMetadata('session poke', flags),
-          )
-        }
-        this.log('')
-        this.log(styles.error(`Could not find tmux session for agent "${match.agentName}" (${match.ticketId}).`))
-        this.log(styles.muted('The session may not have started yet.'))
-        this.log('')
-        return null
-      }
-
-      return resolved
-    } finally {
-      db?.close()
+    const match = result.session
+    return {
+      sessionId: match.sessionId,
+      ticketId: match.ticketId,
+      agentName: match.agentName,
+      environment: match.environment,
+      containerId: match.containerId,
     }
   }
 }
