@@ -112,6 +112,25 @@ import { getEventBus } from '../../lib/events/event-bus.js'
 import { resolveInternalAction } from '../../services/action-context.js'
 
 /**
+ * Determine if branch creation should be auto-selected (skip the interactive
+ * branch picker). Returns true when the invocation is non-interactive:
+ * - internalAction: called from work review/groom/implement/resolve/orchestrator
+ * - force: --force flag
+ * - jsonMode: --json machine mode
+ * - yes: -y/--yes flag (skip confirmations & pickers)
+ * - backgroundDisplay: --display background (non-interactive by definition)
+ */
+export function shouldAutoCreateBranch(opts: {
+  internalAction: string | undefined
+  force: boolean
+  jsonMode: boolean
+  yes: boolean
+  backgroundDisplay: boolean
+}): boolean {
+  return !!(opts.internalAction || opts.force || opts.jsonMode || opts.yes || opts.backgroundDisplay)
+}
+
+/**
  * Try to execute a git command, return true if successful
  */
 function tryGitCommand(cmd: string, cwd: string): boolean {
@@ -2309,11 +2328,18 @@ export default class WorkStart extends PMOCommand {
         if (isExistingBranch) {
           // Ticket already has a branch linked - just use it
           this.log(styles.muted(`Using existing branch: ${branch}`))
-        } else if (internalAction || flags.force || jsonMode) {
-          // Non-interactive / internal-action / JSON mode - auto-create branch.
+        } else if (shouldAutoCreateBranch({
+          internalAction,
+          force: !!flags.force,
+          jsonMode,
+          yes: !!flags.yes,
+          backgroundDisplay: flags.display === 'background',
+        })) {
+          // Non-interactive / internal-action / JSON mode / -y / background - auto-create branch.
           // JSON mode agents can't interactively enter branch names, and
           // internal callers (work review/groom/resolve/implement, orchestrator)
-          // never want an interactive branch prompt.
+          // never want an interactive branch prompt. The -y flag and
+          // --display background are non-interactive by definition.
           finalBranch = branch
           this.log(styles.muted(`Branch: ${finalBranch}`))
         } else {
