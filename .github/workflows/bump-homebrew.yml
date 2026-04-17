@@ -17,6 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Wait for npm CDN propagation when triggered by publish workflow.
+      # The tarball is usually available within 30-60s of publish, but can
+      # take longer during npm registry congestion.
+      - name: Wait for npm CDN propagation
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: sleep 60
+
       - name: Resolve version
         id: version
         run: |
