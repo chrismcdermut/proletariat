@@ -74,8 +74,6 @@ export default class ExecutionView extends PromptCommand {
           if (jsonMode) {
             outputErrorAsJson('NO_EXECUTIONS', 'No executions found.', createMetadata('execution view', flags))
             return
-            db.close()
-            this.exit(1)
           }
           this.log(styles.muted('\nNo executions found.\n'))
           return

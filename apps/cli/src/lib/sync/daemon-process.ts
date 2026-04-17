@@ -177,7 +177,7 @@ async function cycle(): Promise<void> {
     log(`Error: ${msg}`)
   } finally {
     if (db) {
-      try { db.close() } catch {}
+      try { db.close() } catch { /* db handle may already be invalid — safe to ignore during cleanup */ }
     }
   }
 }
