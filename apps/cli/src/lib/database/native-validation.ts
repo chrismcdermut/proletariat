@@ -45,7 +45,7 @@ function parseNodeMajor(version: string): number | null {
  */
 function detectBunRuntime(): boolean {
   return typeof (process.versions as Record<string, string | undefined>).bun === 'string'
-    || typeof (globalThis as Record<string, unknown>).Bun !== 'undefined'
+    || (globalThis as Record<string, unknown>).Bun !== undefined
 }
 
 export function getBetterSqlite3RuntimeInfo(): BetterSqlite3RuntimeInfo {
@@ -200,16 +200,16 @@ export function attemptAutoRebuild(options: BetterSqlite3ValidationOptions): boo
 
   try {
     process.stderr.write(
-      `\x1b[33mABI mismatch detected \u2014 rebuilding better-sqlite3 for Node ${process.version}\u2026\x1b[0m\n`
+      `\u001B[33mABI mismatch detected \u2014 rebuilding better-sqlite3 for Node ${process.version}\u2026\u001B[0m\n`
     )
     exec('npm rebuild better-sqlite3', { cwd: installDir, stdio: 'pipe' })
     process.stderr.write(
-      `\x1b[32mRebuild complete.\x1b[0m\n`
+      `\u001B[32mRebuild complete.\u001B[0m\n`
     )
     return true
   } catch {
     process.stderr.write(
-      `\x1b[31mAuto-rebuild failed. Run manually: cd ${installDir} && npm rebuild better-sqlite3\x1b[0m\n`
+      `\u001B[31mAuto-rebuild failed. Run manually: cd ${installDir} && npm rebuild better-sqlite3\u001B[0m\n`
     )
     return false
   }
