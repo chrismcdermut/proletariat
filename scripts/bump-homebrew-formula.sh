@@ -37,9 +37,9 @@ echo "==> Bumping Homebrew formula to version ${VERSION}"
 TARBALL_URL="https://registry.npmjs.org/${NPM_PACKAGE}/-/cli-${VERSION}.tgz"
 echo "==> Fetching tarball: ${TARBALL_URL}"
 
-# Retry a few times — the tarball may not be available immediately after publish
-MAX_RETRIES=5
-RETRY_DELAY=10
+# Retry with exponential backoff — npm CDN can take 60-90s to propagate
+MAX_RETRIES=6
+RETRY_DELAY=15
 for i in $(seq 1 "$MAX_RETRIES"); do
   HTTP_CODE=$(curl -s -o /tmp/prlt-tarball.tgz -w '%{http_code}' -L "$TARBALL_URL")
   if [ "$HTTP_CODE" = "200" ]; then
@@ -51,6 +51,8 @@ for i in $(seq 1 "$MAX_RETRIES"); do
   fi
   echo "    Tarball not ready (HTTP ${HTTP_CODE}), retrying in ${RETRY_DELAY}s… (${i}/${MAX_RETRIES})"
   sleep "$RETRY_DELAY"
+  # Exponential backoff: 15, 30, 60, 120, 240
+  RETRY_DELAY=$((RETRY_DELAY * 2))
 done
 
 SHA256=$(shasum -a 256 /tmp/prlt-tarball.tgz | awk '{print $1}')
@@ -81,10 +83,10 @@ fi
 
 echo "==> Updating formula…"
 
-# Write the complete formula to ensure post_install is always present.
-# Homebrew's std_npm_args passes --ignore-scripts by default, which prevents
-# better-sqlite3's native module from being compiled. The post_install step
-# rebuilds the native module after npm install completes.
+# The formula uses `depends_on "node"` as recommended (not required).
+# This installs Homebrew's Node but doesn't fail if the user prefers nvm/fnm.
+# The post_install rebuilds better-sqlite3 against whatever Node is on PATH.
+# The CLI also has a runtime ABI check that auto-rebuilds on version mismatch.
 cat > "$FORMULA_FILE" <<FORMULA
 class Prlt < Formula
   desc "Agent orchestration platform for AI labor"
@@ -97,21 +99,32 @@ class Prlt < Formula
 
   def install
     system "npm", "install", *std_npm_args
-    bin.install_symlink Dir["#{libexec}/bin/*"]
+    bin.install_symlink Dir["\#{libexec}/bin/*"]
   end
 
   def post_install
     # Homebrew's std_npm_args uses --ignore-scripts, which skips better-sqlite3's
-    # native module compilation. Rebuild it here so the CLI can use SQLite.
+    # native module compilation. Rebuild it against the Node currently on PATH
+    # (which may be the user's nvm/fnm Node rather than Homebrew's).
     cd libexec/"lib/node_modules/@proletariat/cli" do
       system "npm", "rebuild", "better-sqlite3"
     end
   end
 
+  def caveats
+    <<~EOS
+      If you switch Node versions (e.g. via nvm or fnm), prlt will
+      automatically rebuild its native modules on the next run.
+
+      To manually rebuild:
+        cd \#{libexec}/lib/node_modules/@proletariat/cli && npm rebuild better-sqlite3
+    EOS
+  end
+
   test do
-    assert_match version.to_s, shell_output("#{bin}/prlt --version")
+    assert_match version.to_s, shell_output("\#{bin}/prlt --version")
     # Verify better-sqlite3 native module works by creating an HQ (uses SQLite)
-    assert_match '"success": true', shell_output("#{bin}/prlt new --json --name test-hq --no-pmo")
+    assert_match '"success": true', shell_output("\#{bin}/prlt new --json --name test-hq --no-pmo")
   end
 end
 FORMULA
