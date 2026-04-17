@@ -14,6 +14,7 @@
 
 import { getEventBus } from '../events/event-bus.js'
 import { cleanupAgentContainer } from '../execution/container-cleanup.js'
+import { extractAgentNameFromSession } from '../execution/session-utils.js'
 import { executeCascade, type CascadeTarget } from '../gc/cascade.js'
 
 /**
@@ -76,7 +77,7 @@ export class ContainerCleanupHook {
 
       // Extract agent name from session ID
       // Format: TKT-123-implement-agent-name or similar
-      const agentName = extractAgentNameFromSessionId(sessionId)
+      const agentName = extractAgentNameFromSession(sessionId)
       if (!agentName) {
         // Fall back to container-only cleanup if we can't extract agent name
         cleanupAgentContainer(agentName ?? sessionId)
@@ -105,17 +106,6 @@ export class ContainerCleanupHook {
   }
 }
 
-/**
- * Extract agent name from a session ID.
- * Session IDs follow the format: {ticketId}-{action}-{agentName}
- * e.g., "TKT-100-implement-bold-turing" → "bold-turing"
- */
-function extractAgentNameFromSessionId(sessionId: string): string | null {
-  // Match pattern: TKT-NNN-action-agentname or similar
-  // Agent names are typically two hyphenated words: adjective-noun
-  const match = sessionId.match(/^(?:TKT-\d+|[A-Z]+-\d+)-\w+-(.+)$/)
-  return match ? match[1] : null
-}
 
 /**
  * Find the Docker container ID for an agent by name.

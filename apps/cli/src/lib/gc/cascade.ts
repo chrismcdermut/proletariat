@@ -31,6 +31,7 @@ import {
   recycleAgentNames,
 } from './index.js'
 import { removeContainer } from '../execution/container-cleanup.js'
+import { extractAgentNameFromSession } from '../execution/session-utils.js'
 import type { GCConfig } from './config.js'
 import { GC_DEFAULTS } from './config.js'
 
@@ -492,11 +493,3 @@ function isPrltSessionName(name: string): boolean {
   return /^(?:TKT-\d+|[A-Z]+-\d+)-\w+-.+$/.test(name)
 }
 
-/**
- * Extract agent name from a prlt session name.
- * Session format: {ticketId}-{action}-{agentName}
- */
-function extractAgentNameFromSession(sessionName: string): string | null {
-  const match = sessionName.match(/^(?:TKT-\d+|[A-Z]+-\d+)-\w+-(.+)$/)
-  return match ? match[1] : null
-}
