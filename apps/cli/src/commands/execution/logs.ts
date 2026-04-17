@@ -76,8 +76,6 @@ export default class ExecutionLogs extends PromptCommand {
           if (jsonMode) {
             outputErrorAsJson('NO_EXECUTIONS', 'No executions found.', createMetadata('execution logs', flags))
             return
-            db.close()
-            this.exit(1)
           }
           this.error('No executions found.')
         }
