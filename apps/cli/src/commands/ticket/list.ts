@@ -182,10 +182,14 @@ export default class TicketList extends Command {
           this.log(styles.warning('No project found.'));
           return;
         }
-        const board = await pmoContext.storage.getProjectBoard(actualProjectId);
-        if (!board) {
-          // Project doesn't exist (orphaned tickets) - fall back to cross-project view
-          this.log(styles.warning(`Project "${actualProjectId}" not found. Showing tickets without board layout.`));
+        // Board/column data is no longer in local storage (PRLT-1299/1327).
+        // Derive columns from the tickets' statusName instead.
+        const columnSet = new Set<string>();
+        for (const t of tickets) {
+          if (t.statusName) columnSet.add(t.statusName);
+        }
+        if (columnSet.size === 0) {
+          // No status info — fall back to cross-project view
           switch (flags.format) {
             case 'json':
               this.log(JSON.stringify(tickets, null, 2));
@@ -195,7 +199,7 @@ export default class TicketList extends Command {
           }
           return;
         }
-        const columns = board.columns.map(col => col.name);
+        const columns = Array.from(columnSet);
 
         switch (flags.format) {
           case 'json':

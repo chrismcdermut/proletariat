@@ -241,7 +241,7 @@ export function resolveProjectProvider(
     return wrapWithEvents(inner, db, storage, projectId)
   }
 
-  // auto: use Linear when it's configured in the workspace
+  // auto: use the first configured external provider
   try {
     if (isLinearConfigured(db)) {
       const inner = new LinearTicketProvider(db)
@@ -249,6 +249,60 @@ export function resolveProjectProvider(
     }
   } catch {
     // workspace_settings table may not exist in older/test databases
+  }
+
+  try {
+    if (isAsanaConfigured(db)) {
+      const inner = new AsanaTicketProvider(db, storage, projectId)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  } catch {
+    // table may not exist
+  }
+
+  try {
+    if (isJiraConfigured(db)) {
+      const inner = new JiraTicketProvider(db, storage, projectId)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  } catch {
+    // table may not exist
+  }
+
+  try {
+    if (isClickUpConfigured(db)) {
+      const inner = new ClickUpTicketProvider(db, storage, projectId)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  } catch {
+    // table may not exist
+  }
+
+  try {
+    if (isTrelloConfigured(db)) {
+      const inner = new TrelloTicketProvider(db, storage, projectId, null)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  } catch {
+    // table may not exist
+  }
+
+  try {
+    if (isGitHubConfigured(db)) {
+      const inner = new GitHubIssuesTicketProvider(db, storage, projectId)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  } catch {
+    // table may not exist
+  }
+
+  try {
+    if (isNotionConfigured(db)) {
+      const inner = new NotionTicketProvider(db, storage, projectId)
+      return wrapWithEvents(inner, db, storage, projectId)
+    }
+  } catch {
+    // table may not exist
   }
 
   const inner = new PMOTicketProvider(storage, projectId)

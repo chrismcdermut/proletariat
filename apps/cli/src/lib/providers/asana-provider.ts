@@ -32,9 +32,13 @@ export class AsanaTicketProvider implements TicketProvider {
 
   constructor(
     private db: Database.Database,
-    private storage: ProviderStorage,
+    _storage: ProviderStorage,
     private projectId: string,
-  ) {}
+  ) {
+    // storage param kept for interface compatibility — local PMO mirror
+    // removed in PRLT-1327; Asana is the sole source of truth.
+    void _storage
+  }
 
   private getAccessTokenOrFail(): string {
     const token = getAsanaAccessToken(this.db)
@@ -112,12 +116,7 @@ export class AsanaTicketProvider implements TicketProvider {
       }
     }
 
-    // Update local PMO mirror (best-effort)
-    try {
-      await this.storage.moveTicket(this.projectId, ticketId, newState)
-    } catch {
-      // Non-fatal: Asana is the source of truth
-    }
+    // Local PMO mirror removed (PRLT-1327) — Asana is the source of truth
 
     // Update sync timestamp (best-effort)
     try {
@@ -154,13 +153,7 @@ export class AsanaTicketProvider implements TicketProvider {
       }
     }
 
-    // Delete the local PMO mirror
-    try {
-      await this.storage.deleteTicket(ticketId)
-    } catch {
-      // Non-fatal if Asana delete succeeded
-    }
-
+    // Local PMO mirror removed (PRLT-1327) — Asana is the source of truth
     return { success: true, provider: 'asana' }
   }
 
@@ -243,18 +236,18 @@ export class AsanaTicketProvider implements TicketProvider {
         projects: [asanaProjectGid],
       })
 
-      // Create local PMO mirror ticket
-      const mirrorDescription = [
-        input.description || '',
-        '',
-        '---',
-        `_Created in Asana: [${task.name}](https://app.asana.com/0/0/${task.gid})_`,
-      ].join('\n').trim()
-
-      const pmoTicket = await this.storage.createTicket(projectId, {
-        ...input,
+      // Build a ticket from the Asana response (no local PMO mirror — PRLT-1327)
+      const ticket: Ticket = {
+        id: task.gid,
         title: task.name,
-        description: mirrorDescription,
+        description: input.description || undefined,
+        projectId: projectId,
+        projectName: asanaConfig?.projectName || 'Asana',
+        statusId: 'open',
+        statusName: 'Open',
+        statusCategory: 'unstarted',
+        subtasks: [],
+        labels: input.labels || [],
         metadata: {
           ...input.metadata,
           'external_source': 'asana',
@@ -262,13 +255,15 @@ export class AsanaTicketProvider implements TicketProvider {
           'external_key': task.gid,
           'external_url': task.permalink_url || `https://app.asana.com/0/0/${task.gid}`,
         },
-      })
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
 
       // Create mapping record for sync operations
       const mapper = new AsanaMapper(this.db)
-      mapper.createOrUpdateMapping(pmoTicket.id, task.gid, asanaProjectGid)
+      mapper.createOrUpdateMapping(ticket.id, task.gid, asanaProjectGid)
 
-      return { success: true, provider: 'asana', ticket: pmoTicket }
+      return { success: true, provider: 'asana', ticket }
     } catch (error) {
       return {
         success: false,
@@ -279,10 +274,25 @@ export class AsanaTicketProvider implements TicketProvider {
   }
 
   async getTicket(ticketId: string): Promise<ProviderGetResult> {
-    // Use local PMO mirror to avoid unnecessary API calls
+    let token: string
     try {
-      const ticket = await this.storage.getTicket(ticketId)
-      return { success: true, provider: 'asana', ticket }
+      token = this.getAccessTokenOrFail()
+    } catch {
+      return { success: false, provider: 'asana', error: 'Asana access token not configured' }
+    }
+
+    // Look up the Asana task GID — it may be the ticketId itself or in the mapper
+    const mapper = new AsanaMapper(this.db)
+    const mapping = mapper.getByTicketId(ticketId)
+    const taskGid = mapping?.asanaTaskGid || ticketId
+
+    try {
+      const client = new AsanaClient(token)
+      const task = await client.getTask(taskGid)
+      if (!task) {
+        return { success: true, provider: 'asana', ticket: null }
+      }
+      return { success: true, provider: 'asana', ticket: asanaTaskToTicket(task) }
     } catch (error) {
       return {
         success: false,
@@ -303,28 +313,30 @@ export class AsanaTicketProvider implements TicketProvider {
     // Look up Asana task GID from mapper
     const mapper = new AsanaMapper(this.db)
     const mapping = mapper.getByTicketId(ticketId)
+    const taskGid = mapping?.asanaTaskGid || ticketId
 
-    if (mapping) {
-      // Build Asana update payload from input fields
-      const asanaInput: { name?: string; notes?: string } = {}
-      if (input.title !== undefined) asanaInput.name = input.title
-      if (input.description !== undefined) asanaInput.notes = input.description ?? undefined
+    // Build Asana update payload from input fields
+    const asanaInput: { name?: string; notes?: string } = {}
+    if (input.title !== undefined) asanaInput.name = input.title
+    if (input.description !== undefined) asanaInput.notes = input.description ?? undefined
 
-      // Only call Asana API if there are Asana-relevant fields
-      if (Object.keys(asanaInput).length > 0) {
-        const client = new AsanaClient(token)
-        try {
-          await client.updateTask(mapping.asanaTaskGid, asanaInput as { name: string })
-        } catch (error) {
-          return {
-            success: false,
-            provider: 'asana',
-            error: `Failed to update Asana task: ${error instanceof Error ? error.message : String(error)}`,
-          }
+    const client = new AsanaClient(token)
+
+    // Only call Asana API if there are Asana-relevant fields
+    if (Object.keys(asanaInput).length > 0) {
+      try {
+        await client.updateTask(taskGid, asanaInput as { name: string })
+      } catch (error) {
+        return {
+          success: false,
+          provider: 'asana',
+          error: `Failed to update Asana task: ${error instanceof Error ? error.message : String(error)}`,
         }
       }
+    }
 
-      // Update sync timestamp (best-effort)
+    // Update sync timestamp (best-effort)
+    if (mapping) {
       try {
         mapper.updateSyncTimestamp(ticketId)
       } catch {
@@ -332,48 +344,44 @@ export class AsanaTicketProvider implements TicketProvider {
       }
     }
 
-    // Also update local PMO mirror
+    // Return a ticket built from the current Asana state (no local PMO mirror — PRLT-1327)
     try {
-      const ticket = await this.storage.updateTicket(ticketId, input as Partial<Ticket>)
-      return { success: true, provider: 'asana', ticket }
-    } catch (error) {
-      return {
-        success: false,
-        provider: 'asana',
-        error: error instanceof Error ? error.message : String(error),
+      const task = await client.getTask(taskGid)
+      if (task) {
+        return { success: true, provider: 'asana', ticket: asanaTaskToTicket(task) }
       }
+    } catch {
+      // Fall through to synthetic ticket
     }
+
+    // Fallback: construct a minimal ticket from the update input
+    const ticket: Ticket = {
+      id: ticketId,
+      title: input.title || ticketId,
+      description: input.description ?? undefined,
+      projectId: this.projectId,
+      projectName: 'Asana',
+      statusId: 'open',
+      statusName: 'Open',
+      statusCategory: 'unstarted',
+      subtasks: [],
+      labels: input.labels || [],
+      metadata: {
+        external_source: 'asana',
+        external_key: taskGid,
+        external_id: taskGid,
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    return { success: true, provider: 'asana', ticket }
   }
 
-  async assignTicket(ticketId: string, assignee: string): Promise<ProviderAssignResult> {
-    let token: string
-    try {
-      token = this.getAccessTokenOrFail()
-    } catch {
-      return { success: false, provider: 'asana', error: 'Asana access token not configured' }
-    }
-
-    // Look up Asana task GID from mapper
-    const mapper = new AsanaMapper(this.db)
-    const mapping = mapper.getByTicketId(ticketId)
-
-    if (mapping) {
-      // Asana assignment requires user GID. Best-effort — search by name if possible.
-      // For now, skip the Asana-side assignment (same pattern as Trello).
-      // The local PMO mirror is always updated.
-    }
-
-    // Update local PMO mirror
-    try {
-      await this.storage.updateTicket(ticketId, { assignee } as Partial<Ticket>)
-      return { success: true, provider: 'asana' }
-    } catch (error) {
-      return {
-        success: false,
-        provider: 'asana',
-        error: error instanceof Error ? error.message : String(error),
-      }
-    }
+  async assignTicket(_ticketId: string, _assignee: string): Promise<ProviderAssignResult> {
+    // Asana assignment requires a user GID which we don't have.
+    // Local PMO mirror is dead (PRLT-1327). Return success — Asana
+    // assignment can be done from the Asana UI.
+    return { success: true, provider: 'asana' }
   }
 }
 
