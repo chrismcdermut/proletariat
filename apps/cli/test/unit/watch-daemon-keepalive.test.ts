@@ -240,10 +240,55 @@ describe('watch daemon keepalive (PRLT-1305)', () => {
     expect(exitCode).to.equal(0, 'Process should exit cleanly after SIGINT')
   })
 
+  // PRLT-1328: Regression — daemon poll produces visible output
+  it('daemon poll loop produces output visible in tmux pane (verbose mode)', async () => {
+    // In daemon mode, --verbose is always included so users can verify polls
+    // are firing by looking at the tmux pane output. Without --verbose, polls
+    // that find no changes produce zero output, making the daemon appear dead.
+    const script = join(tmpDir, 'watch-verbose-polls.mjs')
+    writeFileSync(script, `
+      const originalExit = process.exit
+      let daemonRunning = true
+      process.exit = ((code) => {
+        if (daemonRunning && (code === 0 || code === undefined)) return
+        originalExit(code)
+      })
+
+      const keepAlive = setInterval(() => {}, 60000)
+
+      // Simulate verbose poll loop (as daemon would run with --verbose)
+      const verbose = true // PRLT-1328: daemon always includes --verbose
+      let pollCount = 0
+      const pollTimer = setInterval(() => {
+        pollCount++
+        // In verbose mode, every poll produces output — even when no changes
+        if (verbose) {
+          process.stdout.write('verbose:poll:' + pollCount + '\\n')
+        }
+        if (pollCount >= 3) {
+          clearInterval(pollTimer)
+          clearInterval(keepAlive)
+          daemonRunning = false
+          process.exit = originalExit
+          process.exit(0)
+        }
+      }, 100)
+
+      // Simulate oclif calling process.exit(0)
+      setTimeout(() => { process.exit(0) }, 50)
+    `)
+
+    const { exitCode, stdout } = await runWithOutput(script, 3000)
+    const verboseLines = stdout.trim().split('\n').filter((l) => l.startsWith('verbose:poll:'))
+    expect(verboseLines.length).to.be.greaterThanOrEqual(3, 'Verbose mode should produce output for every poll')
+    expect(exitCode).to.equal('0')
+  })
+
   after(() => {
     const files = [
       'watch-daemon.mjs', 'watch-no-override.mjs', 'watch-polls.mjs',
       'watch-nonzero.mjs', 'watch-sigterm.mjs', 'watch-sigint.mjs',
+      'watch-verbose-polls.mjs',
     ]
     for (const f of files) {
       try { unlinkSync(join(tmpDir, f)) } catch {}

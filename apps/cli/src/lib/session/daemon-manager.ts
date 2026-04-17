@@ -210,8 +210,13 @@ export function reconcilerDaemonSpec(intervalSeconds: number = 300): DaemonSpec 
  * The watch daemon spec builder (PRLT-1321). Constructs the DaemonSpec for the
  * `prlt watch` poller with the given target and poll interval.
  *
- * The daemon runs `prlt watch --foreground --target <target>` inside a tmux
- * session so it survives terminal close and can be supervised by orchestrate.
+ * The daemon runs `prlt watch --foreground --verbose --target <target>` inside
+ * a tmux session so it survives terminal close and can be supervised by
+ * orchestrate.
+ *
+ * PRLT-1328: Always include --verbose so poll activity is visible in the tmux
+ * pane. Without it, polls that find no changes produce zero output, making the
+ * daemon appear dead even when the poll loop is firing correctly.
  */
 export function watchDaemonSpec(
   target: string,
@@ -223,6 +228,6 @@ export function watchDaemonSpec(
   const safeTarget = target.replace(/[^a-zA-Z0-9._-]/g, '')
   return {
     type: 'watch',
-    command: `prlt watch --foreground --target ${safeTarget} --poll-interval ${pollIntervalSeconds}`,
+    command: `prlt watch --foreground --verbose --target ${safeTarget} --poll-interval ${pollIntervalSeconds}`,
   }
 }
