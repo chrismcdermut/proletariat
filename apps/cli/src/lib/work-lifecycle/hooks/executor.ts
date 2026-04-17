@@ -133,7 +133,6 @@ export function executeHook(
 
       case 'log': {
         const message = interpolate(hook.actionValue, eventName, eventData)
-        // eslint-disable-next-line no-console
         console.log(`[hook:${hook.name}] ${message}`)
         break
       }

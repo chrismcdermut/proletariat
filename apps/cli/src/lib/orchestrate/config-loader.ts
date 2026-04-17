@@ -18,7 +18,7 @@ import type {
   HookMode,
   PresetName,
 } from './types.js'
-import { ORCHESTRATE_EVENTS, HOOK_MODES } from './types.js'
+import { HOOK_MODES } from './types.js'
 import { getPreset } from './presets.js'
 
 // =============================================================================

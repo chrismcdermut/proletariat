@@ -16,7 +16,6 @@ import {
   getPRChecks,
   findPRForTicket,
   listOpenPRs,
-  searchAllPRsForTicket,
   generatePRTitle,
   generatePRBody,
   getCommitLog,
@@ -26,7 +25,7 @@ import {
   isGHInstalled,
   isGHAuthenticated,
 } from '../lib/pr/index.js'
-import type { PRInfo, PRCheck } from '../lib/pr/index.js'
+import type { PRInfo } from '../lib/pr/index.js'
 import { ensureRemoteUpToDate } from '../lib/repos/git.js'
 import { validateBranchName } from '../lib/branch/index.js'
 import { PMO_TABLES } from '../lib/pmo/schema.js'
@@ -205,7 +204,7 @@ export class PRService {
 
     const failed = checks.filter(c => c.conclusion === 'FAILURE' || c.conclusion === 'ERROR')
     const pending = checks.filter(c => c.status === 'IN_PROGRESS' || c.status === 'QUEUED' || !c.conclusion)
-    const passed = checks.filter(c => c.conclusion === 'SUCCESS')
+    const _passed = checks.filter(c => c.conclusion === 'SUCCESS')
 
     return {
       passed: failed.length === 0 && pending.length === 0 && checks.length > 0,

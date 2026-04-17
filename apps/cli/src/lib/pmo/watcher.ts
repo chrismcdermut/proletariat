@@ -14,7 +14,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { watch, FSWatcher } from 'chokidar';
-import { SQLiteStorage } from './storage-sqlite.js';
 // PRLT-1299: parseBoard import removed — board sync disabled (local ticket store removed).
 import { onShutdown } from '../signal-handler.js';
 

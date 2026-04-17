@@ -6,14 +6,14 @@
  * PRLT-1303: Data access layer — typed repository pattern.
  */
 
-import { eq, and, like, or, asc, desc, sql } from 'drizzle-orm'
+import { eq, and, like, or, desc, sql } from 'drizzle-orm'
 import {
   pmoProjects as projectsTable,
   pmoSettings as settingsTable,
-  pmoPhases as phasesTable,
-  pmoCategories as categoriesTable,
-  pmoLabels as labelsTable,
-  pmoLabelGroups as labelGroupsTable,
+  pmoPhases as _phasesTable,
+  pmoCategories as _categoriesTable,
+  pmoLabels as _labelsTable,
+  pmoLabelGroups as _labelGroupsTable,
 } from '../drizzle-schema.js'
 import type {
   RepositoryContext,

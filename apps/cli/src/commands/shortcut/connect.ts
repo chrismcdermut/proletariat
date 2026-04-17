@@ -6,15 +6,12 @@ import {
   shouldOutputJson,
   outputSuccessAsJson,
   outputErrorAsJson,
-  outputPromptAsJson,
-  buildPromptConfig,
   createMetadata,
 } from '../../lib/prompt-json.js'
 import {
   isShortcutConfigured,
   loadShortcutConfig,
   saveShortcutApiToken,
-  saveShortcutWorkspaceSlug,
   clearShortcutConfig,
   getShortcutApiToken,
 } from '../../lib/shortcut/index.js'

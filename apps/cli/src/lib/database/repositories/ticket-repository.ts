@@ -9,7 +9,7 @@
  * PRLT-1303: Data access layer — typed repository pattern.
  */
 
-import { eq, and, like, or, asc, desc, sql } from 'drizzle-orm'
+import { eq, and, like, or, asc, desc } from 'drizzle-orm'
 import {
   pmoTicketRefs as ticketRefsTable,
   pmoTicketMetadata as ticketMetadataTable,

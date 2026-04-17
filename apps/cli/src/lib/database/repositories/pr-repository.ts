@@ -40,7 +40,7 @@ function toExecMapRecord(row: typeof execMapTable.$inferSelect): ExternalExecuti
   }
 }
 
-function toLinkRecord(row: typeof execLinksTable.$inferSelect): ExternalExecutionLinkRecord {
+function _toLinkRecord(row: typeof execLinksTable.$inferSelect): ExternalExecutionLinkRecord {
   return {
     provider: row.provider,
     externalId: row.externalId,
@@ -49,7 +49,7 @@ function toLinkRecord(row: typeof execLinksTable.$inferSelect): ExternalExecutio
   }
 }
 
-function toPrRecord(row: typeof execPrsTable.$inferSelect): ExternalExecutionPrRecord {
+function _toPrRecord(row: typeof execPrsTable.$inferSelect): ExternalExecutionPrRecord {
   return {
     provider: row.provider,
     externalId: row.externalId,

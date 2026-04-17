@@ -20,7 +20,7 @@ import {
 } from '../../lib/execution/config.js'
 import { getReviewGateSetting, setReviewGateSetting, isValidReviewGateMode } from '../../lib/work-lifecycle/settings.js'
 import { TerminalApp, Shell } from '../../lib/execution/types.js'
-import { readWorkspaceConfig, writeWorkspaceConfig, getClaudeCodeConfig, updateClaudeCodeConfig } from '../../lib/workspace-config.js'
+import { getClaudeCodeConfig, updateClaudeCodeConfig } from '../../lib/workspace-config.js'
 import {
   shouldOutputJson,
   isNonTTY,

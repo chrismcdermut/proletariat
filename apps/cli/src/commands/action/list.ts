@@ -4,7 +4,6 @@ import { styles, divider } from '../../lib/styles.js'
 import {
   shouldOutputJson,
   outputSuccessAsJson,
-  outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
 import { getPMOContext } from '../../lib/pmo/pmo-context.js'

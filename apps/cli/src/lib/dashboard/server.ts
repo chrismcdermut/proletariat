@@ -49,7 +49,7 @@ export function createDashboardServer(options: DashboardServerOptions): Promise<
         const data = await gatherDashboardData(storage, projectId, projectName)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(data))
-      } catch (err) {
+      } catch (_err) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'Failed to gather data' }))
       }

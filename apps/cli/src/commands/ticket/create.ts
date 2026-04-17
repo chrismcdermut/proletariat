@@ -12,8 +12,6 @@ import {
   outputErrorAsJson,
   outputDryRunSuccessAsJson,
   outputDryRunErrorsAsJson,
-  outputPromptAsJson,
-  buildPromptConfig,
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
@@ -461,7 +459,7 @@ export default class TicketCreate extends PMOCommand {
 
       // Multiple external providers — prompt user to select
       const allProviders = ['pmo', ...externalProviders];
-      const choices = allProviders.map(p => ({
+      const _choices = allProviders.map(p => ({
         name: p === 'pmo' ? 'PMO (local)' : `${p.charAt(0).toUpperCase() + p.slice(1)}`,
         value: p,
       }));

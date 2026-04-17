@@ -14,10 +14,9 @@
  */
 
 import { Flags } from '@oclif/core'
-import { execSync } from 'node:child_process'
 import * as os from 'node:os'
-import * as path from 'node:path'
-import * as fs from 'node:fs'
+import * as _path from 'node:path'
+import * as _fs from 'node:fs'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { styles } from '../../lib/styles.js'
 import { MachineDB } from '../../lib/machine-db.js'
@@ -25,17 +24,13 @@ import { SessionStore } from '../../lib/session-store.js'
 import { readMachineState, buildMachineOrchestratorPrompt } from '../../lib/machine-orchestrator.js'
 import {
   ExecutionContext,
-  ExecutionEnvironment,
   ExecutorType,
   DisplayMode,
-  SessionManager,
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution } from '../../lib/execution/runners.js'
 import {
   shouldOutputJson,
-  outputErrorAsJson,
-  createMetadata,
 } from '../../lib/prompt-json.js'
 
 const MACHINE_ORCHESTRATOR_AGENT = 'machine-orchestrator'

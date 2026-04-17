@@ -1,5 +1,4 @@
 import { RuntimeCommand, runtimeBaseFlags } from '../../lib/runtime-command.js'
-import { styles } from '../../lib/styles.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,

@@ -7,7 +7,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { eq, and, or, isNull, sql, asc } from 'drizzle-orm'
-import { getThemePersistentDir, isEphemeralAgentName } from '../themes.js'
+import { getThemePersistentDir } from '../themes.js'
 import { createDrizzleConnection } from './drizzle.js'
 import {
   workspace as workspaceTable,

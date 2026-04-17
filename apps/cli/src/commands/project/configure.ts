@@ -160,7 +160,7 @@ export default class ProjectConfigure extends PMOCommand {
         items: choices,
         getName: (c) => c.name,
         getValue: (c) => c.value,
-        getCommand: (c) => `prlt project configure -P ${projectId} --json`,
+        getCommand: (_c) => `prlt project configure -P ${projectId} --json`,
         jsonMode: null,
       })
 

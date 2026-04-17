@@ -1,4 +1,4 @@
-import { Command, Flags } from '@oclif/core'
+import { Command } from '@oclif/core'
 import chalk from 'chalk'
 import { findHQRoot } from '../../lib/workspace.js'
 import { shouldOutputJson } from '../../lib/prompt-json.js'

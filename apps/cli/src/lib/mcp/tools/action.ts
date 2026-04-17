@@ -7,7 +7,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { WorkAction, ReviewGateMode } from '../../pmo/types.js'
 import type { McpToolContext } from '../types.js'
 import { errorResponse, strictTool } from '../helpers.js'
-import { getReviewGateSetting, setReviewGateSetting, isValidReviewGateMode } from '../../work-lifecycle/settings.js'
+import { getReviewGateSetting, setReviewGateSetting } from '../../work-lifecycle/settings.js'
 
 export function registerActionTools(server: McpServer, ctx: McpToolContext): void {
   strictTool(server,

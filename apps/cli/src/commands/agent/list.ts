@@ -1,6 +1,6 @@
 import { Flags } from '@oclif/core';
 import chalk from 'chalk';
-import * as path from 'node:path';
+import * as _path from 'node:path';
 import * as fs from 'node:fs';
 import {
   getWorkspaceInfo,
