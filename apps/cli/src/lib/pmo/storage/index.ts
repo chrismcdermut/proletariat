@@ -196,6 +196,10 @@ export class SQLiteStorage {
     return this.actionStorage.deleteAction(id)
   }
 
+  async updateBuiltinAction(id: string, changes: Record<string, unknown>): Promise<WorkAction> {
+    return this.actionStorage.updateBuiltinAction(id, changes)
+  }
+
   async getSuggestedAction(stateName: string): Promise<WorkAction | null> {
     return this.actionStorage.getSuggestedAction(stateName)
   }

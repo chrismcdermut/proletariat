@@ -216,6 +216,44 @@ export class ActionStorage {
   }
 
   /**
+   * Update a built-in action's prompt and metadata.
+   * Built-in actions can be customized (prompt, description, timeout, etc.)
+   * but cannot be renamed or deleted.
+   */
+  async updateBuiltinAction(id: string, changes: Record<string, unknown>): Promise<WorkAction> {
+    const existing = await this.getAction(id)
+    if (!existing) {
+      throw new PMOError('NOT_FOUND', `Action not found: ${id}`)
+    }
+
+    if (!existing.isBuiltin) {
+      // Non-builtin actions should use updateAction
+      return this.updateAction(id, changes as Partial<WorkAction>)
+    }
+
+    const updateValues: Record<string, unknown> = {}
+
+    if (changes.prompt !== undefined) updateValues.prompt = changes.prompt
+    if (changes.endPrompt !== undefined) updateValues.endPrompt = changes.endPrompt || null
+    if (changes.description !== undefined) updateValues.description = changes.description || null
+    if (changes.fromIntent !== undefined) updateValues.fromIntent = changes.fromIntent || null
+    if (changes.toIntent !== undefined) updateValues.toIntent = changes.toIntent || null
+    if (changes.executor !== undefined) updateValues.executor = changes.executor || null
+    if (changes.timeout !== undefined) updateValues.timeout = changes.timeout || null
+
+    if (Object.keys(updateValues).length > 0) {
+      updateValues.updatedAt = new Date().toISOString()
+      this.ctx.drizzle
+        .update(pmoActions)
+        .set(updateValues)
+        .where(eq(pmoActions.id, id))
+        .run()
+    }
+
+    return (await this.getAction(id))!
+  }
+
+  /**
    * Delete a work action.
    */
   async deleteAction(id: string): Promise<void> {
