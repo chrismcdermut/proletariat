@@ -385,11 +385,11 @@ export class SimplePoller {
 
         if (dockerOutput) {
           for (const line of dockerOutput.split('\n')) {
-            const [containerId, name, status] = line.split('\t')
+            const [containerId, _name, status] = line.split('\t')
             if (!containerId) continue
 
             // Check if any tracked agent's container has exited
-            for (const [agentId, prev] of this.lastAgents) {
+            for (const [_agentId, prev] of this.lastAgents) {
               if (prev.containerId === containerId && status && /exited/i.test(status)) {
                 const label = `${prev.agentName} (${prev.ticketId})`
                 changes.push({ category: 'agents', summary: `${label}: container stopped` })

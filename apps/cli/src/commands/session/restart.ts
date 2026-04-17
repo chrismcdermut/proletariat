@@ -358,7 +358,7 @@ export default class SessionRestart extends PromptCommand {
           cleanExit: reachedPrompt,
           restartCount: newRestartCount,
         }, createMetadata('session restart', flags))
-        return
+        
       } else {
         this.log('')
         this.log(styles.success(`Agent ${match.agentName} restarted successfully.`))

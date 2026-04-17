@@ -17,7 +17,6 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js';
 import { FlagResolver } from '../../lib/flags/index.js';
-import type { Ticket } from '../../lib/pmo/types.js';
 import { getWorkspaceInfo } from '../../lib/agents/commands.js';
 import { PRService } from '../../services/index.js';
 import type { ProviderStorage } from '../../lib/providers/types.js';

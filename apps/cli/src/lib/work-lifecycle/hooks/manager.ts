@@ -22,14 +22,12 @@ import { executeHook } from './executor.js'
 import {
   HOOKABLE_EVENTS,
   type HookableEvent,
-  type HookMode,
   type HookExecutionResult,
   type HookActionHandler,
   type WorkHookConfig,
   type LlmDecision,
 } from './types.js'
 import {
-  modeToTier,
   DEFAULT_LLM_TIMEOUT_MS,
   type EscalationContext,
   type EscalationReason,

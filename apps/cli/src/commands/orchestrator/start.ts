@@ -541,7 +541,7 @@ export default class OrchestratorStart extends RuntimeCommand {
 
     // Resolve action prompt
     let actionPrompt = flags.prompt
-    let actionName = 'orchestrate'
+    let _actionName = 'orchestrate'
 
     if (flags.action && !actionPrompt) {
       // Load action from workspace.db (provided by RuntimeCommand)
@@ -556,7 +556,7 @@ export default class OrchestratorStart extends RuntimeCommand {
       const row = db.prepare('SELECT prompt, name FROM actions WHERE id = ? OR name = ?').get(flags.action, flags.action) as { prompt: string; name: string } | undefined
       if (row) {
         actionPrompt = row.prompt
-        actionName = row.name
+        _actionName = row.name
       } else {
         if (jsonMode) {
           outputErrorAsJson('ACTION_NOT_FOUND', `Action "${flags.action}" not found.`, createMetadata('orchestrator start', flags))

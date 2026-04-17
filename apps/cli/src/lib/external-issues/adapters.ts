@@ -150,7 +150,7 @@ function normalizeLinearLabels(rawLabels: unknown): string[] {
       if (typeof label === 'object' && label !== null) {
         return asString((label as Record<string, unknown>).name)
       }
-      return undefined
+      
     })
     .filter((label): label is string => typeof label === 'string')
 }
@@ -396,7 +396,7 @@ function normalizeAsanaLabels(rawTags: unknown): string[] {
       if (typeof tag === 'object' && tag !== null) {
         return asString((tag as Record<string, unknown>).name)
       }
-      return undefined
+      
     })
     .filter((label): label is string => typeof label === 'string')
 }
@@ -413,7 +413,7 @@ function normalizeShortcutLabels(rawLabels: unknown): string[] {
       if (typeof label === 'object' && label !== null) {
         return asString((label as Record<string, unknown>).name)
       }
-      return undefined
+      
     })
     .filter((label): label is string => typeof label === 'string')
 }
@@ -538,7 +538,7 @@ function normalizeTrelloLabels(rawLabels: unknown): string[] {
       if (typeof label === 'object' && label !== null) {
         return asString((label as Record<string, unknown>).name)
       }
-      return undefined
+      
     })
     .filter((label): label is string => typeof label === 'string')
 }

@@ -21,15 +21,15 @@ const CREDENTIALS_TABLE = 'credentials'
 
 /** Known credential setting keys that must be stored in credentials.db */
 const CREDENTIAL_KEYS = new Set([
-  'linear.api_key',
-  'jira.api_token',
   'asana.access_token',
-  'trello.api_key',
-  'trello.api_token',
-  'shortcut.api_token',
-  'monday.api_token',
   'clickup.api_key',
   'github.token',
+  'jira.api_token',
+  'linear.api_key',
+  'monday.api_token',
+  'shortcut.api_token',
+  'trello.api_key',
+  'trello.api_token',
 ])
 
 /**

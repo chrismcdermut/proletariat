@@ -340,7 +340,7 @@ export class OutboundSyncHandler {
           provider: mapping.provider,
           externalId: mapping.externalId,
           latestStateSnapshot: {
-            ...((mapping.latestStateSnapshot as Record<string, unknown>) ?? {}),
+            ...(mapping.latestStateSnapshot as Record<string, unknown>),
             ticketStatus: event.newStatus,
             ticketCategory: event.newCategory,
             lastOutboundSync: new Date().toISOString(),
@@ -399,7 +399,7 @@ export class OutboundSyncHandler {
           provider: mapping.provider,
           externalId: mapping.externalId,
           latestStateSnapshot: {
-            ...((mapping.latestStateSnapshot as Record<string, unknown>) ?? {}),
+            ...(mapping.latestStateSnapshot as Record<string, unknown>),
             prMerged: true,
             prMergeMethod: event.mergeMethod,
             lastOutboundSync: new Date().toISOString(),

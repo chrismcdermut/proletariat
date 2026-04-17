@@ -18,8 +18,6 @@ import type {
   RepositoryContext,
   ExternalExecutionMapRecord,
   UpsertExternalExecutionInput,
-  ExternalExecutionLinkRecord,
-  ExternalExecutionPrRecord,
 } from './types.js'
 
 // =============================================================================
@@ -37,24 +35,6 @@ function toExecMapRecord(row: typeof execMapTable.$inferSelect): ExternalExecuti
     lastSpawnedAt: row.lastSpawnedAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-  }
-}
-
-function toLinkRecord(row: typeof execLinksTable.$inferSelect): ExternalExecutionLinkRecord {
-  return {
-    provider: row.provider,
-    externalId: row.externalId,
-    executionId: row.executionId,
-    linkedAt: row.linkedAt,
-  }
-}
-
-function toPrRecord(row: typeof execPrsTable.$inferSelect): ExternalExecutionPrRecord {
-  return {
-    provider: row.provider,
-    externalId: row.externalId,
-    prUrl: row.prUrl,
-    linkedAt: row.linkedAt,
   }
 }
 

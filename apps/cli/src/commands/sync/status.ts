@@ -29,7 +29,7 @@ export default class SyncStatus extends RuntimeCommand {
     if (jsonMode) {
       outputSuccessAsJson({
         running,
-        ...(info ?? {}),
+        ...info,
         logPath,
       }, createMetadata('sync status', flags))
       return

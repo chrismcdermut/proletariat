@@ -221,14 +221,14 @@ export abstract class PromptCommand extends Command {
     if (!err || typeof err !== 'object') return false
     const name = (err as { constructor?: { name?: string } }).constructor?.name ?? ''
     const PARSE_ERROR_NAMES = new Set([
+      'ArgInvalidOptionError',
       'CLIParseError',
-      'RequiredArgsError',
       'FailedFlagValidationError',
       'FlagInvalidOptionError',
-      'NonExistentFlagsError',
-      'UnexpectedArgsError',
-      'ArgInvalidOptionError',
       'InvalidArgsSpecError',
+      'NonExistentFlagsError',
+      'RequiredArgsError',
+      'UnexpectedArgsError',
     ])
     if (PARSE_ERROR_NAMES.has(name)) return true
     // Defensive: any error with a `.parse` context object that has input.flags
@@ -318,8 +318,8 @@ export abstract class PromptCommand extends Command {
     }
 
     const allFlags: Record<string, OclifFlagLike> = {
-      ...(ctor.baseFlags ?? {}),
-      ...(ctor.flags ?? {}),
+      ...ctor.baseFlags,
+      ...ctor.flags,
     }
 
     const schema = buildFlagSchemaFromOclif(allFlags)

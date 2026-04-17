@@ -42,7 +42,7 @@ interface SafetyNetResult {
 
 type ReportStatus = 'started' | 'completed' | 'errored' | 'exited'
 
-const VALID_STATUSES: ReadonlySet<string> = new Set(['started', 'completed', 'errored', 'exited'])
+const VALID_STATUSES: ReadonlySet<string> = new Set(['completed', 'errored', 'exited', 'started'])
 
 export default class SessionReport extends PromptCommand {
   static description = 'Report agent session lifecycle events and trigger cleanup'

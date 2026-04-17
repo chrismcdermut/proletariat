@@ -164,7 +164,7 @@ const hook: Hook<'init'> = async function ({ id, argv, config }) {
 
     console.log(chalk.default.blue(`\n✅ Setup complete! You can now run: prlt ${id}\n`))
     await shutdownAnalytics()
-    return
+    
   }
 }
 

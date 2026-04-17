@@ -3,7 +3,6 @@ import { styles } from '../../lib/styles.js'
 import {
   getMergeQueueState,
   buildMergeQueue,
-  type MergeQueueState,
 } from '../../lib/sync/merge-queue.js'
 import {
   shouldOutputJson,

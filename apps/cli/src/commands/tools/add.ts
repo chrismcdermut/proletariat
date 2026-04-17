@@ -111,7 +111,7 @@ export default class ToolsAdd extends PromptCommand {
           { name: args.name, type: 'mcp', description: flags.description },
           meta()
         )
-        return
+        
       } else {
         this.log(chalk.green(`\nMCP server '${args.name}' registered successfully.`))
         if (flags.url) this.log(chalk.dim(`  URL: ${flags.url}`))
@@ -143,7 +143,7 @@ export default class ToolsAdd extends PromptCommand {
           { name: args.name, type: 'cli', command, description: flags.description },
           meta()
         )
-        return
+        
       } else {
         this.log(chalk.green(`\nCLI tool '${args.name}' registered successfully.`))
         this.log(chalk.dim(`  Command: ${command}`))

@@ -40,15 +40,6 @@ interface ShortcutSearchResponse {
   total?: number
 }
 
-interface ShortcutMember {
-  id?: string
-  profile?: {
-    name?: string
-    email_address?: string
-    mention_name?: string
-  }
-}
-
 interface ShortcutWorkflowState {
   id?: number
   name?: string
@@ -110,7 +101,7 @@ export function normalizeShortcutStory(
 
   const labels = (story.labels || [])
     .map(label => label.name?.trim())
-    .filter((name): name is string => Boolean(name))
+    .filter(Boolean)
 
   const stateName = workflowStates?.get(story.workflow_state_id ?? 0)?.name || 'Unknown'
   const externalKey = deriveExternalKey(story)

@@ -432,7 +432,7 @@ export function getHostTmuxServerStatus(): TmuxServerStatus {
  */
 export function getContainerTmuxServerStatus(containerId: string): TmuxServerStatus {
   try {
-    const result = execSync(
+    execSync(
       `docker exec ${containerId} tmux list-sessions 2>&1`,
       { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 },
     )
