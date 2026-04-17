@@ -168,8 +168,11 @@
 
 | Namespace | Commands | Notes |
 |-----------|----------|-------|
+| `action` | 7 (index, list, show, create, edit, delete, run) | Action management |
+| `db` | 1 (index) | Database management |
 | `docker` | 12 (index, start, stop, restart, list, logs, shell, status, clean, prune, sync, rebuild-cache) | Full container management |
 | `execution` | 6 (index, list, view, logs, stop, config) | Execution lifecycle |
+| `gateway` | 1+ | Gateway management |
 | `branch` | 5 (index, create, list, validate, where) | Branch naming |
 | `sync` | 7 (index, start, stop, status, pause, resume, queue) | Board sync daemon |
 | `config` | 1 | Workspace settings |
