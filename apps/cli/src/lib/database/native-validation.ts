@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export interface BetterSqlite3RuntimeInfo {
   nodeVersion: string
@@ -172,7 +173,7 @@ export function throwIfNativeBindingError(error: unknown, context: string): void
  * Returns the package root that owns the node_modules, or null.
  */
 export function findBetterSqlite3InstallDir(): string | null {
-  let dir = __dirname
+  let dir = path.dirname(fileURLToPath(import.meta.url))
   for (let i = 0; i < 20; i++) {
     const candidate = path.join(dir, 'node_modules', 'better-sqlite3')
     if (fs.existsSync(candidate)) {
