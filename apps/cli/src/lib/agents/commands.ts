@@ -661,6 +661,23 @@ export async function createEphemeralAgent(
     // PRLT-1322: Surface failures loudly — previously we silently fell back to
     // empty directories, which caused containers to launch with empty /workspace
     // and left agents unable to work on any code.
+    // PRLT-1331: Also fail when repositories list is empty but repos/ dir exists
+    // on disk — this indicates a database inconsistency (getWorkspaceRepositories
+    // returned empty despite real repos being present).
+    if (fs.existsSync(reposPath) && workspaceInfo.repositories.length === 0) {
+      const diskRepos = fs.readdirSync(reposPath).filter(
+        entry => fs.statSync(path.join(reposPath, entry)).isDirectory()
+      );
+      if (diskRepos.length > 0) {
+        cleanupFailedEphemeralAgent(agentDir, workspaceInfo, mountMode);
+        throw new Error(
+          `No repositories registered in workspace database, but repos/ directory ` +
+          `contains: [${diskRepos.join(', ')}]. The agent would launch with an ` +
+          `empty /workspace. Run "prlt repo add" to register repositories, or ` +
+          `check that the workspace database is intact.`
+        );
+      }
+    }
     if (fs.existsSync(reposPath) && workspaceInfo.repositories.length > 0) {
       const repoFailures: string[] = [];
       for (const repo of workspaceInfo.repositories) {
