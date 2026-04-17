@@ -190,7 +190,9 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                   });
                   createdRepos.push(repo.name);
                 } catch (cloneError) {
-                  console.log(chalk.yellow(`  Warning: Clone failed for ${repo.name}: ${cloneError}`));
+                  // PRLT-1331: Log detailed clone error (previously just a warning)
+                  const errMsg = cloneError instanceof Error ? cloneError.message : String(cloneError);
+                  console.log(chalk.red(`  Clone failed for ${repo.name}: ${errMsg}`));
                 }
               } else {
                 // WORKTREE MODE: Create git worktree (original behavior)
@@ -233,9 +235,12 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                     stdio: 'inherit'
                   });
                   createdRepos.push(repo.name);
-                } catch {
+                } catch (worktreeError) {
                   // Branch might already exist, try to use it or clean up
-                  console.log(chalk.yellow(`  Branch ${branchName} already exists, attempting to reuse or clean up...`));
+                  // PRLT-1331: Log the actual error for diagnostics
+                  const errMsg = worktreeError instanceof Error ? worktreeError.message : String(worktreeError);
+                  console.log(chalk.yellow(`  Worktree creation failed for ${repo.name}: ${errMsg}`));
+                  console.log(chalk.yellow(`  Branch ${branchName} may already exist, attempting to reuse or clean up...`));
                   try {
                     // Try without creating a new branch (use existing)
                     execSync(`git worktree add "${targetDir}" ${branchName}`, {
@@ -256,7 +261,7 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
                       });
                       createdRepos.push(repo.name);
                     } catch (finalError) {
-                      throw new Error(`Failed to create worktree after cleanup: ${finalError}`);
+                      throw new Error(`Failed to create worktree for ${repo.name} after cleanup: ${finalError}`);
                     }
                   }
                 }
@@ -280,9 +285,24 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
             });
           }
 
+          // PRLT-1331: Fail loudly when no repos were populated.
+          // Previously this silently produced an empty agent directory,
+          // causing Docker containers to launch with empty /workspace.
+          if (createdRepos.length === 0 && repos.length > 0) {
+            throw new Error(
+              `No repositories were created for agent "${agent}". ` +
+              `Expected ${repos.length} repo(s) but all failed. ` +
+              `Check that source repos exist in ${reposDir} and have commits.`
+            );
+          }
+
           console.log(chalk.green(`✅ Agent ${agent} created with ${createdRepos.length} ${modeLabel}(s)`));
         } catch (error) {
+          // PRLT-1331: Log the error AND re-throw so callers know the agent
+          // was not created successfully. Previously this silently swallowed
+          // errors, leaving empty agent directories.
           console.log(chalk.red(`Failed to create agent ${agent}: ${error}`));
+          throw error;
         }
       }
     } else {
@@ -434,7 +454,9 @@ export async function createAgentWorktrees(workspacePath: string, agents: string
 
         console.log(chalk.green(`✅ Agent ${agent} created with ${modeLabel}`));
       } catch (error) {
+        // PRLT-1331: Re-throw so callers know agent creation failed
         console.log(chalk.red(`Failed to create agent ${agent}: ${error}`));
+        throw error;
       }
     }
   }
