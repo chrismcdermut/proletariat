@@ -34,7 +34,7 @@ export class AsanaClient {
       }
     }
 
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins -- fetch is available in supported Node runtimes for this CLI
+     
     const response = await fetch(url, {
       method: init.method ?? 'GET',
       headers: {

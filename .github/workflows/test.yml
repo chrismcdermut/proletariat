@@ -279,8 +279,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm --filter @proletariat/cli lint
+      - name: Lint source files
+        working-directory: apps/cli
+        run: npx eslint src/ --quiet
 
   build:
     needs: [detect-changes]

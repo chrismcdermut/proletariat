@@ -30,7 +30,7 @@ function parseNodeMajor(version: string): number | null {
  */
 function detectBunRuntime(): boolean {
   return typeof (process.versions as Record<string, string | undefined>).bun === 'string'
-    || typeof (globalThis as Record<string, unknown>).Bun !== 'undefined'
+    || (globalThis as Record<string, unknown>).Bun !== undefined
 }
 
 export function getBetterSqlite3RuntimeInfo(): BetterSqlite3RuntimeInfo {

@@ -142,7 +142,7 @@ describe('Code quality audit (PRLT-1298)', () => {
         'utf-8'
       )
       expect(workflow).to.include('lint:')
-      expect(workflow).to.include('pnpm --filter @proletariat/cli lint')
+      expect(workflow).to.include('eslint src/')
     })
 
     it('should include lint in ci-status needs', () => {

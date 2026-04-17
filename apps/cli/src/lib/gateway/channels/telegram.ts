@@ -91,7 +91,7 @@ class HttpTelegramClient implements TelegramClient {
     // Only request message updates — we don't need callback queries, polls, etc.
     params.set('allowed_updates', JSON.stringify(['message']))
 
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins -- global fetch is stable in Node 20+
+     
     const res = await fetch(`${this.url('getUpdates')}?${params.toString()}`)
     if (!res.ok) {
       throw new Error(`Telegram getUpdates failed: HTTP ${res.status}`)
@@ -104,7 +104,7 @@ class HttpTelegramClient implements TelegramClient {
   }
 
   async sendMessage(chatId: string | number, text: string): Promise<void> {
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins -- global fetch is stable in Node 20+
+     
     const res = await fetch(this.url('sendMessage'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

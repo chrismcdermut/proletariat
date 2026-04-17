@@ -97,7 +97,7 @@ export class MondayClient {
   }
 
   private async request<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
-    // eslint-disable-next-line n/no-unsupported-features/node-builtins
+     
     const response = await fetch(MONDAY_API_URL, {
       method: 'POST',
       headers: {
