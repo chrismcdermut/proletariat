@@ -1,3 +1,7 @@
+import { execSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+
 export interface BetterSqlite3RuntimeInfo {
   nodeVersion: string
   nodeMajor: number | null
@@ -10,6 +14,16 @@ export interface BetterSqlite3RuntimeInfo {
 export interface BetterSqlite3ValidationOptions {
   context: string
   loadModule?: () => Promise<{ default: new (path: string) => BetterSqlite3DatabaseLike }>
+  /**
+   * When true, skip auto-rebuild on ABI mismatch. Used to prevent infinite
+   * recursion when the rebuild itself fails.
+   */
+  skipAutoRebuild?: boolean
+  /**
+   * Override for the rebuild command executor. Defaults to execSync.
+   * Injected in tests.
+   */
+  execRebuild?: (cmd: string, opts: { cwd: string; stdio: 'pipe' }) => void
 }
 
 interface BetterSqlite3DatabaseLike {
@@ -98,6 +112,17 @@ function isBunNodeGypError(error: unknown): boolean {
 }
 
 /**
+ * Detect whether an error is specifically an ABI / NODE_MODULE_VERSION mismatch,
+ * which is the class of error that an `npm rebuild` can fix.
+ */
+export function isAbiMismatchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const msg = error.message.toLowerCase()
+  return msg.includes('node_module_version') ||
+    msg.includes('was compiled against a different node.js version')
+}
+
+/**
  * Detect whether an error is caused by a missing or incompatible better-sqlite3
  * native binding (.node file) rather than a normal SQLite operational error.
  *
@@ -141,6 +166,54 @@ export function throwIfNativeBindingError(error: unknown, context: string): void
   }
 }
 
+/**
+ * Locate the package directory containing better-sqlite3.
+ * Walks up from this file's dirname looking for node_modules/better-sqlite3.
+ * Returns the package root that owns the node_modules, or null.
+ */
+export function findBetterSqlite3InstallDir(): string | null {
+  let dir = __dirname
+  for (let i = 0; i < 20; i++) {
+    const candidate = path.join(dir, 'node_modules', 'better-sqlite3')
+    if (fs.existsSync(candidate)) {
+      return dir
+    }
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+/**
+ * Attempt to rebuild better-sqlite3 against the running Node ABI.
+ * Returns true if the rebuild command succeeded, false otherwise.
+ */
+export function attemptAutoRebuild(options: BetterSqlite3ValidationOptions): boolean {
+  const installDir = findBetterSqlite3InstallDir()
+  if (!installDir) {
+    return false
+  }
+
+  const exec = options.execRebuild ?? ((cmd: string, opts: { cwd: string; stdio: 'pipe' }) => execSync(cmd, opts))
+
+  try {
+    process.stderr.write(
+      `\x1b[33mABI mismatch detected \u2014 rebuilding better-sqlite3 for Node ${process.version}\u2026\x1b[0m\n`
+    )
+    exec('npm rebuild better-sqlite3', { cwd: installDir, stdio: 'pipe' })
+    process.stderr.write(
+      `\x1b[32mRebuild complete.\x1b[0m\n`
+    )
+    return true
+  } catch {
+    process.stderr.write(
+      `\x1b[31mAuto-rebuild failed. Run manually: cd ${installDir} && npm rebuild better-sqlite3\x1b[0m\n`
+    )
+    return false
+  }
+}
+
 export async function validateBetterSqlite3NativeBinding(options: BetterSqlite3ValidationOptions): Promise<void> {
   const loadModule = options.loadModule ?? (async () => import('better-sqlite3'))
   const runtime = getBetterSqlite3RuntimeInfo()
@@ -152,6 +225,19 @@ export async function validateBetterSqlite3NativeBinding(options: BetterSqlite3V
     db.pragma('foreign_keys = ON')
     db.close()
   } catch (error) {
+    // If this is an ABI mismatch and auto-rebuild hasn't been attempted yet,
+    // try to rebuild better-sqlite3 against the current Node version.
+    if (!options.skipAutoRebuild && isAbiMismatchError(error)) {
+      const rebuilt = attemptAutoRebuild(options)
+      if (rebuilt) {
+        // Rebuild succeeded — re-validate (with skipAutoRebuild to prevent loop)
+        return validateBetterSqlite3NativeBinding({
+          ...options,
+          skipAutoRebuild: true,
+        })
+      }
+    }
+
     throw new Error(buildBetterSqlite3ValidationMessage(error, runtime, options.context))
   }
 }
