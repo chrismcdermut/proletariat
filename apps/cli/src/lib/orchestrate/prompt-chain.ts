@@ -168,7 +168,7 @@ function parseJsonEnvelope(stdout: string): CommandJsonOutput | null {
   // and walk backwards to a matching '{' at the start of a line.
   const firstBrace = trimmed.indexOf('{')
   const lastBrace = trimmed.lastIndexOf('}')
-  if (firstBrace < 0 || lastBrace <= firstBrace) return null
+  if (firstBrace === -1 || lastBrace <= firstBrace) return null
 
   try {
     return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)) as CommandJsonOutput

@@ -12,6 +12,14 @@ export default [
   prettier,
   {
     rules: {
+      // === Quality rules (errors) ===
+      // Empty catch blocks silently swallow errors — always log or rethrow
+      'no-empty': ['error', { allowEmptyCatch: false }],
+      // Unreachable code is dead code
+      'no-unreachable': 'error',
+      // Stale eslint-disable comments indicate removed code
+      'no-useless-return': 'error',
+
       // Disable all perfectionist sorting rules
       // These slow down development without catching real issues
       'perfectionist/sort-classes': 'off',
@@ -104,6 +112,14 @@ export default [
       // These are sometimes necessary in loops for sequential operations
       'no-await-in-loop': 'warn',
 
+      // Unused variables: error, but allow _-prefixed intentionally unused names
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+        destructuredArrayIgnorePattern: '^_',
+      }],
+
       // Allow explicit any with warning - real issue but shouldn't block
       '@typescript-eslint/no-explicit-any': 'warn',
 
@@ -119,6 +135,19 @@ export default [
       // Disable no-undef as TypeScript handles this better
       // and it has false positives with CJS require() in ESM files
       'no-undef': 'off',
+    },
+  },
+  // Test file overrides — relax rules that cause false positives in test harnesses
+  {
+    files: ['test/**/*.ts', 'test/**/*.js'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+      }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
 ]

@@ -11,7 +11,7 @@
  * Timeout on LLM response auto-escalates to human.
  */
 
-import type { DecisionTier, LlmDecision, HookExecutionResult } from '../work-lifecycle/hooks/types.js'
+import type { DecisionTier, LlmDecision } from '../work-lifecycle/hooks/types.js'
 
 // =============================================================================
 // Types

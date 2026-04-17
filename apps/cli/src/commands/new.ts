@@ -108,7 +108,7 @@ export default class New extends Command {
   /**
    * First-time user flow: welcome, explainer, setup method choice, then HQ creation.
    */
-  private async runFirstTimeHumanMode(flags: { setup?: string }): Promise<void> {
+  private async runFirstTimeHumanMode(_flags: { setup?: string }): Promise<void> {
     // Step 1: Welcome + explainer
     const result = await runOnboardingWizard();
 
@@ -214,7 +214,7 @@ export default class New extends Command {
         this.outputFirstTimeJsonPrompt(flags);
       } else {
         outputPromptAsJson(
-          buildPromptConfig('input', 'name', 'Enter a name for your headquarters:', undefined, undefined),
+          buildPromptConfig('input', 'name', 'Enter a name for your headquarters:'),
           createMetadata('new', flags as Record<string, unknown>),
         );
       }

@@ -340,7 +340,7 @@ export default class BranchCreate extends PMOCommand {
   /**
    * Create branch from ticket ID with defaults (non-interactive).
    */
-  private async createFromTicketId(ticketId: string, ownerOverride?: string, _projectId?: string): Promise<WizardResult | null> {
+  private async createFromTicketId(ticketId: string, _ownerOverride?: string, _projectId?: string): Promise<WizardResult | null> {
     try {
       // Search for ticket across all projects
       const projects = await this.storage.listProjects()
@@ -449,7 +449,7 @@ export default class BranchCreate extends PMOCommand {
    */
   private async runTicketQuickWizard(
     tickets: Array<{ id: string; title: string; category?: string; status?: string; projectName?: string }>,
-    defaultOwnerName: string | undefined
+    _defaultOwnerName: string | undefined
   ): Promise<WizardResult | null> {
     // Select ticket (show project name if multiple projects)
     const hasMultipleProjects = new Set(tickets.map(t => t.projectName)).size > 1
@@ -509,7 +509,7 @@ export default class BranchCreate extends PMOCommand {
     ], null)
 
     // Get owner (defaults to GitHub username)
-    const { owner } = await this.prompt<{ owner: string }>([
+    const { owner: _owner } = await this.prompt<{ owner: string }>([
       {
         type: 'input',
         name: 'owner',

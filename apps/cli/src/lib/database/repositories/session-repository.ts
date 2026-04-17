@@ -7,7 +7,7 @@
  * PRLT-1303: Data access layer — typed repository pattern.
  */
 
-import { eq, and, or, sql, desc, asc } from 'drizzle-orm'
+import { eq, and, or, desc } from 'drizzle-orm'
 import { pmoAgentWork as agentWorkTable } from '../drizzle-schema.js'
 import type {
   RepositoryContext,
@@ -240,7 +240,6 @@ export class SessionRepository implements ISessionRepository {
   updateHeartbeat(id: string): void {
     // Note: The heartbeat column (last_heartbeat) is not in the Drizzle schema
     // because it was added via raw migration. We use a targeted update here.
-    const now = new Date().toISOString()
     this.ctx.drizzle
       .update(agentWorkTable)
       .set({ completedAt: undefined } as Record<string, unknown>)

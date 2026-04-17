@@ -11,7 +11,7 @@
  */
 
 import type { TransitionIntent } from './state-intents.js'
-import { DEFAULT_INTENTS, matchIntentByAliases, getDefaultIntent } from './state-intents.js'
+import { matchIntentByAliases, getDefaultIntent } from './state-intents.js'
 
 export interface BoardState {
   id: string

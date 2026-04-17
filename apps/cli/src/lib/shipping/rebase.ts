@@ -14,7 +14,6 @@ import type {
   GitProvider,
   RebaseSiblingOptions,
   SiblingRebaseResult,
-  UpdateBranchResult,
 } from './types.js'
 import { GitHubProvider } from './github.js'
 
@@ -29,7 +28,7 @@ const CONFLICT_COMMENT =
  * Currently supports GitHub. Returns null if the provider cannot be detected.
  * GitLab support can be added here by checking the remote URL.
  */
-export function detectGitProvider(cwd?: string): GitProvider | null {
+export function detectGitProvider(_cwd?: string): GitProvider | null {
   // For now, default to GitHub since it's the only implemented provider.
   // When GitLab/Bitbucket providers are added, detect from the remote URL:
   //   git remote get-url origin → github.com = GitHub, gitlab.com = GitLab, etc.

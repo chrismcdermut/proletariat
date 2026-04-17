@@ -328,7 +328,7 @@ async function backfillPRMetadata(
 ): Promise<void> {
   try {
     const updatedMetadata = {
-      ...(ticket.metadata ?? {}),
+      ...ticket.metadata,
       pr_number: String(pr.number),
       pr_url: pr.url,
     }

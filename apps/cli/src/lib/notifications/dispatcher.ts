@@ -251,7 +251,7 @@ const handleTerminal: ProviderHandler = async (provider, context) => {
   const prefix = config.prefix || '[prlt:notify]'
   const message = buildMessage(context)
 
-  // eslint-disable-next-line no-console
+   
   console.log(`${prefix} ${message}`)
 
   return {

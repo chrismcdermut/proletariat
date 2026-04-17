@@ -6,7 +6,7 @@
  * JetBrains Mono, pink-600 accents, clean white cards, Tailwind CDN.
  */
 
-export function getDashboardHTML(port: number): string {
+export function getDashboardHTML(_port: number): string {
   return `<!DOCTYPE html>
 <html lang="en" class="antialiased">
 <head>

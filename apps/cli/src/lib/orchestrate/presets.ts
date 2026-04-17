@@ -65,13 +65,13 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
  * — they only read diffs and post review comments (read-only permission mode).
  */
 const SAFE_ACTIONS = new Set([
+  'cleanup-container',
+  'gc-sweep',
+  'health-check',
   'move-ticket',
   'notify',
-  'cleanup-container',
-  'health-check',
   'rebase-conflicting-prs',
   'spawn-review-agent',
-  'gc-sweep',
 ])
 
 export const PRESETS: Record<PresetName, PresetDefinition> = {

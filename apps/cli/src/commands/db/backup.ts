@@ -12,7 +12,7 @@ import {
   getActiveWorkspace,
 } from '../../lib/machine-config.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
-import { shouldOutputJson, createMetadata } from '../../lib/prompt-json.js'
+import { shouldOutputJson } from '../../lib/prompt-json.js'
 
 export default class DbBackup extends Command {
   static description = 'Create a manual backup of the workspace database'

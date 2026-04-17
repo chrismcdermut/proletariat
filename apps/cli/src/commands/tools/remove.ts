@@ -59,7 +59,7 @@ export default class ToolsRemove extends Command {
 
     if (jsonMode) {
       outputSuccessAsJson({ name: args.name, removed: true }, meta())
-      return
+      
     } else {
       this.log(chalk.green(`\nTool '${args.name}' removed from registry.`))
       this.log('')

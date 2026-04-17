@@ -20,7 +20,7 @@
 import type { TicketProvider } from './types.js'
 import type { ProviderStorage } from './types.js'
 import { SettingsStore } from '../database/settings-store.js'
-import { DEFAULT_INTENTS, matchIntentByAliases, getDefaultIntent } from './state-intents.js'
+import { matchIntentByAliases, getDefaultIntent } from './state-intents.js'
 import { TransitionMapStore } from './transition-map.js'
 import type Database from 'better-sqlite3'
 
@@ -230,7 +230,7 @@ export function createPMProviderAdapter(
     async fetchStates(_ticketId: string): Promise<PMState[]> {
       const board = await storage.getProjectBoard(projectId)
       if (!board) return []
-      return board.columns.map((col, idx) => ({
+      return board.columns.map((col, _idx) => ({
         id: col.name,  // For PMO, the state ID is the column name
         name: col.name,
       }))

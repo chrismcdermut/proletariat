@@ -145,7 +145,7 @@ function findBaseBranchInContainer(
  */
 const SPAWN_STAGGER_DELAY_MS = 2000
 
-const EXTERNAL_MAPPING_PROVIDERS: ReadonlySet<string> = new Set(['linear', 'jira', 'asana', 'monday', 'pmo'])
+const EXTERNAL_MAPPING_PROVIDERS: ReadonlySet<string> = new Set(['asana', 'jira', 'linear', 'monday', 'pmo'])
 
 function getExternalProvider(value: string | undefined): ExternalMappingProvider | null {
   if (!value) return null

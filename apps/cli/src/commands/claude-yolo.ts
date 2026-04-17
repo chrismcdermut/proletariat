@@ -7,7 +7,6 @@
  */
 
 import { Args } from '@oclif/core'
-import * as path from 'node:path'
 import { PromptCommand } from '../lib/prompt-command.js'
 import { machineOutputFlags } from '../lib/pmo/index.js'
 import {

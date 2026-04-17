@@ -153,7 +153,7 @@ export default class Run extends PromptCommand {
 
     // Generate agent name and session name
     const agentName = generateAgentName()
-    const sessionName = buildLayer0SessionName(runner!.name, agentName)
+    const _sessionName = buildLayer0SessionName(runner!.name, agentName)
 
     // Show summary
     if (!jsonMode) {

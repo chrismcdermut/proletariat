@@ -370,7 +370,7 @@ export class OrchestratePoller {
       }
 
       // Detect merged/closed PRs (were tracked but no longer open)
-      for (const [prNum, tracked] of this.trackedPRs) {
+      for (const [prNum] of this.trackedPRs) {
         if (!openPRs.some(p => p.number === prNum)) {
           // PR was open, now it's not — check if merged
           const pr = getPRByNumber(prNum, this.cwd)

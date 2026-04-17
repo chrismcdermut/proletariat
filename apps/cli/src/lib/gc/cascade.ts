@@ -28,7 +28,6 @@ import {
   cleanClaudeSessionData,
   deleteRemoteBranch,
   markExecutionRecordsCleaned,
-  purgeExecutionRecords,
   recycleAgentNames,
 } from './index.js'
 import { removeContainer } from '../execution/container-cleanup.js'

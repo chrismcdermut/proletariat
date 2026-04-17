@@ -13,7 +13,6 @@ import {
 import {
   Board,
   BoardConfig,
-  Column,
   PMOError,
   Project,
   ProjectFilter,

@@ -188,7 +188,7 @@ export function runOnboardingJsonMode(flags: Record<string, unknown>): void {
         displayName: t.displayName,
       })),
     }, metadata);
-    return
+    
   }
 }
 

@@ -318,7 +318,7 @@ export function saveExecutionSetting(db: Database.Database, key: keyof typeof CO
 // Cleanup Policy Configuration
 // =============================================================================
 
-const VALID_CLEANUP_POLICIES: ReadonlySet<string> = new Set(['on-exit', 'persistent', 'on-error-keep'])
+const VALID_CLEANUP_POLICIES: ReadonlySet<string> = new Set(['on-error-keep', 'on-exit', 'persistent'])
 
 /**
  * Get the cleanup policy for a specific action, falling back to the default.

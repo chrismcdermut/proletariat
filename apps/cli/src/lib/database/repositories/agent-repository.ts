@@ -11,8 +11,6 @@ import { eq, and, or, isNull, sql, asc } from 'drizzle-orm'
 import {
   agents as agentsTable,
   agentWorktrees as agentWorktreesTable,
-  agentThemes as agentThemesTable,
-  agentThemeNames as agentThemeNamesTable,
   workspace as workspaceTable,
   repositories as repositoriesTable,
 } from '../drizzle-schema.js'

@@ -298,7 +298,7 @@ export default class SessionPeek extends PMOCommand {
         content: filteredContent,
         ...(sinceFlag ? { filteredSince: sinceFlag } : {}),
       }, createMetadata('session peek', flags))
-      return
+      
     } else {
       // Raw text output — pipeable and scriptable
       process.stdout.write((filteredContent || '') + '\n')
@@ -398,7 +398,7 @@ export default class SessionPeek extends PMOCommand {
           if (prevLines.length > 0) {
             const lastPrevLine = prevLines[prevLines.length - 1]
             const lastPrevIdx = currLines.lastIndexOf(lastPrevLine)
-            if (lastPrevIdx >= 0) {
+            if (lastPrevIdx !== -1) {
               newStartIndex = lastPrevIdx + 1
             }
           }

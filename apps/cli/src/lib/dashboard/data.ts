@@ -237,7 +237,6 @@ export function gatherSessionData(): DashboardSession[] {
     }
 
     for (const { sessionName } of allContainerSessions) {
-      const key = `${sessionName}`
       // Check all container session entries
       let matched = false
       for (const k of matchedContainerSessions) {
@@ -273,7 +272,7 @@ export function gatherPRData(): DashboardPR[] {
     const openPRs: PRInfo[] = listOpenPRs()
 
     // Try to get CI status
-    let ciMap: Map<number, string> = new Map()
+    const ciMap: Map<number, string> = new Map()
     try {
       const ciResult = execSync(
         'gh pr list --json number,statusCheckRollup',

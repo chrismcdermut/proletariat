@@ -131,8 +131,8 @@ function probeMedia(filePath: string): MediaProbeResult {
 /**
  * Supported media file extensions
  */
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv']);
-const AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.wma']);
+const VIDEO_EXTENSIONS = new Set(['.avi', '.flv', '.mkv', '.mov', '.mp4', '.webm', '.wmv']);
+const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav', '.wma']);
 
 /**
  * Detect if a file is video or audio based on extension

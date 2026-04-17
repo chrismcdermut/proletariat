@@ -254,5 +254,5 @@ function truncateName(name: string, max: number): string {
 // we render the row text without inner colors so the dim style applies cleanly.
 function stripColor(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1B\[[0-9;]*m/g, '')
+  return s.replace(/\u001B\[[0-9;]*m/g, '')
 }

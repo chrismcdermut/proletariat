@@ -238,7 +238,7 @@ export async function ensureTmuxServerHasKeychainAccess(): Promise<void> {
         }
       }
     }
-  } catch (_error) {
+  } catch {
     try {
       execSync(`tmux kill-session -t "${testSession}"`, { stdio: 'pipe' })
     } catch {
