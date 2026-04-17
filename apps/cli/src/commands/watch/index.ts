@@ -87,9 +87,18 @@ export default class Watch extends PromptCommand {
       this.error('Not in a workspace. Run "prlt new" first.')
     }
 
+    // PRLT-1328: Guard against recursive daemon spawn. If we are already
+    // running inside a daemon tmux session (detected by the TMUX env var and
+    // our session-name prefix), force foreground mode instead of trying to
+    // spawn yet another tmux session. Without this guard, the child process
+    // would detect the existing session as "already running" and exit
+    // immediately — the poll loop would never fire.
+    const insideDaemonSession =
+      process.env.TMUX && getDaemonStatus(workspaceInfo.path, 'watch').alive
+
     // PRLT-1321: Default behavior — spawn as a supervised tmux daemon unless
     // the caller explicitly wants --foreground or --once.
-    if (!flags.foreground && !flags.once) {
+    if (!flags.foreground && !flags.once && !insideDaemonSession) {
       return this.spawnAsDaemon(workspaceInfo.path, flags, jsonMode)
     }
 

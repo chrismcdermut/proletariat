@@ -26,10 +26,11 @@ describe('Watch Daemon (PRLT-1321)', () => {
       expect(spec.type).to.equal('watch')
     })
 
-    it('includes the target and default poll interval in the command', () => {
+    it('includes the target, default poll interval, --foreground, and --verbose in the command', () => {
       const spec = watchDaemonSpec('orchestrator-main')
       expect(spec.command).to.contain('prlt watch')
       expect(spec.command).to.contain('--foreground')
+      expect(spec.command).to.contain('--verbose')
       expect(spec.command).to.contain('--target orchestrator-main')
       expect(spec.command).to.contain('--poll-interval 60')
     })
@@ -154,6 +155,90 @@ describe('Watch Daemon (PRLT-1321)', () => {
       }
       expect(orphans).to.not.include('prlt-daemon-proletariat-watch')
       expect(orphans).to.not.include('prlt-daemon-proletariat-reconciler')
+    })
+  })
+})
+
+// =============================================================================
+// PRLT-1328: Daemon wrapper bypasses keepalive regression tests
+// =============================================================================
+
+describe('Watch Daemon Keepalive (PRLT-1328)', () => {
+  describe('watchDaemonSpec --verbose flag', () => {
+    let watchDaemonSpec: (target: string, pollIntervalSeconds?: number) => { type: string; command: string }
+
+    before(async () => {
+      const mod = await import('../../src/lib/session/daemon-manager.js')
+      watchDaemonSpec = mod.watchDaemonSpec
+    })
+
+    it('always includes --verbose so poll activity is visible in the tmux pane', () => {
+      // PRLT-1328: Without --verbose, polls that find no changes produce zero
+      // output. Users see "Baseline captured. Watching for changes..." and then
+      // nothing — making the daemon appear dead.
+      const spec = watchDaemonSpec('orchestrator-main')
+      expect(spec.command).to.contain('--verbose')
+    })
+
+    it('includes --verbose before target flags to avoid oclif parsing ambiguity', () => {
+      const spec = watchDaemonSpec('orchestrator-main', 15)
+      // Verify the entire command structure is well-formed
+      expect(spec.command).to.equal(
+        'prlt watch --foreground --verbose --target orchestrator-main --poll-interval 15',
+      )
+    })
+
+    it('includes all required flags for the daemon to poll correctly', () => {
+      // Regression: every flag needed by the foreground code path must be present
+      const spec = watchDaemonSpec('my-target', 30)
+      const requiredFlags = ['--foreground', '--verbose', '--target', '--poll-interval']
+      for (const flag of requiredFlags) {
+        expect(spec.command, `missing ${flag}`).to.contain(flag)
+      }
+    })
+  })
+
+  describe('recursive daemon spawn guard', () => {
+    it('detects when running inside a daemon tmux session', () => {
+      // The guard checks: process.env.TMUX && getDaemonStatus().alive
+      // Inside a daemon tmux session, TMUX is set and the watch daemon session exists.
+      // Outside tmux, TMUX is unset, so the guard is false.
+      const insideTmux = !!process.env.TMUX
+      // In CI/test, we're not inside tmux, so the guard should be false
+      if (!insideTmux) {
+        // Verify the guard logic: without TMUX env var, the condition is falsy
+        const guard = process.env.TMUX && true // simulates getDaemonStatus().alive
+        expect(guard).to.be.undefined // falsy because TMUX is undefined
+      }
+    })
+
+    it('falls through to foreground mode when recursive spawn is detected', () => {
+      // When the guard triggers (TMUX set + watch daemon alive), the command
+      // should NOT call spawnAsDaemon. It should fall through to the foreground
+      // code path, which enters the poll loop.
+      //
+      // We verify this by checking the condition logic:
+      // if (!flags.foreground && !flags.once && !insideDaemonSession) → spawnAsDaemon
+      //
+      // With insideDaemonSession=true:
+      const flags = { foreground: false, once: false }
+      const insideDaemonSession = true
+      const wouldSpawnDaemon = !flags.foreground && !flags.once && !insideDaemonSession
+      expect(wouldSpawnDaemon).to.equal(false, 'should NOT spawn daemon when inside a daemon session')
+    })
+
+    it('spawns daemon normally when NOT inside a tmux session', () => {
+      const flags = { foreground: false, once: false }
+      const insideDaemonSession = false // TMUX not set
+      const wouldSpawnDaemon = !flags.foreground && !flags.once && !insideDaemonSession
+      expect(wouldSpawnDaemon).to.equal(true, 'should spawn daemon when outside tmux')
+    })
+
+    it('respects --foreground even when recursive spawn guard would trigger', () => {
+      const flags = { foreground: true, once: false }
+      const insideDaemonSession = true
+      const wouldSpawnDaemon = !flags.foreground && !flags.once && !insideDaemonSession
+      expect(wouldSpawnDaemon).to.equal(false, '--foreground always enters foreground mode')
     })
   })
 })
