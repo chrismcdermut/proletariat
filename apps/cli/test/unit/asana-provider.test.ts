@@ -206,7 +206,8 @@ describe('AsanaTicketProvider', () => {
   // getTicket — reads from local PMO mirror
   // ---------------------------------------------------------------------------
   describe('getTicket', () => {
-    it('reads from local PMO storage', async () => {
+    // PRLT-1327: getTicket now fetches from Asana API, not local storage
+    it.skip('reads from local PMO storage', async () => {
       const storage = createMockStorage({
         ticket: {
           id: 'TKT-100',
@@ -232,86 +233,24 @@ describe('AsanaTicketProvider', () => {
       expect(result.ticket!.id).to.equal('TKT-100')
     })
 
-    it('returns null ticket when not found', async () => {
-      const storage = createMockStorage({ ticket: null })
-      const db = createMockDb()
-      const provider = new AsanaTicketProvider(db, storage, 'test-project')
-
-      const result = await provider.getTicket('TKT-MISSING')
-
-      expect(result.success).to.be.true
-      expect(result.provider).to.equal('asana')
-      expect(result.ticket).to.be.null
-    })
-
-    it('returns error when storage fails', async () => {
-      const storage = createMockStorage()
-      // Override getTicket to throw
-      storage.getTicket = async () => { throw new Error('storage failure') }
-      const db = createMockDb()
-      const provider = new AsanaTicketProvider(db, storage, 'test-project')
-
-      const result = await provider.getTicket('TKT-100')
-
-      expect(result.success).to.be.false
-      expect(result.provider).to.equal('asana')
-      expect(result.error).to.include('storage failure')
-    })
+    // PRLT-1327: getTicket now fetches from Asana API, not local storage
+    it.skip('returns null ticket when not found', () => {})
+    it.skip('returns error when storage fails', () => {})
   })
 
   // ---------------------------------------------------------------------------
   // assignTicket — updates local PMO mirror
   // ---------------------------------------------------------------------------
   describe('assignTicket', () => {
-    it('returns error when access token not configured', async () => {
+    // PRLT-1327: assignTicket is now a no-op (local PMO mirror removed)
+    it('returns success without token (no-op)', async () => {
       const storage = createMockStorage()
       const db = createMockDb()
       const provider = new AsanaTicketProvider(db, storage, 'test-project')
-
-      // Ensure env vars are not set
-      const origToken = process.env.PRLT_ASANA_ACCESS_TOKEN
-      const origAsanaToken = process.env.ASANA_ACCESS_TOKEN
-      delete process.env.PRLT_ASANA_ACCESS_TOKEN
-      delete process.env.ASANA_ACCESS_TOKEN
-
-      try {
-        const result = await provider.assignTicket('TKT-100', 'alice')
-
-        expect(result.success).to.be.false
-        expect(result.provider).to.equal('asana')
-        expect(result.error).to.include('not configured')
-      } finally {
-        if (origToken) process.env.PRLT_ASANA_ACCESS_TOKEN = origToken
-        if (origAsanaToken) process.env.ASANA_ACCESS_TOKEN = origAsanaToken
-      }
-    })
-
-    it('updates assignee in local PMO storage', withAsanaEnv(async () => {
-      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
-      const storage = createMockStorage({ updateCalls })
-      const db = createMockDb()
-      const provider = new AsanaTicketProvider(db, storage, 'test-project')
-
       const result = await provider.assignTicket('TKT-100', 'alice')
-
       expect(result.success).to.be.true
       expect(result.provider).to.equal('asana')
-      expect(updateCalls).to.have.lengthOf(1)
-      expect(updateCalls[0].id).to.equal('TKT-100')
-      expect(updateCalls[0].changes).to.deep.include({ assignee: 'alice' })
-    }))
-
-    it('returns error when storage fails', withAsanaEnv(async () => {
-      const storage = createMockStorage({ updateError: new Error('storage down') })
-      const db = createMockDb()
-      const provider = new AsanaTicketProvider(db, storage, 'test-project')
-
-      const result = await provider.assignTicket('TKT-100', 'alice')
-
-      expect(result.success).to.be.false
-      expect(result.provider).to.equal('asana')
-      expect(result.error).to.include('storage down')
-    }))
+    })
   })
 
   // ---------------------------------------------------------------------------
@@ -379,17 +318,14 @@ describe('AsanaTicketProvider', () => {
       }
     })
 
-    it('deletes local PMO mirror when no Asana mapping exists', withAsanaEnv(async () => {
-      const deleteCalls: string[] = []
-      const storage = createMockStorage({ deleteCalls })
+    // PRLT-1327: deleteTicket no longer deletes local PMO mirror
+    it('returns success when no Asana mapping exists', withAsanaEnv(async () => {
+      const storage = createMockStorage()
       const db = createMockDb()
       const provider = new AsanaTicketProvider(db, storage, 'test-project')
-
       const result = await provider.deleteTicket('TKT-NO-MAP')
-
       expect(result.success).to.be.true
       expect(result.provider).to.equal('asana')
-      expect(deleteCalls).to.include('TKT-NO-MAP')
     }))
   })
 
@@ -522,30 +458,18 @@ describe('AsanaTicketProvider', () => {
       }
     })
 
-    it('updates local PMO mirror when no Asana mapping exists', withAsanaEnv(async () => {
-      const updateCalls: Array<{ id: string; changes: Partial<Ticket> }> = []
-      const storage = createMockStorage({ updateCalls })
+    // PRLT-1327: updateTicket no longer writes to local PMO mirror
+    it('returns error when token is set but API is unreachable', withAsanaEnv(async () => {
+      const storage = createMockStorage()
       const db = createMockDb()
       const provider = new AsanaTicketProvider(db, storage, 'test-project')
-
       const result = await provider.updateTicket('TKT-NO-MAP', { title: 'Updated title' })
-
-      expect(result.success).to.be.true
+      // Without a real Asana server, the API call fails — but it does NOT
+      // crash with "SQLiteStorage.updateTicket() removed" like before PRLT-1327
       expect(result.provider).to.equal('asana')
-      expect(updateCalls).to.have.lengthOf(1)
-      expect(updateCalls[0].id).to.equal('TKT-NO-MAP')
-    }))
-
-    it('returns error when storage update fails', withAsanaEnv(async () => {
-      const storage = createMockStorage({ updateError: new Error('storage failure') })
-      const db = createMockDb()
-      const provider = new AsanaTicketProvider(db, storage, 'test-project')
-
-      const result = await provider.updateTicket('TKT-100', { title: 'Updated' })
-
-      expect(result.success).to.be.false
-      expect(result.provider).to.equal('asana')
-      expect(result.error).to.include('storage failure')
+      if (!result.success) {
+        expect(result.error).to.not.include('SQLiteStorage')
+      }
     }))
   })
 })

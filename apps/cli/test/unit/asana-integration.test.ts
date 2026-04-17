@@ -573,18 +573,18 @@ describe('Asana Integration', () => {
 
     it('creates a new PMO ticket when none exists', async () => {
       const createdTicket = { id: 'TKT-001' }
-      const storage = {
-        listTickets: async () => [],
+      const provider = {
+        listTickets: async () => ({ success: true, tickets: [] }),
         createTicket: async (_projectId: string, input: Record<string, unknown>) => {
           expect(input.title).to.equal('Build login page')
           expect((input.metadata as Record<string, string>).external_source).to.equal('asana')
           expect((input.metadata as Record<string, string>).external_key).to.equal('1234567890')
-          return createdTicket
+          return { success: true, ticket: createdTicket }
         },
         updateTicket: async () => { throw new Error('should not be called') },
       }
 
-      const result = await importAsanaTaskToPmo(storage, 'PROJ-001', makeEnvelope())
+      const result = await importAsanaTaskToPmo(provider, 'PROJ-001', makeEnvelope())
       expect(result.ticketId).to.equal('TKT-001')
       expect(result.created).to.equal(true)
     })
@@ -594,16 +594,16 @@ describe('Asana Integration', () => {
         id: 'TKT-002',
         metadata: { external_source: 'asana', external_key: '1234567890', external_id: '1234567890' },
       }
-      const storage = {
-        listTickets: async () => [existingTicket],
+      const provider = {
+        listTickets: async () => ({ success: true, tickets: [existingTicket] }),
         createTicket: async () => { throw new Error('should not be called') },
         updateTicket: async (ticketId: string) => {
           expect(ticketId).to.equal('TKT-002')
-          return { id: ticketId }
+          return { success: true, ticket: { id: ticketId } }
         },
       }
 
-      const result = await importAsanaTaskToPmo(storage, 'PROJ-001', makeEnvelope())
+      const result = await importAsanaTaskToPmo(provider, 'PROJ-001', makeEnvelope())
       expect(result.ticketId).to.equal('TKT-002')
       expect(result.created).to.equal(false)
     })
@@ -614,13 +614,13 @@ describe('Asana Integration', () => {
         metadata: { external_source: 'linear', external_key: '1234567890' },
       }
       const createdTicket = { id: 'TKT-005' }
-      const storage = {
-        listTickets: async () => [linearTicket],
-        createTicket: async () => createdTicket,
+      const provider = {
+        listTickets: async () => ({ success: true, tickets: [linearTicket] }),
+        createTicket: async () => ({ success: true, ticket: createdTicket }),
         updateTicket: async () => { throw new Error('should not be called') },
       }
 
-      const result = await importAsanaTaskToPmo(storage, 'PROJ-001', makeEnvelope())
+      const result = await importAsanaTaskToPmo(provider, 'PROJ-001', makeEnvelope())
       expect(result.ticketId).to.equal('TKT-005')
       expect(result.created).to.equal(true)
     })

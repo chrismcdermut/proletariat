@@ -112,8 +112,10 @@ export default class WorkAsana extends PMOCommand {
   }
 
   private async findLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket | undefined> {
-    const tickets = await this.storage.listTickets(projectId)
-    return tickets.find((ticket) => {
+    const provider = this.resolveProjectProvider(projectId, 'asana')
+    const listResult = await provider.listTickets(projectId)
+    if (!listResult.success) return undefined
+    return listResult.tickets.find((ticket) => {
       const source = ticket.metadata?.external_source
       const key = ticket.metadata?.external_key
       const id = ticket.metadata?.external_id
@@ -123,12 +125,13 @@ export default class WorkAsana extends PMOCommand {
   }
 
   private async createOrUpdateLinkedTicket(projectId: string, envelope: NormalizedIssueEnvelope): Promise<Ticket> {
+    const provider = this.resolveProjectProvider(projectId, 'asana')
     const existing = await this.findLinkedTicket(projectId, envelope)
     const description = buildAsanaTicketDescription(envelope)
     const metadata = buildAsanaMetadata(envelope)
 
     if (existing) {
-      const updated = await this.storage.updateTicket(existing.id, {
+      const result = await provider.updateTicket(existing.id, {
         title: envelope.title,
         description,
         priority: envelope.priority ?? undefined,
@@ -139,10 +142,13 @@ export default class WorkAsana extends PMOCommand {
           ...metadata,
         },
       })
-      return updated
+      if (!result.success || !result.ticket) {
+        throw new Error(result.error || 'Failed to update linked Asana ticket')
+      }
+      return result.ticket
     }
 
-    return this.storage.createTicket(projectId, {
+    const result = await provider.createTicket(projectId, {
       title: envelope.title,
       description,
       priority: envelope.priority ?? undefined,
@@ -150,6 +156,10 @@ export default class WorkAsana extends PMOCommand {
       labels: envelope.labels,
       metadata,
     })
+    if (!result.success || !result.ticket) {
+      throw new Error(result.error || 'Failed to create linked Asana ticket')
+    }
+    return result.ticket
   }
 
   async execute(): Promise<void> {

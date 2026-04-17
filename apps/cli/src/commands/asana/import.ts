@@ -117,19 +117,17 @@ export default class AsanaImport extends PMOCommand {
       return
     }
 
-    // Check which are already imported
-    const tickets = await this.storage.listTickets(projectId)
+    // Check which are already imported via the provider (PRLT-1327)
+    const provider = this.resolveProjectProvider(projectId, 'asana')
+    const listResult = await provider.listTickets(projectId)
+    const existingTickets = listResult.success ? listResult.tickets : []
+    const existingGids = new Set(existingTickets.map(t => t.metadata?.external_key || t.id))
+
     const newTasks: AsanaTask[] = []
     const alreadyImported: AsanaTask[] = []
 
     for (const task of asanaTasks) {
-      const existing = tickets.find((ticket) => {
-        const source = ticket.metadata?.external_source
-        const key = ticket.metadata?.external_key
-        const id = ticket.metadata?.external_id
-        return source === 'asana' && (key === task.gid || id === task.gid)
-      })
-      if (existing) {
+      if (existingGids.has(task.gid)) {
         alreadyImported.push(task)
       } else {
         newTasks.push(task)
@@ -212,14 +210,13 @@ export default class AsanaImport extends PMOCommand {
         const metadata = buildAsanaMetadata(envelope)
 
         // Check if already exists (shouldn't given our filter, but be safe)
-        const existingTicket = tickets.find((ticket) => {
-          const source = ticket.metadata?.external_source
+        const existingTicket = existingTickets.find((ticket) => {
           const key = ticket.metadata?.external_key
-          return source === 'asana' && key === task.gid
+          return key === task.gid
         })
 
         if (existingTicket) {
-          await this.storage.updateTicket(existingTicket.id, {
+          const updateResult = await provider.updateTicket(existingTicket.id, {
             title: envelope.title,
             description,
             priority: envelope.priority ?? undefined,
@@ -230,9 +227,10 @@ export default class AsanaImport extends PMOCommand {
               ...metadata,
             },
           })
+          if (!updateResult.success) throw new Error(updateResult.error || 'Update failed')
           updated++
         } else {
-          await this.storage.createTicket(projectId, {
+          const createResult = await provider.createTicket(projectId, {
             title: envelope.title,
             description,
             priority: envelope.priority ?? undefined,
@@ -240,6 +238,7 @@ export default class AsanaImport extends PMOCommand {
             labels: envelope.labels,
             metadata,
           })
+          if (!createResult.success) throw new Error(createResult.error || 'Create failed')
           imported++
         }
       } catch (error: unknown) {

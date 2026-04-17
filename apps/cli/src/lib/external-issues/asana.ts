@@ -310,10 +310,14 @@ export async function listAsanaTasks(
 
 /**
  * Import an Asana task into PMO as a linked ticket.
+ *
+ * Accepts a provider-shaped object (listTickets returns ProviderListResult)
+ * so callers can pass a resolved TicketProvider. Also accepts the legacy
+ * storage-shaped interface for backward-compatible test mocks.
  */
 export async function importAsanaTaskToPmo(
-  storage: {
-    listTickets(projectId: string): Promise<Array<{ id: string; metadata?: Record<string, string> }>>,
+  provider: {
+    listTickets(projectId: string): Promise<{ success: boolean; tickets: Array<{ id: string; metadata?: Record<string, string> }> }>,
     createTicket(projectId: string, input: {
       title: string
       description: string
@@ -321,7 +325,7 @@ export async function importAsanaTaskToPmo(
       category?: string
       labels: string[]
       metadata: Record<string, string>
-    }): Promise<{ id: string }>,
+    }): Promise<{ success: boolean; ticket?: { id: string } | null; error?: string }>,
     updateTicket(ticketId: string, input: {
       title: string
       description: string
@@ -329,12 +333,13 @@ export async function importAsanaTaskToPmo(
       category?: string
       labels: string[]
       metadata: Record<string, string>
-    }): Promise<{ id: string }>,
+    }): Promise<{ success: boolean; ticket?: { id: string } | null; error?: string }>,
   },
   projectId: string,
   envelope: NormalizedIssueEnvelope,
 ): Promise<{ ticketId: string; created: boolean }> {
-  const tickets = await storage.listTickets(projectId)
+  const listResult = await provider.listTickets(projectId)
+  const tickets = listResult.success ? listResult.tickets : []
   const existing = tickets.find((ticket) => {
     const source = ticket.metadata?.external_source
     const key = ticket.metadata?.external_key
@@ -347,7 +352,7 @@ export async function importAsanaTaskToPmo(
   const metadata = buildAsanaMetadata(envelope)
 
   if (existing) {
-    await storage.updateTicket(existing.id, {
+    const updateResult = await provider.updateTicket(existing.id, {
       title: envelope.title,
       description,
       priority: envelope.priority ?? undefined,
@@ -358,10 +363,11 @@ export async function importAsanaTaskToPmo(
         ...metadata,
       },
     })
+    if (!updateResult.success) throw new Error(updateResult.error || 'Failed to update ticket')
     return { ticketId: existing.id, created: false }
   }
 
-  const ticket = await storage.createTicket(projectId, {
+  const createResult = await provider.createTicket(projectId, {
     title: envelope.title,
     description,
     priority: envelope.priority ?? undefined,
@@ -369,5 +375,6 @@ export async function importAsanaTaskToPmo(
     labels: envelope.labels,
     metadata,
   })
-  return { ticketId: ticket.id, created: true }
+  if (!createResult.success || !createResult.ticket) throw new Error(createResult.error || 'Failed to create ticket')
+  return { ticketId: createResult.ticket.id, created: true }
 }
