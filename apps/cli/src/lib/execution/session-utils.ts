@@ -132,6 +132,15 @@ export function parseSessionName(sessionName: string): { ticketId: string; actio
 }
 
 /**
+ * Extract just the agent name from a session name.
+ * Convenience wrapper around parseSessionName for callers that only need the agent name.
+ */
+export function extractAgentNameFromSession(sessionName: string): string | null {
+  const parsed = parseSessionName(sessionName)
+  return parsed ? parsed.agentName : null
+}
+
+/**
  * Build expected session name from execution data.
  * Format: {ticketId}-{action}-{agentName}
  * This is the same format used by runners.ts buildSessionName()
