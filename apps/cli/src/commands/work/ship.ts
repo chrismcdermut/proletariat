@@ -295,6 +295,26 @@ export default class WorkShip extends PMOCommand {
       if (fs.existsSync(repoPath)) return repoPath;
     }
 
+    // Scan repos/ directory for git repositories when DB has no repos registered.
+    // This handles the case where agents create PRs from worktrees but the
+    // workspace repositories table is empty (PRLT-1334).
+    const reposDir = path.join(workspaceInfo.path, 'repos');
+    if (fs.existsSync(reposDir)) {
+      try {
+        const entries = fs.readdirSync(reposDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory() && !entry.name.startsWith('.')) {
+            const candidatePath = path.join(reposDir, entry.name);
+            if (fs.existsSync(path.join(candidatePath, '.git'))) {
+              return candidatePath;
+            }
+          }
+        }
+      } catch {
+        // Fall through
+      }
+    }
+
     return undefined;
   }
 }
