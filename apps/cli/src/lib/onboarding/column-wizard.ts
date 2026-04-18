@@ -24,12 +24,6 @@ import {
 } from '../providers/auto-mapper.js'
 import { TRANSITION_INTENTS, type TransitionIntent } from '../providers/state-intents.js'
 import { TransitionMapStore } from '../providers/transition-map.js'
-import {
-  outputPromptAsJson,
-  outputSuccessAsJson,
-  buildPromptConfig,
-  createMetadata,
-} from '../prompt-json.js'
 
 export type ProviderType = 'linear' | 'jira' | 'trello' | 'asana' | 'shortcut' | 'clickup' | 'github' | 'pmo'
 
@@ -71,7 +65,7 @@ export async function runColumnWizard(opts: ColumnWizardOptions): Promise<Wizard
 
   // Step 2: Handle JSON mode — auto-save and return
   if (jsonMode) {
-    return handleJsonMode(mappings, ambiguous, unmapped, provider, db, states)
+    return handleJsonMode(mappings, ambiguous, unmapped, provider, db)
   }
 
   // Step 3: Show mapping table
@@ -123,10 +117,9 @@ export async function runColumnWizard(opts: ColumnWizardOptions): Promise<Wizard
 function handleJsonMode(
   mappings: IntentMapping[],
   ambiguous: Array<{ state: BoardState; candidateIntents: Array<{ intent: string; reason: string }> }>,
-  unmapped: BoardState[],
+  _unmapped: BoardState[],
   provider: string,
   db: Database.Database,
-  allStates: BoardState[],
 ): WizardResult {
   // In JSON mode, resolve ambiguous states with first candidate
   for (const amb of ambiguous) {
