@@ -72,12 +72,24 @@ export async function runDevcontainerInTmux(
     const cmdMatch = devcontainerCmd.match(/bash -c '(.+)'$/)
     const claudeCmd = cmdMatch ? cmdMatch[1] : devcontainerCmd
 
+    // PRLT-1337: Exit code capture for devcontainer tmux sessions
+    const executionIdExport = context.executionId ? `\nexport EXECUTION_ID="${context.executionId}"` : ''
+    const exitCodeBlock = context.executionId
+      ? `EXECUTOR_EXIT_CODE=$?
+# PRLT-1337: Report exit code to agent_work table
+if command -v prlt >/dev/null 2>&1 && [ -n "$EXECUTION_ID" ]; then
+  prlt execution complete "$EXECUTION_ID" --exit-code $EXECUTOR_EXIT_CODE 2>/dev/null || true
+fi`
+      : 'EXECUTOR_EXIT_CODE=$?'
+
     const containerPostExec = context.isEphemeral
-      ? `echo ""
+      ? `${exitCodeBlock}
+echo ""
 echo "✅ Ephemeral agent work complete. Session will auto-close in 5s..."
 sleep 5
-exit 0`
-      : `echo ""
+exit $EXECUTOR_EXIT_CODE`
+      : `${exitCodeBlock}
+echo ""
 echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec bash`
 
@@ -98,7 +110,7 @@ fi
 export TERM=xterm-256color
 export PRLT_AGENT=1  # PRLT-1300: prevent concurrent npm install -g race
 export PRLT_TEST_WORKSPACE_DB="/tmp/prlt-test-workspace-$$.db"  # PRLT-1301: isolate agent test DB
-export COLORTERM=truecolor
+export COLORTERM=truecolor${executionIdExport}
 unset CI
 unset CLAUDECODE
 echo "🚀 Starting: ${sessionName}"

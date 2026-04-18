@@ -667,6 +667,9 @@ export async function spawnAgentForTicket(
     branch,
   })
 
+  // PRLT-1337: Pass execution ID to runner so tmux scripts can report exit code
+  context.executionId = execution.id
+
   // Load execution config (use passed config or load from db)
   const executionConfig = options.executionConfig || loadExecutionConfig(db)
   executionConfig.permissionMode = permissionMode
