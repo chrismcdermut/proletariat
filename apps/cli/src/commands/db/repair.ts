@@ -1,5 +1,6 @@
 import { Command, Flags } from '@oclif/core'
 import * as fs from 'node:fs'
+import * as path from 'node:path'
 import Database from 'better-sqlite3'
 import { styles } from '../../lib/styles.js'
 import {
@@ -13,10 +14,10 @@ import { runDrizzleMigrations } from '../../lib/database/migrator.js'
 import { ALL_MIGRATIONS } from '../../lib/database/migrations/index.js'
 import {
   getRegisteredHeadquarters,
-  getActiveWorkspace,
 } from '../../lib/machine-config.js'
+import { findHQRoot } from '../../lib/workspace.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
-import { shouldOutputJson } from '../../lib/prompt-json.js'
+import { shouldOutputJson, type JsonFlags } from '../../lib/prompt-json.js'
 
 export default class DbRepair extends Command {
   static description = 'Check database integrity and repair corruption'
@@ -25,6 +26,7 @@ export default class DbRepair extends Command {
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --check-only',
     '<%= config.bin %> <%= command.id %> --workspace /path/to/hq',
+    '<%= config.bin %> <%= command.id %> --all',
   ]
 
   static flags = {
@@ -35,18 +37,74 @@ export default class DbRepair extends Command {
     }),
     workspace: Flags.string({
       char: 'w',
-      description: 'Path to workspace (defaults to active workspace)',
+      description: 'Path to workspace (defaults to current HQ)',
+    }),
+    all: Flags.boolean({
+      description: 'Scan all registered HQs on the machine',
+      default: false,
     }),
   }
 
   async run(): Promise<void> {
     const { flags } = await this.parse(DbRepair)
 
-    const workspacePath = this.resolveWorkspacePath(flags.workspace)
-    if (!workspacePath) {
-      this.error('No workspace found. Run "prlt new" first or specify --workspace.')
+    if (flags.all) {
+      await this.repairAllHQs(flags)
+      return
     }
 
+    const workspacePath = this.resolveWorkspacePath(flags.workspace)
+    if (!workspacePath) {
+      this.error(
+        'Not in an HQ directory. Run from inside an HQ, specify --workspace /path/to/hq, or use --all to scan all HQs.'
+      )
+    }
+
+    const hqName = path.basename(workspacePath)
+    await this.repairSingleHQ(workspacePath, hqName, flags)
+  }
+
+  private async repairAllHQs(flags: { 'check-only': boolean } & JsonFlags): Promise<void> {
+    const hqs = getRegisteredHeadquarters()
+
+    if (hqs.length === 0) {
+      this.error('No registered HQs found. Run "prlt new" first.')
+    }
+
+    const validHQs = hqs.filter(hq => fs.existsSync(hq.path))
+    if (validHQs.length === 0) {
+      this.error('No valid HQs found on disk. All registered HQ paths are missing.')
+    }
+
+    if (shouldOutputJson(flags)) {
+      const results: Record<string, unknown>[] = []
+      for (const hq of validHQs) {
+        const dbPath = getDatabasePath(hq.path)
+        if (!fs.existsSync(dbPath)) {
+          results.push({ hq: hq.name, hqPath: hq.path, status: 'no_database' })
+          continue
+        }
+        const result = this.runCheck(dbPath, flags['check-only'])
+        results.push({ hq: hq.name, hqPath: hq.path, dbPath, ...result })
+      }
+      this.log(JSON.stringify(results, null, 2))
+      return
+    }
+
+    this.log(`\n${styles.header('Database Repair — All HQs')}`)
+    this.log('\u2500'.repeat(50))
+    this.log(styles.muted(`Scanning ${validHQs.length} registered HQ(s)\n`))
+
+    for (const hq of validHQs) {
+      await this.repairSingleHQ(hq.path, hq.name, flags)
+    }
+  }
+
+  private async repairSingleHQ(
+    workspacePath: string,
+    hqName: string,
+    flags: { 'check-only': boolean } & JsonFlags,
+  ): Promise<void> {
     const dbPath = getDatabasePath(workspacePath)
     if (!fs.existsSync(dbPath)) {
       this.error(`Database not found: ${dbPath}`)
@@ -57,6 +115,7 @@ export default class DbRepair extends Command {
       const result = this.runCheck(dbPath, flags['check-only'])
       this.log(JSON.stringify({
         ...result,
+        hq: hqName,
         dbPath,
         workspace: workspacePath,
       }, null, 2))
@@ -65,6 +124,7 @@ export default class DbRepair extends Command {
 
     this.log(`\n${styles.header('Database Repair')}`)
     this.log('\u2500'.repeat(50))
+    this.log(styles.muted(`HQ: ${hqName} (${workspacePath})`))
     this.log(styles.muted(`Database: ${dbPath}`))
 
     // List available backups from backups/ directory
@@ -207,23 +267,19 @@ export default class DbRepair extends Command {
     this.log('')
   }
 
+  /**
+   * Resolve workspace path scoped to current HQ only (PRLT-1340).
+   * Does NOT fall back to other registered HQs — that was the cross-HQ bleed bug.
+   */
   private resolveWorkspacePath(explicit?: string): string | null {
     if (explicit) {
       return fs.existsSync(explicit) ? explicit : null
     }
 
-    // Try active workspace first (returns a path string or null)
-    const active = getActiveWorkspace()
-    if (active && fs.existsSync(active)) {
-      return active
-    }
-
-    // Fall back to first registered HQ
-    const hqs = getRegisteredHeadquarters()
-    for (const hq of hqs) {
-      if (fs.existsSync(hq.path)) {
-        return hq.path
-      }
+    // Use findHQRoot which walks up from cwd to find the enclosing HQ
+    const hqPath = findHQRoot()
+    if (hqPath && fs.existsSync(hqPath)) {
+      return hqPath
     }
 
     return null
