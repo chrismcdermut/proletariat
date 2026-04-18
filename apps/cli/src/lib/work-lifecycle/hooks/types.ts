@@ -67,8 +67,9 @@ export const HOOKABLE_EVENTS: HookableEvent[] = [
  * - shell: Run a shell command (with event data as env vars)
  * - webhook: POST event data to a URL
  * - log: Write a message to stdout (useful for notifications/debugging)
+ * - action: Call a built-in action handler directly (no shell, in-process)
  */
-export type HookActionType = 'shell' | 'webhook' | 'log'
+export type HookActionType = 'shell' | 'webhook' | 'log' | 'action'
 
 /**
  * Automation mode for a hook — determines the decision tier.
@@ -156,13 +157,25 @@ export interface WorkHookRow {
 }
 
 /**
+ * Result shape for built-in action handlers.
+ */
+export interface HookActionHandlerResult {
+  action: string
+  success: boolean
+  error?: string
+  durationMs: number
+  skipped?: boolean
+}
+
+/**
  * Handler function for built-in actions injected into HookManager.
  * Receives event context and optional per-hook config, returns an execution result.
+ * Handlers may be sync or async — callers always await the result.
  */
 export type HookActionHandler = (
   ctx: Record<string, unknown>,
   config?: Record<string, unknown>,
-) => { action: string; success: boolean; error?: string; durationMs: number; skipped?: boolean }
+) => HookActionHandlerResult | Promise<HookActionHandlerResult>
 
 /**
  * Result of executing a single hook.

@@ -163,6 +163,7 @@ export default class WorkHooksAdd extends PromptCommand {
           shell: 'Shell command to run:',
           webhook: 'Webhook URL:',
           log: 'Log message template (use {{workItemId}}, {{event}}, etc.):',
+          action: 'Built-in action name (e.g., move-ticket, merge-pr):',
         }
         const message = prompts[actionType!]
 

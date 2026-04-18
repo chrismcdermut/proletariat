@@ -177,7 +177,7 @@ export class HookManager {
     if (index < 0 || index >= this._pendingConfirmations.length) return null
 
     const pending = this._pendingConfirmations.splice(index, 1)[0]
-    const result = this.executeActionByName(pending.action, pending.ctx, pending.config)
+    const result = await this.executeActionByName(pending.action, pending.ctx, pending.config)
 
     this.log(`[hooks] Approved: ${pending.hookName} → ${pending.action} (${result.success ? 'success' : 'failed'})`)
     return result
@@ -212,7 +212,7 @@ export class HookManager {
     if (index < 0 || index >= this._pendingLlmDecisions.length) return null
 
     const pending = this._pendingLlmDecisions.splice(index, 1)[0]
-    const result = this.executeActionByName(pending.action, pending.ctx, pending.config)
+    const result = await this.executeActionByName(pending.action, pending.ctx, pending.config)
 
     this.log(`[hooks] LLM approved: ${pending.hookName} → ${pending.action} (${result.success ? 'success' : 'failed'})`)
     return { ...result, tier: 'llm' }
@@ -296,7 +296,7 @@ export class HookManager {
     if (index < 0 || index >= this._pendingHumanEscalations.length) return null
 
     const pending = this._pendingHumanEscalations.splice(index, 1)[0]
-    const result = this.executeActionByName(pending.action, pending.ctx, pending.config)
+    const result = await this.executeActionByName(pending.action, pending.ctx, pending.config)
 
     this.log(`[hooks] Human approved: ${pending.hookName} → ${pending.action} (${result.success ? 'success' : 'failed'})`)
     return { ...result, tier: 'human' }
@@ -341,6 +341,7 @@ export class HookManager {
   /**
    * Resolve the action name from a hook config and a set of known action handlers.
    *
+   * - If action_type is 'action', the action_value IS the action name
    * - If the action_value contains `--action <name>`, extracts the name
    * - If the action_value is a known built-in action, uses it directly
    * - Otherwise uses the raw action_value (shell command)
@@ -348,6 +349,9 @@ export class HookManager {
    * Public so it can be tested in isolation.
    */
   static resolveActionName(hook: WorkHookConfig, knownActions: Record<string, unknown> = {}): string {
+    // action-type hooks: the value IS the action name (no parsing needed)
+    if (hook.actionType === 'action') return hook.actionValue
+
     // If the action_value contains --action, extract the action name
     const actionMatch = hook.actionValue.match(/--action\s+(\S+)/)
     if (actionMatch) return actionMatch[1]
@@ -441,7 +445,7 @@ export class HookManager {
                   continue
                 }
                 // Human approved — fall through to execution
-                const result = this.executeHookAction(hook, eventName, eventData, ctx)
+                const result = await this.executeHookAction(hook, eventName, eventData, ctx)
                 results.push({ ...result, escalatedToHuman: true, tier: 'human' })
                 this.log(`[hooks] ${hook.name} → ${actionName}: ${result.success ? 'success' : `failed: ${result.error}`} (${result.durationMs}ms) [escalated to human]`)
                 continue
@@ -601,7 +605,7 @@ export class HookManager {
         }
 
         // --- auto / notify / confirmed / llm-approved / human-approved: execute ---
-        const result = this.executeHookAction(hook, eventName, eventData, ctx)
+        const result = await this.executeHookAction(hook, eventName, eventData, ctx)
         results.push(result)
 
         this.log(
@@ -622,18 +626,19 @@ export class HookManager {
 
   /**
    * Execute a hook action — either via a built-in handler or the standard executor.
+   * Handlers may be sync or async (service-backed handlers are async).
    */
-  private executeHookAction(
+  private async executeHookAction(
     hook: WorkHookConfig,
     eventName: string,
     eventData: Record<string, unknown>,
     ctx: Record<string, unknown>,
-  ): HookExecutionResult {
+  ): Promise<HookExecutionResult> {
     const actionName = HookManager.resolveActionName(hook, this.actionHandlers)
 
     // Try built-in action handler first
     if (this.actionHandlers[actionName]) {
-      const handlerResult = this.actionHandlers[actionName](ctx, hook.config ?? undefined)
+      const handlerResult = await this.actionHandlers[actionName](ctx, hook.config ?? undefined)
       return {
         hookId: hook.id,
         hookName: hook.name,
@@ -655,15 +660,16 @@ export class HookManager {
 
   /**
    * Execute an action by name (used for approved confirmations).
+   * Handlers may be sync or async (service-backed handlers are async).
    */
-  private executeActionByName(
+  private async executeActionByName(
     actionName: string,
     ctx: Record<string, unknown>,
     config?: Record<string, unknown>,
-  ): HookExecutionResult {
+  ): Promise<HookExecutionResult> {
     // Try built-in action handler first
     if (this.actionHandlers[actionName]) {
-      const handlerResult = this.actionHandlers[actionName](ctx, config)
+      const handlerResult = await this.actionHandlers[actionName](ctx, config)
       return {
         hookId: '',
         hookName: '',

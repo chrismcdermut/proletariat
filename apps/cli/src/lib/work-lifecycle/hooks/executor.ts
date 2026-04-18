@@ -1,8 +1,14 @@
 /**
  * Hook Executor
  *
- * Executes hook actions (shell commands, webhooks, log messages) when
- * work lifecycle events fire. Each action type has its own execution logic.
+ * Executes hook actions (shell commands, webhooks, log messages, built-in actions)
+ * when work lifecycle events fire. Each action type has its own execution logic.
+ *
+ * Action types:
+ * - shell: Run a shell command with event data as PRLT_HOOK_* env vars
+ * - webhook: POST event data as JSON to a URL
+ * - log: Print interpolated message to stdout
+ * - action: Call a built-in action handler directly (in-process, no shell)
  *
  * Shell commands receive event data as environment variables prefixed with
  * PRLT_HOOK_. A PRLT_HOOK_JSON variable carries the full payload as valid
@@ -135,6 +141,20 @@ export function executeHook(
         const message = interpolate(hook.actionValue, eventName, eventData)
         console.log(`[hook:${hook.name}] ${message}`)
         break
+      }
+
+      case 'action': {
+        // action-type hooks are handled by the manager's action handler registry,
+        // not by the executor. If we reach here, it means no action handler was
+        // registered for this action — return a clear error.
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: hook.actionValue,
+          success: false,
+          error: `No action handler registered for built-in action: ${hook.actionValue}`,
+          durationMs: Date.now() - start,
+        }
       }
     }
 

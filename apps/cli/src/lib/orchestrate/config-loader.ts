@@ -18,8 +18,11 @@ import type {
   HookMode,
   PresetName,
 } from './types.js'
-import { HOOK_MODES } from './types.js'
+import { HOOK_MODES, BUILTIN_ACTIONS } from './types.js'
 import { getPreset } from './presets.js'
+
+/** Set of built-in action names for quick lookup. */
+const BUILTIN_ACTION_SET = new Set<string>(BUILTIN_ACTIONS)
 
 // =============================================================================
 // YAML File Loading
@@ -83,11 +86,14 @@ export function syncHooksFromYaml(db: Database.Database, hooksYaml: HooksYaml): 
 
       const hookName = `yaml:${eventName}:${entry.action}:${i}`
 
+      // Use 'action' type for known built-in actions, 'shell' for custom commands
+      const isBuiltinAction = BUILTIN_ACTION_SET.has(entry.action)
+
       try {
         const hook = storage.create({
           name: hookName,
           event: (eventName as HookableEvent) || 'work:status_changed',
-          actionType: 'shell',
+          actionType: isBuiltinAction ? 'action' : 'shell',
           actionValue: entry.action,
           description: `From hooks.yml: ${eventName} → ${entry.action} (${mode})`,
         })
@@ -134,8 +140,8 @@ export function applyPreset(db: Database.Database, presetName: PresetName): numb
       const created = storage.create({
         name: hookName,
         event: mapOrchestrateToHookable(hook.event),
-        actionType: 'shell',
-        actionValue: `prlt hook fire ${hook.event} --action ${hook.action}`,
+        actionType: 'action',
+        actionValue: hook.action,
         description: `Preset ${presetName}: ${hook.event} → ${hook.action} (${hook.mode})`,
       })
 

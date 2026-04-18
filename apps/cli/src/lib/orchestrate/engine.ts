@@ -16,6 +16,7 @@ import type Database from 'better-sqlite3'
 import { HookManager } from '../work-lifecycle/hooks/manager.js'
 import type { HookExecutionResult, HookActionHandler, LlmDecision } from '../work-lifecycle/hooks/types.js'
 import { ACTION_HANDLERS } from './actions.js'
+import { createServiceActionHandlers } from './service-actions.js'
 import {
   NotificationManager,
   initNotificationManager,
@@ -75,6 +76,16 @@ export class OrchestrateEngine {
         }
       : undefined
 
+    // Service-backed handlers override shell-based ACTION_HANDLERS for actions
+    // where a direct service/provider call exists (e.g., move-ticket).
+    // Shell-based handlers remain as fallback for actions that inherently need
+    // child processes (spawn-agent, cleanup-container, etc.).
+    const serviceHandlers = createServiceActionHandlers(options.db)
+    const allHandlers: Record<string, HookActionHandler> = {
+      ...(ACTION_HANDLERS as Record<string, HookActionHandler>),
+      ...(serviceHandlers as Record<string, HookActionHandler>),
+    }
+
     this.manager = new HookManager({
       db: options.db,
       log: options.log,
@@ -83,7 +94,7 @@ export class OrchestrateEngine {
       onLlmDecision: options.onLlmDecision,
       onHumanEscalation: options.onHumanEscalation,
       llmTimeoutMs: options.llmTimeoutMs,
-      actionHandlers: ACTION_HANDLERS as Record<string, HookActionHandler>,
+      actionHandlers: allHandlers,
     })
 
     // Initialize the notification manager so it subscribes to events

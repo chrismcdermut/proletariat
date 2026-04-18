@@ -30,6 +30,7 @@ import { notificationSystem } from './0021_notification_system.js'
 import { hookModeTiers } from './0022_hook_mode_tiers.js'
 import { intentBasedActions } from './0023_intent_based_actions.js'
 import { dropDeadPmoTables } from './0024_drop_dead_pmo_tables.js'
+import { hookActionType } from './0025_hook_action_type.js'
 
 /**
  * Ordered list of all migrations.
@@ -60,4 +61,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   hookModeTiers,
   intentBasedActions,
   dropDeadPmoTables,
+  hookActionType,
 ]
