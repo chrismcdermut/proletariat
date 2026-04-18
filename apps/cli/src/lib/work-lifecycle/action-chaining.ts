@@ -22,6 +22,7 @@ import { PMO_TABLES } from '../pmo/schema.js'
 import type { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { ExecutionStorage } from '../execution/storage.js'
 import { trackEvent } from '../telemetry/analytics.js'
+import { validateActionState } from './action-guardrails.js'
 
 // =============================================================================
 // Constants
@@ -39,6 +40,9 @@ interface ActionRow {
   name: string
   prompt: string
   end_prompt: string | null
+  from_intent: string | null
+  to_intent: string | null
+  valid_from: string | null
   executor: string | null
   environment: string | null
   permission_mode: string | null
@@ -143,6 +147,34 @@ export class ActionChainingHandler {
     if (!action) {
       this.log(`[action-chain] Action ${actionId} not found. Skipping chain for ${ticketId}.`)
       return
+    }
+
+    // PRLT-1317: Validate action guardrails — check valid_from against ticket's current state
+    let validFrom: string[] | undefined
+    if (action.valid_from) {
+      try { validFrom = JSON.parse(action.valid_from) } catch { /* ignore */ }
+    }
+    if (!validFrom?.length && action.from_intent) {
+      validFrom = [action.from_intent]
+    }
+    if (validFrom?.length) {
+      // toState in the event IS the ticket's current state (it just moved there)
+      const currentIntent = toState
+      if (currentIntent && !validFrom.includes(currentIntent)) {
+        this.log(
+          `[action-chain] Action "${action.name}" blocked: valid_from=[${validFrom.join(',')}] ` +
+          `but ticket is in "${currentIntent}". Skipping.`
+        )
+        trackEvent('action_chain_blocked', null, {
+          ticket_id: ticketId,
+          action_id: actionId,
+          rule_id: ruleId,
+          reason: 'state_mismatch',
+          valid_from: validFrom.join(','),
+          current_state: currentIntent,
+        })
+        return
+      }
     }
 
     // Increment chain depth before spawning

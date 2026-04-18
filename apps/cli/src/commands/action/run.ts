@@ -1,4 +1,4 @@
-import { Args } from '@oclif/core'
+import { Args, Flags } from '@oclif/core'
 import { RuntimeCommand, runtimeBaseFlags } from '../../lib/runtime-command.js'
 import { styles } from '../../lib/styles.js'
 import {
@@ -20,6 +20,11 @@ export default class ActionRun extends RuntimeCommand {
 
   static flags = {
     ...runtimeBaseFlags,
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Bypass state guardrails (run action regardless of ticket state)',
+      default: false,
+    }),
   }
 
   static args = {
@@ -58,7 +63,9 @@ export default class ActionRun extends RuntimeCommand {
 
       this.log(styles.muted(`Running action "${action.name}" on ${args.ticket}...`))
 
-      await this.config.runCommand('work:start', [args.ticket])
+      const workStartArgs = [args.ticket]
+      if (flags.force) workStartArgs.push('--force')
+      await this.config.runCommand('work:start', workStartArgs)
     } finally {
       await pmoContext.storage.close()
     }

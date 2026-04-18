@@ -32,6 +32,11 @@ export default class WorkImplement extends PMOCommand {
       char: 'M',
       description: 'Additional instructions for the agent',
     }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Bypass action state guardrails',
+      default: false,
+    }),
     json: Flags.boolean({
       char: 'm',
       aliases: ['machine'],
@@ -104,6 +109,9 @@ export default class WorkImplement extends PMOCommand {
       }
       if (flags.message) {
         workStartArgs.push('--message', flags.message)
+      }
+      if (flags.force) {
+        workStartArgs.push('--force')
       }
       if (jsonMode) {
         workStartArgs.push('--json')

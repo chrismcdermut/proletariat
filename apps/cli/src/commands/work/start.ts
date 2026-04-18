@@ -17,6 +17,7 @@ import {
 } from '../../lib/prompt-json.js'
 import { FlagResolver } from '../../lib/flags/index.js'
 import { findColumnByName, resolveReviewGate } from '../../lib/work-lifecycle/settings.js'
+import { validateActionState } from '../../lib/work-lifecycle/action-guardrails.js'
 import { moveTicketByIntent } from '../../lib/work-lifecycle/transition.js'
 import type { TransitionIntent } from '../../lib/providers/state-intents.js'
 import { getTicketExternalMetadata, resolveExternalTicketId } from '../../lib/external-issues/utils.js'
@@ -360,7 +361,7 @@ export default class WorkStart extends PMOCommand {
     }),
     force: Flags.boolean({
       char: 'f',
-      description: 'Start even if work already in progress',
+      description: 'Bypass blockers and action state guardrails',
       default: false,
     }),
     'vm-host': Flags.string({
@@ -1510,6 +1511,20 @@ export default class WorkStart extends PMOCommand {
         if (!selectedAction) {
           db.close()
           return handleError('ACTION_NOT_FOUND', `Action not found: ${actionId}`)
+        }
+      }
+
+      // PRLT-1317: Validate action is allowed from ticket's current state
+      if (selectedAction) {
+        const guardrailResult = validateActionState(
+          selectedAction,
+          ticket.statusName,
+          ticket.statusCategory,
+          !!flags.force,
+        )
+        if (!guardrailResult.allowed) {
+          db.close()
+          return handleError('STATE_MISMATCH', guardrailResult.reason!)
         }
       }
 

@@ -28,6 +28,11 @@ export default class WorkReview extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Bypass action state guardrails',
+      default: false,
+    }),
     json: Flags.boolean({
       char: 'm',
       aliases: ['machine'],
@@ -97,6 +102,9 @@ export default class WorkReview extends PMOCommand {
       const workStartArgs = [ticketId]
       if (projectId) {
         workStartArgs.push('--project', projectId)
+      }
+      if (flags.force) {
+        workStartArgs.push('--force')
       }
       if (jsonMode) {
         workStartArgs.push('--json')
