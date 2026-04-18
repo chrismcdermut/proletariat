@@ -615,13 +615,72 @@ jobs:
               ;;
           esac
 
+  # CLI smoke test: exercises real prlt commands (init, ticket list,
+  # work start --help, work ship --help, db repair) to catch crashes.
+  # Runs the built CLI binary end-to-end — any unhandled exception = failure.
+  cli-smoke:
+    needs: [detect-changes, build]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.run_tests == 'true' &&
+      needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node-version: ['22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "store-path=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.store-path }}
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Restore better-sqlite3 native binding cache
+        id: sqlite-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: apps/cli/node_modules/.pnpm/**/better-sqlite3/build
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-better-sqlite3-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Rebuild better-sqlite3 native binding (cache miss)
+        if: steps.sqlite-cache.outputs.cache-hit != 'true'
+        run: npm rebuild better-sqlite3 || npm rebuild better-sqlite3
+        working-directory: apps/cli
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output-node-${{ matrix.node-version }}
+          path: apps/cli/dist/
+
+      - name: Run CLI smoke tests
+        run: bash scripts/ci-smoke-test.sh
+
   # Single required status check for branch protection.
   # Always runs and reports success only when all test jobs succeeded
   # or were appropriately skipped by change detection.
   ci-status:
     name: CI Status
     if: always()
-    needs: [detect-changes, lint, build, unit-tests, e2e-tests]
+    needs: [detect-changes, lint, build, unit-tests, e2e-tests, cli-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: CI Summary
@@ -633,6 +692,7 @@ jobs:
           BUILD="${{ needs.build.result }}"
           UNIT="${{ needs.unit-tests.result }}"
           E2E="${{ needs.e2e-tests.result }}"
+          SMOKE="${{ needs.cli-smoke.result }}"
 
           echo "## CI Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -647,6 +707,7 @@ jobs:
           echo "| build | $BUILD |" >> "$GITHUB_STEP_SUMMARY"
           echo "| unit-tests | $UNIT |" >> "$GITHUB_STEP_SUMMARY"
           echo "| e2e-tests (all shards) | $E2E |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| cli-smoke | $SMOKE |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**E2E shards:** ${{ needs.detect-changes.outputs.e2e_shards }}" >> "$GITHUB_STEP_SUMMARY"
 
@@ -661,6 +722,7 @@ jobs:
           echo "build: $BUILD"
           echo "unit-tests: $UNIT"
           echo "e2e-tests: $E2E"
+          echo "cli-smoke: $SMOKE"
 
       - name: Verify no failures
         run: |
@@ -683,6 +745,10 @@ jobs:
           fi
           if [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then
             echo "FAIL: e2e-tests failed"
+            exit 1
+          fi
+          if [[ "${{ needs.cli-smoke.result }}" == "failure" ]]; then
+            echo "FAIL: cli-smoke failed"
             exit 1
           fi
 
