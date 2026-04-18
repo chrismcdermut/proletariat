@@ -8,23 +8,28 @@ import { styles } from '../../lib/styles.js';
 import {
   shouldOutputJson,
   outputErrorAsJson,
+  outputSuccessAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js';
 
 export default class TicketDelete extends PMOCommand {
   static description = 'Delete ticket(s) permanently';
 
+  static strict = false; // Allow variadic ticket ID args
+
   static examples = [
     '<%= config.bin %> <%= command.id %> TICK-001',
+    '<%= config.bin %> <%= command.id %> TICK-001 TICK-002 TICK-003  # Delete multiple tickets',
     '<%= config.bin %> <%= command.id %> TICK-001 --force',
     '<%= config.bin %> <%= command.id %>  # Interactive mode',
     '<%= config.bin %> <%= command.id %> --bulk',
+    '<%= config.bin %> <%= command.id %> --bulk --force --status Done  # Non-interactive bulk delete by status',
     '<%= config.bin %> <%= command.id %> --json  # Output choices as JSON',
   ];
 
   static args = {
     ticketId: Args.string({
-      description: 'Ticket ID to delete - prompts with dropdown if not provided',
+      description: 'Ticket ID(s) to delete — pass multiple IDs to delete several tickets. Prompts with dropdown if not provided.',
       required: false,
     }),
   };
@@ -41,10 +46,14 @@ export default class TicketDelete extends PMOCommand {
       description: 'Enable bulk mode to delete multiple tickets',
       default: false,
     }),
+    status: Flags.string({
+      char: 's',
+      description: 'Filter tickets by status name (for use with --bulk --force)',
+    }),
   };
 
   async execute(): Promise<void> {
-    const { args, flags } = await this.parse(TicketDelete);
+    const { args, argv, flags } = await this.parse(TicketDelete);
     const projectId = (flags as { project?: string }).project;
 
     // Check if JSON output mode is active
@@ -59,20 +68,44 @@ export default class TicketDelete extends PMOCommand {
       this.error(message);
     };
 
+    // Collect all ticket IDs from variadic args
+    const ticketIds = argv as string[];
+
     // Get all tickets from provider — no local PMO fallback
     const deleteProvider = this.resolveProjectProvider(projectId || '');
     const deleteListResult = await deleteProvider.listTickets(projectId);
     if (!deleteListResult.success) {
       return handleError('LIST_FAILED', deleteListResult.error || 'Failed to list tickets.');
     }
-    const allTickets = deleteListResult.tickets;
+    let allTickets = deleteListResult.tickets;
 
     if (allTickets.length === 0) {
       return handleError('NO_TICKETS', 'No tickets found.');
     }
 
+    // Apply --status filter if provided
+    if (flags.status) {
+      const statusLower = flags.status.toLowerCase();
+      allTickets = allTickets.filter((t) => (t.statusName ?? '').toLowerCase() === statusLower);
+      if (allTickets.length === 0) {
+        return handleError('NO_MATCHING_TICKETS', `No tickets found with status "${flags.status}".`);
+      }
+    }
+
+    // Multiple ticket IDs provided — delete each one
+    if (ticketIds.length > 1) {
+      await this.executeMultiple(ticketIds, projectId || '', flags.force, jsonMode, flags);
+      return;
+    }
+
     // Bulk mode
     if (flags.bulk) {
+      // When --force + --status (or just --force), skip interactive selection
+      if (flags.force && (flags.status || ticketIds.length === 0)) {
+        const ticketsToDelete = flags.status ? allTickets : allTickets;
+        await this.executeDirectBulk(ticketsToDelete, jsonMode, flags);
+        return;
+      }
       await this.executeBulk(allTickets, flags.force, flags);
       return;
     }
@@ -157,8 +190,143 @@ export default class TicketDelete extends PMOCommand {
       return;
     }
 
-    this.log(styles.success(`\n✅ Ticket ${styles.emphasis(ticketId)} deleted`));
+    this.log(styles.success(`\nTicket ${styles.emphasis(ticketId)} deleted`));
     this.log(styles.muted(`   Removed from ${result.provider === 'pmo' ? 'database and board' : `${result.provider} and local mirror`}`));
+  }
+
+  /**
+   * Delete multiple tickets by explicit IDs (non-interactive).
+   */
+  private async executeMultiple(
+    ticketIds: string[],
+    projectId: string,
+    force: boolean,
+    jsonMode: boolean,
+    flags: Record<string, unknown>
+  ): Promise<void> {
+    if (!force) {
+      this.log(styles.warning(`\nThis will PERMANENTLY DELETE ${ticketIds.length} ticket(s):`));
+      for (const id of ticketIds) {
+        this.log(styles.primary(`  ${id}`));
+      }
+      this.log('');
+
+      const jsonModeConfig = jsonMode ? { flags, commandName: 'ticket delete' } : null;
+      const { confirmed } = await this.prompt<{ confirmed: boolean }>([{
+        type: 'list',
+        name: 'confirmed',
+        message: 'Are you sure? This cannot be undone.',
+        choices: [
+          { name: 'No, cancel', value: false, command: '' },
+          { name: 'Yes, DELETE tickets', value: true, command: `prlt ticket delete ${ticketIds.join(' ')} --force --json` },
+        ],
+        default: 0,
+      }], jsonModeConfig);
+
+      if (!confirmed) {
+        this.log(styles.muted('Deletion cancelled.'));
+        return;
+      }
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+    for (const ticketId of ticketIds) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const provider = await this.resolveTicketProvider(ticketId, projectId);
+        // eslint-disable-next-line no-await-in-loop
+        const result = await provider.deleteTicket(ticketId);
+        if (result.success) {
+          if (!jsonMode) this.log(styles.success(`Deleted ${ticketId} (via ${result.provider})`));
+          results.push({ id: ticketId, success: true });
+          successCount++;
+        } else {
+          if (!jsonMode) this.log(styles.error(`Failed to delete ${ticketId}: ${result.error}`));
+          results.push({ id: ticketId, success: false, error: result.error });
+          failCount++;
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (!jsonMode) this.log(styles.error(`Failed to delete ${ticketId}: ${msg}`));
+        results.push({ id: ticketId, success: false, error: msg });
+        failCount++;
+      }
+    }
+
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    if (jsonMode) {
+      this.log(JSON.stringify({
+        success: failCount === 0,
+        deleted: successCount,
+        failed: failCount,
+        results,
+      }, null, 2));
+      return;
+    }
+
+    this.log('');
+    if (successCount > 0) this.log(styles.success(`Deleted ${successCount} ticket(s)`));
+    if (failCount > 0) this.log(styles.error(`Failed to delete ${failCount} ticket(s)`));
+  }
+
+  /**
+   * Bulk delete filtered tickets without interactive selection (--bulk --force).
+   */
+  private async executeDirectBulk(
+    tickets: Awaited<ReturnType<typeof this.storage.listTickets>>,
+    jsonMode: boolean,
+    flags: Record<string, unknown>
+  ): Promise<void> {
+    const ticketIds = tickets.map((t) => t.id);
+    const projectId = (flags as { project?: string }).project || '';
+
+    let successCount = 0;
+    let failCount = 0;
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+
+    for (const ticketId of ticketIds) {
+      try {
+        const ticket = tickets.find((t) => t.id === ticketId);
+        const ticketProjectId = ticket?.projectId || projectId;
+        // eslint-disable-next-line no-await-in-loop
+        const provider = await this.resolveTicketProvider(ticketId, ticketProjectId);
+        // eslint-disable-next-line no-await-in-loop
+        const result = await provider.deleteTicket(ticketId);
+        if (result.success) {
+          if (!jsonMode) this.log(styles.success(`Deleted ${ticketId} (via ${result.provider})`));
+          results.push({ id: ticketId, success: true });
+          successCount++;
+        } else {
+          if (!jsonMode) this.log(styles.error(`Failed to delete ${ticketId}: ${result.error}`));
+          results.push({ id: ticketId, success: false, error: result.error });
+          failCount++;
+        }
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (!jsonMode) this.log(styles.error(`Failed to delete ${ticketId}: ${msg}`));
+        results.push({ id: ticketId, success: false, error: msg });
+        failCount++;
+      }
+    }
+
+    await autoExportToBoard(this.pmoPath, this.storage, (msg) => this.log(styles.muted(msg)));
+
+    if (jsonMode) {
+      outputSuccessAsJson({
+        deleted: successCount,
+        failed: failCount,
+        results,
+      }, createMetadata('ticket delete', flags));
+      return;
+    }
+
+    this.log('');
+    if (successCount > 0) this.log(styles.success(`Deleted ${successCount} ticket(s)`));
+    if (failCount > 0) this.log(styles.error(`Failed to delete ${failCount} ticket(s)`));
   }
 
   private async executeBulk(
@@ -168,7 +336,7 @@ export default class TicketDelete extends PMOCommand {
   ): Promise<void> {
     const jsonMode = flags ? shouldOutputJson(flags) : false;
     const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'ticket delete' } : null;
-    this.log(styles.emphasis('🗑️  Delete Multiple Tickets\n'));
+    this.log(styles.emphasis('Delete Multiple Tickets\n'));
 
     // Select tickets to delete
     const { selectedTickets } = await this.prompt<{ selectedTickets: string[] }>([{
@@ -191,7 +359,7 @@ export default class TicketDelete extends PMOCommand {
       this.log(styles.warning('\nThis will PERMANENTLY DELETE:'));
       for (const ticketId of selectedTickets) {
         const ticket = allTickets.find(t => t.id === ticketId);
-        this.log(styles.primary(`  • ${ticketId}: ${ticket?.title}`));
+        this.log(styles.primary(`  ${ticketId}: ${ticket?.title}`));
       }
       this.log('');
 
