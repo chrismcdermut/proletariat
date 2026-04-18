@@ -287,10 +287,10 @@ export function interpolateTemplate(template: string, data: Record<string, unkno
         ? value.join(', ')
         : String(value)
 
-    // Replace {key} syntax
-    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), strValue)
-    // Also replace {{key}} syntax for backward compat
+    // Replace {{key}} first (before {key}) to avoid partial matches
     result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), strValue)
+    // Then replace {key} syntax
+    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), strValue)
   }
 
   return result

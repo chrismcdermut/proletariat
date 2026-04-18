@@ -23,6 +23,7 @@ const SAFE_ACTIONS = new Set([
   'rebase-conflicting-prs',
   'spawn-review-agent',
   'gc-sweep',
+  'poke-orchestrator',
 ])
 
 describe('Orchestrate Presets', () => {

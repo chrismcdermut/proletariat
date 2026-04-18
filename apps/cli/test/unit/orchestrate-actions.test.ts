@@ -47,6 +47,7 @@ describe('Orchestrate Built-in Actions', () => {
       'health-check',
       'resolve-conflict',
       'gc-sweep',
+      'poke-orchestrator',
     ]
 
     it('should have all expected actions registered', () => {

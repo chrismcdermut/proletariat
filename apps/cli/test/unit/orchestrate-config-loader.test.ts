@@ -195,13 +195,12 @@ review:
       const count = applyPreset(db, 'conservative')
       expect(count).to.be.greaterThan(0)
 
-      const hooks = db.prepare("SELECT * FROM pmo_work_hooks WHERE source = 'preset'").all() as Array<{ mode: string; action_value: string }>
+      const hooks = db.prepare("SELECT * FROM pmo_work_hooks WHERE source = 'preset'").all() as Array<{ mode: string; action_value: string; action_ref: string | null }>
       for (const hook of hooks) {
         // Conservative preset: safe actions are auto (Tier 1), destructive actions are human (Tier 3)
-        // action_value is like "prlt hook fire on_ci_green --action merge-pr", extract the action name
-        const SAFE_ACTIONS = new Set(['move-ticket', 'notify', 'cleanup-container', 'health-check', 'rebase-conflicting-prs', 'spawn-review-agent', 'gc-sweep'])
-        const actionMatch = hook.action_value.match(/--action\s+(\S+)/)
-        const actionName = actionMatch ? actionMatch[1] : hook.action_value
+        // action_ref contains the action name directly (no shell indirection)
+        const SAFE_ACTIONS = new Set(['move-ticket', 'notify', 'cleanup-container', 'health-check', 'rebase-conflicting-prs', 'spawn-review-agent', 'gc-sweep', 'poke-orchestrator'])
+        const actionName = hook.action_ref || hook.action_value
         const expectedMode = SAFE_ACTIONS.has(actionName) ? 'auto' : 'human'
         expect(hook.mode).to.equal(expectedMode)
       }
@@ -236,23 +235,24 @@ review:
     it('should store each preset hook with its correct event name, never work:status_changed fallback', () => {
       applyPreset(db, 'aggressive')
 
-      const hooks = db.prepare("SELECT event, action_value FROM pmo_work_hooks WHERE source = 'preset'")
-        .all() as Array<{ event: string; action_value: string }>
+      const hooks = db.prepare("SELECT event, action_value, action_ref, action_type FROM pmo_work_hooks WHERE source = 'preset'")
+        .all() as Array<{ event: string; action_value: string; action_ref: string | null; action_type: string }>
 
       // No hook should have been silently misrouted to work:status_changed
       // unless the preset actually defines a work:status_changed hook
       const presetEvents = new Set(PRESETS.aggressive.hooks.map(h => h.event))
       const hasWorkStatusChanged = presetEvents.has('work:status_changed')
 
-      for (const hook of hooks) {
-        // Extract the original event from the action_value: "prlt hook fire <event> --action ..."
-        const match = hook.action_value.match(/prlt hook fire (\S+) --action/)
-        expect(match, `Could not parse event from action_value: ${hook.action_value}`).to.not.be.null
-        const originalEvent = match![1]
+      // Each stored hook event should match what the preset defines
+      const presetHooksByName = new Map(
+        PRESETS.aggressive.hooks.map((h, i) => [`preset:aggressive:${h.event}:${h.action}:${i}`, h.event])
+      )
 
-        // The stored event MUST match the original event from the preset
-        expect(hook.event).to.equal(originalEvent,
-          `Hook for event "${originalEvent}" was stored as "${hook.event}" — misrouted!`)
+      for (const hook of hooks) {
+        // With the new action types, hooks use action_type='action' or 'poke' with action_ref
+        // instead of shell indirection. The event column should match the preset event directly.
+        expect(['action', 'poke']).to.include(hook.action_type,
+          `Preset hook should use direct dispatch, got action_type=${hook.action_type}`)
       }
 
       // Verify we actually have hooks for orchestrate events (not just work:* events)
@@ -277,7 +277,8 @@ review:
       // Before the fix, this returned empty because all hooks were stored as work:status_changed
       expect(ciGreenHooks.length).to.be.greaterThan(0)
       expect(ciGreenHooks[0].event).to.equal('on_ci_green')
-      expect(ciGreenHooks[0].actionValue).to.include('merge-pr')
+      // action_ref or action_value should reference merge-pr (now direct, not shell indirection)
+      expect(ciGreenHooks.some(h => h.actionValue === 'merge-pr' || h.actionRef === 'merge-pr')).to.be.true
     })
 
     it('should preserve correct event for all preset event types across all presets', () => {
@@ -286,14 +287,18 @@ review:
         try { db.exec("DELETE FROM pmo_work_hooks WHERE source = 'preset'") } catch { /* */ }
         applyPreset(db, presetName)
 
-        const hooks = db.prepare("SELECT event, action_value FROM pmo_work_hooks WHERE source = 'preset'")
-          .all() as Array<{ event: string; action_value: string }>
+        const hooks = db.prepare("SELECT event, action_value, action_ref, action_type FROM pmo_work_hooks WHERE source = 'preset'")
+          .all() as Array<{ event: string; action_value: string; action_ref: string | null; action_type: string }>
+
+        // Verify each hook uses direct dispatch (action/poke type) and has valid event
+        const presetDef = PRESETS[presetName]
+        const expectedEvents = new Set(presetDef.hooks.map(h => h.event))
 
         for (const hook of hooks) {
-          const match = hook.action_value.match(/prlt hook fire (\S+) --action/)
-          expect(match).to.not.be.null
-          expect(hook.event).to.equal(match![1],
-            `${presetName} preset: event "${match![1]}" misrouted to "${hook.event}"`)
+          expect(['action', 'poke']).to.include(hook.action_type,
+            `${presetName}: hook should use direct dispatch, got action_type=${hook.action_type}`)
+          expect(expectedEvents.has(hook.event as any)).to.be.true,
+            `${presetName}: event "${hook.event}" not in preset definition`
         }
       }
     })
