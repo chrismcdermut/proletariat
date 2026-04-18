@@ -28,7 +28,11 @@ export class ActionStorage {
     // Support both fromIntent (new) and fromState (deprecated)
     const intentFilter = filter?.fromIntent || filter?.fromState
     if (intentFilter) {
-      conditions.push(or(eq(pmoActions.fromIntent, intentFilter), isNull(pmoActions.fromIntent)))
+      // Match actions where valid_from contains the intent, or from_intent matches, or both are null (any state)
+      const jsonContains = sql`(${pmoActions.validFrom} IS NOT NULL AND json_array_length(${pmoActions.validFrom}) > 0 AND EXISTS (SELECT 1 FROM json_each(${pmoActions.validFrom}) WHERE value = ${intentFilter}))`
+      const fromIntentMatch = sql`(${pmoActions.validFrom} IS NULL AND ${pmoActions.fromIntent} = ${intentFilter})`
+      const anyState = sql`(${pmoActions.validFrom} IS NULL AND ${pmoActions.fromIntent} IS NULL)`
+      conditions.push(or(jsonContains, fromIntentMatch, anyState))
     }
 
     if (filter?.search) {
@@ -99,6 +103,9 @@ export class ActionStorage {
     // Support both fromIntent (new) and fromState (deprecated)
     const fromIntent = action.fromIntent ?? action.fromState ?? null
     const toIntent = action.toIntent ?? action.toState ?? null
+    // valid_from: serialize array to JSON, or derive from fromIntent for compat
+    const validFromArray = action.validFrom ?? (fromIntent ? [fromIntent] : null)
+    const validFromJson = validFromArray?.length ? JSON.stringify(validFromArray) : null
 
     this.ctx.drizzle
       .insert(pmoActions)
@@ -110,6 +117,7 @@ export class ActionStorage {
         endPrompt: action.endPrompt || null,
         fromIntent,
         toIntent,
+        validFrom: validFromJson,
         executor: action.executor || null,
         environment: action.environment || null,
         permissionMode: action.permissionMode || null,
@@ -134,6 +142,7 @@ export class ActionStorage {
       endPrompt: action.endPrompt,
       fromIntent: fromIntent || undefined,
       toIntent: toIntent || undefined,
+      validFrom: validFromArray?.length ? validFromArray : undefined,
       executor: action.executor,
       environment: action.environment,
       permissionMode: action.permissionMode,
@@ -200,6 +209,9 @@ export class ActionStorage {
     if (changes.networkAllowlist !== undefined) {
       updateValues.networkAllowlist = changes.networkAllowlist?.length ? JSON.stringify(changes.networkAllowlist) : null
     }
+    if (changes.validFrom !== undefined) {
+      updateValues.validFrom = changes.validFrom?.length ? JSON.stringify(changes.validFrom) : null
+    }
     if (changes.modifiesCode !== undefined) updateValues.modifiesCode = changes.modifiesCode
     if (changes.isDefault !== undefined) updateValues.isDefault = changes.isDefault
 
@@ -240,6 +252,10 @@ export class ActionStorage {
     if (changes.toIntent !== undefined) updateValues.toIntent = changes.toIntent || null
     if (changes.executor !== undefined) updateValues.executor = changes.executor || null
     if (changes.timeout !== undefined) updateValues.timeout = changes.timeout || null
+    if (changes.validFrom !== undefined) {
+      const vf = changes.validFrom as string[] | null | undefined
+      updateValues.validFrom = vf?.length ? JSON.stringify(vf) : null
+    }
 
     if (Object.keys(updateValues).length > 0) {
       updateValues.updatedAt = new Date().toISOString()
@@ -278,12 +294,18 @@ export class ActionStorage {
    * Prefers exact from_intent matches with is_default=true, then by position.
    */
   async getSuggestedAction(intentOrStateName: string): Promise<WorkAction | null> {
-    // First try to find a default action with exact from_intent match
+    // Use valid_from JSON array to match: check if the intent is contained in valid_from,
+    // or valid_from is null/empty (means "any state"), or fall back to from_intent for compat.
+    const jsonContains = sql`(${pmoActions.validFrom} IS NOT NULL AND json_array_length(${pmoActions.validFrom}) > 0 AND EXISTS (SELECT 1 FROM json_each(${pmoActions.validFrom}) WHERE value = ${intentOrStateName}))`
+    const fromIntentMatch = sql`(${pmoActions.validFrom} IS NULL AND ${pmoActions.fromIntent} = ${intentOrStateName})`
+    const anyState = sql`(${pmoActions.validFrom} IS NULL AND ${pmoActions.fromIntent} IS NULL)`
+
+    // First try to find a default action matching this intent
     const exactMatch = this.ctx.drizzle
       .select()
       .from(pmoActions)
       .where(and(
-        eq(pmoActions.fromIntent, intentOrStateName),
+        or(jsonContains, fromIntentMatch),
         eq(pmoActions.isDefault, true)
       ))
       .orderBy(asc(pmoActions.position))
@@ -294,16 +316,13 @@ export class ActionStorage {
       return this.rowToAction(exactMatch)
     }
 
-    // Fall back to any action matching this intent (exact match first, then null from_intent)
+    // Fall back to any action matching this intent (specific match first, then any-state)
     const anyMatch = this.ctx.drizzle
       .select()
       .from(pmoActions)
-      .where(or(
-        eq(pmoActions.fromIntent, intentOrStateName),
-        isNull(pmoActions.fromIntent)
-      ))
+      .where(or(jsonContains, fromIntentMatch, anyState))
       .orderBy(
-        sql`CASE WHEN ${pmoActions.fromIntent} = ${intentOrStateName} THEN 0 ELSE 1 END`,
+        sql`CASE WHEN (${pmoActions.validFrom} IS NOT NULL AND json_array_length(${pmoActions.validFrom}) > 0) THEN 0 WHEN ${pmoActions.fromIntent} = ${intentOrStateName} THEN 0 ELSE 1 END`,
         desc(pmoActions.isDefault),
         asc(pmoActions.position)
       )
@@ -323,10 +342,14 @@ export class ActionStorage {
    * when a ticket reaches a particular intent state.
    */
   async getActionByFromIntent(intent: string): Promise<WorkAction | null> {
+    // Check valid_from JSON array first, fall back to from_intent for compat
+    const jsonContains = sql`(${pmoActions.validFrom} IS NOT NULL AND json_array_length(${pmoActions.validFrom}) > 0 AND EXISTS (SELECT 1 FROM json_each(${pmoActions.validFrom}) WHERE value = ${intent}))`
+    const fromIntentMatch = sql`(${pmoActions.validFrom} IS NULL AND ${pmoActions.fromIntent} = ${intent})`
+
     const row = this.ctx.drizzle
       .select()
       .from(pmoActions)
-      .where(eq(pmoActions.fromIntent, intent))
+      .where(or(jsonContains, fromIntentMatch))
       .orderBy(desc(pmoActions.isDefault), asc(pmoActions.position))
       .limit(1)
       .get()
@@ -336,6 +359,15 @@ export class ActionStorage {
   }
 
   private rowToAction(row: typeof pmoActions.$inferSelect): WorkAction {
+    // Parse valid_from JSON array; fall back to wrapping fromIntent for compat
+    let validFrom: string[] | undefined
+    if (row.validFrom) {
+      try { validFrom = JSON.parse(row.validFrom) } catch { /* ignore malformed */ }
+    }
+    if (!validFrom?.length && row.fromIntent) {
+      validFrom = [row.fromIntent]
+    }
+
     return {
       id: row.id,
       name: row.name,
@@ -344,6 +376,7 @@ export class ActionStorage {
       endPrompt: row.endPrompt || undefined,
       fromIntent: row.fromIntent || undefined,
       toIntent: row.toIntent || undefined,
+      validFrom: validFrom?.length ? validFrom : undefined,
       // Deprecated compat aliases
       fromState: row.fromIntent || undefined,
       toState: row.toIntent || undefined,

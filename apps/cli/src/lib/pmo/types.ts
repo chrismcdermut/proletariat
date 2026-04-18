@@ -516,6 +516,7 @@ export interface WorkAction {
   endPrompt?: string                          // The end prompt (completion instructions)
   fromIntent?: string                         // Intent name that triggers this action (nullable — manual only)
   toIntent?: string                           // Target intent after action completes
+  validFrom?: string[]                        // Intent names from which this action may be invoked (empty = any state)
   executor?: ActionExecutor                   // Which executor to use (nullable — inherits workspace default)
   environment?: ActionEnvironment             // Execution environment (devcontainer | docker | host | vm)
   permissionMode?: ActionPermissionMode       // Permission mode (full | readonly | bypassPermissions)

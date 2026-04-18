@@ -148,6 +148,7 @@ export interface ActionRecord {
   endPrompt: string | null
   fromIntent: string | null
   toIntent: string | null
+  validFrom: string | null
   executor: string | null
   environment: string | null
   permissionMode: string | null
@@ -171,6 +172,7 @@ export interface CreateActionInput {
   endPrompt?: string
   fromIntent?: string
   toIntent?: string
+  validFrom?: string[]
   executor?: string
   environment?: string
   permissionMode?: string
@@ -191,6 +193,7 @@ export interface UpdateActionInput {
   endPrompt?: string | null
   fromIntent?: string | null
   toIntent?: string | null
+  validFrom?: string[] | null
   executor?: string | null
   environment?: string | null
   permissionMode?: string | null
