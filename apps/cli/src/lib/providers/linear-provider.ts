@@ -216,9 +216,17 @@ export class LinearTicketProvider implements TicketProvider {
     }
 
     const team = resolveLinearTeamKey(this.db)
+    if (!team) {
+      return {
+        success: false,
+        provider: 'linear',
+        tickets: [],
+        error: "This HQ isn't connected to a board yet.\nRun: prlt linear connect",
+      }
+    }
 
     try {
-      const envelopes = await listLinearIssues({ apiKey, team: team ?? undefined }, { limit: 50 })
+      const envelopes = await listLinearIssues({ apiKey, team }, { limit: 50 })
 
       let tickets: Ticket[] = envelopes.map(envelope => ({
         id: envelope.source.externalKey,
