@@ -13,7 +13,7 @@
 
 import { execSync } from 'node:child_process'
 import type { UpdateInfo } from './update-check.js'
-import { dismissVersion, getStaleTapCommands, getStandaloneInstallDir, runNpmInstallWithRetry } from './update-check.js'
+import { dismissVersion, getStaleTapCommands, getStandaloneInstallDir, runNpmInstallWithRetry, runBrewUpgradeWithSafety } from './update-check.js'
 
 // ---------------------------------------------------------------------------
 // Environment guards
@@ -174,7 +174,11 @@ async function executeUpdate(info: UpdateInfo): Promise<'updated' | 'failed'> {
   console.log('')
 
   try {
-    if (info.packageManager === 'npm') {
+    if (info.packageManager === 'brew') {
+      // PRLT-1344: safe brew upgrade — refreshes tap first, verifies binary
+      // after upgrade, and attempts recovery if binary is missing.
+      runBrewUpgradeWithSafety()
+    } else if (info.packageManager === 'npm') {
       runNpmInstallWithRetry(command)
     } else {
       execSync(command, {
@@ -191,7 +195,7 @@ async function executeUpdate(info: UpdateInfo): Promise<'updated' | 'failed'> {
     console.error(`  ${command}`)
 
     // If brew upgrade failed and the tap is stale, show remediation
-    if (info.packageManager === 'brew' && info.staleTap?.isStale) {
+    if (info.packageManager === 'brew') {
       await printStaleTapGuidance()
     }
 
