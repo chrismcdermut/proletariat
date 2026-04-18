@@ -303,10 +303,10 @@ export class WorkService {
         )
       }
 
-      // Mark execution completed
+      // PRLT-1337: Mark execution completed with exit code 0 (shipped successfully)
       const runningExecution = this.executionStorage.getRunningExecution(ticketId)
       if (runningExecution) {
-        this.executionStorage.tryUpdateStatus(runningExecution.id, 'completed')
+        this.executionStorage.tryUpdateStatus(runningExecution.id, 'completed', 0)
       }
     }
 
