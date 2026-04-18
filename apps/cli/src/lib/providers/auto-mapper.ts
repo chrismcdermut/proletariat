@@ -58,7 +58,7 @@ const LINEAR_TYPE_TO_INTENT: Record<string, TransitionIntent> = {
   completed: 'completed',
   canceled: 'dropped',
   cancelled: 'dropped',
-  backlog: 'paused',
+  backlog: 'backlog',
   unstarted: 'ready',
 }
 
@@ -75,12 +75,17 @@ const JIRA_CATEGORY_TO_INTENT: Record<string, TransitionIntent> = {
 
 /**
  * Custom intent patterns for non-standard board columns.
- * These extend beyond the base 7 canonical intents.
+ * These extend beyond the base 7 canonical intents, and also include
+ * intake/backlog patterns that standard alias matching misses.
+ *
+ * Checked BEFORE standard alias matching to avoid false positives
+ * (e.g., "Awaiting Client Feedback" matching "Waiting" for paused).
  */
 const CUSTOM_INTENT_PATTERNS: Array<{ intent: string; patterns: string[] }> = [
   { intent: 'testing', patterns: ['test', 'qa', 'quality'] },
   { intent: 'blocked', patterns: ['block', 'wait', 'feedback', 'impediment'] },
   { intent: 'rework', patterns: ['return', 'rework', 'revision', 'changes requested'] },
+  { intent: 'backlog', patterns: ['new issue', 'new request', 'new functionality', 'intake', 'incoming'] },
 ]
 
 /**
@@ -131,6 +136,7 @@ export function autoMapIntents(
     'started',
     'needs_review',
     'completed',
+    'backlog',
     'paused',
     'ready',
     'dropped',
@@ -199,46 +205,62 @@ export function autoMapIntents(
  * - Ambiguous states needing user disambiguation
  * - Unmapped states that could be custom intents
  * - Many-to-one opportunities (multiple columns → same intent)
+ *
+ * Strategy:
+ * 1. Pre-filter: identify ambiguous states and custom intent matches FIRST
+ *    (these take priority over standard alias matching to avoid false positives
+ *    like "Awaiting Client Feedback" matching the "Waiting" alias for `paused`)
+ * 2. Run standard auto-mapping on remaining states
+ * 3. Check leftovers for many-to-one opportunities
  */
 export function autoMapWithDisambiguation(
   states: BoardState[],
   providerType: 'linear' | 'jira' | 'trello' | 'asana' | 'shortcut' | 'clickup' | 'github' | 'pmo' = 'pmo',
 ): AutoMapResult {
-  // First pass: standard auto-mapping
-  const mappings = autoMapIntents(states, providerType)
-  const mappedStateIds = new Set(mappings.map(m => m.stateId))
-
   const ambiguous: AmbiguousState[] = []
-  const unmapped: BoardState[] = []
+  const customMappings: IntentMapping[] = []
+  const excludedIds = new Set<string>()
 
-  // Second pass: check remaining states
+  // Pre-filter pass: identify ambiguous and custom intent states
   for (const state of states) {
-    if (mappedStateIds.has(state.id)) continue
-
-    // Check if this is an ambiguous state
+    // Check if this is an ambiguous state FIRST
     const ambiguousMatch = AMBIGUOUS_PATTERNS.find(p => p.pattern.test(state.name))
     if (ambiguousMatch) {
       ambiguous.push({
         state,
         candidateIntents: ambiguousMatch.intents,
       })
+      excludedIds.add(state.id)
       continue
     }
 
-    // Check if it matches a custom intent pattern
+    // Check if it matches a custom intent pattern (higher priority than standard aliases)
     const customMatch = matchCustomIntent(state.name)
     if (customMatch) {
-      mappings.push({
+      customMappings.push({
         intent: customMatch as TransitionIntent,
         stateName: state.name,
         stateId: state.id,
         confidence: 'name',
       })
-      mappedStateIds.add(state.id)
-      continue
+      excludedIds.add(state.id)
     }
+  }
 
-    // Check if this state could be many-to-one with an existing mapping
+  // Standard auto-mapping on remaining states
+  const availableStates = states.filter(s => !excludedIds.has(s.id))
+  const mappings = autoMapIntents(availableStates, providerType)
+
+  // Add custom intent mappings
+  mappings.push(...customMappings)
+  const mappedStateIds = new Set(mappings.map(m => m.stateId))
+
+  const unmapped: BoardState[] = []
+
+  // Check remaining states for many-to-one opportunities
+  for (const state of availableStates) {
+    if (mappedStateIds.has(state.id)) continue
+
     const manyToOneMatch = findManyToOneMatch(state, mappings)
     if (manyToOneMatch) {
       mappings.push({
@@ -251,7 +273,6 @@ export function autoMapWithDisambiguation(
       continue
     }
 
-    // Truly unmapped
     unmapped.push(state)
   }
 

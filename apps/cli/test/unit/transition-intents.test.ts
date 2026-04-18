@@ -165,8 +165,8 @@ describe('Auto-Mapper', () => {
       // dropped → Canceled (type: canceled)
       expect(byIntent.get('dropped')?.stateName).to.equal('Canceled')
 
-      // paused → Backlog (type: backlog)
-      expect(byIntent.get('paused')?.stateName).to.equal('Backlog')
+      // backlog → Backlog (type: backlog)
+      expect(byIntent.get('backlog')?.stateName).to.equal('Backlog')
 
       // ready → Ready (type: unstarted)
       expect(byIntent.get('ready')?.stateName).to.equal('Ready')
