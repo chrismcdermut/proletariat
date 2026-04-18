@@ -44,6 +44,9 @@ export default class ActionEdit extends RuntimeCommand {
     timeout: Flags.integer({
       description: 'Update timeout in seconds',
     }),
+    'valid-from': Flags.string({
+      description: 'Comma-separated intent names this action can be invoked from (empty string to clear)',
+    }),
   }
 
   static args = {
@@ -79,6 +82,11 @@ export default class ActionEdit extends RuntimeCommand {
       if (flags['to-intent'] !== undefined) changes.toIntent = flags['to-intent']
       if (flags.executor !== undefined) changes.executor = flags.executor
       if (flags.timeout !== undefined) changes.timeout = flags.timeout
+      if (flags['valid-from'] !== undefined) {
+        changes.validFrom = flags['valid-from']
+          ? flags['valid-from'].split(',').map((s: string) => s.trim()).filter(Boolean)
+          : []
+      }
 
       // Handle prompt: either from --prompt flag or open $EDITOR
       if (flags.prompt !== undefined) {

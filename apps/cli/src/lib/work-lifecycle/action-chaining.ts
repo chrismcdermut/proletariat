@@ -22,6 +22,8 @@ import { PMO_TABLES } from '../pmo/schema.js'
 import type { SQLiteStorage } from '../pmo/storage-sqlite.js'
 import { ExecutionStorage } from '../execution/storage.js'
 import { trackEvent } from '../telemetry/analytics.js'
+import { validateActionState } from './action-guardrails.js'
+import type { WorkAction } from '../pmo/types.js'
 
 // =============================================================================
 // Constants
@@ -44,6 +46,7 @@ interface ActionRow {
   permission_mode: string | null
   model: string | null
   network_allowlist: string | null
+  valid_from: string | null
 }
 
 // =============================================================================
@@ -213,6 +216,29 @@ export class ActionChainingHandler {
     const ticket = await this.storage.getTicket(ticketId)
     if (!ticket) {
       this.log(`[action-chain] Ticket ${ticketId} not found. Skipping.`)
+      return
+    }
+
+    // PRLT-1317: Action-level guardrails — validate ticket state before chaining
+    const validFrom: string[] | undefined = action.valid_from ? JSON.parse(action.valid_from) : undefined
+    const guardrailAction: WorkAction = {
+      id: action.id,
+      name: action.name,
+      prompt: action.prompt,
+      validFrom,
+      modifiesCode: true,
+      isBuiltin: false,
+      createdAt: new Date(),
+    }
+    const guardrail = validateActionState(guardrailAction, ticket.statusName, ticket.statusCategory)
+    if (!guardrail.allowed) {
+      this.log(`[action-chain] ${guardrail.message} Skipping chain for ${ticketId}.`)
+      trackEvent('action_chain_blocked', null, {
+        ticket_id: ticketId,
+        action_id: action.id,
+        reason: 'state_guardrail',
+        current_state: ticket.statusName || 'unknown',
+      })
       return
     }
 

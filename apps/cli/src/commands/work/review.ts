@@ -34,6 +34,11 @@ export default class WorkReview extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Bypass action state guardrails',
+      default: false,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -100,6 +105,9 @@ export default class WorkReview extends PMOCommand {
       }
       if (jsonMode) {
         workStartArgs.push('--json')
+      }
+      if (flags.force) {
+        workStartArgs.push('--force')
       }
 
       setInternalAction('review')

@@ -57,3 +57,9 @@ export {
   initContainerCleanupHook,
   stopContainerCleanupHook,
 } from './container-cleanup-hook.js'
+
+export {
+  validateActionState,
+  resolveTicketIntent,
+  type ActionGuardrailResult,
+} from './action-guardrails.js'
