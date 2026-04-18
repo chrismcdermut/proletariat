@@ -73,6 +73,60 @@ export interface MessagingRouteRecord {
   lastUsedAt: Date | undefined
 }
 
+// =============================================================================
+// Orchestrator thread types (PRLT-1265)
+// =============================================================================
+
+export type OrchestratorThreadStatus = 'active' | 'inactive'
+
+export interface OrchestratorThreadRow {
+  name: string
+  address: string
+  routes: string | null
+  status: string
+  registered_at: number
+  last_seen: number
+}
+
+export interface OrchestratorThreadRecord {
+  name: string
+  address: string
+  routes: string[] | null
+  status: OrchestratorThreadStatus
+  registeredAt: Date
+  lastSeen: Date
+}
+
+export interface PendingLlmDecisionRow {
+  id: string
+  event_name: string
+  hook_name: string
+  action: string
+  context_json: string
+  status: string
+  orchestrator_name: string | null
+  queued_at: number
+  timeout_ms: number
+  resolved_at: number | null
+  decision: string | null
+}
+
+export type LlmDecisionStatus = 'pending' | 'approved' | 'denied' | 'escalated' | 'timed_out'
+
+export interface PendingLlmDecisionRecord {
+  id: string
+  eventName: string
+  hookName: string
+  action: string
+  contextJson: string
+  status: LlmDecisionStatus
+  orchestratorName: string | null
+  queuedAt: Date
+  timeoutMs: number
+  resolvedAt: Date | null
+  decision: string | null
+}
+
 export interface MachineExecution {
   id: string
   prompt: string
@@ -242,6 +296,36 @@ export class MachineDB {
 
       CREATE INDEX IF NOT EXISTS idx_messaging_routes_agent
         ON messaging_routes(agent_session_id);
+
+      -- Orchestrator thread registry (PRLT-1265) — registers Claude/Codex
+      -- sessions as LLM tier endpoints with event routing.
+      CREATE TABLE IF NOT EXISTS orchestrator_threads (
+        name TEXT PRIMARY KEY,
+        address TEXT NOT NULL,
+        routes TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        registered_at INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL
+      );
+
+      -- Pending LLM decisions (PRLT-1265) — persists tier-2 decisions
+      -- that need orchestrator review. Survives daemon restarts.
+      CREATE TABLE IF NOT EXISTS pending_llm_decisions (
+        id TEXT PRIMARY KEY,
+        event_name TEXT NOT NULL,
+        hook_name TEXT NOT NULL,
+        action TEXT NOT NULL,
+        context_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        orchestrator_name TEXT,
+        queued_at INTEGER NOT NULL,
+        timeout_ms INTEGER NOT NULL DEFAULT 300000,
+        resolved_at INTEGER,
+        decision TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_pending_llm_status
+        ON pending_llm_decisions(status);
     `)
 
     // Migrate existing databases that don't have the persistent columns
@@ -707,6 +791,182 @@ export class MachineDB {
     return row?.n ?? 0
   }
 
+  // ===========================================================================
+  // Orchestrator threads (PRLT-1265)
+  // ===========================================================================
+
+  /**
+   * Register an orchestrator thread. If one with the same name already exists,
+   * it is replaced (the orchestrator was restarted).
+   */
+  registerThread(params: {
+    name: string
+    address: string
+    routes?: string[]
+    status?: OrchestratorThreadStatus
+  }): OrchestratorThreadRecord {
+    const now = Date.now()
+    const routesStr = params.routes?.length ? params.routes.join(',') : null
+    this.db.prepare(`
+      INSERT INTO orchestrator_threads (name, address, routes, status, registered_at, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        address = excluded.address,
+        routes = excluded.routes,
+        status = excluded.status,
+        last_seen = excluded.last_seen
+    `).run(params.name, params.address, routesStr, params.status ?? 'active', now, now)
+    return this.getThread(params.name)!
+  }
+
+  /** Get a single thread by name. */
+  getThread(name: string): OrchestratorThreadRecord | null {
+    const row = this.db.prepare<OrchestratorThreadRow>(
+      'SELECT * FROM orchestrator_threads WHERE name = ?'
+    ).get(name)
+    return row ? threadRowToRecord(row) : null
+  }
+
+  /** List all threads, optionally filtering by status. */
+  listThreads(filter?: { status?: OrchestratorThreadStatus }): OrchestratorThreadRecord[] {
+    if (filter?.status) {
+      const rows = this.db.prepare(
+        'SELECT * FROM orchestrator_threads WHERE status = ? ORDER BY registered_at DESC'
+      ).all(filter.status) as unknown as OrchestratorThreadRow[]
+      return rows.map(threadRowToRecord)
+    }
+    const rows = this.db.prepare(
+      'SELECT * FROM orchestrator_threads ORDER BY registered_at DESC'
+    ).all() as unknown as OrchestratorThreadRow[]
+    return rows.map(threadRowToRecord)
+  }
+
+  /** Update a thread's status (active/inactive). */
+  updateThreadStatus(name: string, status: OrchestratorThreadStatus): void {
+    this.db.prepare(
+      'UPDATE orchestrator_threads SET status = ?, last_seen = ? WHERE name = ?'
+    ).run(status, Date.now(), name)
+  }
+
+  /** Stamp a thread's last_seen to now — called on heartbeat/poke. */
+  touchThread(name: string): void {
+    this.db.prepare(
+      'UPDATE orchestrator_threads SET last_seen = ? WHERE name = ?'
+    ).run(Date.now(), name)
+  }
+
+  /** Remove a thread registration entirely. */
+  removeThread(name: string): void {
+    this.db.prepare('DELETE FROM orchestrator_threads WHERE name = ?').run(name)
+  }
+
+  /**
+   * Find the orchestrator thread that handles a given event name.
+   * Checks routes (comma-separated event lists). A thread with NULL routes
+   * is the catch-all (matches any event not claimed by a specific thread).
+   * Returns the most specific match first, falling back to catch-all.
+   */
+  findThreadForEvent(eventName: string): OrchestratorThreadRecord | null {
+    // First try to find a thread with an explicit route for this event
+    const rows = this.db.prepare(
+      "SELECT * FROM orchestrator_threads WHERE status = 'active' ORDER BY registered_at ASC"
+    ).all() as unknown as OrchestratorThreadRow[]
+
+    let catchAll: OrchestratorThreadRow | null = null
+    for (const row of rows) {
+      if (!row.routes) {
+        // NULL routes = catch-all
+        if (!catchAll) catchAll = row
+        continue
+      }
+      const routeList = row.routes.split(',').map(r => r.trim())
+      if (routeList.includes(eventName)) {
+        return threadRowToRecord(row)
+      }
+    }
+    return catchAll ? threadRowToRecord(catchAll) : null
+  }
+
+  // ===========================================================================
+  // Pending LLM decisions (PRLT-1265)
+  // ===========================================================================
+
+  /**
+   * Queue a new pending LLM decision. Returns the created record.
+   */
+  createPendingLlmDecision(params: {
+    eventName: string
+    hookName: string
+    action: string
+    contextJson?: string
+    orchestratorName?: string
+    timeoutMs?: number
+  }): PendingLlmDecisionRecord {
+    const id = `LLMD-${randomUUID().substring(0, 8).toUpperCase()}`
+    const now = Date.now()
+    this.db.prepare(`
+      INSERT INTO pending_llm_decisions (
+        id, event_name, hook_name, action, context_json,
+        status, orchestrator_name, queued_at, timeout_ms
+      ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+    `).run(
+      id,
+      params.eventName,
+      params.hookName,
+      params.action,
+      params.contextJson ?? '{}',
+      params.orchestratorName ?? null,
+      now,
+      params.timeoutMs ?? 300000,
+    )
+    return this.getPendingLlmDecision(id)!
+  }
+
+  /** Get a single pending decision by ID. */
+  getPendingLlmDecision(id: string): PendingLlmDecisionRecord | null {
+    const row = this.db.prepare<PendingLlmDecisionRow>(
+      'SELECT * FROM pending_llm_decisions WHERE id = ?'
+    ).get(id)
+    return row ? llmDecisionRowToRecord(row) : null
+  }
+
+  /** List pending decisions (optionally filtered by status). */
+  listPendingLlmDecisions(filter?: { status?: LlmDecisionStatus }): PendingLlmDecisionRecord[] {
+    if (filter?.status) {
+      const rows = this.db.prepare(
+        'SELECT * FROM pending_llm_decisions WHERE status = ? ORDER BY queued_at DESC'
+      ).all(filter.status) as unknown as PendingLlmDecisionRow[]
+      return rows.map(llmDecisionRowToRecord)
+    }
+    const rows = this.db.prepare(
+      'SELECT * FROM pending_llm_decisions ORDER BY queued_at DESC'
+    ).all() as unknown as PendingLlmDecisionRow[]
+    return rows.map(llmDecisionRowToRecord)
+  }
+
+  /** Resolve a pending decision (approve, deny, escalate). */
+  resolveLlmDecision(id: string, decision: LlmDecisionStatus): void {
+    this.db.prepare(`
+      UPDATE pending_llm_decisions
+      SET status = ?, decision = ?, resolved_at = ?
+      WHERE id = ?
+    `).run(decision, decision, Date.now(), id)
+  }
+
+  /**
+   * Find and mark timed-out pending decisions.
+   * Returns the count of decisions that were escalated.
+   */
+  escalateTimedOutDecisions(): number {
+    const now = Date.now()
+    const result = this.db.prepare(`
+      UPDATE pending_llm_decisions
+      SET status = 'timed_out', resolved_at = ?
+      WHERE status = 'pending' AND (queued_at + timeout_ms) < ?
+    `).run(now, now)
+    return (result as { changes: number }).changes ?? 0
+  }
+
   close(): void {
     this.db.close()
   }
@@ -733,5 +993,36 @@ function messagingRouteRowToRecord(row: MessagingRouteRow): MessagingRouteRecord
     agentSessionId: row.agent_session_id,
     createdAt: new Date(row.created_at),
     lastUsedAt: row.last_used_at ? new Date(row.last_used_at) : undefined,
+  }
+}
+
+// =============================================================================
+// Row → record converters for orchestrator tables (PRLT-1265)
+// =============================================================================
+
+function threadRowToRecord(row: OrchestratorThreadRow): OrchestratorThreadRecord {
+  return {
+    name: row.name,
+    address: row.address,
+    routes: row.routes ? row.routes.split(',').map(r => r.trim()).filter(Boolean) : null,
+    status: row.status as OrchestratorThreadStatus,
+    registeredAt: new Date(row.registered_at),
+    lastSeen: new Date(row.last_seen),
+  }
+}
+
+function llmDecisionRowToRecord(row: PendingLlmDecisionRow): PendingLlmDecisionRecord {
+  return {
+    id: row.id,
+    eventName: row.event_name,
+    hookName: row.hook_name,
+    action: row.action,
+    contextJson: row.context_json,
+    status: row.status as LlmDecisionStatus,
+    orchestratorName: row.orchestrator_name,
+    queuedAt: new Date(row.queued_at),
+    timeoutMs: row.timeout_ms,
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at) : null,
+    decision: row.decision,
   }
 }
