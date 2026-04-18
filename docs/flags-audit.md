@@ -2,7 +2,7 @@
 
 > **Date:** 2026-04-05
 > **Ticket:** PRLT-313
-> **Status:** Audit only — no changes implemented. Product decisions required.
+> **Status:** Multi-value boolean flags converted to option flags with backward-compatible aliases.
 
 ---
 
