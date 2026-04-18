@@ -24,12 +24,10 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
+import { type AgentHealthState, detectState } from '../../lib/session/health-detector.js'
 
-// =============================================================================
-// Types
-// =============================================================================
-
-export type AgentHealthState = 'HUNG' | 'WORKING' | 'DONE' | 'IDLE' | 'UNKNOWN'
+// Re-export for existing consumers (e.g. tests)
+export { type AgentHealthState, detectState } from '../../lib/session/health-detector.js'
 
 interface AgentHealthInfo {
   sessionId: string
@@ -42,51 +40,6 @@ interface AgentHealthInfo {
   paneContent?: string
   lastHeartbeat?: Date
   lifecycleState?: string
-}
-
-// =============================================================================
-// Detection Logic
-// =============================================================================
-
-/**
- * Detect agent health state from tmux pane content.
- *
- * Detection patterns (checked in priority order):
- * - '0 tokens' (the down-arrow + 0 tokens pattern) = HUNG
- * - 'esc to interrupt' = WORKING
- * - 'Agent work complete' or similar completion messages = DONE
- * - Idle prompt patterns ($ or ❯ at end of line) = IDLE
- */
-export function detectState(paneContent: string | null): AgentHealthState {
-  if (!paneContent) return 'UNKNOWN'
-
-  // Check last few lines for patterns
-  const lines = paneContent.split('\n')
-  const lastLines = lines.slice(-10).join('\n')
-
-  // HUNG: stuck API call showing '0 tokens' (the ↓ 0 tokens pattern)
-  if (/0 tokens/.test(lastLines)) {
-    return 'HUNG'
-  }
-
-  // WORKING: agent is actively processing
-  if (/esc to interrupt/i.test(lastLines)) {
-    return 'WORKING'
-  }
-
-  // DONE: agent work is complete
-  if (/agent work complete/i.test(lastLines) || /work ready/i.test(lastLines)) {
-    return 'DONE'
-  }
-
-  // IDLE: shell prompt visible (agent has finished or is waiting)
-  // Match common prompt patterns at end of last non-empty line
-  const lastNonEmpty = [...lines].reverse().find((l: string) => l.trim().length > 0) || ''
-  if (/[$❯#>]\s*$/.test(lastNonEmpty) || /^\s*\$\s*$/.test(lastNonEmpty)) {
-    return 'IDLE'
-  }
-
-  return 'UNKNOWN'
 }
 
 /**

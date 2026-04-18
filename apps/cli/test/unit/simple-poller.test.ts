@@ -22,11 +22,17 @@ function createMockDb(options?: {
     status: string
     lifecycle_state: string | null
     container_id: string | null
+    session_id?: string | null
+    environment?: string | null
   }>
 }) {
   const data = {
     readyTickets: options?.readyTickets ?? [],
-    agents: options?.agents ?? [],
+    agents: (options?.agents ?? []).map(a => ({
+      ...a,
+      session_id: a.session_id ?? null,
+      environment: a.environment ?? 'host',
+    })),
   }
 
   return {
@@ -205,11 +211,11 @@ describe('SimplePoller', () => {
   })
 
   // ===========================================================================
-  // Agent State
+  // Agent State (PRLT-1348: health-based detection)
   // ===========================================================================
 
   describe('agent state', () => {
-    it('should report running agents with effective state', async () => {
+    it('should report running agents with health state from tmux detection', async () => {
       const db = createMockDb({
         agents: [
           { id: 'exec-1', ticket_id: 'TKT-040', agent_name: 'bold-ada', status: 'running', lifecycle_state: null, container_id: null },
@@ -223,13 +229,14 @@ describe('SimplePoller', () => {
       expect(agentItems).to.have.length(1)
       expect(agentItems[0].summary).to.include('bold-ada')
       expect(agentItems[0].summary).to.include('TKT-040')
-      expect(agentItems[0].summary).to.include('running')
+      // Without tmux sessions available in test, running agents show as UNKNOWN
+      expect(agentItems[0].healthState).to.equal('UNKNOWN')
     })
 
-    it('should use lifecycle_state when available', async () => {
+    it('should set healthState on each agent item', async () => {
       const db = createMockDb({
         agents: [
-          { id: 'exec-1', ticket_id: 'TKT-040', agent_name: 'bold-ada', status: 'running', lifecycle_state: 'idle', container_id: null },
+          { id: 'exec-1', ticket_id: 'TKT-040', agent_name: 'bold-ada', status: 'running', lifecycle_state: null, container_id: null },
         ],
       })
       const poller = createPoller(db)
@@ -237,10 +244,11 @@ describe('SimplePoller', () => {
       const result = await poller.poll()
 
       const agentItems = result.items.filter(i => i.category === 'agents')
-      expect(agentItems[0].summary).to.include('idle')
+      expect(agentItems[0]).to.have.property('healthState')
+      expect(['WORKING', 'IDLE', 'HUNG', 'DONE', 'UNKNOWN']).to.include(agentItems[0].healthState)
     })
 
-    it('should report completed agents', async () => {
+    it('should report completed agents as DONE', async () => {
       const db = createMockDb({
         agents: [
           { id: 'exec-1', ticket_id: 'TKT-040', agent_name: 'bold-ada', status: 'completed', lifecycle_state: 'completed', container_id: null },
@@ -252,10 +260,11 @@ describe('SimplePoller', () => {
 
       const agentItems = result.items.filter(i => i.category === 'agents')
       expect(agentItems).to.have.length(1)
-      expect(agentItems[0].summary).to.include('completed')
+      expect(agentItems[0].healthState).to.equal('DONE')
+      expect(agentItems[0].summary).to.include('DONE')
     })
 
-    it('should report failed/error agents', async () => {
+    it('should report failed/error agents as IDLE (terminal state)', async () => {
       const db = createMockDb({
         agents: [
           { id: 'exec-1', ticket_id: 'TKT-040', agent_name: 'fragile-agent', status: 'error', lifecycle_state: null, container_id: null },
@@ -268,10 +277,24 @@ describe('SimplePoller', () => {
       const agentItems = result.items.filter(i => i.category === 'agents')
       expect(agentItems).to.have.length(1)
       expect(agentItems[0].summary).to.include('fragile-agent')
-      expect(agentItems[0].summary).to.include('error')
+      expect(agentItems[0].healthState).to.equal('IDLE')
     })
 
-    it('should report multiple agents', async () => {
+    it('should report stopped agents as IDLE', async () => {
+      const db = createMockDb({
+        agents: [
+          { id: 'exec-1', ticket_id: 'TKT-040', agent_name: 'stopped-agent', status: 'stopped', lifecycle_state: null, container_id: null },
+        ],
+      })
+      const poller = createPoller(db)
+
+      const result = await poller.poll()
+
+      const agentItems = result.items.filter(i => i.category === 'agents')
+      expect(agentItems[0].healthState).to.equal('IDLE')
+    })
+
+    it('should report multiple agents with individual health states', async () => {
       const db = createMockDb({
         agents: [
           { id: 'exec-1', ticket_id: 'TKT-040', agent_name: 'agent-a', status: 'running', lifecycle_state: null, container_id: null },
@@ -284,15 +307,36 @@ describe('SimplePoller', () => {
 
       const agentItems = result.items.filter(i => i.category === 'agents')
       expect(agentItems).to.have.length(2)
+      // First is running (no tmux -> UNKNOWN), second is completed (DONE)
+      expect(agentItems[0].healthState).to.equal('UNKNOWN')
+      expect(agentItems[1].healthState).to.equal('DONE')
     })
   })
 
   // ===========================================================================
-  // Message Format
+  // Message Format (PRLT-1348: summary counts instead of full listing)
   // ===========================================================================
 
   describe('state message formatting', () => {
-    it('should format message with section headers and bullet points', async () => {
+    it('should format agent section with summary counts instead of listing all', async () => {
+      const db = createMockDb({
+        agents: [
+          { id: 'exec-1', ticket_id: 'TKT-050', agent_name: 'agent-a', status: 'completed', lifecycle_state: 'completed', container_id: null },
+          { id: 'exec-2', ticket_id: 'TKT-051', agent_name: 'agent-b', status: 'completed', lifecycle_state: 'completed', container_id: null },
+          { id: 'exec-3', ticket_id: 'TKT-052', agent_name: 'agent-c', status: 'error', lifecycle_state: null, container_id: null },
+        ],
+      })
+      const poller = createPoller(db)
+
+      const result = await poller.poll()
+
+      // Should show summary counts, not individual bullet points for each
+      expect(result.message).to.include('Active agents (3):')
+      expect(result.message).to.include('2 done')
+      expect(result.message).to.include('1 idle')
+    })
+
+    it('should format message with section headers', async () => {
       const db = createMockDb({
         readyTickets: [{ id: 'TKT-060', title: 'New ready ticket' }],
         agents: [
@@ -307,7 +351,6 @@ describe('SimplePoller', () => {
       expect(result.message!).to.include('Ready tickets')
       expect(result.message!).to.include('Active agents')
       expect(result.message!).to.include('TKT-060')
-      expect(result.message!).to.include('multi-agent')
     })
 
     it('should include counts in section headers', async () => {
@@ -337,7 +380,7 @@ describe('SimplePoller', () => {
       expect(result.message).to.include('Ready tickets (1 unassigned):')
     })
 
-    it('should list each item as a bullet point', async () => {
+    it('should list ticket items as bullet points', async () => {
       const db = createMockDb({
         readyTickets: [
           { id: 'TKT-070', title: 'First' },
@@ -352,6 +395,31 @@ describe('SimplePoller', () => {
       const lines = result.message!.split('\n')
       const bullets = lines.filter(l => l.startsWith('- '))
       expect(bullets).to.have.length(2)
+    })
+
+    it('should not list idle/done/unknown agents as bullet points (PRLT-1348)', async () => {
+      // The ticket: "Watch daemon should summarize: '3 working, 47 idle' not list all 50"
+      const db = createMockDb({
+        agents: Array.from({ length: 10 }, (_, i) => ({
+          id: `exec-${i}`,
+          ticket_id: `TKT-${100 + i}`,
+          agent_name: `agent-${i}`,
+          status: 'completed',
+          lifecycle_state: 'completed',
+          container_id: null,
+        })),
+      })
+      const poller = createPoller(db)
+
+      const result = await poller.poll()
+
+      // Summary line should be present
+      expect(result.message).to.include('Active agents (10):')
+      expect(result.message).to.include('10 done')
+      // No individual agent bullet points for done agents
+      const lines = result.message!.split('\n')
+      const agentBullets = lines.filter(l => l.startsWith('- ') && l.includes('agent-'))
+      expect(agentBullets).to.have.length(0)
     })
   })
 
@@ -384,23 +452,18 @@ describe('SimplePoller', () => {
       })
       const poller = createPoller(db)
 
-      // Poll 1: starting
+      // Poll 1: starting (no tmux -> UNKNOWN)
       const r1 = await poller.poll()
-      expect(r1.items.find(i => i.category === 'agents')!.summary).to.include('starting')
+      const a1 = r1.items.find(i => i.category === 'agents')!
+      expect(a1.healthState).to.equal('UNKNOWN')
 
-      // Poll 2: running
+      // Poll 2: completed -> DONE
       db._data.agents = [
-        { id: 'exec-1', ticket_id: 'TKT-090', agent_name: 'lifecycle-agent', status: 'running', lifecycle_state: null, container_id: null },
+        { id: 'exec-1', ticket_id: 'TKT-090', agent_name: 'lifecycle-agent', status: 'completed', lifecycle_state: 'completed', container_id: null, session_id: null, environment: 'host' },
       ]
       const r2 = await poller.poll()
-      expect(r2.items.find(i => i.category === 'agents')!.summary).to.include('running')
-
-      // Poll 3: completed
-      db._data.agents = [
-        { id: 'exec-1', ticket_id: 'TKT-090', agent_name: 'lifecycle-agent', status: 'completed', lifecycle_state: 'completed', container_id: null },
-      ]
-      const r3 = await poller.poll()
-      expect(r3.items.find(i => i.category === 'agents')!.summary).to.include('completed')
+      const a2 = r2.items.find(i => i.category === 'agents')!
+      expect(a2.healthState).to.equal('DONE')
     })
   })
 

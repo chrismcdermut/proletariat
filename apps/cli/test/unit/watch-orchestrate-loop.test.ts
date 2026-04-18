@@ -34,11 +34,17 @@ function createMockDb(options?: {
     status: string
     lifecycle_state: string | null
     container_id: string | null
+    session_id?: string | null
+    environment?: string | null
   }>
 }) {
   const data = {
     readyTickets: options?.readyTickets ?? [],
-    agents: options?.agents ?? [],
+    agents: (options?.agents ?? []).map(a => ({
+      ...a,
+      session_id: a.session_id ?? null,
+      environment: a.environment ?? 'host',
+    })),
   }
 
   return {
@@ -109,25 +115,32 @@ describe('Watch -> Orchestrate Loop -- Unit Tests (PRLT-1333)', () => {
       })
       const poller = createTestPoller(db)
 
-      // Starting state
+      // Starting state (no tmux -> UNKNOWN health state)
       const r1 = await poller.poll()
-      expect(r1.items.find(i => i.category === 'agents')!.summary).to.include('starting')
+      const a1 = r1.items.find(i => i.category === 'agents')!
+      expect(a1.summary).to.include('loop-agent')
+      expect(a1.healthState).to.equal('UNKNOWN')
 
-      // Running state
+      // Running state (still no tmux -> UNKNOWN)
       db._data.agents = [{
         id: 'exec-1', ticket_id: 'PRLT-100', agent_name: 'loop-agent',
         status: 'running', lifecycle_state: null, container_id: null,
+        session_id: null, environment: 'host',
       }]
       const r2 = await poller.poll()
-      expect(r2.items.find(i => i.category === 'agents')!.summary).to.include('running')
+      const a2 = r2.items.find(i => i.category === 'agents')!
+      expect(a2.healthState).to.equal('UNKNOWN')
 
-      // Completed state
+      // Completed state -> DONE
       db._data.agents = [{
         id: 'exec-1', ticket_id: 'PRLT-100', agent_name: 'loop-agent',
         status: 'completed', lifecycle_state: 'completed', container_id: null,
+        session_id: null, environment: 'host',
       }]
       const r3 = await poller.poll()
-      expect(r3.items.find(i => i.category === 'agents')!.summary).to.include('completed')
+      const a3 = r3.items.find(i => i.category === 'agents')!
+      expect(a3.healthState).to.equal('DONE')
+      expect(a3.summary).to.include('DONE')
     })
 
     it('should report full state on every poll — no empty baseline', async () => {
@@ -287,7 +300,7 @@ describe('Watch -> Orchestrate Loop -- Unit Tests (PRLT-1333)', () => {
   // ===========================================================================
 
   describe('poke message format contract', () => {
-    it('agent state message should include agent name and ticket ID', async () => {
+    it('agent state items should include agent name and ticket ID', async () => {
       const db = createMockDb({
         agents: [{
           id: 'e1', ticket_id: 'PRLT-42', agent_name: 'swift-knuth',
@@ -298,11 +311,15 @@ describe('Watch -> Orchestrate Loop -- Unit Tests (PRLT-1333)', () => {
 
       const result = await poller.poll()
 
-      // The message should contain identifiable information the orchestrator
-      // can use to construct an event context
-      expect(result.message).to.include('swift-knuth')
-      expect(result.message).to.include('PRLT-42')
-      expect(result.message).to.include('completed')
+      // Items contain per-agent details; message summarizes by health state (PRLT-1348)
+      const agentItems = result.items.filter(i => i.category === 'agents')
+      expect(agentItems).to.have.length(1)
+      expect(agentItems[0].summary).to.include('swift-knuth')
+      expect(agentItems[0].summary).to.include('PRLT-42')
+      expect(agentItems[0].healthState).to.equal('DONE')
+      // Message shows summary counts
+      expect(result.message).to.include('Active agents (1):')
+      expect(result.message).to.include('1 done')
     })
 
     it('board state message should include ticket ID and title', async () => {
@@ -318,7 +335,7 @@ describe('Watch -> Orchestrate Loop -- Unit Tests (PRLT-1333)', () => {
       expect(result.message).to.include('ready')
     })
 
-    it('combined state should be formatted with section headers and bullets', async () => {
+    it('combined state should be formatted with section headers and summary', async () => {
       const db = createMockDb({
         readyTickets: [{ id: 'T-NEW', title: 'Fresh ticket' }],
         agents: [
@@ -333,9 +350,11 @@ describe('Watch -> Orchestrate Loop -- Unit Tests (PRLT-1333)', () => {
       expect(result.message).to.include('Ready tickets')
       expect(result.message).to.include('Active agents')
 
-      // Each item should be a bullet
+      // Board items are still bulleted; agents are summarized (PRLT-1348)
       const bullets = result.message!.split('\n').filter(l => l.startsWith('- '))
-      expect(bullets.length).to.be.at.least(2) // 1 board + 1 agent
+      expect(bullets.length).to.be.at.least(1) // 1 board ticket bullet
+      // Agents section shows summary, not individual bullets for done/idle
+      expect(result.message).to.include('1 done')
     })
   })
 
