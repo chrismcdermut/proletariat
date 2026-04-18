@@ -1,5 +1,4 @@
 import { Flags } from '@oclif/core'
-import inquirer from 'inquirer'
 import { PMOCommand, pmoBaseFlags } from '../../lib/pmo/index.js'
 import { colors } from '../../lib/colors.js'
 import {
@@ -153,30 +152,17 @@ export default class LinearImport extends PMOCommand {
         if (teams.length === 1) {
           filter.teamKey = teams[0].key
         } else {
-          if (jsonMode) {
-            const teamChoices = teams.map((t) => ({
-              name: `${t.name} (${t.key})`,
-              value: t.key,
-            }))
-            outputPromptAsJson(
-              buildPromptConfig('list', 'teamKey', 'Select a team to import from:', teamChoices),
-              createMetadata('linear import', flags),
-            )
-            return
-          }
-
-          const teamChoices = teams.map((t) => ({
-            name: `${t.name} (${t.key})`,
-            value: t.key,
-          }))
-
-          const { teamKey } = await inquirer.prompt([{
-            type: 'list',
-            name: 'teamKey',
+          const selected = await this.selectFromList({
             message: 'Select a team to import from:',
-            choices: teamChoices,
-          }])
-          filter.teamKey = teamKey
+            items: teams,
+            getName: (t) => `${t.name} (${t.key})`,
+            getValue: (t) => t.key,
+            getCommand: (t) => `prlt linear import --team ${t.key}${flags.all ? ' --all' : ''}${flags['dry-run'] ? ' --dry-run' : ''}${flags.state ? ` --state "${flags.state}"` : ''}${flags.label ? ` --label "${flags.label}"` : ''} --json`,
+            jsonMode: jsonMode ? { flags, commandName: 'linear import' } : null,
+          })
+
+          if (!selected) return
+          filter.teamKey = selected
         }
       }
 
@@ -224,19 +210,34 @@ export default class LinearImport extends PMOCommand {
 
     // Interactive selection (unless --all or explicit IDs)
     let selectedIssues = newIssues
-    if (!flags.all && issueIdentifiers.length === 0 && !jsonMode) {
+    if (!flags.all && issueIdentifiers.length === 0) {
+      if (jsonMode) {
+        // In JSON mode, output issue list as a prompt so agents can select
+        // or re-run with explicit issue IDs or --all
+        const issueChoices = newIssues.map((issue) => ({
+          name: `${issue.identifier}  ${issue.title}  [${issue.state.name}]  ${issue.priority > 0 ? `P${issue.priority - 1}` : ''}`,
+          value: issue.identifier,
+          command: `prlt linear import ${issue.identifier} --json`,
+        }))
+        outputPromptAsJson(
+          buildPromptConfig('checkbox', 'issues', `Select issues to import (${newIssues.length} new, ${alreadyImported.length} already imported):`, issueChoices),
+          createMetadata('linear import', flags),
+        )
+        return
+      }
+
       const issueChoices = newIssues.map((issue) => ({
         name: `${issue.identifier}  ${issue.title}  [${issue.state.name}]  ${issue.priority > 0 ? `P${issue.priority - 1}` : ''}`,
         value: issue.id,
         checked: true,
       }))
 
-      const { selectedIds } = await inquirer.prompt([{
+      const { selectedIds } = await this.prompt<{ selectedIds: string[] }>([{
         type: 'checkbox',
         name: 'selectedIds',
         message: `Select issues to import (${newIssues.length} new, ${alreadyImported.length} already imported):`,
         choices: issueChoices,
-      }])
+      }], jsonMode ? { flags, commandName: 'linear import' } : null)
 
       selectedIssues = newIssues.filter((i) => (selectedIds as string[]).includes(i.id))
     }

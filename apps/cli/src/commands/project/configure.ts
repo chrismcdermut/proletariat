@@ -7,6 +7,7 @@ import { styles } from '../../lib/styles.js'
 import {
   shouldOutputJson,
   outputPromptAsJson,
+  outputSuccessAsJson,
   buildPromptConfig,
   createMetadata,
   outputErrorAsJson,
@@ -34,12 +35,17 @@ const WORKFLOW_INTENTS: Array<{
   { key: 'backlog', label: 'Backlog', description: 'Tickets not yet scheduled' },
 ]
 
+/** Valid keys for the --set flag */
+const VALID_SET_KEYS = new Set<string>(WORKFLOW_INTENTS.map((i) => i.key))
+
 export default class ProjectConfigure extends PMOCommand {
   static description = 'Configure workflow column mapping for a project'
 
   static examples = [
     '<%= config.bin %> <%= command.id %> --workflow',
     '<%= config.bin %> <%= command.id %> --workflow --show',
+    '<%= config.bin %> <%= command.id %> --set planned=Todo --set in_progress="In Progress"',
+    '<%= config.bin %> <%= command.id %> --set review=Review --set done=Done --set backlog=Backlog',
   ]
 
   static flags = {
@@ -52,6 +58,10 @@ export default class ProjectConfigure extends PMOCommand {
     show: Flags.boolean({
       description: 'Show current workflow mapping without prompting',
       default: false,
+    }),
+    set: Flags.string({
+      multiple: true,
+      description: 'Set a workflow column mapping as key=value (e.g., --set planned=Todo). Valid keys: planned, in_progress, review, done, backlog',
     }),
   }
 
@@ -109,11 +119,10 @@ export default class ProjectConfigure extends PMOCommand {
     // Show-only mode
     if (flags.show) {
       if (jsonMode) {
-        this.log(JSON.stringify({
-          success: true,
+        outputSuccessAsJson({
           workflow: currentConfig,
           columns,
-        }, null, 2))
+        }, createMetadata('project configure', flags))
         return
       }
 
@@ -123,6 +132,70 @@ export default class ProjectConfigure extends PMOCommand {
         const exists = columns.some((c) => c.toLowerCase() === current.toLowerCase())
         const status = exists ? styles.success('(exists)') : styles.warning('(not on board)')
         this.log(`  ${intent.label}: ${styles.emphasis(current)} ${status}`)
+      }
+      this.log('')
+      return
+    }
+
+    // Non-interactive --set mode: parse key=value pairs and apply directly
+    if (flags.set && flags.set.length > 0) {
+      const newConfig: Partial<WorkflowConfig> = {}
+
+      for (const pair of flags.set) {
+        const eqIndex = pair.indexOf('=')
+        if (eqIndex === -1) {
+          if (jsonMode) {
+            outputErrorAsJson('INVALID_SET_FORMAT', `Invalid --set format: "${pair}". Expected key=value (e.g., --set planned=Todo)`, createMetadata('project configure', flags))
+            return
+          }
+          this.error(`Invalid --set format: "${pair}". Expected key=value (e.g., --set planned=Todo)`)
+        }
+
+        const key = pair.substring(0, eqIndex)
+        const value = pair.substring(eqIndex + 1)
+
+        if (!VALID_SET_KEYS.has(key)) {
+          if (jsonMode) {
+            outputErrorAsJson('INVALID_SET_KEY', `Invalid workflow key: "${key}". Valid keys: ${[...VALID_SET_KEYS].join(', ')}`, createMetadata('project configure', flags))
+            return
+          }
+          this.error(`Invalid workflow key: "${key}". Valid keys: ${[...VALID_SET_KEYS].join(', ')}`)
+        }
+
+        if (!value) {
+          if (jsonMode) {
+            outputErrorAsJson('EMPTY_SET_VALUE', `Empty value for key "${key}". Provide a column name.`, createMetadata('project configure', flags))
+            return
+          }
+          this.error(`Empty value for key "${key}". Provide a column name.`)
+        }
+
+        // Validate value is a valid board column (case-insensitive)
+        const matchedColumn = columns.find((c) => c.toLowerCase() === value.toLowerCase())
+        if (!matchedColumn) {
+          if (jsonMode) {
+            outputErrorAsJson('COLUMN_NOT_FOUND', `Column "${value}" not found on board. Available columns: ${columns.join(', ')}`, createMetadata('project configure', flags))
+            return
+          }
+          this.error(`Column "${value}" not found on board. Available columns: ${columns.join(', ')}`)
+        }
+
+        newConfig[key as WorkColumnType] = matchedColumn
+      }
+
+      setWorkflowConfig(this.db!, newConfig)
+
+      if (jsonMode) {
+        outputSuccessAsJson({ workflow: { ...currentConfig, ...newConfig } }, createMetadata('project configure', flags))
+        return
+      }
+
+      this.log(styles.success('\nWorkflow mapping saved.\n'))
+      const merged = { ...currentConfig, ...newConfig }
+      for (const intent of WORKFLOW_INTENTS) {
+        const value = merged[intent.key]
+        const changed = newConfig[intent.key] ? styles.success(' (updated)') : ''
+        this.log(`  ${intent.label}: ${styles.emphasis(value)}${changed}`)
       }
       this.log('')
       return
@@ -148,8 +221,17 @@ export default class ProjectConfigure extends PMOCommand {
       const defaultValue = columns.find((c) => c.toLowerCase() === currentConfig[intent.key].toLowerCase()) || columns[0]
 
       if (jsonMode) {
+        // Build accumulated --set flags from any already-resolved intents
+        const accumulatedSets = Object.entries(newConfig)
+          .map(([k, v]) => `--set ${k}=${v}`)
+          .join(' ')
+        const setPrefix = accumulatedSets ? `${accumulatedSets} ` : ''
+
         outputPromptAsJson(
-          buildPromptConfig('list', intent.key, message, choices, defaultValue),
+          buildPromptConfig('list', intent.key, message, choices.map((c) => ({
+            ...c,
+            command: `prlt project configure -P ${projectId} ${setPrefix}--set ${intent.key}=${c.value} --json`,
+          })), defaultValue),
           createMetadata('project configure', flags),
         )
         return
@@ -181,7 +263,7 @@ export default class ProjectConfigure extends PMOCommand {
       }
       this.log('')
     } else {
-      this.log(JSON.stringify({ success: true, workflow: newConfig }, null, 2))
+      outputSuccessAsJson({ workflow: newConfig }, createMetadata('project configure', flags))
     }
   }
 }
