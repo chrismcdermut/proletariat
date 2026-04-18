@@ -284,6 +284,8 @@ export class SQLiteStorage {
   // call them now produces a compile error, which is the whole point.
   // ===========================================================================
 
+  /* eslint-disable proletariat/no-stub-functions -- Legacy stubs with live callers being migrated (PRLT-1319). */
+
   private deadMethod(name: string): never {
     throw new Error(
       `SQLiteStorage.${name}() removed (PRLT-1299). ` +
@@ -341,6 +343,8 @@ export class SQLiteStorage {
 
   async getProjectWorkflow(_projectId: string): Promise<Workflow | null> { this.deadMethod('getProjectWorkflow') }
   async listStatuses(_workflowId: string): Promise<WorkflowStatus[]> { this.deadMethod('listStatuses') }
+
+  /* eslint-enable proletariat/no-stub-functions */
 
   // --- Project ops ---
 

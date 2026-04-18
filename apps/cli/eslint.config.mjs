@@ -3,6 +3,7 @@ import oclif from 'eslint-config-oclif'
 import prettier from 'eslint-config-prettier'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
+import noStubFunctions from './eslint-rules/no-stub-functions.mjs'
 
 const gitignorePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.gitignore')
 
@@ -11,7 +12,19 @@ export default [
   ...oclif,
   prettier,
   {
+    plugins: {
+      'proletariat': {
+        rules: {
+          'no-stub-functions': noStubFunctions,
+        },
+      },
+    },
     rules: {
+      // ── Hard-remove policy (PRLT-1320) ────────────────────────────
+      // Functions that only throw 'removed'/'deprecated' errors are soft stubs.
+      // Delete the function entirely — the compiler catches missed callers.
+      'proletariat/no-stub-functions': 'error',
+
       // ── Strict quality rules (errors) ─────────────────────────────
       // Empty catch blocks silently swallow errors — always log or rethrow
       'no-empty': ['error', {allowEmptyCatch: false}],

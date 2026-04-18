@@ -135,6 +135,37 @@ Before writing a new helper, check if one already exists:
 - **Ticket operations**: Use `TicketProvider` from `lib/providers/`
 - **JSON mode output**: Use `outputPromptAsJson` / `buildPromptConfig` from `lib/utils/`
 
+## Hard Remove Policy
+
+**Rule: When removing code, delete it entirely. No soft stubs.**
+
+Never replace a function body with `throw new Error('method removed')` or similar runtime stubs. Delete the function, method, or class entirely. The TypeScript compiler will fail on every caller, forcing the migration to be complete before the code can build.
+
+Soft stubs (functions that only throw "removed" / "deprecated" / "not implemented" errors) hide the break from the compiler, pass tests that don't exercise the removed path, and ship broken commands that explode for users at runtime.
+
+```typescript
+// BAD — soft stub hides the break from the compiler
+async getTicket(id: string): Promise<Ticket | null> {
+  throw new Error('getTicket() removed — use provider instead')
+}
+
+// BAD — helper-based stub, same problem
+async getTicket(id: string): Promise<Ticket | null> {
+  this.deadMethod('getTicket')
+}
+
+// GOOD — delete the method entirely
+// (compiler fails on every caller → forces complete migration)
+```
+
+**Why this matters:**
+- The TypeScript compiler is the cheapest, fastest audit tool available
+- Deleting a method makes the compiler fail on every caller immediately
+- Soft stubs defer the failure to runtime, where it's more expensive to find and fix
+- Tests that don't exercise the removed path will pass with stubs, giving false confidence
+
+**Enforced by:** ESLint rule `proletariat/no-stub-functions` (CI will block PRs that introduce soft stubs)
+
 ## ESLint Rules
 
 The following rules are enforced as errors (CI will block PRs that violate them):
@@ -144,6 +175,7 @@ The following rules are enforced as errors (CI will block PRs that violate them)
 | `no-empty` | Empty catch blocks |
 | `no-unreachable` | Dead code after return/throw/break |
 | `@typescript-eslint/no-unused-vars` | Unused imports, variables, parameters |
+| `proletariat/no-stub-functions` | Soft stubs — functions that only throw removal/deprecation errors |
 
 The `_` prefix convention marks intentionally unused variables:
 - `_unusedVar` — acknowledged as unused

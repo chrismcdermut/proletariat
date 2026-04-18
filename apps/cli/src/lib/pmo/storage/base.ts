@@ -573,6 +573,10 @@ Before starting, assess the situation:
 - Update documentation if the changes affect it
 - Run tests to verify the implementation
 
+## Hard Remove Policy
+
+When removing code, **delete it entirely**. Do NOT leave runtime-throwing stubs like \\\`throw new Error('method removed')\\\`. The TypeScript compiler is your audit tool — deleting a method forces every caller to fail at compile time, which is cheaper and faster than discovering runtime explosions in production. Soft stubs hide the failure from the compiler and will be caught by CI lint rules.
+
 **IMPORTANT: Commit and push frequently!**
 - Commit after each logical change or completed subtask
 - Push after every 1-2 commits to save your work
