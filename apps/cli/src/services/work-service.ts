@@ -22,7 +22,7 @@ import {
   listOpenPRs,
   isGHInstalled,
 } from '../lib/pr/index.js'
-import type { PRInfo, PRCheck } from '../lib/pr/index.js'
+import type { PRInfo } from '../lib/pr/index.js'
 import {
   rebaseSiblingPRs,
   watchAndShip,
@@ -116,6 +116,14 @@ export class WorkService {
       // PR provided — look it up
       prInfo = getPRByNumber(prNumber, { cwd })
       if (!prInfo) {
+        // Fallback: cwd may not be a git repo (e.g. HQ root). Try deriving
+        // the repo slug from cwd and use the explicit --repo flag (PRLT-1334).
+        const repoSlug = cwd ? getGitHubRepo(cwd) : undefined
+        if (repoSlug) {
+          prInfo = getPRByNumber(prNumber, { repo: repoSlug })
+        }
+      }
+      if (!prInfo) {
         throw new ServiceError('NOT_FOUND', `PR #${prNumber} not found.`)
       }
 
@@ -137,8 +145,14 @@ export class WorkService {
 
       prNumber = ticket.metadata?.pr_number ? parseInt(ticket.metadata.pr_number, 10) : undefined
 
+      // Build lookup options — start with cwd, derive repo slug as fallback.
+      // When cwd is not a git repo (e.g. HQ root), the --repo flag lets gh
+      // query GitHub directly without needing a local git remote (PRLT-1334).
+      const repoSlug = cwd ? getGitHubRepo(cwd) : undefined
+      const lookupOpts: { cwd?: string; repo?: string } = repoSlug ? { repo: repoSlug } : { cwd }
+
       if (prNumber) {
-        prInfo = getPRByNumber(prNumber, { cwd })
+        prInfo = getPRByNumber(prNumber, { cwd }) || getPRByNumber(prNumber, lookupOpts)
       }
 
       if (!prInfo) {
@@ -146,7 +160,7 @@ export class WorkService {
         const runningExecution = this.executionStorage.getRunningExecution(ticketId)
         const branch = runningExecution?.branch || ticket.branch
         if (branch) {
-          prInfo = getPRForBranch(branch, { cwd })
+          prInfo = getPRForBranch(branch, { cwd }) || getPRForBranch(branch, lookupOpts)
           if (prInfo) prNumber = prInfo.number
         }
       }
@@ -154,7 +168,7 @@ export class WorkService {
       if (!prInfo) {
         // Search by ticket IDs
         const searchIds = this.buildSearchIds(ticket, ticketId)
-        const found = findPRForTicket(searchIds, { cwd })
+        const found = findPRForTicket(searchIds, { cwd }) || findPRForTicket(searchIds, lookupOpts)
         if (found) {
           prInfo = found
           prNumber = found.number
