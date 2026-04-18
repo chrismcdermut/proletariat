@@ -254,6 +254,8 @@ export interface ExecutionContext {
   connectedIntegrations?: string[] // e.g. ['asana', 'linear'] — only integrations that are configured
   // Tool registry (TKT-083): per-agent tool access
   toolPolicy?: string // Policy profile name (e.g., 'code-agent') for tool access control
+  // PRLT-1337: Execution lifecycle tracking
+  executionId?: string // agent_work row ID — passed to runner scripts for exit code reporting
 }
 
 // =============================================================================

@@ -174,6 +174,40 @@ export function getMachineDbPath(): string {
   return path.join(dir, 'machine.db')
 }
 
+/**
+ * Ensure the machine-level database at ~/.proletariat/machine.db exists and
+ * has its schema initialized.  Safe to call repeatedly (idempotent).
+ *
+ * Call this during `prlt init` / `prlt new` so the database is ready
+ * before any command tries to read from it.
+ */
+export function ensureMachineDb(): void {
+  const db = new MachineDB()
+  db.close()
+}
+
+/**
+ * Remove a stale 0-byte machine.db that was accidentally created at the
+ * HQ root (the correct location is ~/.proletariat/machine.db).
+ *
+ * Returns true if a stale file was removed.
+ */
+export function cleanupStaleMachineDb(hqPath: string): boolean {
+  const staleDbPath = path.join(hqPath, 'machine.db')
+  try {
+    if (fs.existsSync(staleDbPath)) {
+      const stat = fs.statSync(staleDbPath)
+      if (stat.size === 0) {
+        fs.unlinkSync(staleDbPath)
+        return true
+      }
+    }
+  } catch {
+    // Non-fatal — best-effort cleanup
+  }
+  return false
+}
+
 // =============================================================================
 // Machine DB
 // =============================================================================
