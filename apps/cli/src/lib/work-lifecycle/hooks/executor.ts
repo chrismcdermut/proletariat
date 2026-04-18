@@ -150,6 +150,32 @@ export function executeHook(
           durationMs: Date.now() - start,
         }
       }
+
+      case 'poke': {
+        // Poke-type hooks are handled by HookManager via service action handlers.
+        // They should not reach the executor directly.
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: hook.actionValue,
+          success: false,
+          error: 'poke-type hooks must be routed through built-in action handlers, not the executor',
+          durationMs: Date.now() - start,
+        }
+      }
+
+      case 'llm': {
+        // LLM-type hooks are handled by HookManager via service action handlers.
+        // They should not reach the executor directly.
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: hook.actionValue,
+          success: false,
+          error: 'llm-type hooks must be routed through built-in action handlers, not the executor',
+          durationMs: Date.now() - start,
+        }
+      }
     }
 
     return {

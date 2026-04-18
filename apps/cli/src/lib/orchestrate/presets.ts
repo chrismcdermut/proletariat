@@ -52,6 +52,12 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_ci_failed', action: 'spawn-fix-agent' },
   // Periodic cleanup
   { event: 'on_agent_completed', action: 'gc-sweep' },
+  // Poke orchestrator — single action definition, multiple event triggers
+  { event: 'on_pr_opened', action: 'poke-orchestrator', config: { target: 'orchestrator-main', template: '{event}: {ticket_id} PR#{pr_number} by {author} — {branch}' } },
+  { event: 'on_ci_green', action: 'poke-orchestrator', config: { target: 'orchestrator-main', template: '{event}: {ticket_id} PR#{pr_number} — CI passed' } },
+  { event: 'on_ci_failed', action: 'poke-orchestrator', config: { target: 'orchestrator-main', template: '{event}: {ticket_id} PR#{pr_number} — CI failed' } },
+  { event: 'on_agent_completed', action: 'poke-orchestrator', config: { target: 'orchestrator-main', template: '{event}: {ticket_id} agent={agent_name} — {summary}' } },
+  { event: 'on_agent_died', action: 'poke-orchestrator', config: { target: 'orchestrator-main', template: '{event}: {ticket_id} agent={agent_name} exit={exit_code} — {error}' } },
 ]
 
 /**
@@ -72,6 +78,7 @@ const SAFE_ACTIONS = new Set([
   'rebase-conflicting-prs',
   'spawn-review-agent',
   'gc-sweep',
+  'poke-orchestrator',
 ])
 
 export const PRESETS: Record<PresetName, PresetDefinition> = {

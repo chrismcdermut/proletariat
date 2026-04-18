@@ -15,6 +15,7 @@ import type Database from 'better-sqlite3'
 import type { OrchestrateEventContext, OrchestrateActionResult } from './types.js'
 import { resolveWorkflowTarget } from '../work-lifecycle/settings.js'
 import type { ProviderStorage } from '../providers/types.js'
+import { interpolateTemplate } from '../work-lifecycle/hooks/types.js'
 
 type ServiceActionHandler = (
   ctx: OrchestrateEventContext,
@@ -56,6 +57,7 @@ function createMinimalStorage(db: Database.Database): ProviderStorage {
 export const SERVICE_BACKED_ACTIONS = new Set([
   'move-ticket',
   'notify',
+  'poke-orchestrator',
 ])
 
 /**
@@ -72,6 +74,7 @@ export function createServiceActionHandlers(
   return {
     'move-ticket': createMoveTicketHandler(db),
     'notify': createNotifyHandler(),
+    'poke-orchestrator': createPokeHandler(),
   }
 }
 
@@ -146,5 +149,91 @@ function createNotifyHandler(): ServiceActionHandler {
     console.log(`[orchestrate:notify] ${parts.join(' ')}`)
 
     return { action: 'notify', success: true, durationMs: Date.now() - start }
+  }
+}
+
+/**
+ * Service-backed poke handler (poke-orchestrator action).
+ *
+ * Sends a templated message to a named session via tmux. The target session
+ * and message template come from the hook's config JSON:
+ *
+ *   config: { target: 'orchestrator-main', template: '{event}: {ticket_id} — {summary}' }
+ *
+ * If no template is provided, generates a default message with event name,
+ * ticket ID, PR number, and a suggested next command.
+ */
+function createPokeHandler(): ServiceActionHandler {
+  return async (ctx, config) => {
+    const start = Date.now()
+    const target = (config?.target as string) || 'orchestrator-main'
+    const template = config?.template as string | undefined
+
+    // Build the message from template or default
+    let message: string
+    if (template) {
+      message = interpolateTemplate(template, ctx)
+    } else {
+      // Default message with event name, ticket, PR, and suggested next command
+      const parts: string[] = [`[${ctx.event || 'unknown'}]`]
+      if (ctx.ticket) parts.push(`ticket=${ctx.ticket}`)
+      if (ctx.pr) parts.push(`PR=#${ctx.pr}`)
+      if (ctx.agent) parts.push(`agent=${ctx.agent}`)
+
+      // Suggest a next command based on the event
+      const suggested = suggestNextCommand(ctx.event as string, ctx)
+      if (suggested) parts.push(`→ ${suggested}`)
+
+      message = parts.join(' ')
+    }
+
+    try {
+      // Import session resolution and tmux utilities lazily to avoid circular deps
+      const { SessionService } = await import('../../services/session-service.js')
+      const { sendTmuxMessage } = await import('../execution/session-utils.js')
+
+      const sessionService = new SessionService()
+      const resolved = sessionService.resolveSession(target)
+
+      if (resolved.kind === 'none') {
+        // Session not found — log the message instead of failing
+        console.log(`[poke-orchestrator] Session "${target}" not found. Message: ${message}`)
+        return { action: 'poke-orchestrator', success: true, durationMs: Date.now() - start }
+      }
+
+      if (resolved.kind === 'multiple') {
+        console.log(`[poke-orchestrator] Multiple sessions match "${target}". Message: ${message}`)
+        return { action: 'poke-orchestrator', success: true, durationMs: Date.now() - start }
+      }
+
+      const session = resolved.session
+      sendTmuxMessage(session.sessionId, message, session.containerId)
+
+      return { action: 'poke-orchestrator', success: true, durationMs: Date.now() - start }
+    } catch (err) {
+      // Poke failures are non-fatal — the orchestrator may not be running
+      console.log(`[poke-orchestrator] Failed to poke "${target}": ${err instanceof Error ? err.message : String(err)}. Message: ${message}`)
+      return { action: 'poke-orchestrator', success: true, durationMs: Date.now() - start }
+    }
+  }
+}
+
+/**
+ * Suggest a next prlt command based on the event type.
+ */
+function suggestNextCommand(event: string, ctx: Record<string, unknown>): string | undefined {
+  switch (event) {
+    case 'on_pr_opened':
+      return ctx.pr ? `prlt work ship ${ctx.ticket || ''}` : undefined
+    case 'on_ci_green':
+      return ctx.pr ? `prlt work ship ${ctx.ticket || ''}` : undefined
+    case 'on_ci_failed':
+      return ctx.ticket ? `prlt work start ${ctx.ticket} --action fix` : undefined
+    case 'on_agent_completed':
+      return ctx.ticket ? `prlt work propose ${ctx.ticket}` : undefined
+    case 'on_agent_died':
+      return ctx.ticket ? `prlt work start ${ctx.ticket}` : undefined
+    default:
+      return undefined
   }
 }

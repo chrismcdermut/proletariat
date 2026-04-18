@@ -32,6 +32,7 @@ import { intentBasedActions } from './0023_intent_based_actions.js'
 import { dropDeadPmoTables } from './0024_drop_dead_pmo_tables.js'
 import { transitionMapManyToOne } from './0025_transition_map_many_to_one.js'
 import { hookActionType } from './0026_hook_action_type.js'
+import { hookActionTypesExpand } from './0027_hook_action_types_expand.js'
 
 /**
  * Ordered list of all migrations.
@@ -64,4 +65,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   dropDeadPmoTables,
   transitionMapManyToOne,
   hookActionType,
+  hookActionTypesExpand,
 ]

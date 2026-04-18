@@ -16,9 +16,26 @@ export type {
   HookExecutionResult,
   HookActionHandler,
   AsyncHookActionHandler,
+  EventPayloadMap,
+  PrOpenedPayload,
+  PrMergedPayload,
+  CiGreenPayload,
+  CiFailedPayload,
+  AgentCompletedPayload,
+  AgentDiedPayload,
+  PrCommentPayload,
+  TicketReadyPayload,
+  AgentSpawnedPayload,
+  ReviewApprovedPayload,
+  ChangesRequestedPayload,
 } from './types.js'
 
-export { HOOKABLE_EVENTS, HOOK_MODES } from './types.js'
+export {
+  HOOKABLE_EVENTS,
+  HOOK_MODES,
+  EVENT_PAYLOAD_FIELDS,
+  interpolateTemplate,
+} from './types.js'
 
 export {
   WorkHookStorage,

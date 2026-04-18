@@ -18,7 +18,7 @@ export const HOOKS_TABLE_SCHEMA = `
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     event TEXT NOT NULL,
-    action_type TEXT NOT NULL CHECK (action_type IN ('shell', 'webhook', 'log', 'action')),
+    action_type TEXT NOT NULL CHECK (action_type IN ('shell', 'webhook', 'log', 'action', 'poke', 'llm')),
     action_value TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     description TEXT,
@@ -65,6 +65,7 @@ function rowToConfig(row: WorkHookRow): WorkHookConfig {
     mode: (row.mode as HookMode) || 'auto',
     priority: row.priority ?? 0,
     config,
+    actionRef: row.action_ref ?? null,
   }
 }
 
@@ -93,16 +94,23 @@ export class WorkHookStorage {
       params.push(options.enabled ? 1 : 0)
     }
 
-    // Try extended query with mode/priority/config columns first
+    // Try extended query with mode/priority/config/action_ref columns first
     try {
-      const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at, mode, priority, config FROM ${HOOKS_TABLE}${where} ORDER BY priority ASC, created_at ASC`
+      const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at, mode, priority, config, action_ref FROM ${HOOKS_TABLE}${where} ORDER BY priority ASC, created_at ASC`
       const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
       return rows.map(rowToConfig)
     } catch {
-      // Fallback without mode/priority/config (pre-migration)
-      const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at FROM ${HOOKS_TABLE}${where} ORDER BY created_at ASC`
-      const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
-      return rows.map(rowToConfig)
+      // Fallback without action_ref column
+      try {
+        const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at, mode, priority, config FROM ${HOOKS_TABLE}${where} ORDER BY priority ASC, created_at ASC`
+        const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
+        return rows.map(rowToConfig)
+      } catch {
+        // Fallback without mode/priority/config (pre-migration)
+        const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at FROM ${HOOKS_TABLE}${where} ORDER BY created_at ASC`
+        const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
+        return rows.map(rowToConfig)
+      }
     }
   }
 

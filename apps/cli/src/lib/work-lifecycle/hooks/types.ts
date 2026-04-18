@@ -68,8 +68,10 @@ export const HOOKABLE_EVENTS: HookableEvent[] = [
  * - webhook: POST event data to a URL
  * - log: Write a message to stdout (useful for notifications/debugging)
  * - action: Call a built-in action handler directly in-process (no shell)
+ * - poke: Send a message to a named session via tmux (in-process, no shell)
+ * - llm: Send payload to LLM for judgment/triage (Tier 2 execution)
  */
-export type HookActionType = 'shell' | 'webhook' | 'log' | 'action'
+export type HookActionType = 'shell' | 'webhook' | 'log' | 'action' | 'poke' | 'llm'
 
 /**
  * Automation mode for a hook — determines the decision tier.
@@ -137,6 +139,8 @@ export interface WorkHookConfig {
   priority: number
   /** Optional JSON config for built-in actions */
   config: Record<string, unknown> | null
+  /** Optional reference to a shared action definition by name. Multiple hooks can point to the same action_ref to avoid duplicating config. */
+  actionRef: string | null
 }
 
 /**
@@ -154,6 +158,7 @@ export interface WorkHookRow {
   mode: string | null
   priority: number | null
   config: string | null
+  action_ref: string | null
 }
 
 /**
@@ -197,4 +202,148 @@ export interface HookExecutionResult {
   escalatedToHuman?: boolean
   /** The decision tier that handled this hook */
   tier?: DecisionTier
+}
+
+// =============================================================================
+// Event Payload Schemas
+// =============================================================================
+
+/**
+ * Typed event payloads. Each event carries a known set of fields
+ * that actions can reference in templates via {field_name} syntax.
+ */
+
+export interface PrOpenedPayload {
+  pr_number: number
+  ticket_id: string
+  branch: string
+  author: string
+  repo: string
+}
+
+export interface PrMergedPayload {
+  pr_number: number
+  ticket_id: string
+  branch: string
+  merge_sha: string
+}
+
+export interface CiGreenPayload {
+  pr_number: number
+  ticket_id: string
+  check_suite_url?: string
+}
+
+export interface CiFailedPayload {
+  pr_number: number
+  ticket_id: string
+  failed_checks: string[]
+}
+
+export interface AgentCompletedPayload {
+  agent_name: string
+  ticket_id: string
+  execution_id?: string
+  summary?: string
+}
+
+export interface AgentDiedPayload {
+  agent_name: string
+  ticket_id: string
+  execution_id?: string
+  exit_code?: number
+  error?: string
+}
+
+export interface PrCommentPayload {
+  pr_number: number
+  ticket_id: string
+  comment_id: string
+  author: string
+  body: string
+  file?: string
+  line?: number
+}
+
+export interface TicketReadyPayload {
+  ticket_id: string
+  project_id?: string
+}
+
+export interface AgentSpawnedPayload {
+  agent_name: string
+  ticket_id: string
+  execution_id?: string
+  environment?: string
+}
+
+export interface ReviewApprovedPayload {
+  pr_number: number
+  ticket_id: string
+  reviewer?: string
+}
+
+export interface ChangesRequestedPayload {
+  pr_number: number
+  ticket_id: string
+  reviewer?: string
+  body?: string
+}
+
+/**
+ * Map from event name to its payload type.
+ */
+export interface EventPayloadMap {
+  on_pr_opened: PrOpenedPayload
+  on_pr_merged: PrMergedPayload
+  on_ci_green: CiGreenPayload
+  on_ci_failed: CiFailedPayload
+  on_agent_completed: AgentCompletedPayload
+  on_agent_died: AgentDiedPayload
+  on_pr_comment: PrCommentPayload
+  on_ticket_ready: TicketReadyPayload
+  on_agent_spawned: AgentSpawnedPayload
+  on_review_approved: ReviewApprovedPayload
+  on_changes_requested: ChangesRequestedPayload
+}
+
+/**
+ * All event payload field names for documentation/validation.
+ */
+export const EVENT_PAYLOAD_FIELDS: Record<string, string[]> = {
+  on_pr_opened: ['pr_number', 'ticket_id', 'branch', 'author', 'repo'],
+  on_pr_merged: ['pr_number', 'ticket_id', 'branch', 'merge_sha'],
+  on_ci_green: ['pr_number', 'ticket_id', 'check_suite_url'],
+  on_ci_failed: ['pr_number', 'ticket_id', 'failed_checks'],
+  on_agent_completed: ['agent_name', 'ticket_id', 'execution_id', 'summary'],
+  on_agent_died: ['agent_name', 'ticket_id', 'execution_id', 'exit_code', 'error'],
+  on_pr_comment: ['pr_number', 'ticket_id', 'comment_id', 'author', 'body', 'file', 'line'],
+  on_ticket_ready: ['ticket_id', 'project_id'],
+  on_agent_spawned: ['agent_name', 'ticket_id', 'execution_id', 'environment'],
+  on_review_approved: ['pr_number', 'ticket_id', 'reviewer'],
+  on_changes_requested: ['pr_number', 'ticket_id', 'reviewer', 'body'],
+}
+
+/**
+ * Interpolate {field} placeholders in a template string with payload data.
+ * Uses single-brace syntax: '{ticket_id}', '{pr_number}', '{author}'.
+ *
+ * Falls back to the context object (normalized field names) if the payload
+ * doesn't contain the field, enabling both raw payload fields and normalized
+ * context fields in templates.
+ */
+export function interpolateTemplate(
+  template: string,
+  payload: Record<string, unknown>,
+  ctx?: Record<string, unknown>,
+): string {
+  return template.replace(/\{(\w+)\}/g, (_match, field: string) => {
+    const value = payload[field] ?? ctx?.[field]
+    if (value === null || value === undefined) return `{${field}}`
+    if (value instanceof Date) return value.toISOString()
+    if (typeof value === 'object') {
+      try { return JSON.stringify(value) } catch { return String(value) }
+    }
+    return String(value)
+  })
 }

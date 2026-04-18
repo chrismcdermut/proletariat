@@ -94,6 +94,7 @@ export type BuiltinAction =
   | 'health-check'
   | 'resolve-conflict'
   | 'gc-sweep'
+  | 'poke-orchestrator'
 
 /** All valid built-in action names. */
 export const BUILTIN_ACTIONS: BuiltinAction[] = [
@@ -109,6 +110,7 @@ export const BUILTIN_ACTIONS: BuiltinAction[] = [
   'health-check',
   'resolve-conflict',
   'gc-sweep',
+  'poke-orchestrator',
 ]
 
 // =============================================================================

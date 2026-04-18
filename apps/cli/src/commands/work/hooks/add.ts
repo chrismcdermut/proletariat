@@ -36,8 +36,8 @@ export default class WorkHooksAdd extends PromptCommand {
       options: HOOKABLE_EVENTS,
     }),
     'action-type': Flags.string({
-      description: 'Action type (shell, webhook, log, or action)',
-      options: ['shell', 'webhook', 'log', 'action'],
+      description: 'Action type (shell, webhook, log, action, poke, or llm)',
+      options: ['shell', 'webhook', 'log', 'action', 'poke', 'llm'],
     }),
     'action-value': Flags.string({
       description: 'Action payload (command, URL, or message template)',
@@ -135,6 +135,8 @@ export default class WorkHooksAdd extends PromptCommand {
           { name: 'webhook — POST event data to a URL', value: 'webhook' },
           { name: 'log — Print a message to stdout', value: 'log' },
           { name: 'action — Call a built-in action directly (no shell)', value: 'action' },
+          { name: 'poke — Send a message to a named session', value: 'poke' },
+          { name: 'llm — Send to LLM for judgment/triage', value: 'llm' },
         ]
         const message = 'Action type:'
 
@@ -165,6 +167,8 @@ export default class WorkHooksAdd extends PromptCommand {
           webhook: 'Webhook URL:',
           log: 'Log message template (use {{workItemId}}, {{event}}, etc.):',
           action: 'Built-in action name (e.g. move-ticket, notify, merge-pr):',
+          poke: 'Session target name (e.g. orchestrator-main):',
+          llm: 'LLM prompt template (use {ticket_id}, {event}, etc.):',
         }
         const message = prompts[actionType!]
 

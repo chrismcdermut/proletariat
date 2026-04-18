@@ -47,8 +47,8 @@ export default class HookList extends PromptCommand {
       description: 'Filter by event name',
     }),
     mode: Flags.string({
-      description: 'Filter by mode (auto, confirm, notify, off)',
-      options: ['auto', 'confirm', 'notify', 'off'],
+      description: 'Filter by mode (auto, confirm, notify, llm, human, off)',
+      options: ['auto', 'confirm', 'notify', 'llm', 'human', 'off'],
     }),
     source: Flags.string({
       description: 'Filter by source (yaml, cli, preset)',
@@ -157,9 +157,16 @@ export default class HookList extends PromptCommand {
                 ? styles.warning('confirm')
                 : mode === 'notify'
                   ? styles.info('notify')
-                  : styles.muted('off')
+                  : mode === 'llm'
+                    ? styles.warning('llm')
+                    : mode === 'human'
+                      ? styles.warning('human')
+                      : styles.muted('off')
 
-          this.log(`    ${status} ${styles.code(hook.action_value)} ${styles.muted(`[${source}]`)}`)
+          const typeLabel = hook.action_type !== 'shell' && hook.action_type !== 'action'
+            ? ` ${styles.muted(`(${hook.action_type})`)}`
+            : ''
+          this.log(`    ${status} ${styles.code(hook.action_value)}${typeLabel} ${styles.muted(`[${source}]`)}`)
           if (hook.description) {
             this.log(`         ${styles.muted(hook.description)}`)
           }

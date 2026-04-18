@@ -351,6 +351,8 @@ export class HookManager {
   /**
    * Resolve the action name from a hook config and a set of known action handlers.
    *
+   * - If action_ref is set, use it (shared action definition)
+   * - If the action_type is action/poke/llm, the action_value IS the action name
    * - If the action_value contains `--action <name>`, extracts the name
    * - If the action_value is a known built-in action, uses it directly
    * - Otherwise uses the raw action_value (shell command)
@@ -358,8 +360,11 @@ export class HookManager {
    * Public so it can be tested in isolation.
    */
   static resolveActionName(hook: WorkHookConfig, knownActions: Record<string, unknown> = {}): string {
-    // For action-type hooks, the action_value IS the action name
-    if (hook.actionType === 'action') return hook.actionValue
+    // If action_ref is set, use it — shared action definition
+    if (hook.actionRef) return hook.actionRef
+
+    // For action/poke/llm-type hooks, the action_value IS the action name
+    if (hook.actionType === 'action' || hook.actionType === 'poke' || hook.actionType === 'llm') return hook.actionValue
 
     // If the action_value contains --action, extract the action name
     const actionMatch = hook.actionValue.match(/--action\s+(\S+)/)
@@ -653,8 +658,8 @@ export class HookManager {
   ): Promise<HookExecutionResult> {
     const actionName = HookManager.resolveActionName(hook, this.actionHandlers)
 
-    // For action-type hooks, use service handlers first (async, in-process)
-    if (hook.actionType === 'action') {
+    // For action/poke/llm-type hooks, use service handlers first (async, in-process)
+    if (hook.actionType === 'action' || hook.actionType === 'poke' || hook.actionType === 'llm') {
       if (this.serviceActionHandlers[actionName]) {
         const handlerResult = await this.serviceActionHandlers[actionName](ctx, hook.config ?? undefined)
         return {
@@ -668,7 +673,7 @@ export class HookManager {
         }
       }
 
-      // Fall back to sync action handlers for action-type hooks
+      // Fall back to sync action handlers
       if (this.actionHandlers[actionName]) {
         const handlerResult = this.actionHandlers[actionName](ctx, hook.config ?? undefined)
         return {
@@ -682,7 +687,7 @@ export class HookManager {
         }
       }
 
-      // action-type but no matching handler — this is a configuration error
+      // No matching handler — this is a configuration error
       return {
         hookId: hook.id,
         hookName: hook.name,
