@@ -35,17 +35,25 @@ export const HOOKS_TABLE_SCHEMA = `
 export const HOOKS_TABLE_INDEX = `
   CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_event ON ${HOOKS_TABLE}(event);
   CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_enabled ON ${HOOKS_TABLE}(enabled);
-  CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_priority ON ${HOOKS_TABLE}(event, priority);
-  CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_action_ref ON ${HOOKS_TABLE}(action_ref);
 `
 
 /**
  * Ensure the hooks table exists in the database.
- * Safe to call multiple times.
+ * Safe to call multiple times. Creates the full current schema when the table
+ * doesn't exist; when it does, additional indexes are created safely via IF NOT EXISTS.
  */
 export function ensureHooksTable(db: Database.Database): void {
   db.exec(HOOKS_TABLE_SCHEMA)
   db.exec(HOOKS_TABLE_INDEX)
+  // Extended indexes — only created when the corresponding columns exist
+  // (they will if the table was just created via HOOKS_TABLE_SCHEMA above,
+  // or if migrations 0015/0025 have already run).
+  try {
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_priority ON ${HOOKS_TABLE}(event, priority)`)
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_action_ref ON ${HOOKS_TABLE}(action_ref)`)
+  } catch {
+    // Columns don't exist yet — migrations will add them and the indexes
+  }
 }
 
 /**
