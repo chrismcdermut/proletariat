@@ -140,15 +140,32 @@ export async function runHost(
   // Without export, `bash -c '...'` inside srt can't access the variable.
   const systemPromptVar = systemPromptPath ? `\nexport SYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
 
+  // PRLT-1337: Build exit code capture block.
+  // After the executor exits, capture its exit code and report it back to agent_work
+  // via `prlt execution complete`. This writes completed_at, exit_code, and status.
+  const executionIdVar = context.executionId ? `\nEXECUTION_ID="${context.executionId}"` : ''
+  const exitCodeCapture = context.executionId
+    ? `
+EXECUTOR_EXIT_CODE=$?
+
+# PRLT-1337: Report exit code to agent_work table
+if command -v prlt >/dev/null 2>&1 && [ -n "$EXECUTION_ID" ]; then
+  prlt execution complete "$EXECUTION_ID" --exit-code $EXECUTOR_EXIT_CODE 2>/dev/null || true
+fi
+`
+    : `
+EXECUTOR_EXIT_CODE=$?
+`
+
   // Ephemeral agents auto-close after completion instead of dropping to interactive shell
   const postExecBlock = context.isEphemeral
-    ? `
+    ? `${exitCodeCapture}
 echo ""
 echo "✅ Ephemeral agent work complete. Session will auto-close in 5s..."
 sleep 5
-exit 0
+exit $EXECUTOR_EXIT_CODE
 `
-    : `
+    : `${exitCodeCapture}
 echo ""
 echo "✅ Agent work complete. Press Enter to close or run more commands."
 exec $SHELL
@@ -185,7 +202,7 @@ exec $SHELL
 # PRLT-1300: prevent agent processes from running npm install -g (race condition deletes binary)
 export PRLT_AGENT=1
 # PRLT-1301: provide isolated test DB path so agent tests never touch the real workspace.db
-export PRLT_TEST_WORKSPACE_DB="/tmp/prlt-test-workspace-$$.db"
+export PRLT_TEST_WORKSPACE_DB="/tmp/prlt-test-workspace-$$.db"${executionIdVar}
 SCRIPT_PATH="${scriptPath}"
 # TKT-941: Export PROMPT_PATH so it's available inside srt sandbox child processes.
 # When running in sandbox mode, the executor is wrapped with:
