@@ -562,6 +562,114 @@ export function checkSchemaCompleteness(db: Database.Database): SchemaCheckResul
   }
 }
 
+export interface AddMissingColumnsResult {
+  added: Array<{ table: string; column: string }>
+  failed: Array<{ table: string; column: string; error: string }>
+}
+
+/**
+ * Add missing columns to existing tables via ALTER TABLE ADD COLUMN.
+ *
+ * Builds the expected schema in an in-memory database to look up column
+ * definitions (type, default value, nullability), then issues ALTER TABLE
+ * for each missing column. This is safe: ALTER TABLE ADD COLUMN preserves
+ * existing rows and data.
+ *
+ * See: PRLT-1339
+ */
+export function addMissingColumns(
+  db: Database.Database,
+  missingColumns: Array<{ table: string; column: string }>,
+): AddMissingColumnsResult {
+  if (missingColumns.length === 0) {
+    return { added: [], failed: [] }
+  }
+
+  // Build reference schema to look up column definitions
+  let expected: Database.Database | null = null
+  try {
+    expected = new Database(':memory:')
+    expected.exec(CREATE_TABLES_SQL)
+
+    // Include PMO table schemas if PMO is initialized
+    const hasPMO = !!db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='pmo_projects'"
+    ).get()
+
+    if (hasPMO) {
+      for (const sql of Object.values(PMO_TABLE_SCHEMAS)) {
+        try {
+          expected.exec(sql)
+        } catch {
+          // Some PMO tables may have FK references that fail in isolation
+        }
+      }
+    }
+
+    const added: Array<{ table: string; column: string }> = []
+    const failed: Array<{ table: string; column: string; error: string }> = []
+
+    for (const { table, column } of missingColumns) {
+      // Look up column definition from reference schema
+      const cols = expected.prepare(`PRAGMA table_info('${table}')`).all() as Array<{
+        cid: number
+        name: string
+        type: string
+        notnull: number
+        dflt_value: string | null
+        pk: number
+      }>
+
+      const colDef = cols.find(c => c.name === column)
+      if (!colDef) {
+        failed.push({ table, column, error: 'Column not found in reference schema' })
+        continue
+      }
+
+      // Build ALTER TABLE statement
+      // SQLite ALTER TABLE ADD COLUMN requires a default for NOT NULL columns
+      const colType = colDef.type || 'TEXT'
+      let alterSQL = `ALTER TABLE "${table}" ADD COLUMN "${column}" ${colType}`
+
+      if (colDef.dflt_value !== null) {
+        alterSQL += ` DEFAULT ${colDef.dflt_value}`
+      }
+
+      if (colDef.notnull && colDef.dflt_value === null) {
+        // NOT NULL without a default — supply a safe default for ALTER TABLE
+        const safeDef = colType.toUpperCase().includes('INT') ? '0' : "''"
+        alterSQL += ` NOT NULL DEFAULT ${safeDef}`
+      } else if (colDef.notnull) {
+        alterSQL += ' NOT NULL'
+      }
+
+      try {
+        db.exec(alterSQL)
+        added.push({ table, column })
+      } catch (error) {
+        failed.push({ table, column, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+
+    expected.close()
+    expected = null
+
+    return { added, failed }
+  } catch (error) {
+    if (expected) {
+      try { expected.close() } catch { /* cleanup — safe to ignore */ }
+    }
+    // If the whole operation fails, report all columns as failed
+    return {
+      added: [],
+      failed: missingColumns.map(mc => ({
+        ...mc,
+        error: error instanceof Error ? error.message : String(error),
+      })),
+    }
+  }
+}
+
 export interface RepairResult {
   success: boolean
   method: 'dump-reimport' | 'backup-restore' | 'none'
