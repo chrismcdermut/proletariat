@@ -102,6 +102,7 @@ import {
 } from '../../lib/work-source/index.js'
 import { pruneWorktrees, checkoutBranchSafe } from '../../lib/branch/index.js'
 import { handlePostExecutionTransition } from '../../lib/work-lifecycle/index.js'
+import { validateActionState } from '../../lib/work-lifecycle/action-guardrails.js'
 import { runPreflightChecks, formatPreflightReport } from '../../lib/execution/preflight.js'
 import { startPromptWatcher } from '../../lib/execution/prompt-watcher.js'
 import { getEventBus } from '../../lib/events/event-bus.js'
@@ -1510,6 +1511,22 @@ export default class WorkStart extends PMOCommand {
         if (!selectedAction) {
           db.close()
           return handleError('ACTION_NOT_FOUND', `Action not found: ${actionId}`)
+        }
+      }
+
+      // PRLT-1317: Action-level guardrail — validate invocation state
+      if (selectedAction && !flags.force) {
+        const guardrail = validateActionState({
+          validFrom: selectedAction.validFrom,
+          db,
+          statusName: ticket.statusName,
+          statusCategory: ticket.statusCategory,
+          providerName: 'pmo',
+          actionName: selectedAction.name,
+        })
+        if (!guardrail.allowed) {
+          db.close()
+          return handleError('INVALID_STATE', guardrail.message!)
         }
       }
 

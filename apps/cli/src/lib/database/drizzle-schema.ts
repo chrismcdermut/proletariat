@@ -334,6 +334,7 @@ export const pmoActions = sqliteTable('pmo_actions', {
   endPrompt: text('end_prompt'),
   fromIntent: text('from_intent'),
   toIntent: text('to_intent'),
+  validFrom: text('valid_from'),
   executor: text('executor'),
   environment: text('environment'),
   permissionMode: text('permission_mode'),

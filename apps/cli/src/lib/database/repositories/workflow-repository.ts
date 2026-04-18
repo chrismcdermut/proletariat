@@ -38,6 +38,7 @@ function toActionRecord(row: typeof actionsTable.$inferSelect): ActionRecord {
     endPrompt: row.endPrompt,
     fromIntent: row.fromIntent,
     toIntent: row.toIntent,
+    validFrom: row.validFrom,
     executor: row.executor,
     environment: row.environment,
     permissionMode: row.permissionMode,
@@ -172,6 +173,7 @@ export class WorkflowRepository implements IWorkflowRepository {
         endPrompt: input.endPrompt ?? null,
         fromIntent: input.fromIntent ?? null,
         toIntent: input.toIntent ?? null,
+        validFrom: input.validFrom ?? null,
         executor: input.executor ?? null,
         environment: input.environment ?? null,
         permissionMode: input.permissionMode ?? null,
@@ -200,6 +202,7 @@ export class WorkflowRepository implements IWorkflowRepository {
     if (input.endPrompt !== undefined) update.endPrompt = input.endPrompt
     if (input.fromIntent !== undefined) update.fromIntent = input.fromIntent
     if (input.toIntent !== undefined) update.toIntent = input.toIntent
+    if (input.validFrom !== undefined) update.validFrom = input.validFrom
     if (input.executor !== undefined) update.executor = input.executor
     if (input.environment !== undefined) update.environment = input.environment
     if (input.permissionMode !== undefined) update.permissionMode = input.permissionMode

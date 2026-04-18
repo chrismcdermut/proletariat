@@ -99,6 +99,7 @@ export class ActionStorage {
     // Support both fromIntent (new) and fromState (deprecated)
     const fromIntent = action.fromIntent ?? action.fromState ?? null
     const toIntent = action.toIntent ?? action.toState ?? null
+    const validFrom = action.validFrom?.length ? JSON.stringify(action.validFrom) : null
 
     this.ctx.drizzle
       .insert(pmoActions)
@@ -110,6 +111,7 @@ export class ActionStorage {
         endPrompt: action.endPrompt || null,
         fromIntent,
         toIntent,
+        validFrom,
         executor: action.executor || null,
         environment: action.environment || null,
         permissionMode: action.permissionMode || null,
@@ -134,6 +136,7 @@ export class ActionStorage {
       endPrompt: action.endPrompt,
       fromIntent: fromIntent || undefined,
       toIntent: toIntent || undefined,
+      validFrom: action.validFrom,
       executor: action.executor,
       environment: action.environment,
       permissionMode: action.permissionMode,
@@ -191,6 +194,9 @@ export class ActionStorage {
     if (changes.toIntent !== undefined || changes.toState !== undefined) {
       updateValues.toIntent = changes.toIntent ?? changes.toState ?? null
     }
+    if (changes.validFrom !== undefined) {
+      updateValues.validFrom = changes.validFrom?.length ? JSON.stringify(changes.validFrom) : null
+    }
     if (changes.executor !== undefined) updateValues.executor = changes.executor || null
     if (changes.environment !== undefined) updateValues.environment = changes.environment || null
     if (changes.permissionMode !== undefined) updateValues.permissionMode = changes.permissionMode || null
@@ -238,6 +244,10 @@ export class ActionStorage {
     if (changes.description !== undefined) updateValues.description = changes.description || null
     if (changes.fromIntent !== undefined) updateValues.fromIntent = changes.fromIntent || null
     if (changes.toIntent !== undefined) updateValues.toIntent = changes.toIntent || null
+    if (changes.validFrom !== undefined) {
+      const vf = changes.validFrom as string[] | undefined
+      updateValues.validFrom = vf?.length ? JSON.stringify(vf) : null
+    }
     if (changes.executor !== undefined) updateValues.executor = changes.executor || null
     if (changes.timeout !== undefined) updateValues.timeout = changes.timeout || null
 
@@ -344,6 +354,7 @@ export class ActionStorage {
       endPrompt: row.endPrompt || undefined,
       fromIntent: row.fromIntent || undefined,
       toIntent: row.toIntent || undefined,
+      validFrom: row.validFrom ? JSON.parse(row.validFrom) : undefined,
       // Deprecated compat aliases
       fromState: row.fromIntent || undefined,
       toState: row.toIntent || undefined,

@@ -34,6 +34,11 @@ export default class WorkResolve extends PMOCommand {
       description: 'Output prompt configuration as JSON (for AI agents/scripts)',
       default: false,
     }),
+    force: Flags.boolean({
+      char: 'f',
+      description: 'Bypass state guardrails (run action regardless of ticket state)',
+      default: false,
+    }),
   };
 
   async execute(): Promise<void> {
@@ -97,6 +102,9 @@ export default class WorkResolve extends PMOCommand {
       }
       if (jsonMode) {
         workStartArgs.push('--json');
+      }
+      if (flags.force) {
+        workStartArgs.push('--force');
       }
 
       setInternalAction('resolve');
