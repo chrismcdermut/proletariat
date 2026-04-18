@@ -229,6 +229,7 @@ export default class OrchestratorStop extends PromptCommand {
     // PRLT-1275: Update the machine.db mirror row so cross-HQ consumers
     // (e.g. prlt session list from /tmp, the renderer) see the orchestrator
     // as stopped. Non-fatal — machine.db is secondary.
+    // PRLT-1265: Also deregister the orchestrator thread.
     try {
       const machineDb = new MachineDB()
       try {
@@ -240,6 +241,10 @@ export default class OrchestratorStop extends PromptCommand {
           for (const row of rows) {
             machineDb.updateStatus(row.id, 'stopped')
           }
+        }
+        // Deregister orchestrator thread
+        if (orchestratorName) {
+          machineDb.updateThreadStatus(orchestratorName, 'inactive')
         }
       } finally {
         machineDb.close()

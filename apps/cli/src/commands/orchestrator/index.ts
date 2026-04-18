@@ -39,6 +39,8 @@ export default class Orchestrator extends PromptCommand {
           { name: 'Attach to running session', value: 'attach', command: 'prlt orchestrator attach --json' },
           { name: 'Start orchestrator', value: 'start', command: 'prlt orchestrator start --json' },
           { name: 'Check orchestrator status', value: 'status', command: 'prlt orchestrator status --json' },
+          { name: 'List registered threads', value: 'list', command: 'prlt orchestrator list --json' },
+          { name: 'Show event routes', value: 'routes', command: 'prlt orchestrator routes --json' },
           { name: 'Stop orchestrator', value: 'stop', command: 'prlt orchestrator stop --json' },
           { name: 'Cancel', value: 'cancel' },
         ]
@@ -46,6 +48,8 @@ export default class Orchestrator extends PromptCommand {
           { name: 'Start orchestrator', value: 'start', command: 'prlt orchestrator start --json' },
           { name: 'Attach to orchestrator', value: 'attach', command: 'prlt orchestrator attach --json' },
           { name: 'Check orchestrator status', value: 'status', command: 'prlt orchestrator status --json' },
+          { name: 'List registered threads', value: 'list', command: 'prlt orchestrator list --json' },
+          { name: 'Show event routes', value: 'routes', command: 'prlt orchestrator routes --json' },
           { name: 'Stop orchestrator', value: 'stop', command: 'prlt orchestrator stop --json' },
           { name: 'Cancel', value: 'cancel' },
         ]
@@ -70,6 +74,12 @@ export default class Orchestrator extends PromptCommand {
         break
       case 'status':
         await this.config.runCommand('orchestrator:status', [])
+        break
+      case 'list':
+        await this.config.runCommand('orchestrator:list', [])
+        break
+      case 'routes':
+        await this.config.runCommand('orchestrator:routes', [])
         break
       case 'stop':
         await this.config.runCommand('orchestrator:stop', [])
