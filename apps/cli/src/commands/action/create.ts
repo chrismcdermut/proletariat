@@ -28,8 +28,12 @@ export default class ActionCreate extends RuntimeCommand {
       char: 'd',
       description: 'Short description of the action',
     }),
+    'valid-from': Flags.string({
+      description: 'Comma-separated list of intents from which this action may run (empty = any state)',
+      multiple: true,
+    }),
     'from-intent': Flags.string({
-      description: 'Intent that triggers this action',
+      description: 'Intent that triggers this action (deprecated — use --valid-from)',
     }),
     'to-intent': Flags.string({
       description: 'Intent to move ticket to after action completes',
@@ -71,10 +75,17 @@ export default class ActionCreate extends RuntimeCommand {
     })
 
     try {
+      // Parse --valid-from: supports comma-separated and repeated flags
+      const validFromRaw = flags['valid-from'] as string[] | undefined
+      const validFrom = validFromRaw
+        ? validFromRaw.flatMap(v => v.split(',').map(s => s.trim())).filter(Boolean)
+        : undefined
+
       const actionData: Partial<WorkAction> = {
         name: args.name,
         prompt: flags.prompt,
         description: flags.description,
+        validFrom,
         fromIntent: flags['from-intent'],
         toIntent: flags['to-intent'],
         executor: flags.executor as WorkAction['executor'],

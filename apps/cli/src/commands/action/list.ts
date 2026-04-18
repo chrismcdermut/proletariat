@@ -58,6 +58,7 @@ export default class ActionList extends RuntimeCommand {
               id: a.id,
               name: a.name,
               description: a.description,
+              validFrom: a.validFrom || [],
               fromIntent: a.fromIntent,
               toIntent: a.toIntent,
               executor: a.executor,
@@ -89,7 +90,9 @@ export default class ActionList extends RuntimeCommand {
           this.log(`    ${styles.muted(action.description)}`)
         }
         const intent = []
-        if (action.fromIntent) intent.push(`from: ${action.fromIntent}`)
+        if (action.validFrom?.length) {
+          intent.push(`from: [${action.validFrom.join(', ')}]`)
+        }
         if (action.toIntent) intent.push(`to: ${action.toIntent}`)
         if (intent.length > 0) {
           this.log(`    ${styles.muted(intent.join(' → '))}`)

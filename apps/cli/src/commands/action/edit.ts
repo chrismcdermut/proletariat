@@ -31,8 +31,12 @@ export default class ActionEdit extends RuntimeCommand {
       char: 'd',
       description: 'Update description',
     }),
+    'valid-from': Flags.string({
+      description: 'Comma-separated list of valid source intents (empty string to clear)',
+      multiple: true,
+    }),
     'from-intent': Flags.string({
-      description: 'Update from_intent',
+      description: 'Update from_intent (deprecated — use --valid-from)',
     }),
     'to-intent': Flags.string({
       description: 'Update to_intent',
@@ -75,6 +79,11 @@ export default class ActionEdit extends RuntimeCommand {
       // Build changes from flags
       const changes: Record<string, unknown> = {}
       if (flags.description !== undefined) changes.description = flags.description
+      if (flags['valid-from'] !== undefined) {
+        const raw = flags['valid-from'] as string[]
+        const parsed = raw.flatMap(v => v.split(',').map(s => s.trim())).filter(Boolean)
+        changes.validFrom = parsed.length > 0 ? parsed : null
+      }
       if (flags['from-intent'] !== undefined) changes.fromIntent = flags['from-intent']
       if (flags['to-intent'] !== undefined) changes.toIntent = flags['to-intent']
       if (flags.executor !== undefined) changes.executor = flags.executor

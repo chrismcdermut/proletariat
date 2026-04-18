@@ -56,6 +56,7 @@ export default class ActionShow extends RuntimeCommand {
               description: action.description,
               prompt: action.prompt,
               endPrompt: action.endPrompt,
+              validFrom: action.validFrom || [],
               fromIntent: action.fromIntent,
               toIntent: action.toIntent,
               executor: action.executor,
@@ -84,7 +85,7 @@ export default class ActionShow extends RuntimeCommand {
       if (action.description) {
         this.log(`${styles.header('Description:')}   ${action.description}`)
       }
-      this.log(`${styles.header('From Intent:')}   ${action.fromIntent || 'any'}`)
+      this.log(`${styles.header('Valid From:')}    ${action.validFrom?.length ? action.validFrom.join(', ') : 'any state'}`)
       this.log(`${styles.header('To Intent:')}     ${action.toIntent || 'none'}`)
       this.log(`${styles.header('Executor:')}      ${action.executor || 'workspace default'}`)
       this.log(`${styles.header('Environment:')}   ${action.environment || 'workspace default'}`)
