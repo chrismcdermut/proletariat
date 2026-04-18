@@ -6,6 +6,7 @@ import {
   getDatabasePath,
   checkIntegrity,
   checkSchemaCompleteness,
+  addMissingColumns,
   repairDatabase,
   listBackups,
 } from '../../lib/database/index.js'
@@ -163,13 +164,27 @@ export default class DbRepair extends Command {
         try {
           migrateDb = new Database(dbPath)
           runDrizzleMigrations(migrateDb, ALL_MIGRATIONS)
+
+          // Check if migrations fixed everything
+          let recheck = checkSchemaCompleteness(migrateDb)
+
+          // If columns are still missing, add them via ALTER TABLE (PRLT-1339)
+          if (!recheck.ok && recheck.missingColumns.length > 0) {
+            const alterResult = addMissingColumns(migrateDb, recheck.missingColumns)
+            if (alterResult.added.length > 0) {
+              for (const { table, column } of alterResult.added) {
+                this.log(styles.muted(`  Added column ${table}.${column}`))
+              }
+            }
+            for (const { table, column, error: err } of alterResult.failed) {
+              this.log(styles.error(`  Failed to add ${table}.${column}: ${err}`))
+            }
+            // Re-check after ALTER TABLE
+            recheck = checkSchemaCompleteness(migrateDb)
+          }
+
           migrateDb.close()
           migrateDb = null
-
-          // Verify schema is now complete
-          const verifyDb = new Database(dbPath, { readonly: true })
-          const recheck = checkSchemaCompleteness(verifyDb)
-          verifyDb.close()
 
           if (recheck.ok) {
             this.log(styles.success('  Schema repaired via catch-up migrations.'))
@@ -286,6 +301,13 @@ export default class DbRepair extends Command {
         try {
           migrateDb = new Database(dbPath)
           runDrizzleMigrations(migrateDb, ALL_MIGRATIONS)
+
+          // Check if migrations fixed everything; if not, try ALTER TABLE (PRLT-1339)
+          const postMigCheck = checkSchemaCompleteness(migrateDb)
+          if (!postMigCheck.ok && postMigCheck.missingColumns.length > 0) {
+            addMissingColumns(migrateDb, postMigCheck.missingColumns)
+          }
+
           migrateDb.close()
           migrateDb = null
           repaired = true

@@ -167,6 +167,7 @@ export {
   checkIntegrity,
   quickCheckIntegrity,
   checkSchemaCompleteness,
+  addMissingColumns,
   repairDatabase,
   getBackupPath,
   getBackupsDir,
@@ -175,4 +176,5 @@ export {
   type IntegrityCheckResult,
   type SchemaCheckResult,
   type RepairResult,
+  type AddMissingColumnsResult,
 } from './db-safety.js'

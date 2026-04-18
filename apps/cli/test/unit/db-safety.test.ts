@@ -11,6 +11,7 @@ import {
   checkIntegrity,
   quickCheckIntegrity,
   checkSchemaCompleteness,
+  addMissingColumns,
   repairDatabase,
   getBackupPath,
   getBackupsDir,
@@ -890,6 +891,270 @@ describe('db-safety', () => {
 
       // Should be healthy since PMO is not initialized — PMO tables not expected
       expect(result.ok).to.be.true
+    })
+  })
+
+  // =========================================================================
+  // PRLT-1339: db repair must add missing columns via ALTER TABLE
+  // =========================================================================
+  describe('addMissingColumns (PRLT-1339)', () => {
+    it('should add missing columns via ALTER TABLE ADD COLUMN', () => {
+      const dbPath = path.join(tmpDir, 'add-cols.db')
+      const db = new Database(dbPath)
+
+      // Create workspace table (expected by checkSchemaCompleteness reference)
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      // Create agents table WITHOUT base_name, mount_mode, cleaned_at
+      db.exec(`
+        CREATE TABLE agents (
+          name TEXT PRIMARY KEY,
+          type TEXT NOT NULL DEFAULT 'persistent',
+          status TEXT NOT NULL DEFAULT 'active',
+          theme_id TEXT,
+          worktree_path TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec("INSERT INTO agents VALUES ('agent-1', 'persistent', 'active', NULL, NULL, '2026-01-01')")
+
+      // Detect missing columns
+      const schema = checkSchemaCompleteness(db)
+      expect(schema.ok).to.be.false
+
+      const agentMissing = schema.missingColumns.filter(c => c.table === 'agents')
+      expect(agentMissing.length).to.be.greaterThan(0)
+
+      // Add missing columns
+      const result = addMissingColumns(db, schema.missingColumns)
+      expect(result.added.length).to.be.greaterThan(0)
+      expect(result.failed).to.have.length(0)
+
+      // Verify columns now exist
+      const cols = db.prepare("PRAGMA table_info('agents')").all() as Array<{ name: string }>
+      const colNames = cols.map(c => c.name)
+      expect(colNames).to.include('base_name')
+      expect(colNames).to.include('mount_mode')
+      expect(colNames).to.include('cleaned_at')
+
+      // Verify existing data is preserved (no data loss)
+      const row = db.prepare('SELECT * FROM agents WHERE name = ?').get('agent-1') as Record<string, unknown>
+      expect(row.name).to.equal('agent-1')
+      expect(row.status).to.equal('active')
+
+      db.close()
+    })
+
+    it('should add ticket_refs.description and ticket_refs.category specifically', () => {
+      const dbPath = path.join(tmpDir, 'ticket-refs-cols.db')
+      const db = new Database(dbPath)
+
+      // Create minimal workspace + PMO marker so PMO schemas are checked
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec("INSERT INTO workspace VALUES (1, 'hq', 'test', 1, NULL, '2026-01-01')")
+      db.exec(`
+        CREATE TABLE pmo_projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          template TEXT,
+          description TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          phase_id TEXT,
+          workflow_id TEXT,
+          is_archived INTEGER NOT NULL DEFAULT 0,
+          target_date TIMESTAMP,
+          initiative_id TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+
+      // Create ticket_refs WITHOUT description and category (the bug scenario)
+      db.exec(`
+        CREATE TABLE ticket_refs (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL DEFAULT 'pmo',
+          external_id TEXT,
+          external_key TEXT,
+          external_url TEXT,
+          title TEXT NOT NULL,
+          status TEXT,
+          priority TEXT,
+          assignee TEXT,
+          project_id TEXT,
+          cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(provider, external_id)
+        )
+      `)
+      db.exec("INSERT INTO ticket_refs (id, title) VALUES ('TKT-1', 'Test ticket')")
+
+      // Schema check should detect missing description and category
+      const schema = checkSchemaCompleteness(db)
+      const ticketRefsMissing = schema.missingColumns
+        .filter(c => c.table === 'ticket_refs')
+        .map(c => c.column)
+      expect(ticketRefsMissing).to.include('description')
+      expect(ticketRefsMissing).to.include('category')
+
+      // Fix via addMissingColumns
+      const result = addMissingColumns(db, schema.missingColumns.filter(c => c.table === 'ticket_refs'))
+      expect(result.added.map(c => c.column)).to.include('description')
+      expect(result.added.map(c => c.column)).to.include('category')
+      expect(result.failed).to.have.length(0)
+
+      // Verify columns exist and data is preserved
+      const cols = db.prepare("PRAGMA table_info('ticket_refs')").all() as Array<{ name: string }>
+      const colNames = cols.map(c => c.name)
+      expect(colNames).to.include('description')
+      expect(colNames).to.include('category')
+
+      const row = db.prepare('SELECT * FROM ticket_refs WHERE id = ?').get('TKT-1') as Record<string, unknown>
+      expect(row.title).to.equal('Test ticket')
+      expect(row.description).to.be.null
+      expect(row.category).to.be.null
+
+      db.close()
+    })
+
+    it('should return empty arrays when no columns are missing', () => {
+      const dbPath = path.join(tmpDir, 'no-missing.db')
+      const db = new Database(dbPath)
+      db.exec('CREATE TABLE test (id INTEGER PRIMARY KEY)')
+
+      const result = addMissingColumns(db, [])
+      expect(result.added).to.have.length(0)
+      expect(result.failed).to.have.length(0)
+
+      db.close()
+    })
+
+    it('should report failure for columns not in reference schema', () => {
+      const dbPath = path.join(tmpDir, 'unknown-col.db')
+      const db = new Database(dbPath)
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+
+      const result = addMissingColumns(db, [
+        { table: 'workspace', column: 'nonexistent_column' },
+      ])
+      expect(result.added).to.have.length(0)
+      expect(result.failed).to.have.length(1)
+      expect(result.failed[0].error).to.include('not found in reference schema')
+
+      db.close()
+    })
+
+    it('should handle full repair flow: create DB without columns, run repair, verify', () => {
+      const dbPath = path.join(tmpDir, 'full-repair.db')
+      const db = new Database(dbPath)
+
+      // Simulate a database created before ticket_refs had description/category
+      db.exec(`
+        CREATE TABLE workspace (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          type TEXT NOT NULL,
+          workspace_name TEXT NOT NULL,
+          has_pmo BOOLEAN DEFAULT FALSE,
+          active_theme_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `)
+      db.exec("INSERT INTO workspace VALUES (1, 'hq', 'test', 1, NULL, '2026-01-01')")
+      db.exec(`
+        CREATE TABLE pmo_projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          template TEXT,
+          description TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          phase_id TEXT,
+          workflow_id TEXT,
+          is_archived INTEGER NOT NULL DEFAULT 0,
+          target_date TIMESTAMP,
+          initiative_id TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      db.exec(`
+        CREATE TABLE ticket_refs (
+          id TEXT PRIMARY KEY,
+          provider TEXT NOT NULL DEFAULT 'pmo',
+          external_id TEXT,
+          external_key TEXT,
+          external_url TEXT,
+          title TEXT NOT NULL,
+          status TEXT,
+          priority TEXT,
+          assignee TEXT,
+          project_id TEXT,
+          cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(provider, external_id)
+        )
+      `)
+      // Insert some data that must survive repair
+      db.exec("INSERT INTO ticket_refs (id, provider, title, status) VALUES ('TKT-1', 'linear', 'Important ticket', 'In Progress')")
+      db.exec("INSERT INTO ticket_refs (id, provider, title, status) VALUES ('TKT-2', 'pmo', 'Another ticket', 'Done')")
+
+      // Step 1: Detect missing columns
+      const before = checkSchemaCompleteness(db)
+      expect(before.ok).to.be.false
+      const missingBefore = before.missingColumns
+        .filter(c => c.table === 'ticket_refs')
+        .map(c => c.column)
+      expect(missingBefore).to.include('description')
+      expect(missingBefore).to.include('category')
+
+      // Step 2: Add missing columns
+      addMissingColumns(db, before.missingColumns)
+
+      // Step 3: Verify schema is now complete for ticket_refs
+      const after = checkSchemaCompleteness(db)
+      const stillMissing = after.missingColumns.filter(c => c.table === 'ticket_refs')
+      expect(stillMissing).to.have.length(0)
+
+      // Step 4: Verify all existing data is intact
+      const rows = db.prepare('SELECT * FROM ticket_refs ORDER BY id').all() as Array<Record<string, unknown>>
+      expect(rows).to.have.length(2)
+      expect(rows[0].id).to.equal('TKT-1')
+      expect(rows[0].title).to.equal('Important ticket')
+      expect(rows[0].provider).to.equal('linear')
+      expect(rows[1].id).to.equal('TKT-2')
+
+      // Step 5: Verify new columns can be used for writes
+      db.exec("UPDATE ticket_refs SET description = 'A description', category = 'bug' WHERE id = 'TKT-1'")
+      const updated = db.prepare('SELECT description, category FROM ticket_refs WHERE id = ?').get('TKT-1') as Record<string, unknown>
+      expect(updated.description).to.equal('A description')
+      expect(updated.category).to.equal('bug')
+
+      db.close()
     })
   })
 
