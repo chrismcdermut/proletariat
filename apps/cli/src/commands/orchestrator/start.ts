@@ -31,6 +31,7 @@ import {
   updateMirrorExecution,
   closeMirrorExecution,
 } from '../../lib/machine-db-mirror.js'
+import { MachineDB } from '../../lib/machine-db.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
 import {
   loadExecutionConfig,
@@ -272,6 +273,10 @@ export default class OrchestratorStart extends RuntimeCommand {
       description: 'Run orchestrator on host (default behavior)',
       default: false,
       exclusive: ['docker'],
+    }),
+    routes: Flags.string({
+      char: 'r',
+      description: 'Comma-separated event names this orchestrator handles (e.g. "on_pr_opened,on_review_requested"). Omit for catch-all.',
     }),
   }
 
@@ -726,6 +731,29 @@ export default class OrchestratorStart extends RuntimeCommand {
         containerId: result.containerId,
       })
       closeMirrorExecution(mirrorHandle)
+
+      // PRLT-1265: Register as LLM tier endpoint in orchestrator_threads.
+      // The address encodes how the daemon can reach this session.
+      try {
+        const machineDb = new MachineDB()
+        try {
+          const address = environment === 'docker' && result.containerId
+            ? `container:${result.containerId}/tmux:${result.sessionId || sessionName}`
+            : `host:tmux:${result.sessionId || sessionName}`
+          const routeList = flags.routes
+            ? flags.routes.split(',').map(r => r.trim()).filter(Boolean)
+            : undefined
+          machineDb.registerThread({
+            name: orchestratorName,
+            address,
+            routes: routeList,
+          })
+        } finally {
+          machineDb.close()
+        }
+      } catch {
+        // Non-fatal — thread routing won't work but orchestrator is running
+      }
 
       if (jsonMode) {
         outputSuccessAsJson({
