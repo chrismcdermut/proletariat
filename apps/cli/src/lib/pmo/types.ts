@@ -523,6 +523,7 @@ export interface WorkAction {
   model?: string                              // Model override (nullable — let executor pick default)
   reviewGate?: ReviewGateMode                  // Per-action review gate override (nullable — use workspace default)
   networkAllowlist?: string[]                  // Extra domains to allowlist in container firewall for this action
+  validFrom?: string[]                         // Intent names this action can be invoked from (empty = any state)
   modifiesCode: boolean                       // Whether this action modifies code (needs branch)
   isDefault?: boolean                         // Whether this is the default action for its from_intent
   isBuiltin: boolean

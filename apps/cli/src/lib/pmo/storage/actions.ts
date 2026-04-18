@@ -117,6 +117,7 @@ export class ActionStorage {
         model: action.model || null,
         reviewGate: action.reviewGate || null,
         networkAllowlist: action.networkAllowlist?.length ? JSON.stringify(action.networkAllowlist) : null,
+        validFrom: action.validFrom?.length ? JSON.stringify(action.validFrom) : null,
         modifiesCode,
         isDefault: action.isDefault || false,
         isBuiltin: action.isBuiltin || false,
@@ -141,6 +142,7 @@ export class ActionStorage {
       model: action.model,
       reviewGate: action.reviewGate,
       networkAllowlist: action.networkAllowlist,
+      validFrom: action.validFrom,
       modifiesCode,
       isDefault: action.isDefault,
       isBuiltin: action.isBuiltin || false,
@@ -200,6 +202,9 @@ export class ActionStorage {
     if (changes.networkAllowlist !== undefined) {
       updateValues.networkAllowlist = changes.networkAllowlist?.length ? JSON.stringify(changes.networkAllowlist) : null
     }
+    if (changes.validFrom !== undefined) {
+      updateValues.validFrom = changes.validFrom?.length ? JSON.stringify(changes.validFrom) : null
+    }
     if (changes.modifiesCode !== undefined) updateValues.modifiesCode = changes.modifiesCode
     if (changes.isDefault !== undefined) updateValues.isDefault = changes.isDefault
 
@@ -240,6 +245,9 @@ export class ActionStorage {
     if (changes.toIntent !== undefined) updateValues.toIntent = changes.toIntent || null
     if (changes.executor !== undefined) updateValues.executor = changes.executor || null
     if (changes.timeout !== undefined) updateValues.timeout = changes.timeout || null
+    if (changes.validFrom !== undefined) {
+      updateValues.validFrom = Array.isArray(changes.validFrom) && changes.validFrom.length ? JSON.stringify(changes.validFrom) : null
+    }
 
     if (Object.keys(updateValues).length > 0) {
       updateValues.updatedAt = new Date().toISOString()
@@ -354,6 +362,7 @@ export class ActionStorage {
       model: row.model || undefined,
       reviewGate: (row.reviewGate as ReviewGateMode) || undefined,
       networkAllowlist: row.networkAllowlist ? JSON.parse(row.networkAllowlist) : undefined,
+      validFrom: row.validFrom ? JSON.parse(row.validFrom) : undefined,
       modifiesCode: row.modifiesCode === true,
       isDefault: row.isDefault === true,
       isBuiltin: row.isBuiltin === true,

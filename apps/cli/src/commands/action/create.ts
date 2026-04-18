@@ -53,6 +53,9 @@ export default class ActionCreate extends RuntimeCommand {
       default: true,
       allowNo: true,
     }),
+    'valid-from': Flags.string({
+      description: 'Comma-separated intent names this action can be invoked from (empty = any state)',
+    }),
   }
 
   static args = {
@@ -71,6 +74,10 @@ export default class ActionCreate extends RuntimeCommand {
     })
 
     try {
+      const validFrom = flags['valid-from']
+        ? flags['valid-from'].split(',').map(s => s.trim()).filter(Boolean)
+        : undefined
+
       const actionData: Partial<WorkAction> = {
         name: args.name,
         prompt: flags.prompt,
@@ -82,6 +89,7 @@ export default class ActionCreate extends RuntimeCommand {
         timeout: flags.timeout,
         endPrompt: flags['end-prompt'],
         modifiesCode: flags['modifies-code'],
+        validFrom,
         isBuiltin: false,
       }
 

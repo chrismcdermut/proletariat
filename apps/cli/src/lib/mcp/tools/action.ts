@@ -31,6 +31,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
                 reviewGate: a.reviewGate,
                 modifiesCode: a.modifiesCode,
                 isBuiltin: a.isBuiltin,
+                validFrom: a.validFrom,
               })),
             }, null, 2),
           }],
@@ -71,6 +72,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
       end_prompt: z.string().optional(),
       review_gate: z.enum(['required', 'auto', 'post']).optional().describe('Review gate mode override (default: use workspace setting)'),
       modifies_code: z.boolean().optional(),
+      valid_from: z.array(z.string()).optional().describe('Intent names this action can be invoked from (empty = any state)'),
     },
     async (params) => {
       try {
@@ -81,6 +83,7 @@ export function registerActionTools(server: McpServer, ctx: McpToolContext): voi
           endPrompt: params.end_prompt,
           reviewGate: params.review_gate as ReviewGateMode | undefined,
           modifiesCode: params.modifies_code ?? true,
+          validFrom: params.valid_from,
         })
         return {
           content: [{

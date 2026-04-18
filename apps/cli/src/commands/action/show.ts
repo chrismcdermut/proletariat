@@ -65,6 +65,7 @@ export default class ActionShow extends RuntimeCommand {
               model: action.model,
               reviewGate: action.reviewGate,
               networkAllowlist: action.networkAllowlist,
+              validFrom: action.validFrom,
               modifiesCode: action.modifiesCode,
               isDefault: action.isDefault,
               isBuiltin: action.isBuiltin,
@@ -86,6 +87,7 @@ export default class ActionShow extends RuntimeCommand {
       }
       this.log(`${styles.header('From Intent:')}   ${action.fromIntent || 'any'}`)
       this.log(`${styles.header('To Intent:')}     ${action.toIntent || 'none'}`)
+      this.log(`${styles.header('Valid From:')}    ${action.validFrom?.length ? action.validFrom.join(', ') : 'any state'}`)
       this.log(`${styles.header('Executor:')}      ${action.executor || 'workspace default'}`)
       this.log(`${styles.header('Environment:')}   ${action.environment || 'workspace default'}`)
       this.log(`${styles.header('Timeout:')}       ${action.timeout ? `${action.timeout}s` : 'default'}`)

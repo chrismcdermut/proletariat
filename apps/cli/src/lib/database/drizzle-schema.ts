@@ -341,6 +341,7 @@ export const pmoActions = sqliteTable('pmo_actions', {
   model: text('model'),
   reviewGate: text('review_gate'),
   networkAllowlist: text('network_allowlist'),
+  validFrom: text('valid_from'),
   modifiesCode: integer('modifies_code', { mode: 'boolean' }).notNull().default(true),
   isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),

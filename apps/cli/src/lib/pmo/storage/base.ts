@@ -157,6 +157,15 @@ export function runMigrations(db: Database.Database): void {
         // Column may already exist
       }
     }
+
+    // PRLT-1317: Add valid_from column for action-level guardrails
+    if (!actionsColumnNames.has('valid_from')) {
+      try {
+        db.exec('ALTER TABLE pmo_actions ADD COLUMN valid_from TEXT')
+      } catch {
+        // Column may already exist
+      }
+    }
   }
 
   // Migration: Add new columns to ticket_templates table
@@ -479,6 +488,7 @@ Requirements:
 After updating, output a brief summary of your grooming changes.`,
       fromIntent: 'backlog' as string | null,
       toIntent: 'ready' as string | null,
+      validFrom: null as string[] | null,  // any state — grooming can happen anytime
       executor: null as string | null,
       environment: 'host',
       permissionMode: 'readonly',
@@ -535,6 +545,7 @@ prlt ticket edit {{TICKET_ID}} --description "..." --remove-label "needs-clarifi
 \`\`\``,
       fromIntent: null,
       toIntent: null,
+      validFrom: null as string[] | null,  // any state — resolve can happen anytime
       executor: null,
       environment: 'host',
       permissionMode: 'readonly',
@@ -620,6 +631,7 @@ ${PRLT_COMMANDS_CODE}`,
 - These raw commands skip ticket lifecycle updates and break board sync.`,
       fromIntent: 'ready' as string | null,
       toIntent: 'started' as string | null,
+      validFrom: ['ready', 'backlog', 'started'] as string[] | null,
       executor: null,
       environment: 'host',
       permissionMode: 'full',
@@ -731,6 +743,7 @@ prlt ticket edit <TICKET_ID> --add-subtask "Fix: <description of issue>"
 **STOP:** After posting your review and logging any findings, your task is complete. Do not take any further actions.`,
       fromIntent: null,
       toIntent: null,
+      validFrom: ['needs_review'] as string[] | null,
       executor: null,
       environment: 'host',
       permissionMode: 'readonly',
@@ -800,6 +813,7 @@ ${PRLT_COMMANDS_CODE}`,
 **STOP:** After completing the above, your task is done. Do not take any further actions.`,
       fromIntent: 'needs_review' as string | null,
       toIntent: 'completed' as string | null,
+      validFrom: ['needs_review'] as string[] | null,
       executor: null,
       environment: 'devcontainer',
       permissionMode: 'bypassPermissions',
@@ -823,6 +837,7 @@ ${PRLT_COMMANDS_CODE}`,
         endPrompt: action.endPrompt || null,
         fromIntent: action.fromIntent || null,
         toIntent: action.toIntent || null,
+        validFrom: action.validFrom?.length ? JSON.stringify(action.validFrom) : null,
         executor: action.executor || null,
         environment: action.environment || 'host',
         permissionMode: action.permissionMode || 'full',
@@ -842,6 +857,7 @@ ${PRLT_COMMANDS_CODE}`,
           endPrompt: sql`excluded.end_prompt`,
           fromIntent: sql`excluded.from_intent`,
           toIntent: sql`excluded.to_intent`,
+          validFrom: sql`excluded.valid_from`,
           executor: sql`excluded.executor`,
           environment: sql`excluded.environment`,
           permissionMode: sql`excluded.permission_mode`,
