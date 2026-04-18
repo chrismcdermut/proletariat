@@ -10,8 +10,12 @@
  *   - Provider-agnostic — the reconciler does not branch on provider type
  *   - Fires normal state-transition code path so hooks & cleanup fire too
  *
- * Everything outside that — webhook listeners, LLM escalation, human
- * inbox, supervision tree — is explicitly out of scope per PRLT-1280.
+ * Everything outside that — webhook listeners, human inbox, supervision
+ * tree — is explicitly out of scope per PRLT-1280.
+ *
+ * PRLT-1282 adds the Tier 2→3 bridge: when the reconciler can't resolve
+ * a state deterministically, it pokes the running orchestrator session so
+ * an LLM can make a judgment call.
  */
 
 import type Database from 'better-sqlite3'
@@ -23,6 +27,14 @@ import type { PRInfo } from '../pr/index.js'
 import { getPRForBranch, getPRByNumber, searchAllPRsForTicket } from '../pr/index.js'
 import { getWorkflowConfig, type WorkflowConfig } from '../work-lifecycle/settings.js'
 import { buildTransition, deriveExpectedState, formatTransitionLogLine } from './core.js'
+import {
+  DEFAULT_THRESHOLDS,
+  EscalationTracker,
+  detectWeirdStates,
+  formatAlert,
+  sendEscalationPoke,
+} from './escalation.js'
+import type { EscalationContext, EscalationIssue } from './escalation.js'
 import type {
   BranchSearchFn,
   LinkedPR,
@@ -45,6 +57,8 @@ export type {
   ReconcileTransition,
 } from './types.js'
 export { deriveExpectedState, buildTransition, formatTransitionLogLine } from './core.js'
+export { detectWeirdStates, formatAlert, EscalationTracker } from './escalation.js'
+export type { EscalationIssue, EscalationIssueType, EscalationThresholds, EscalationContext } from './escalation.js'
 
 /**
  * Non-terminal state categories that the reconciler scans.
@@ -107,6 +121,33 @@ export async function runReconcile(
   const prLookup = options.prLookup ?? defaultPRLookup
   const branchSearch = options.branchSearch ?? defaultBranchSearch
 
+  // Escalation setup (PRLT-1282)
+  const escalateTo = options.escalateTo
+  const escalationThresholds = {
+    ...DEFAULT_THRESHOLDS,
+    ...(options.escalationThresholds ?? {}),
+  }
+  const pokeFn = options.pokeFn ?? (
+    (session: string, alert: string) => sendEscalationPoke(session, alert, { cwd })
+  )
+
+  // Build a map of running executions for session-idle detection.
+  // Only populated when escalation is active.
+  let runningExecsByTicket: Map<string, EscalationContext['activeExecutions']> | undefined
+  if (escalateTo && options.listRunningExecutions) {
+    runningExecsByTicket = new Map()
+    for (const exec of options.listRunningExecutions()) {
+      if (!exec.ticketId) continue
+      const list = runningExecsByTicket.get(exec.ticketId) ?? []
+      list.push({
+        agentName: exec.agentName,
+        startedAt: exec.startedAt,
+        sessionId: exec.sessionId,
+      })
+      runningExecsByTicket.set(exec.ticketId, list)
+    }
+  }
+
   // Workflow config is used to resolve "Done" / "In Progress" / "Review"
   // column names for the ticket's board. Fall back gracefully if the
   // settings table is missing (older databases, unit tests).
@@ -137,13 +178,23 @@ export async function runReconcile(
   log?.(`Scanning ${tickets.length} non-terminal ticket(s) across ${projectIds.length} project(s)...`)
 
   const transitions: ReconcileTransition[] = []
+  const escalationIssues: EscalationIssue[] = []
   const errors: Array<{ ticketId: string; error: string }> = []
 
   for (const ticket of tickets) {
     try {
       // eslint-disable-next-line no-await-in-loop -- sequential is fine; small N
       const linkedPRs = await gatherLinkedPRs(db, storage, ticket, prLookup, branchSearch, cwd, log)
+
+      const reconcileTicket = toReconcileTicket(ticket)
+
       if (linkedPRs.length === 0) {
+        // No linked PRs — check for escalation (e.g. ticket stalled with no PR)
+        if (escalateTo || dryRun) {
+          const ctx = buildEscalationContext(ticket, runningExecsByTicket)
+          const issues = detectWeirdStates(reconcileTicket, linkedPRs, ctx, escalationThresholds)
+          escalationIssues.push(...issues)
+        }
         continue
       }
 
@@ -152,12 +203,20 @@ export async function runReconcile(
       // in applyTransition() — this is just for the transition record.
       const providerName = providerNameFor(db, storage, ticket)
 
-      const decision = deriveExpectedState(toReconcileTicket(ticket), linkedPRs, workflowConfig)
-      if (!decision) continue
+      const decision = deriveExpectedState(reconcileTicket, linkedPRs, workflowConfig)
+      if (!decision) {
+        // No deterministic action — check for weird state escalation
+        if (escalateTo || dryRun) {
+          const ctx = buildEscalationContext(ticket, runningExecsByTicket)
+          const issues = detectWeirdStates(reconcileTicket, linkedPRs, ctx, escalationThresholds)
+          escalationIssues.push(...issues)
+        }
+        continue
+      }
 
       transitions.push(
         buildTransition({
-          ticket: toReconcileTicket(ticket),
+          ticket: reconcileTicket,
           provider: providerName,
           targetState: decision.targetState,
           reason: decision.reason,
@@ -206,6 +265,47 @@ export async function runReconcile(
     }
   }
 
+  // ---- Escalation dispatch (PRLT-1282) ----
+  const escalated: EscalationIssue[] = []
+  const cooledDown: EscalationIssue[] = []
+  const escalationDryRun: EscalationIssue[] = []
+
+  if (escalationIssues.length > 0 && escalateTo) {
+    // Retrieve or create tracker (persists across watch cycles via closure)
+    const tracker = getOrCreateTracker(options)
+
+    for (const issue of escalationIssues) {
+      if (dryRun) {
+        const alert = formatAlert(issue)
+        log?.(`[escalate] [dry-run] would poke ${escalateTo}:\n${alert}`)
+        escalationDryRun.push(issue)
+        continue
+      }
+
+      if (tracker.isInCooldown(issue.ticketId, issue.issueType)) {
+        log?.(`[escalate] cooldown: skipping ${issue.ticketId} (${issue.issueType})`)
+        cooledDown.push(issue)
+        continue
+      }
+
+      const alert = formatAlert(issue)
+      log?.(`[escalate] poking ${escalateTo} for ${issue.ticketId} (${issue.issueType})`)
+
+      // eslint-disable-next-line no-await-in-loop
+      const result = await pokeFn(escalateTo, alert)
+      if (result.success) {
+        tracker.recordPoke(issue.ticketId, issue.issueType)
+        escalated.push(issue)
+      } else {
+        log?.(`[escalate] poke failed for ${issue.ticketId}: ${result.error}`)
+        errors.push({ ticketId: issue.ticketId, error: `escalation poke failed: ${result.error}` })
+      }
+    }
+  } else if (escalationIssues.length > 0) {
+    // No --escalate-to set: these are dry-run display items
+    escalationDryRun.push(...escalationIssues)
+  }
+
   const finishedAt = new Date()
 
   return {
@@ -216,7 +316,57 @@ export async function runReconcile(
     errors,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
+    escalated,
+    cooledDown,
+    escalationDryRun,
   }
+}
+
+/**
+ * Build escalation context for a ticket from available data.
+ */
+function buildEscalationContext(
+  ticket: Ticket,
+  runningExecsByTicket?: Map<string, EscalationContext['activeExecutions']>,
+): EscalationContext {
+  const md = ticket.metadata ?? {}
+  // Use ticket's updatedAt, status_changed_at, or createdAt as proxy
+  // for "when did this ticket enter its current state?"
+  const ticketUpdatedAt =
+    md.status_changed_at ?? ticket.updatedAt ?? ticket.createdAt
+
+  // Collect running executions for this ticket from both its ID and external key
+  const execs: NonNullable<EscalationContext['activeExecutions']> = []
+  if (runningExecsByTicket) {
+    const byId = runningExecsByTicket.get(ticket.id)
+    if (byId) execs.push(...byId)
+    if (md.external_key) {
+      const byKey = runningExecsByTicket.get(md.external_key)
+      if (byKey) execs.push(...byKey)
+    }
+  }
+
+  return {
+    ticketUpdatedAt: typeof ticketUpdatedAt === 'string' ? ticketUpdatedAt : undefined,
+    activeExecutions: execs.length > 0 ? execs : undefined,
+    externalKey: md.external_key,
+  }
+}
+
+/**
+ * Shared escalation tracker — persists across watch cycles via the options
+ * object's identity. We store it in a module-level WeakMap keyed by options
+ * so each watch loop gets its own tracker but doesn't leak memory.
+ */
+const trackerCache = new WeakMap<ReconcileOptions, EscalationTracker>()
+
+function getOrCreateTracker(options: ReconcileOptions): EscalationTracker {
+  let tracker = trackerCache.get(options)
+  if (!tracker) {
+    tracker = new EscalationTracker(options.cooldownMinutes ?? 30)
+    trackerCache.set(options, tracker)
+  }
+  return tracker
 }
 
 // -----------------------------------------------------------------------------
