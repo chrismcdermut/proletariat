@@ -198,8 +198,8 @@ review:
       const hooks = db.prepare("SELECT * FROM pmo_work_hooks WHERE source = 'preset'").all() as Array<{ mode: string; action_value: string }>
       for (const hook of hooks) {
         // Conservative preset: safe actions are auto (Tier 1), destructive actions are human (Tier 3)
-        // action_value is like "prlt hook fire on_ci_green --action merge-pr", extract the action name
-        const SAFE_ACTIONS = new Set(['move-ticket', 'notify', 'cleanup-container', 'health-check', 'rebase-conflicting-prs', 'spawn-review-agent', 'gc-sweep'])
+        // action_value is the action name directly (e.g. 'merge-pr', 'poke-orchestrator')
+        const SAFE_ACTIONS = new Set(['move-ticket', 'notify', 'cleanup-container', 'health-check', 'rebase-conflicting-prs', 'spawn-review-agent', 'gc-sweep', 'poke-orchestrator'])
         const actionMatch = hook.action_value.match(/--action\s+(\S+)/)
         const actionName = actionMatch ? actionMatch[1] : hook.action_value
         const expectedMode = SAFE_ACTIONS.has(actionName) ? 'auto' : 'human'
@@ -245,10 +245,10 @@ review:
       const hasWorkStatusChanged = presetEvents.has('work:status_changed')
 
       for (const hook of hooks) {
-        // Preset hooks now use action_type='action' with the action name as action_value.
+        // Preset hooks use action_type='action' or 'poke' (for poke-orchestrator).
         // Extract the original event from the hook name: "preset:<preset>:<event>:<action>:<idx>"
-        expect(hook.action_type).to.equal('action',
-          `Preset hook "${hook.name}" should use action_type='action', not '${hook.action_type}'`)
+        expect(['action', 'poke']).to.include(hook.action_type,
+          `Preset hook "${hook.name}" should use action_type='action' or 'poke', not '${hook.action_type}'`)
         const nameParts = hook.name.split(':')
         const originalEvent = nameParts[2]
 
@@ -292,8 +292,8 @@ review:
           .all() as Array<{ event: string; action_type: string; action_value: string; name: string }>
 
         for (const hook of hooks) {
-          // Preset hooks use action_type='action'. Extract expected event from hook name.
-          expect(hook.action_type).to.equal('action')
+          // Preset hooks use action_type='action' or 'poke'. Extract expected event from hook name.
+          expect(['action', 'poke']).to.include(hook.action_type)
           const nameParts = hook.name.split(':')
           const originalEvent = nameParts[2]
           expect(hook.event).to.equal(originalEvent,

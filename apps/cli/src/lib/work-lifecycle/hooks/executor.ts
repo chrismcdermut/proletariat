@@ -10,8 +10,9 @@
  * JSON. Log actions print interpolated messages to stdout.
  */
 
-import { execSync } from 'node:child_process'
-import type { WorkHookConfig, HookExecutionResult } from './types.js'
+import { execSync, execFileSync } from 'node:child_process'
+import type { WorkHookConfig, HookExecutionResult, PokeActionConfig, LlmActionConfig } from './types.js'
+import { interpolateTemplate } from './types.js'
 
 /**
  * JSON replacer that converts Date objects to ISO-8601 strings.
@@ -135,6 +136,71 @@ export function executeHook(
         const message = interpolate(hook.actionValue, eventName, eventData)
         console.log(`[hook:${hook.name}] ${message}`)
         break
+      }
+
+      case 'poke': {
+        const config = hook.config as PokeActionConfig | null
+        const target = config?.target || hook.actionValue
+        const template = config?.template || hook.actionValue
+        const message = interpolateTemplate(template, eventName, eventData)
+
+        if (!target) {
+          return {
+            hookId: hook.id,
+            hookName: hook.name,
+            action: `poke:${target}`,
+            success: false,
+            error: 'poke action requires a target session name in config.target or action_value',
+            durationMs: Date.now() - start,
+          }
+        }
+
+        // Send directly to tmux session via execFileSync (no shell, no indirection)
+        try {
+          // Use sendTmuxMessage from session-utils: Escape, send text, Enter
+          const timeout = 5000
+          const stdio: ['pipe', 'pipe', 'pipe'] = ['pipe', 'pipe', 'pipe']
+          execFileSync('tmux', ['send-keys', '-t', target, 'Escape', ''], { stdio, timeout })
+          execFileSync('tmux', ['send-keys', '-t', target, '-l', message], { stdio, timeout })
+          execFileSync('tmux', ['send-keys', '-t', target, 'Enter', ''], { stdio, timeout })
+        } catch (pokeErr) {
+          return {
+            hookId: hook.id,
+            hookName: hook.name,
+            action: `poke:${target}`,
+            success: false,
+            error: `Failed to poke session "${target}": ${pokeErr instanceof Error ? pokeErr.message : String(pokeErr)}`,
+            durationMs: Date.now() - start,
+          }
+        }
+
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: `poke:${target}`,
+          success: true,
+          durationMs: Date.now() - start,
+        }
+      }
+
+      case 'llm': {
+        // LLM-type hooks are typically handled by the HookManager's mode-based
+        // routing (mode=llm). When action_type is 'llm', the action itself
+        // generates a prompt and delegates to the LLM decision pipeline.
+        // If it reaches the executor directly, log the prompt for visibility.
+        const config = hook.config as LlmActionConfig | null
+        const promptTemplate = config?.prompt || hook.actionValue
+        const prompt = interpolateTemplate(promptTemplate, eventName, eventData)
+
+        console.log(`[hook:${hook.name}:llm] ${prompt}`)
+
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: `llm:${hook.name}`,
+          success: true,
+          durationMs: Date.now() - start,
+        }
       }
 
       case 'action': {

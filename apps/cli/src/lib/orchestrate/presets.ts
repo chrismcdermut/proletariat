@@ -10,12 +10,15 @@
  */
 
 import type { HookMode, OrchestrateEvent, PresetName } from './types.js'
+import type { HookActionType } from '../work-lifecycle/hooks/types.js'
 
 interface PresetHook {
   event: OrchestrateEvent
   action: string
   mode: HookMode
   config?: Record<string, unknown>
+  actionType?: HookActionType
+  actionRef?: string
 }
 
 interface PresetDefinition {
@@ -24,7 +27,13 @@ interface PresetDefinition {
   hooks: PresetHook[]
 }
 
-const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Record<string, unknown> }> = [
+/** Poke-orchestrator config shared across all 5 events. */
+const POKE_ORCHESTRATOR_CONFIG = {
+  target: 'orchestrator-main',
+  template: '{event}: ticket={ticket_id} pr={pr_number} agent={agent_name} — {summary}',
+}
+
+const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Record<string, unknown>; actionType?: HookActionType; actionRef?: string }> = [
   // PR lifecycle
   { event: 'on_ci_green', action: 'merge-pr' },
   { event: 'on_pr_merged', action: 'move-ticket', config: { target: 'done' } },
@@ -52,6 +61,12 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_ci_failed', action: 'spawn-fix-agent' },
   // Periodic cleanup
   { event: 'on_agent_completed', action: 'gc-sweep' },
+  // Poke orchestrator — shared definition (PRLT-1295)
+  { event: 'on_pr_opened', action: 'poke-orchestrator', actionType: 'poke', actionRef: 'poke-orchestrator', config: POKE_ORCHESTRATOR_CONFIG },
+  { event: 'on_ci_green', action: 'poke-orchestrator', actionType: 'poke', actionRef: 'poke-orchestrator', config: POKE_ORCHESTRATOR_CONFIG },
+  { event: 'on_ci_failed', action: 'poke-orchestrator', actionType: 'poke', actionRef: 'poke-orchestrator', config: POKE_ORCHESTRATOR_CONFIG },
+  { event: 'on_agent_completed', action: 'poke-orchestrator', actionType: 'poke', actionRef: 'poke-orchestrator', config: POKE_ORCHESTRATOR_CONFIG },
+  { event: 'on_agent_died', action: 'poke-orchestrator', actionType: 'poke', actionRef: 'poke-orchestrator', config: POKE_ORCHESTRATOR_CONFIG },
 ]
 
 /**
@@ -72,6 +87,7 @@ const SAFE_ACTIONS = new Set([
   'rebase-conflicting-prs',
   'spawn-review-agent',
   'gc-sweep',
+  'poke-orchestrator',
 ])
 
 export const PRESETS: Record<PresetName, PresetDefinition> = {

@@ -134,17 +134,25 @@ export function applyPreset(db: Database.Database, presetName: PresetName): numb
       const created = storage.create({
         name: hookName,
         event: mapOrchestrateToHookable(hook.event),
-        actionType: 'action',
+        actionType: hook.actionType || 'action',
         actionValue: hook.action,
+        actionRef: hook.actionRef,
         description: `Preset ${presetName}: ${hook.event} → ${hook.action} (${hook.mode})`,
       })
 
       try {
         db.prepare(
-          "UPDATE pmo_work_hooks SET mode = ?, priority = ?, source = 'preset', config = ? WHERE id = ?"
-        ).run(hook.mode, i, hook.config ? JSON.stringify(hook.config) : null, created.id)
+          "UPDATE pmo_work_hooks SET mode = ?, priority = ?, source = 'preset', config = ?, action_ref = ? WHERE id = ?"
+        ).run(hook.mode, i, hook.config ? JSON.stringify(hook.config) : null, hook.actionRef ?? null, created.id)
       } catch {
-        // Columns might not exist
+        // Columns might not exist — try without action_ref
+        try {
+          db.prepare(
+            "UPDATE pmo_work_hooks SET mode = ?, priority = ?, source = 'preset', config = ? WHERE id = ?"
+          ).run(hook.mode, i, hook.config ? JSON.stringify(hook.config) : null, created.id)
+        } catch {
+          // Columns might not exist
+        }
       }
 
       count++

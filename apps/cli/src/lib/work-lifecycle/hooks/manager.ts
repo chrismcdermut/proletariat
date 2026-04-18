@@ -641,6 +641,9 @@ export class HookManager {
    * service handlers first (in-process, no shell), then fall back to
    * sync action handlers.
    *
+   * For poke-type hooks (action_type='poke'), the executor sends a message
+   * directly to a tmux session — no shell indirection.
+   *
    * For shell-type hooks, we first check if the action_value resolves to a
    * known built-in action (via --action flag parsing), then fall back to
    * the standard executor for raw shell commands.
@@ -691,6 +694,12 @@ export class HookManager {
         error: `No built-in action handler for '${actionName}'`,
         durationMs: 0,
       }
+    }
+
+    // For poke/llm/shell/webhook/log hooks, use the standard executor
+    // (poke and llm are handled natively by the executor)
+    if (hook.actionType === 'poke' || hook.actionType === 'llm') {
+      return executeHook(hook, eventName, { ...eventData, ...ctx })
     }
 
     // For shell-type hooks, try built-in action handler first (backward compat)

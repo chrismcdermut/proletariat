@@ -23,6 +23,7 @@ interface HookRow {
   event: string
   action_type: string
   action_value: string
+  action_ref: string | null
   enabled: number
   description: string | null
   mode: string | null
@@ -112,6 +113,7 @@ export default class HookList extends PromptCommand {
               event: h.event,
               actionType: h.action_type,
               actionValue: h.action_value,
+              actionRef: h.action_ref || null,
               enabled: h.enabled === 1,
               mode: h.mode || 'auto',
               priority: h.priority ?? 0,
@@ -153,13 +155,19 @@ export default class HookList extends PromptCommand {
             ? styles.muted('off')
             : mode === 'auto'
               ? styles.success('auto')
-              : mode === 'confirm'
-                ? styles.warning('confirm')
+              : mode === 'confirm' || mode === 'human'
+                ? styles.warning(mode)
                 : mode === 'notify'
                   ? styles.info('notify')
-                  : styles.muted('off')
+                  : mode === 'llm'
+                    ? styles.info('llm')
+                    : styles.muted('off')
 
-          this.log(`    ${status} ${styles.code(hook.action_value)} ${styles.muted(`[${source}]`)}`)
+          const typeLabel = hook.action_type !== 'action' && hook.action_type !== 'shell'
+            ? ` ${styles.muted(`(${hook.action_type})`)}`
+            : ''
+          const refLabel = hook.action_ref ? ` ${styles.muted(`ref:${hook.action_ref}`)}` : ''
+          this.log(`    ${status} ${styles.code(hook.action_value)}${typeLabel}${refLabel} ${styles.muted(`[${source}]`)}`)
           if (hook.description) {
             this.log(`         ${styles.muted(hook.description)}`)
           }
