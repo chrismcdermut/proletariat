@@ -588,6 +588,45 @@ function getActiveSessionIds(): Set<string> {
   return ids
 }
 
+/**
+ * Poke the orchestrator session with event context.
+ *
+ * This is the built-in handler for the poke-orchestrator action.
+ * When invoked via action_type='poke', the executor handles it directly.
+ * This handler is for action_type='action' with action_ref='poke-orchestrator'
+ * as a fallback.
+ */
+const pokeOrchestrator: ActionHandler = (ctx, config) => {
+  const start = Date.now()
+  const target = (config?.target as string) || 'orchestrator-main'
+  const template = (config?.template as string) || '{event}: {ticket_id}'
+
+  // Build message from template and context
+  const parts: string[] = []
+  let message = template
+  for (const [key, value] of Object.entries(ctx)) {
+    if (value === null || value === undefined) continue
+    const strValue = String(value)
+    message = message.replace(new RegExp(`\\{${key}\\}`, 'g'), strValue)
+    message = message.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), strValue)
+  }
+
+  try {
+    execFileSync('prlt', ['session', 'poke', target, message], {
+      timeout: 30_000,
+      stdio: 'pipe',
+    })
+    return { action: 'poke-orchestrator', success: true, durationMs: Date.now() - start }
+  } catch (err) {
+    return {
+      action: 'poke-orchestrator',
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - start,
+    }
+  }
+}
+
 // =============================================================================
 // Action Registry
 // =============================================================================
@@ -608,6 +647,7 @@ export const ACTION_HANDLERS: Record<string, ActionHandler> = {
   'health-check': healthCheck,
   'resolve-conflict': resolveConflict,
   'gc-sweep': gcSweep,
+  'poke-orchestrator': pokeOrchestrator,
 }
 
 /**

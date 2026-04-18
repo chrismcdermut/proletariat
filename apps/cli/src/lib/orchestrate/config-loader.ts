@@ -113,6 +113,9 @@ export function syncHooksFromYaml(db: Database.Database, hooksYaml: HooksYaml): 
 
 /**
  * Apply a preset to the database, replacing existing preset-sourced hooks.
+ *
+ * Uses action_type='action' with action_ref for built-in actions (no shell
+ * indirection) and action_type='poke' for poke-orchestrator hooks.
  */
 export function applyPreset(db: Database.Database, presetName: PresetName): number {
   const preset = getPreset(presetName)
@@ -130,12 +133,16 @@ export function applyPreset(db: Database.Database, presetName: PresetName): numb
     const hook = preset.hooks[i]
     const hookName = `preset:${presetName}:${hook.event}:${hook.action}:${i}`
 
+    // Use the native action type (action or poke) — no shell indirection
+    const actionType = hook.actionType || 'action'
+
     try {
       const created = storage.create({
         name: hookName,
         event: mapOrchestrateToHookable(hook.event),
-        actionType: 'shell',
-        actionValue: `prlt hook fire ${hook.event} --action ${hook.action}`,
+        actionType,
+        actionValue: hook.action,
+        actionRef: hook.action,
         description: `Preset ${presetName}: ${hook.event} → ${hook.action} (${hook.mode})`,
       })
 

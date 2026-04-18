@@ -15,9 +15,18 @@ export type {
   WorkHookRow,
   HookExecutionResult,
   HookActionHandler,
+  EventPayloadSchemas,
+  PokeActionConfig,
+  LlmActionConfig,
 } from './types.js'
 
-export { HOOKABLE_EVENTS, HOOK_MODES } from './types.js'
+export {
+  HOOKABLE_EVENTS,
+  HOOK_MODES,
+  HOOK_ACTION_TYPES,
+  EVENT_PAYLOAD_FIELDS,
+  interpolateTemplate,
+} from './types.js'
 
 export {
   WorkHookStorage,

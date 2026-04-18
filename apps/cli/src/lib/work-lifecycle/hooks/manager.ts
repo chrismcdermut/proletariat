@@ -341,13 +341,22 @@ export class HookManager {
   /**
    * Resolve the action name from a hook config and a set of known action handlers.
    *
-   * - If the action_value contains `--action <name>`, extracts the name
-   * - If the action_value is a known built-in action, uses it directly
-   * - Otherwise uses the raw action_value (shell command)
+   * For action_type='action': uses action_ref directly
+   * For action_type='poke': uses action_ref or 'poke'
+   * For shell: extracts --action <name> or uses action_value directly
    *
    * Public so it can be tested in isolation.
    */
   static resolveActionName(hook: WorkHookConfig, knownActions: Record<string, unknown> = {}): string {
+    // For action_type='action', use action_ref directly
+    if (hook.actionType === 'action' && hook.actionRef) return hook.actionRef
+
+    // For action_type='poke', use action_ref or fallback
+    if (hook.actionType === 'poke') return hook.actionRef || 'poke'
+
+    // For action_type='llm', use action_ref or fallback
+    if (hook.actionType === 'llm') return hook.actionRef || 'llm'
+
     // If the action_value contains --action, extract the action name
     const actionMatch = hook.actionValue.match(/--action\s+(\S+)/)
     if (actionMatch) return actionMatch[1]
@@ -622,6 +631,10 @@ export class HookManager {
 
   /**
    * Execute a hook action — either via a built-in handler or the standard executor.
+   *
+   * For action_type='action': resolves action_ref to a built-in handler directly.
+   * For action_type='poke': uses the executor's poke implementation (in-process).
+   * For other types: tries built-in handler first, then falls back to executor.
    */
   private executeHookAction(
     hook: WorkHookConfig,
@@ -631,7 +644,41 @@ export class HookManager {
   ): HookExecutionResult {
     const actionName = HookManager.resolveActionName(hook, this.actionHandlers)
 
-    // Try built-in action handler first
+    // For action_type='action', resolve the action_ref to a built-in handler
+    if (hook.actionType === 'action') {
+      const refName = hook.actionRef || hook.actionValue
+      if (this.actionHandlers[refName]) {
+        const handlerResult = this.actionHandlers[refName](ctx, hook.config ?? undefined)
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: handlerResult.action,
+          success: handlerResult.success,
+          error: handlerResult.error,
+          durationMs: handlerResult.durationMs,
+          skipped: handlerResult.skipped,
+        }
+      }
+      return {
+        hookId: hook.id,
+        hookName: hook.name,
+        action: refName,
+        success: false,
+        error: `No built-in handler found for action: ${refName}`,
+        durationMs: 0,
+      }
+    }
+
+    // For poke/llm/log types, use the executor directly
+    if (hook.actionType === 'poke' || hook.actionType === 'llm' || hook.actionType === 'log') {
+      const result = executeHook(hook, eventName, eventData)
+      return {
+        ...result,
+        action: actionName,
+      }
+    }
+
+    // Try built-in action handler first (for shell hooks with --action refs)
     if (this.actionHandlers[actionName]) {
       const handlerResult = this.actionHandlers[actionName](ctx, hook.config ?? undefined)
       return {
@@ -645,7 +692,7 @@ export class HookManager {
       }
     }
 
-    // For shell/webhook/log hooks, use the standard executor
+    // For shell/webhook hooks, use the standard executor
     const result = executeHook(hook, eventName, eventData)
     return {
       ...result,

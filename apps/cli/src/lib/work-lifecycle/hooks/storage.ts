@@ -18,8 +18,9 @@ export const HOOKS_TABLE_SCHEMA = `
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     event TEXT NOT NULL,
-    action_type TEXT NOT NULL CHECK (action_type IN ('shell', 'webhook', 'log')),
-    action_value TEXT NOT NULL,
+    action_type TEXT NOT NULL DEFAULT 'shell' CHECK (action_type IN ('shell', 'webhook', 'log', 'poke', 'action', 'llm')),
+    action_value TEXT NOT NULL DEFAULT '',
+    action_ref TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -59,6 +60,7 @@ function rowToConfig(row: WorkHookRow): WorkHookConfig {
     event: row.event as HookableEvent,
     actionType: row.action_type as HookActionType,
     actionValue: row.action_value,
+    actionRef: row.action_ref ?? null,
     enabled: row.enabled === 1,
     description: row.description,
     createdAt: row.created_at,
@@ -93,16 +95,22 @@ export class WorkHookStorage {
       params.push(options.enabled ? 1 : 0)
     }
 
-    // Try extended query with mode/priority/config columns first
+    // Try extended query with all columns first
     try {
-      const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at, mode, priority, config FROM ${HOOKS_TABLE}${where} ORDER BY priority ASC, created_at ASC`
+      const sql = `SELECT id, name, event, action_type, action_value, action_ref, enabled, description, created_at, mode, priority, config FROM ${HOOKS_TABLE}${where} ORDER BY priority ASC, created_at ASC`
       const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
       return rows.map(rowToConfig)
     } catch {
-      // Fallback without mode/priority/config (pre-migration)
-      const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at FROM ${HOOKS_TABLE}${where} ORDER BY created_at ASC`
-      const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
-      return rows.map(rowToConfig)
+      // Fallback without newer columns (pre-migration)
+      try {
+        const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at, mode, priority, config FROM ${HOOKS_TABLE}${where} ORDER BY priority ASC, created_at ASC`
+        const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
+        return rows.map(rowToConfig)
+      } catch {
+        const sql = `SELECT id, name, event, action_type, action_value, enabled, description, created_at FROM ${HOOKS_TABLE}${where} ORDER BY created_at ASC`
+        const rows = this.db.prepare(sql).all(...params) as WorkHookRow[]
+        return rows.map(rowToConfig)
+      }
     }
   }
 
@@ -130,13 +138,23 @@ export class WorkHookStorage {
     event: HookableEvent
     actionType: HookActionType
     actionValue: string
+    actionRef?: string
     description?: string
   }): WorkHookConfig {
     const id = randomUUID()
-    this.db.prepare(`
-      INSERT INTO ${HOOKS_TABLE} (id, name, event, action_type, action_value, description)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, params.name, params.event, params.actionType, params.actionValue, params.description ?? null)
+    try {
+      // Try with action_ref column (post-migration 0026)
+      this.db.prepare(`
+        INSERT INTO ${HOOKS_TABLE} (id, name, event, action_type, action_value, action_ref, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, params.name, params.event, params.actionType, params.actionValue, params.actionRef ?? null, params.description ?? null)
+    } catch {
+      // Fallback without action_ref (pre-migration)
+      this.db.prepare(`
+        INSERT INTO ${HOOKS_TABLE} (id, name, event, action_type, action_value, description)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, params.name, params.event, params.actionType, params.actionValue, params.description ?? null)
+    }
 
     return this.getById(id)!
   }

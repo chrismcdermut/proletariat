@@ -61,6 +61,7 @@ export default class WorkHooksList extends PromptCommand {
               event: h.event,
               actionType: h.actionType,
               actionValue: h.actionValue,
+              actionRef: h.actionRef,
               enabled: h.enabled,
               description: h.description,
               createdAt: h.createdAt,
@@ -85,7 +86,10 @@ export default class WorkHooksList extends PromptCommand {
         const status = hook.enabled ? styles.success('enabled') : styles.muted('disabled')
         this.log(`  ${styles.code(hook.name)} ${styles.muted('—')} ${status}`)
         this.log(`    Event:  ${styles.emphasis(hook.event)}`)
-        this.log(`    Action: ${hook.actionType} ${styles.muted('→')} ${hook.actionValue}`)
+        const actionDisplay = hook.actionRef
+          ? `${hook.actionType} ${styles.muted('→')} ${hook.actionRef}`
+          : `${hook.actionType} ${styles.muted('→')} ${hook.actionValue}`
+        this.log(`    Action: ${actionDisplay}`)
         if (hook.description) {
           this.log(`    Desc:   ${styles.muted(hook.description)}`)
         }

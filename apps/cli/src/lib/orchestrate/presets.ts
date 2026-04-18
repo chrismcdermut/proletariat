@@ -14,6 +14,7 @@ import type { HookMode, OrchestrateEvent, PresetName } from './types.js'
 interface PresetHook {
   event: OrchestrateEvent
   action: string
+  actionType: 'action' | 'poke'
   mode: HookMode
   config?: Record<string, unknown>
 }
@@ -24,7 +25,21 @@ interface PresetDefinition {
   hooks: PresetHook[]
 }
 
-const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Record<string, unknown> }> = [
+/**
+ * Action type for shared hook definitions.
+ * - 'action': resolve a named built-in action directly (no shell indirection)
+ * - 'poke': send a message to a named session
+ */
+type SharedHookActionType = 'action' | 'poke'
+
+interface SharedHook {
+  event: OrchestrateEvent
+  action: string
+  actionType?: SharedHookActionType
+  config?: Record<string, unknown>
+}
+
+const SHARED_HOOKS: SharedHook[] = [
   // PR lifecycle
   { event: 'on_ci_green', action: 'merge-pr' },
   { event: 'on_pr_merged', action: 'move-ticket', config: { target: 'done' } },
@@ -52,6 +67,52 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_ci_failed', action: 'spawn-fix-agent' },
   // Periodic cleanup
   { event: 'on_agent_completed', action: 'gc-sweep' },
+  // Poke orchestrator — shared definition, fired from multiple events
+  {
+    event: 'on_pr_opened',
+    action: 'poke-orchestrator',
+    actionType: 'poke',
+    config: {
+      target: 'orchestrator-main',
+      template: '{event}: {ticket_id} — PR #{pr_number} opened by {author}. Suggested: prlt work hooks list',
+    },
+  },
+  {
+    event: 'on_ci_green',
+    action: 'poke-orchestrator',
+    actionType: 'poke',
+    config: {
+      target: 'orchestrator-main',
+      template: '{event}: {ticket_id} — CI green on PR #{pr_number}. Suggested: prlt work ship {ticket_id}',
+    },
+  },
+  {
+    event: 'on_ci_failed',
+    action: 'poke-orchestrator',
+    actionType: 'poke',
+    config: {
+      target: 'orchestrator-main',
+      template: '{event}: {ticket_id} — CI failed on PR #{pr_number}. Suggested: prlt work start {ticket_id}',
+    },
+  },
+  {
+    event: 'on_agent_completed',
+    action: 'poke-orchestrator',
+    actionType: 'poke',
+    config: {
+      target: 'orchestrator-main',
+      template: '{event}: {ticket_id} — Agent {agent_name} completed. Suggested: prlt work propose {ticket_id}',
+    },
+  },
+  {
+    event: 'on_agent_died',
+    action: 'poke-orchestrator',
+    actionType: 'poke',
+    config: {
+      target: 'orchestrator-main',
+      template: '{event}: {ticket_id} — Agent {agent_name} died (exit {exit_code}). Suggested: prlt work start {ticket_id} --force',
+    },
+  },
 ]
 
 /**
@@ -74,32 +135,39 @@ const SAFE_ACTIONS = new Set([
   'gc-sweep',
 ])
 
+/**
+ * Poke-orchestrator is always safe (it just sends a message).
+ */
+const POKE_ACTIONS = new Set(['poke-orchestrator'])
+
+function buildPresetHooks(modeForDestructive: HookMode): PresetHook[] {
+  return SHARED_HOOKS.map(h => {
+    const isSafe = SAFE_ACTIONS.has(h.action) || POKE_ACTIONS.has(h.action)
+    return {
+      ...h,
+      actionType: (h.actionType || 'action') as 'action' | 'poke',
+      mode: (isSafe ? 'auto' : modeForDestructive) as HookMode,
+    }
+  })
+}
+
 export const PRESETS: Record<PresetName, PresetDefinition> = {
   aggressive: {
     name: 'aggressive',
     description: 'Auto everything — Tier 1 only, no decisions needed',
-    hooks: SHARED_HOOKS.map(h => ({
-      ...h,
-      mode: 'auto' as HookMode,
-    })),
+    hooks: buildPresetHooks('auto'),
   },
 
   conservative: {
     name: 'conservative',
     description: 'Safe=auto (Tier 1), destructive=human (Tier 3)',
-    hooks: SHARED_HOOKS.map(h => ({
-      ...h,
-      mode: (SAFE_ACTIONS.has(h.action) ? 'auto' : 'human') as HookMode,
-    })),
+    hooks: buildPresetHooks('human'),
   },
 
   supervised: {
     name: 'supervised',
     description: 'Safe=auto (Tier 1), destructive=llm (Tier 2)',
-    hooks: SHARED_HOOKS.map(h => ({
-      ...h,
-      mode: (SAFE_ACTIONS.has(h.action) ? 'auto' : 'llm') as HookMode,
-    })),
+    hooks: buildPresetHooks('llm'),
   },
 }
 

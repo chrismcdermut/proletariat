@@ -13,7 +13,7 @@ import {
   createMetadata,
 } from '../../../lib/prompt-json.js'
 import { withSignalSafePrompt } from '../../../lib/signal-handler.js'
-import { WorkHookStorage, HOOKABLE_EVENTS } from '../../../lib/work-lifecycle/hooks/index.js'
+import { WorkHookStorage, HOOKABLE_EVENTS, HOOK_ACTION_TYPES } from '../../../lib/work-lifecycle/hooks/index.js'
 import type { HookableEvent, HookActionType } from '../../../lib/work-lifecycle/hooks/index.js'
 import { openWorkspaceDatabase } from '../../../lib/database/index.js'
 
@@ -36,11 +36,14 @@ export default class WorkHooksAdd extends PromptCommand {
       options: HOOKABLE_EVENTS,
     }),
     'action-type': Flags.string({
-      description: 'Action type (shell, webhook, or log)',
-      options: ['shell', 'webhook', 'log'],
+      description: 'Action type (shell, webhook, log, poke, action, llm)',
+      options: HOOK_ACTION_TYPES,
     }),
     'action-value': Flags.string({
-      description: 'Action payload (command, URL, or message template)',
+      description: 'Action payload (command, URL, message template, or action name)',
+    }),
+    'action-ref': Flags.string({
+      description: 'Reference to a shared action definition (for action/poke types)',
     }),
     description: Flags.string({
       description: 'Optional description',
@@ -134,6 +137,9 @@ export default class WorkHooksAdd extends PromptCommand {
           { name: 'shell — Run a shell command', value: 'shell' },
           { name: 'webhook — POST event data to a URL', value: 'webhook' },
           { name: 'log — Print a message to stdout', value: 'log' },
+          { name: 'poke — Send a message to a named session', value: 'poke' },
+          { name: 'action — Fire a named built-in action directly', value: 'action' },
+          { name: 'llm — Send to LLM for judgment', value: 'llm' },
         ]
         const message = 'Action type:'
 
@@ -162,7 +168,10 @@ export default class WorkHooksAdd extends PromptCommand {
         const prompts: Record<HookActionType, string> = {
           shell: 'Shell command to run:',
           webhook: 'Webhook URL:',
-          log: 'Log message template (use {{workItemId}}, {{event}}, etc.):',
+          log: 'Log message template (use {ticket_id}, {event}, etc.):',
+          poke: 'Message template (use {ticket_id}, {event}, etc.):',
+          action: 'Built-in action name (e.g. merge-pr, move-ticket):',
+          llm: 'LLM prompt template (use {ticket_id}, {event}, etc.):',
         }
         const message = prompts[actionType!]
 
@@ -185,8 +194,12 @@ export default class WorkHooksAdd extends PromptCommand {
         actionValue = result.actionValue
       }
 
-      // Collect optional description
+      // Collect optional description and action ref
       const description = (flags as { description?: string }).description
+      const actionRef = (flags as { 'action-ref'?: string })['action-ref']
+
+      // For action/poke types, use actionValue as actionRef if not explicitly provided
+      const resolvedActionRef = actionRef || (actionType === 'action' || actionType === 'poke' ? actionValue : undefined)
 
       // Create the hook
       const hook = hookStorage.create({
@@ -194,6 +207,7 @@ export default class WorkHooksAdd extends PromptCommand {
         event: event!,
         actionType: actionType!,
         actionValue: actionValue!,
+        actionRef: resolvedActionRef,
         description,
       })
 
@@ -206,6 +220,7 @@ export default class WorkHooksAdd extends PromptCommand {
               event: hook.event,
               actionType: hook.actionType,
               actionValue: hook.actionValue,
+              actionRef: hook.actionRef,
               enabled: hook.enabled,
               description: hook.description,
             },
