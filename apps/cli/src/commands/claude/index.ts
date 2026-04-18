@@ -979,6 +979,8 @@ export default class Claude extends PromptCommand {
       containerEnv: {
         ANTHROPIC_API_KEY: '${localEnv:ANTHROPIC_API_KEY}',
       },
+      // PRLT-1341: Update prlt to latest on every container boot to avoid stale versions
+      postStartCommand: 'npm install -g @proletariat/cli@latest 2>/dev/null || true',
     }
 
     fs.writeFileSync(

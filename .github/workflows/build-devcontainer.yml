@@ -1,0 +1,53 @@
+name: build devcontainer image
+
+on:
+  workflow_run:
+    workflows: ["publish"]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Wait for npm CDN propagation so the Dockerfile's
+      # `npm install -g @proletariat/cli@latest` picks up the new version.
+      - name: Wait for npm CDN propagation
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: sleep 90
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version tag
+        id: version
+        run: |
+          VERSION=$(jq -r .version apps/cli/package.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push catch-all devcontainer image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/catchall
+          push: true
+          tags: |
+            ghcr.io/chrismcdermut/proletariat-claude:latest
+            ghcr.io/chrismcdermut/proletariat-claude:${{ steps.version.outputs.version }}
+
+      - name: Summary
+        run: |
+          echo "### Devcontainer Image Build" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version:** ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Image:** \`ghcr.io/chrismcdermut/proletariat-claude:${{ steps.version.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Latest:** \`ghcr.io/chrismcdermut/proletariat-claude:latest\`" >> "$GITHUB_STEP_SUMMARY"
