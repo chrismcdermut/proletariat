@@ -142,10 +142,16 @@ export default class PRCreate extends PMOCommand {
       }
     }
 
-    // Get ticket info if available
+    // Get ticket info if available — use provider instead of local storage
     let ticket: { id: string; title: string; description?: string } | null = null;
     if (ticketId && this.hasPMO) {
-      ticket = await this.storage.getTicket(ticketId);
+      try {
+        const provider = await this.resolveTicketProvider(ticketId, flags.project || '');
+        const getResult = await provider.getTicket(ticketId);
+        ticket = getResult.success ? getResult.ticket ?? null : null;
+      } catch {
+        ticket = null;
+      }
       if (!ticket) {
         this.warn(`Ticket "${ticketId}" not found. Continuing without ticket link.`);
         ticketId = undefined;
@@ -155,7 +161,12 @@ export default class PRCreate extends PMOCommand {
     // If no ticket, prompt for selection (only if we have PMO)
     if (!ticketId && !flags['no-link'] && this.hasPMO) {
       const projectId = flags.project;
-      const allTickets = await this.storage.listTickets(projectId);
+      const listProvider = this.resolveProjectProvider(projectId || '');
+      const listResult = await listProvider.listTickets(projectId);
+      if (!listResult.success) {
+        return handleError('LIST_FAILED', listResult.error || 'Failed to list tickets.');
+      }
+      const allTickets = listResult.tickets;
       const inProgressTickets = allTickets.filter(t =>
         t.statusName && t.statusName.toLowerCase().includes('progress')
       );
@@ -187,7 +198,13 @@ export default class PRCreate extends PMOCommand {
 
         if (resolved.ticket && resolved.ticket !== '__skip__') {
           ticketId = resolved.ticket;
-          ticket = await this.storage.getTicket(ticketId!);
+          try {
+            const selectedProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
+            const selectedResult = await selectedProvider.getTicket(ticketId!);
+            ticket = selectedResult.success ? selectedResult.ticket ?? null : null;
+          } catch {
+            ticket = null;
+          }
         }
       }
     }
@@ -256,14 +273,22 @@ export default class PRCreate extends PMOCommand {
     // Track PR creation analytics
     trackPRCreated({ source: 'prlt' });
 
-    // Store PR URL in ticket metadata
+    // Store PR URL in ticket metadata via provider
     if (ticket && result.url && this.hasPMO) {
-      await this.storage.updateTicket(ticket.id, {
-        metadata: {
-          pr_url: result.url,
-          pr_number: String(result.number),
-        },
-      });
+      try {
+        const metaProvider = await this.resolveTicketProvider(ticket.id, flags.project || '');
+        const metaResult = await metaProvider.updateTicket(ticket.id, {
+          metadata: {
+            pr_url: result.url,
+            pr_number: String(result.number),
+          },
+        });
+        if (!metaResult.success) {
+          this.log(styles.muted(`   PR metadata update failed: ${metaResult.error}`));
+        }
+      } catch {
+        this.log(styles.muted('   PR metadata update skipped'));
+      }
     }
 
     this.log('');

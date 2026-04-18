@@ -110,7 +110,13 @@ export default class WorkReady extends PMOCommand {
 
       if (!ticketId) {
         // Get all in-progress (started) tickets for selection, optionally filtered by project
-        const allTickets = await this.storage.listTickets(projectId);
+        const listProvider = this.resolveProjectProvider(projectId || '');
+        const listResult = await listProvider.listTickets(projectId);
+        if (!listResult.success) {
+          db.close();
+          return handleError('LIST_FAILED', listResult.error || 'Failed to list tickets.');
+        }
+        const allTickets = listResult.tickets;
         const inProgressTickets = allTickets.filter(t =>
           t.statusCategory === 'started' || (t.statusName && t.statusName.toLowerCase().includes('progress'))
         );
@@ -141,8 +147,10 @@ export default class WorkReady extends PMOCommand {
         ticketId = selected;
       }
 
-      // Get ticket
-      const ticket = await this.storage.getTicket(ticketId!);
+      // Get ticket from provider — no local PMO fallback
+      const ticketProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
+      const getResult = await ticketProvider.getTicket(ticketId!);
+      const ticket = getResult.success ? getResult.ticket ?? null : null;
       if (!ticket) {
         db.close();
         return handleError('TICKET_NOT_FOUND', `Ticket "${ticketId}" not found.`);
@@ -276,9 +284,13 @@ export default class WorkReady extends PMOCommand {
             prMetadata.pr_number = String(prResult.number);
           }
           try {
-            await this.storage.updateTicket(ticketId!, {
+            const updateProvider = await this.resolveTicketProvider(ticketId!, projectId || '');
+            const updateResult = await updateProvider.updateTicket(ticketId!, {
               metadata: prMetadata,
             });
+            if (!updateResult.success) {
+              this.log(styles.muted(`   PR metadata update failed: ${updateResult.error}`));
+            }
           } catch (err) {
             if ((err as { code?: string }).code === 'SQLITE_READONLY') {
               this.log(styles.muted('   PR metadata update skipped (read-only database)'));
