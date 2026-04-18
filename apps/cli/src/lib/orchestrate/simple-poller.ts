@@ -1,12 +1,13 @@
 /**
- * Simple Poller — Minimal MVP poller for the `prlt watch` command.
+ * Simple Poller — Stateless state reporter for the `prlt watch` command.
  *
  * Polls GitHub PRs, Linear/board tickets, and running agents/containers.
- * Diffs state against last poll and returns a human-readable summary
- * of changes for poking an orchestrator agent.
+ * Returns the FULL current state on every poll cycle as a human-readable
+ * report. No diffing, no baseline tracking.
  *
- * This is intentionally simple: poll → diff → format message.
- * No hooks, no presets, no action engine. The LLM orchestrator decides.
+ * The orchestrator is an LLM — it receives the full state snapshot each
+ * cycle and determines what changed and what to do. This eliminates the
+ * entire class of diff/baseline bugs (PRLT-1346).
  */
 
 import { execSync } from 'node:child_process'
@@ -27,46 +28,20 @@ export interface SimplePollerOptions {
   cwd?: string
 }
 
-/** Tracked PR state for diffing. */
-interface PRState {
-  number: number
-  title: string
-  headBranch: string
-  url: string
-  ciState: 'pending' | 'success' | 'failure' | 'unknown'
-  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
-  reviewDecision: string | null
-  /** The git repo directory this PR was discovered from. */
-  repoDir: string
-}
-
-/** Tracked agent state for diffing. */
-interface AgentState {
-  id: string
-  ticketId: string
-  agentName: string
-  status: string
-  lifecycleState: string | null
-  containerId: string | null
-}
-
-/** Tracked ready ticket. */
-interface ReadyTicket {
-  id: string
-  title: string
-}
-
-/** A single change detected by the poller. */
-export interface PollChange {
+/** A single item in the state report. */
+export interface StateItem {
   category: 'github' | 'board' | 'agents'
   summary: string
 }
 
 /** Result of a poll cycle. */
 export interface PollResult {
-  changes: PollChange[]
+  items: StateItem[]
   message: string | null
 }
+
+// Keep old name as alias for backward compatibility in re-exports
+export type PollChange = StateItem
 
 // =============================================================================
 // Simple Poller
@@ -80,20 +55,8 @@ export class SimplePoller {
   /** Git repo directories to poll for PRs. Resolved from cwd on construction. */
   private repoDirs: string[]
 
-  /** Last-seen PR states, keyed by "repoDir:prNumber" for multi-repo support. */
-  private lastPRs = new Map<string, PRState>()
-
-  /** Last-seen agent states. */
-  private lastAgents = new Map<string, AgentState>()
-
-  /** Last-seen ready ticket IDs. */
-  private lastReadyTicketIds = new Set<string>()
-
   /** Whether GitHub CLI is available. */
   private ghAvailable: boolean | null = null
-
-  /** Whether we've completed at least one poll (to avoid firing on initial state). */
-  private initialized = false
 
   constructor(options: SimplePollerOptions) {
     this.db = options.db
@@ -155,40 +118,32 @@ export class SimplePoller {
   }
 
   /**
-   * Run one poll cycle. Returns changes since last poll.
-   * On the first poll, captures baseline state and returns no changes.
+   * Run one poll cycle. Returns full current state as a report.
+   * Every call gathers fresh state — no diffing, no baseline.
    */
   async poll(): Promise<PollResult> {
-    const changes: PollChange[] = []
+    const items: StateItem[] = []
 
-    const prChanges = this.pollGitHubPRs()
-    const agentChanges = this.pollAgents()
-    const boardChanges = this.pollReadyTickets()
+    items.push(...this.gatherGitHubPRState())
+    items.push(...this.gatherAgentState())
+    items.push(...this.gatherReadyTicketState())
 
-    if (this.initialized) {
-      changes.push(...prChanges, ...agentChanges, ...boardChanges)
-    }
-
-    this.initialized = true
-
-    const message = changes.length > 0 ? this.formatPokeMessage(changes) : null
-    return { changes, message }
+    const message = items.length > 0 ? this.formatStateMessage(items) : null
+    return { items, message }
   }
 
   // ===========================================================================
-  // GitHub PR Polling
+  // GitHub PR State
   // ===========================================================================
 
-  private pollGitHubPRs(): PollChange[] {
+  private gatherGitHubPRState(): StateItem[] {
     if (this.ghAvailable === null) {
       this.ghAvailable = isGHInstalled() && isGHAuthenticated()
     }
     if (!this.ghAvailable) return []
     if (this.repoDirs.length === 0) return []
 
-    const changes: PollChange[] = []
-    /** Keys of PRs seen this cycle (for detecting disappeared PRs). */
-    const currentPRKeys = new Set<string>()
+    const items: StateItem[] = []
 
     for (const repoDir of this.repoDirs) {
       try {
@@ -196,13 +151,11 @@ export class SimplePoller {
         this.log(`[watch] Polled ${openPRs.length} open PR(s) from ${path.basename(repoDir)}`)
 
         for (const pr of openPRs) {
-          const prKey = `${repoDir}:${pr.number}`
-          currentPRKeys.add(prKey)
           const ticketId = this.extractTicketFromBranch(pr.headBranch)
           const label = `#${pr.number}${ticketId ? ` (${ticketId})` : ''}`
 
           // Get CI status
-          let ciState: PRState['ciState'] = 'unknown'
+          let ciState: 'pending' | 'success' | 'failure' | 'unknown' = 'unknown'
           try {
             const checks = getPRChecks(pr.number, repoDir)
             if (checks.length > 0) {
@@ -221,7 +174,7 @@ export class SimplePoller {
           }
 
           // Get mergeable state
-          let mergeable: PRState['mergeable'] = 'UNKNOWN'
+          let mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN' = 'UNKNOWN'
           try {
             const result = execSync(
               `gh pr view ${pr.number} --json mergeable -q .mergeable`,
@@ -245,82 +198,36 @@ export class SimplePoller {
             // Non-fatal
           }
 
-          const current: PRState = {
-            number: pr.number,
-            title: pr.title,
-            headBranch: pr.headBranch,
-            url: pr.url,
-            ciState,
-            mergeable,
-            reviewDecision,
-            repoDir,
+          // Build state summary
+          const parts = [`${label}: "${pr.title}"`]
+          parts.push(`CI: ${ciState}`)
+          if (mergeable === 'CONFLICTING') {
+            parts.push('has merge conflicts')
+          } else if (mergeable === 'MERGEABLE') {
+            parts.push('mergeable')
           }
-
-          // Diff against last state
-          const prev = this.lastPRs.get(prKey)
-          if (!prev) {
-            // New PR detected
-            changes.push({ category: 'github', summary: `${label}: new PR opened — "${pr.title}"` })
+          if (reviewDecision) {
+            parts.push(`review: ${reviewDecision}`)
           } else {
-            if (prev.ciState !== ciState && ciState !== 'unknown') {
-              if (ciState === 'success') {
-                changes.push({ category: 'github', summary: `${label}: CI green, ${mergeable === 'MERGEABLE' ? 'mergeable' : mergeable === 'CONFLICTING' ? 'has merge conflicts' : 'mergeable state unknown'}` })
-              } else if (ciState === 'failure') {
-                changes.push({ category: 'github', summary: `${label}: CI failed` })
-              }
-            }
-            if (prev.mergeable !== 'CONFLICTING' && mergeable === 'CONFLICTING') {
-              changes.push({ category: 'github', summary: `${label}: now has merge conflicts` })
-            }
-            if (prev.mergeable === 'CONFLICTING' && mergeable === 'MERGEABLE') {
-              changes.push({ category: 'github', summary: `${label}: conflicts resolved, now mergeable` })
-            }
-            if (prev.reviewDecision !== reviewDecision && reviewDecision) {
-              changes.push({ category: 'github', summary: `${label}: review ${reviewDecision}` })
-            }
+            parts.push('no review')
           }
 
-          this.lastPRs.set(prKey, current)
+          items.push({ category: 'github', summary: parts.join(' — ') })
         }
       } catch (err) {
         this.log(`[watch] GitHub poll error for ${path.basename(repoDir)}: ${err instanceof Error ? err.message : String(err)}`)
       }
     }
 
-    // Detect PRs that disappeared (merged or closed)
-    for (const [prKey, prev] of this.lastPRs) {
-      if (!currentPRKeys.has(prKey)) {
-        const ticketId = this.extractTicketFromBranch(prev.headBranch)
-        const label = `#${prev.number}${ticketId ? ` (${ticketId})` : ''}`
-
-        // Check if it was merged
-        try {
-          const result = execSync(
-            `gh pr view ${prev.number} --json state -q .state`,
-            { cwd: prev.repoDir, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-          ).trim()
-          if (result === 'MERGED') {
-            changes.push({ category: 'github', summary: `${label}: merged since last poll` })
-          } else {
-            changes.push({ category: 'github', summary: `${label}: closed since last poll` })
-          }
-        } catch {
-          changes.push({ category: 'github', summary: `${label}: no longer open` })
-        }
-
-        this.lastPRs.delete(prKey)
-      }
-    }
-
-    return changes
+    return items
   }
 
   // ===========================================================================
-  // Agent / Container Polling
+  // Agent / Container State
   // ===========================================================================
 
-  private pollAgents(): PollChange[] {
-    const changes: PollChange[] = []
+  private gatherAgentState(): StateItem[] {
+    const items: StateItem[] = []
 
     try {
       const agents = this.db.prepare(`
@@ -338,81 +245,24 @@ export class SimplePoller {
         container_id: string | null
       }>
 
-      const currentAgentIds = new Set<string>()
-
       for (const agent of agents) {
-        currentAgentIds.add(agent.id)
         const label = `${agent.agent_name} (${agent.ticket_id})`
-
-        const current: AgentState = {
-          id: agent.id,
-          ticketId: agent.ticket_id,
-          agentName: agent.agent_name,
-          status: agent.status,
-          lifecycleState: agent.lifecycle_state,
-          containerId: agent.container_id,
-        }
-
-        const prev = this.lastAgents.get(agent.id)
-        if (prev) {
-          const prevEffective = prev.lifecycleState || prev.status
-          const currEffective = agent.lifecycle_state || agent.status
-
-          if (prevEffective !== currEffective) {
-            if (currEffective === 'completed') {
-              changes.push({ category: 'agents', summary: `${label}: completed` })
-            } else if (currEffective === 'failed' || currEffective === 'error' || currEffective === 'died') {
-              changes.push({ category: 'agents', summary: `${label}: died/failed` })
-            } else if (currEffective === 'stopped') {
-              changes.push({ category: 'agents', summary: `${label}: stopped` })
-            } else if (currEffective === 'idle') {
-              changes.push({ category: 'agents', summary: `${label}: idle` })
-            } else if (currEffective === 'running' && prevEffective === 'starting') {
-              changes.push({ category: 'agents', summary: `${label}: now running` })
-            }
-          }
-        }
-
-        this.lastAgents.set(agent.id, current)
-      }
-
-      // Also check for stopped containers via docker ps (agents that crashed outside DB tracking)
-      try {
-        const dockerOutput = execSync(
-          'docker ps --format "{{.ID}}\t{{.Names}}\t{{.Status}}"',
-          { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10_000 },
-        ).trim()
-
-        if (dockerOutput) {
-          for (const line of dockerOutput.split('\n')) {
-            const [containerId, _name, status] = line.split('\t')
-            if (!containerId) continue
-
-            // Check if any tracked agent's container has exited
-            for (const [_agentId, prev] of this.lastAgents) {
-              if (prev.containerId === containerId && status && /exited/i.test(status)) {
-                const label = `${prev.agentName} (${prev.ticketId})`
-                changes.push({ category: 'agents', summary: `${label}: container stopped` })
-              }
-            }
-          }
-        }
-      } catch {
-        // Docker not available or command failed — non-fatal
+        const effectiveState = agent.lifecycle_state || agent.status
+        items.push({ category: 'agents', summary: `${label}: ${effectiveState}` })
       }
     } catch {
       // Non-fatal DB error
     }
 
-    return changes
+    return items
   }
 
   // ===========================================================================
-  // Board / Ready Ticket Polling
+  // Board / Ready Ticket State
   // ===========================================================================
 
-  private pollReadyTickets(): PollChange[] {
-    const changes: PollChange[] = []
+  private gatherReadyTicketState(): StateItem[] {
+    const items: StateItem[] = []
 
     try {
       // Resolve configured ready status name
@@ -435,7 +285,7 @@ export class SimplePoller {
                 SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
               )
             LIMIT 20
-          `).all(readyStatusName) as ReadyTicket[]
+          `).all(readyStatusName) as Array<{ id: string; title: string }>
         : this.db.prepare(`
             SELECT t.id, t.title
             FROM pmo_tickets t
@@ -446,64 +296,58 @@ export class SimplePoller {
                 SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
               )
             LIMIT 20
-          `).all() as ReadyTicket[]
+          `).all() as Array<{ id: string; title: string }>
 
-      const currentReadyIds = new Set(readyTickets.map(t => t.id))
-
-      // Detect newly ready tickets
       for (const ticket of readyTickets) {
-        if (!this.lastReadyTicketIds.has(ticket.id)) {
-          changes.push({ category: 'board', summary: `${ticket.id} "${ticket.title}" moved to Ready, no agent assigned` })
-        }
+        items.push({ category: 'board', summary: `${ticket.id} "${ticket.title}": ready, unassigned` })
       }
-
-      // Detect tickets that left Ready (assigned or moved)
-      for (const prevId of this.lastReadyTicketIds) {
-        if (!currentReadyIds.has(prevId)) {
-          changes.push({ category: 'board', summary: `${prevId} no longer in Ready (assigned or moved)` })
-        }
-      }
-
-      this.lastReadyTicketIds = currentReadyIds
     } catch {
       // Non-fatal DB error (table may not exist)
     }
 
-    return changes
+    return items
   }
 
   // ===========================================================================
   // Message Formatting
   // ===========================================================================
 
-  private formatPokeMessage(changes: PollChange[]): string {
+  private formatStateMessage(items: StateItem[]): string {
     const sections: string[] = []
 
-    const githubChanges = changes.filter(c => c.category === 'github')
-    const boardChanges = changes.filter(c => c.category === 'board')
-    const agentChanges = changes.filter(c => c.category === 'agents')
+    const githubItems = items.filter(c => c.category === 'github')
+    const boardItems = items.filter(c => c.category === 'board')
+    const agentItems = items.filter(c => c.category === 'agents')
 
-    if (githubChanges.length > 0) {
-      sections.push('GitHub PR update:')
-      for (const c of githubChanges) {
+    if (githubItems.length > 0) {
+      sections.push(`GitHub PRs (${githubItems.length} open):`)
+      for (const c of githubItems) {
         sections.push(`- ${c.summary}`)
       }
+    } else {
+      sections.push('GitHub PRs: none')
     }
 
-    if (boardChanges.length > 0) {
-      if (sections.length > 0) sections.push('')
-      sections.push('Board:')
-      for (const c of boardChanges) {
+    if (boardItems.length > 0) {
+      sections.push('')
+      sections.push(`Ready tickets (${boardItems.length} unassigned):`)
+      for (const c of boardItems) {
         sections.push(`- ${c.summary}`)
       }
+    } else {
+      sections.push('')
+      sections.push('Ready tickets: none')
     }
 
-    if (agentChanges.length > 0) {
-      if (sections.length > 0) sections.push('')
-      sections.push('Agents:')
-      for (const c of agentChanges) {
+    if (agentItems.length > 0) {
+      sections.push('')
+      sections.push(`Active agents (${agentItems.length}):`)
+      for (const c of agentItems) {
         sections.push(`- ${c.summary}`)
       }
+    } else {
+      sections.push('')
+      sections.push('Active agents: none')
     }
 
     return sections.join('\n')

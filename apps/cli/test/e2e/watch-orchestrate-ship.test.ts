@@ -1,15 +1,19 @@
 /**
- * End-to-end test: watch detects PR → pokes orchestrator → orchestrator ships it
+ * End-to-end test: watch reports state -> orchestrator decides -> ships it
  *
- * PRLT-1333: Proves the full autonomous loop works end-to-end.
+ * PRLT-1333 + PRLT-1346: Proves the full autonomous loop works end-to-end.
  *
  * The flow under test:
- * 1. SimplePoller detects a PR with CI green
- * 2. Watch formats a poke message with the change summary
- * 3. The poke message is parsed to extract PR/ticket context
+ * 1. SimplePoller reports full current state (open PRs, agents, tickets)
+ * 2. Watch pushes full state report to the orchestrator via poke
+ * 3. The orchestrator (LLM) parses the state to extract PR/ticket context
  * 4. OrchestrateEngine fires on_ci_green event with the extracted context
  * 5. The merge-pr hook (in auto mode) executes `prlt work ship`
  * 6. The ticket transitions to Done
+ *
+ * PRLT-1346 design change: The poller is now a dumb state reporter.
+ * It pushes full state every cycle — no diffing, no baseline.
+ * The orchestrator LLM determines what changed.
  *
  * This test uses the real SimplePoller and OrchestrateEngine classes but mocks
  * external I/O (GitHub CLI, prlt CLI subprocess calls) to keep it deterministic.
@@ -77,8 +81,6 @@ function createPollerMockDb(options?: {
 
 /**
  * Create a SimplePoller that skips GitHub CLI calls.
- * We test GitHub PR detection by verifying state diffs,
- * using the agent/board polling paths.
  */
 function createTestPoller(db: ReturnType<typeof createPollerMockDb>) {
   return new SimplePoller({
@@ -156,7 +158,7 @@ function createEngineDb(): Database.Database {
 
 /**
  * Insert hooks for the autonomous merge flow:
- * on_ci_green → merge-pr (auto mode, Tier 1 — no human approval needed)
+ * on_ci_green -> merge-pr (auto mode, Tier 1 -- no human approval needed)
  */
 function insertAutoMergeHooks(db: Database.Database): void {
   db.prepare(`
@@ -166,19 +168,19 @@ function insertAutoMergeHooks(db: Database.Database): void {
 }
 
 /**
- * Parse a SimplePoller poke message to extract PR number and ticket ID.
- * This mirrors what the orchestrator LLM would do when receiving a poke.
+ * Parse a SimplePoller state report to extract PR number and ticket ID.
+ * This mirrors what the orchestrator LLM would do when receiving a state push.
  *
- * Example poke message:
- *   "GitHub PR update:\n- #42 (PRLT-100): CI green, mergeable"
+ * New state format (PRLT-1346):
+ *   "GitHub PRs (1 open):\n- #42 (PRLT-100): \"title\" -- CI: green, mergeable, no review"
  *
  * Returns extracted context or null if the message can't be parsed.
  */
-function parsePokeMessage(message: string): { pr?: number; ticket?: string; event?: string } | null {
+function parseStateMessage(message: string): { pr?: number; ticket?: string; event?: string } | null {
   if (!message) return null
 
-  // Match PR number and optional ticket: #42 (PRLT-100): CI green
-  const prMatch = message.match(/#(\d+)(?:\s*\(([A-Z]+-\d+)\))?:\s*CI green/)
+  // Match PR with CI green in state report: #42 (PRLT-100): "title" -- CI: green
+  const prMatch = message.match(/#(\d+)(?:\s*\(([A-Z]+-\d+)\))?:.*CI: green/)
   if (prMatch) {
     return {
       pr: parseInt(prMatch[1], 10),
@@ -187,7 +189,7 @@ function parsePokeMessage(message: string): { pr?: number; ticket?: string; even
     }
   }
 
-  // Match agent completed: bold-ada (TKT-001): completed
+  // Match agent completed in state report: bold-ada (TKT-001): completed
   const agentMatch = message.match(/(\S+)\s*\(([A-Z]+-\d+)\):\s*completed/)
   if (agentMatch) {
     return {
@@ -203,7 +205,7 @@ function parsePokeMessage(message: string): { pr?: number; ticket?: string; even
 // Tests
 // =============================================================================
 
-describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
+describe('E2E: Watch -> Orchestrate -> Ship (PRLT-1333)', () => {
   let engineDb: Database.Database
 
   beforeEach(() => {
@@ -218,11 +220,11 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
   })
 
   // ===========================================================================
-  // Full Loop: Agent completes → Watch detects → Engine fires → Ship executes
+  // Full Loop: Agent completes -> Watch reports -> Engine fires -> Ship executes
   // ===========================================================================
 
   describe('full autonomous loop', () => {
-    it('should complete the watch → poke → orchestrate → ship loop without human intervention', async () => {
+    it('should complete the watch -> poke -> orchestrate -> ship loop without human intervention', async () => {
       // -----------------------------------------------------------------------
       // Step 1: Set up the orchestrate engine with auto-merge hooks
       // -----------------------------------------------------------------------
@@ -264,8 +266,7 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
       }
 
       // -----------------------------------------------------------------------
-      // Step 2: Simulate watch detecting agent completed + CI green
-      // (using SimplePoller for agent tracking)
+      // Step 2: Simulate watch reporting agent state
       // -----------------------------------------------------------------------
       const pollerDb = createPollerMockDb({
         agents: [
@@ -273,50 +274,36 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
             id: 'exec-1',
             ticket_id: 'PRLT-100',
             agent_name: 'bold-ada',
-            status: 'running',
-            lifecycle_state: null,
+            status: 'completed',
+            lifecycle_state: 'completed',
             container_id: null,
           },
         ],
       })
       const poller = createTestPoller(pollerDb)
 
-      // Baseline poll (captures initial state)
-      await poller.poll()
-
-      // Agent completes — simulate the agent finishing its work
-      pollerDb._data.agents = [
-        {
-          id: 'exec-1',
-          ticket_id: 'PRLT-100',
-          agent_name: 'bold-ada',
-          status: 'completed',
-          lifecycle_state: 'completed',
-          container_id: null,
-        },
-      ]
-
-      // Second poll detects the change
+      // Single poll returns full state (no baseline needed)
       const pollResult = await poller.poll()
 
-      // Verify watch detected the completion
-      expect(pollResult.changes).to.have.length(1)
-      expect(pollResult.changes[0].category).to.equal('agents')
-      expect(pollResult.changes[0].summary).to.include('bold-ada')
-      expect(pollResult.changes[0].summary).to.include('completed')
+      // Verify watch reported the completion
+      expect(pollResult.items.length).to.be.greaterThan(0)
+      const agentItem = pollResult.items.find(i => i.category === 'agents')
+      expect(agentItem).to.exist
+      expect(agentItem!.summary).to.include('bold-ada')
+      expect(agentItem!.summary).to.include('completed')
       expect(pollResult.message).to.not.be.null
 
       // -----------------------------------------------------------------------
-      // Step 3: Simulate watch detecting CI green for PR #42
+      // Step 3: Simulate watch reporting CI green for PR #42
       // (In production, this comes from GitHub polling. Here we simulate
-      // the poke message that watch would produce when it detects CI green.)
+      // the state message that watch would produce.)
       // -----------------------------------------------------------------------
-      const ciGreenPokeMessage = 'GitHub PR update:\n- #42 (PRLT-100): CI green, mergeable'
+      const ciGreenStateMessage = 'GitHub PRs (1 open):\n- #42 (PRLT-100): "feat: implement auth" \u2014 CI: green, mergeable, no review\n\nReady tickets: none\n\nActive agents: none'
 
       // -----------------------------------------------------------------------
-      // Step 4: Parse the poke message (what the orchestrator LLM does)
+      // Step 4: Parse the state message (what the orchestrator LLM does)
       // -----------------------------------------------------------------------
-      const parsed = parsePokeMessage(ciGreenPokeMessage)
+      const parsed = parseStateMessage(ciGreenStateMessage)
       expect(parsed).to.not.be.null
       expect(parsed!.event).to.equal('on_ci_green')
       expect(parsed!.pr).to.equal(42)
@@ -324,7 +311,7 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
 
       // -----------------------------------------------------------------------
       // Step 5: Fire the event on the orchestrate engine
-      // (What happens when the orchestrator processes the poke)
+      // (What happens when the orchestrator processes the state)
       // -----------------------------------------------------------------------
       const eventCtx: OrchestrateEventContext = {
         event: 'on_ci_green',
@@ -361,8 +348,8 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
       engine.stop()
     })
 
-    it('should be reproducible — run 3 times in a row with consistent results', async () => {
-      // This verifies the "Reproducible — run it 3 times in a row" AC
+    it('should be reproducible -- run 3 times in a row with consistent results', async () => {
+      // This verifies the "Reproducible -- run it 3 times in a row" AC
       for (let run = 0; run < 3; run++) {
         // Fresh state for each run
         resetEventBus()
@@ -387,31 +374,22 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
 
         const engine = new OrchestrateEngine({ db, log: () => {} })
 
-        // Simulate the full loop
+        // Simulate poller reporting state (no baseline needed)
         const pollerDb = createPollerMockDb({
           agents: [{
             id: `exec-${run}`,
             ticket_id: `PRLT-${100 + run}`,
             agent_name: `agent-${run}`,
-            status: 'running',
-            lifecycle_state: null,
+            status: 'completed',
+            lifecycle_state: 'completed',
             container_id: null,
           }],
         })
         const poller = createTestPoller(pollerDb)
 
-        // Baseline → detect change
-        await poller.poll()
-        pollerDb._data.agents = [{
-          id: `exec-${run}`,
-          ticket_id: `PRLT-${100 + run}`,
-          agent_name: `agent-${run}`,
-          status: 'completed',
-          lifecycle_state: 'completed',
-          container_id: null,
-        }]
+        // Single poll reports full state
         const pollResult = await poller.poll()
-        expect(pollResult.changes.length).to.be.greaterThan(0, `Run ${run + 1}: poller should detect changes`)
+        expect(pollResult.items.length).to.be.greaterThan(0, `Run ${run + 1}: poller should report state`)
 
         // Fire event and verify
         const results = await engine.fireEvent('on_ci_green', {
@@ -433,13 +411,13 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
   })
 
   // ===========================================================================
-  // Poke Message Parsing
+  // State Message Parsing
   // ===========================================================================
 
-  describe('poke message parsing', () => {
-    it('should extract PR number and ticket from CI green poke', () => {
-      const msg = 'GitHub PR update:\n- #42 (PRLT-100): CI green, mergeable'
-      const parsed = parsePokeMessage(msg)
+  describe('state message parsing', () => {
+    it('should extract PR number and ticket from CI green state report', () => {
+      const msg = 'GitHub PRs (1 open):\n- #42 (PRLT-100): "feat: auth" \u2014 CI: green, mergeable, no review'
+      const parsed = parseStateMessage(msg)
       expect(parsed).to.deep.equal({
         pr: 42,
         ticket: 'PRLT-100',
@@ -447,9 +425,9 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
       })
     })
 
-    it('should extract PR number without ticket from CI green poke', () => {
-      const msg = 'GitHub PR update:\n- #55: CI green, mergeable'
-      const parsed = parsePokeMessage(msg)
+    it('should extract PR number without ticket from CI green state report', () => {
+      const msg = 'GitHub PRs (1 open):\n- #55: "fix: typo" \u2014 CI: green, mergeable, no review'
+      const parsed = parseStateMessage(msg)
       expect(parsed).to.deep.equal({
         pr: 55,
         ticket: undefined,
@@ -457,81 +435,63 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
       })
     })
 
-    it('should extract agent completion poke', () => {
-      const msg = 'Agents:\n- bold-ada (TKT-001): completed'
-      const parsed = parsePokeMessage(msg)
+    it('should extract agent completed from state report', () => {
+      const msg = 'Active agents (1):\n- bold-ada (TKT-001): completed'
+      const parsed = parseStateMessage(msg)
       expect(parsed).to.deep.equal({
         ticket: 'TKT-001',
         event: 'on_agent_completed',
       })
     })
 
-    it('should return null for unrecognized messages', () => {
-      expect(parsePokeMessage('Board:\n- TKT-010 "New feature" moved to Ready')).to.be.null
-      expect(parsePokeMessage('')).to.be.null
+    it('should return null for state with no actionable items', () => {
+      expect(parseStateMessage('GitHub PRs: none\n\nReady tickets: none\n\nActive agents: none')).to.be.null
+      expect(parseStateMessage('')).to.be.null
     })
   })
 
   // ===========================================================================
-  // Watch Polling → Change Detection
+  // Watch State Reporting
   // ===========================================================================
 
-  describe('watch polling detects state transitions', () => {
-    it('should detect agent completing and produce a poke message', async () => {
+  describe('watch state reporting', () => {
+    it('should report completed agent in full state', async () => {
       const db = createPollerMockDb({
         agents: [{
           id: 'exec-1',
           ticket_id: 'PRLT-200',
           agent_name: 'cool-turing',
-          status: 'running',
-          lifecycle_state: null,
+          status: 'completed',
+          lifecycle_state: 'completed',
           container_id: null,
         }],
       })
       const poller = createTestPoller(db)
 
-      await poller.poll() // baseline
-
-      db._data.agents = [{
-        id: 'exec-1',
-        ticket_id: 'PRLT-200',
-        agent_name: 'cool-turing',
-        status: 'completed',
-        lifecycle_state: 'completed',
-        container_id: null,
-      }]
+      // Single poll returns full state
       const result = await poller.poll()
 
-      expect(result.changes).to.have.length(1)
+      expect(result.items.length).to.be.greaterThan(0)
       expect(result.message).to.include('cool-turing')
       expect(result.message).to.include('completed')
-      expect(result.message).to.include('Agents:')
+      expect(result.message).to.include('Active agents')
     })
 
-    it('should detect multiple state transitions in a single poll', async () => {
+    it('should report multiple items across categories in a single poll', async () => {
       const db = createPollerMockDb({
-        readyTickets: [],
+        readyTickets: [{ id: 'PRLT-300', title: 'New ready ticket' }],
         agents: [
-          { id: 'exec-1', ticket_id: 'PRLT-201', agent_name: 'agent-a', status: 'running', lifecycle_state: null, container_id: null },
+          { id: 'exec-1', ticket_id: 'PRLT-201', agent_name: 'agent-a', status: 'completed', lifecycle_state: 'completed', container_id: null },
           { id: 'exec-2', ticket_id: 'PRLT-202', agent_name: 'agent-b', status: 'running', lifecycle_state: null, container_id: null },
         ],
       })
       const poller = createTestPoller(db)
 
-      await poller.poll()
-
-      // Both agents complete, and a new ticket appears
-      db._data.agents = [
-        { id: 'exec-1', ticket_id: 'PRLT-201', agent_name: 'agent-a', status: 'completed', lifecycle_state: 'completed', container_id: null },
-        { id: 'exec-2', ticket_id: 'PRLT-202', agent_name: 'agent-b', status: 'completed', lifecycle_state: 'completed', container_id: null },
-      ]
-      db._data.readyTickets = [{ id: 'PRLT-300', title: 'New ready ticket' }]
-
       const result = await poller.poll()
 
-      expect(result.changes).to.have.length(3)
-      expect(result.message).to.include('Agents:')
-      expect(result.message).to.include('Board:')
+      expect(result.items).to.have.length(3) // 2 agents + 1 ticket
+      expect(result.message).to.include('Active agents')
+      expect(result.message).to.include('Ready tickets')
     })
   })
 
@@ -576,7 +536,7 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
     })
 
     it('should queue llm-mode hooks for LLM decision instead of executing', async () => {
-      // Insert on_ci_green → merge-pr in LLM mode
+      // Insert on_ci_green -> merge-pr in LLM mode
       engineDb.prepare(`
         INSERT INTO pmo_work_hooks (id, name, event, action_type, action_value, enabled, mode, priority, source)
         VALUES ('hook-llm-merge', 'llm:on_ci_green:merge-pr', 'on_ci_green', 'shell', 'merge-pr', 1, 'llm', 0, 'preset')
@@ -747,7 +707,7 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
     })
 
     it('should not crash when no hooks match the event', async () => {
-      // No hooks installed — firing event should produce 0 results
+      // No hooks installed -- firing event should produce 0 results
       const engine = new OrchestrateEngine({ db: engineDb, log: () => {} })
 
       const results = await engine.fireEvent('on_ci_green', {
@@ -761,20 +721,19 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
       engine.stop()
     })
 
-    it('should handle poller returning no changes gracefully', async () => {
+    it('should handle poller returning empty state gracefully', async () => {
       const db = createPollerMockDb()
       const poller = createTestPoller(db)
 
-      await poller.poll() // baseline
       const result = await poller.poll()
 
-      expect(result.changes).to.have.length(0)
+      expect(result.items).to.have.length(0)
       expect(result.message).to.be.null
     })
   })
 
   // ===========================================================================
-  // Multi-PR Detection (multiple PRs going green in same poll)
+  // Multi-PR Detection (multiple PRs in state report)
   // ===========================================================================
 
   describe('multi-event processing', () => {
@@ -818,11 +777,11 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
   })
 
   // ===========================================================================
-  // Watch → Orchestrate Integration (poke message → event context)
+  // Watch -> Orchestrate Integration (state report -> event context)
   // ===========================================================================
 
   describe('watch-to-orchestrate integration', () => {
-    it('should handle the full cycle: poller detects → message formatted → parsed → event fired → action executed', async () => {
+    it('should handle the full cycle: poller reports state -> parsed -> event fired -> action executed', async () => {
       // Set up engine
       insertAutoMergeHooks(engineDb)
 
@@ -844,49 +803,37 @@ describe('E2E: Watch → Orchestrate → Ship (PRLT-1333)', () => {
 
       const engine = new OrchestrateEngine({ db: engineDb, log: () => {} })
 
-      // Set up poller with an agent that will complete
+      // Set up poller reporting a completed agent
       const pollerDb = createPollerMockDb({
         agents: [{
           id: 'exec-integrate',
           ticket_id: 'PRLT-999',
           agent_name: 'sharp-lovelace',
-          status: 'running',
-          lifecycle_state: null,
+          status: 'completed',
+          lifecycle_state: 'completed',
           container_id: null,
         }],
       })
       const poller = createTestPoller(pollerDb)
 
-      // Phase 1: Baseline
-      await poller.poll()
-
-      // Phase 2: Agent completes
-      pollerDb._data.agents = [{
-        id: 'exec-integrate',
-        ticket_id: 'PRLT-999',
-        agent_name: 'sharp-lovelace',
-        status: 'completed',
-        lifecycle_state: 'completed',
-        container_id: null,
-      }]
+      // Phase 1: Poll reports full state
       const agentPollResult = await poller.poll()
       expect(agentPollResult.message).to.not.be.null
       expect(agentPollResult.message).to.include('sharp-lovelace')
 
-      // Phase 3: CI goes green (simulated — in production this comes from GitHub polling)
-      // The watch would produce this poke message after detecting CI green
-      const ciGreenMessage = 'GitHub PR update:\n- #150 (PRLT-999): CI green, mergeable'
-      const parsed = parsePokeMessage(ciGreenMessage)
+      // Phase 2: CI goes green (simulated state report from GitHub polling)
+      const ciGreenMessage = 'GitHub PRs (1 open):\n- #150 (PRLT-999): "feat: implement" \u2014 CI: green, mergeable, no review\n\nReady tickets: none\n\nActive agents: none'
+      const parsed = parseStateMessage(ciGreenMessage)
       expect(parsed).to.not.be.null
 
-      // Phase 4: Orchestrator processes the poke
+      // Phase 3: Orchestrator processes the state
       const results = await engine.fireEvent('on_ci_green', {
         event: 'on_ci_green',
         ticket: parsed!.ticket,
         pr: parsed!.pr,
       })
 
-      // Phase 5: Verify the ship action was dispatched
+      // Phase 4: Verify the ship action was dispatched
       expect(results).to.have.length(1)
       expect(results[0].action).to.equal('merge-pr')
       expect(results[0].success).to.be.true
