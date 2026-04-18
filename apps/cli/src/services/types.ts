@@ -320,6 +320,26 @@ export interface RunReconcileOptions {
   cwd?: string
   /** Optional log callback */
   log?: (msg: string) => void
+
+  // ---- Escalation (PRLT-1282) ----
+
+  /** Session name to poke when unresolvable state is detected */
+  escalateTo?: string
+  /** Cooldown in minutes (default: 30) */
+  cooldownMinutes?: number
+  /** Configurable thresholds for weird state detection */
+  escalationThresholds?: {
+    conflictDays?: number
+    noPrDays?: number
+    idleSessionMinutes?: number
+  }
+  /** Injectable execution lister for session-idle detection */
+  listRunningExecutions?: () => Array<{
+    ticketId?: string
+    agentName: string
+    startedAt: Date
+    sessionId?: string
+  }>
 }
 
 /**

@@ -5,6 +5,9 @@
  * ticket transitions to fix board drift (e.g. "6 tickets stuck in Review
  * because someone merged via `gh pr merge` instead of `prlt work ship`").
  *
+ * PRLT-1282: When `--escalate-to <session>` is set, the reconciler pokes
+ * the orchestrator LLM on unresolvable/weird states instead of skipping.
+ *
  * PRLT-1287: When `--watch` is used without `--foreground`, the reconciler
  * spawns as a supervised daemon in a tmux session, registered in machine.db
  * with role='daemon'. Use `--foreground` to run in the current terminal
@@ -39,6 +42,8 @@ export default class Reconcile extends PMOCommand {
     '<%= config.bin %> <%= command.id %> --watch --foreground',
     '<%= config.bin %> <%= command.id %> --watch --interval 60',
     '<%= config.bin %> <%= command.id %> -P proj-001',
+    '<%= config.bin %> <%= command.id %> --watch --interval 30 --escalate-to orchestrator-main',
+    '<%= config.bin %> <%= command.id %> --dry-run --escalate-to orchestrator-main',
   ]
 
   static flags = {
@@ -59,6 +64,25 @@ export default class Reconcile extends PMOCommand {
       description: 'Watch interval in seconds (used with --watch)',
       default: 300,
     }),
+    'escalate-to': Flags.string({
+      description: 'Session name to poke when unresolvable state is detected (Tier 2→3 bridge)',
+    }),
+    cooldown: Flags.integer({
+      description: 'Minutes before re-poking the same ticket+issue (default: 30)',
+      default: 30,
+    }),
+    'conflict-days': Flags.integer({
+      description: 'Days before a stale open PR triggers escalation (default: 3)',
+      default: 3,
+    }),
+    'no-pr-days': Flags.integer({
+      description: 'Days before a ticket with no PR triggers escalation (default: 2)',
+      default: 2,
+    }),
+    'idle-minutes': Flags.integer({
+      description: 'Minutes before an idle agent session triggers escalation (default: 30)',
+      default: 30,
+    }),
   }
 
   async execute(): Promise<void> {
@@ -70,6 +94,20 @@ export default class Reconcile extends PMOCommand {
     const storage = this.storage as unknown as PMOStorage & ProviderStorage
     const reconcileService = new ReconcileService(db, storage)
 
+    // Escalation options (PRLT-1282)
+    const escalateTo = flags['escalate-to']
+    const escalationOpts = {
+      escalateTo,
+      cooldownMinutes: flags.cooldown,
+      escalationThresholds: {
+        conflictDays: flags['conflict-days'],
+        noPrDays: flags['no-pr-days'],
+        idleSessionMinutes: flags['idle-minutes'],
+      },
+      // Provide running executions for session-idle detection
+      listRunningExecutions: escalateTo ? this.buildExecutionLister() : undefined,
+    }
+
     if (flags.watch) {
       if (!flags.foreground) {
         // Default --watch behavior: spawn as tmux daemon
@@ -77,9 +115,10 @@ export default class Reconcile extends PMOCommand {
       }
 
       // --foreground: run in current terminal (original behavior)
+      const escalateNote = escalateTo ? ` [escalate → ${escalateTo}]` : ''
       this.log(
         styles.muted(
-          `Watching for drift every ${flags.interval}s (Ctrl+C to stop)${dryRun ? ' [dry-run]' : ''}...`,
+          `Watching for drift every ${flags.interval}s (Ctrl+C to stop)${dryRun ? ' [dry-run]' : ''}${escalateNote}...`,
         ),
       )
 
@@ -100,6 +139,7 @@ export default class Reconcile extends PMOCommand {
           intervalMs: flags.interval * 1000,
           shouldStop: () => stop,
           onCycle: report => this.printSummary(report, dryRun),
+          ...escalationOpts,
         })
       } finally {
         process.removeListener('SIGINT', stopHandler)
@@ -113,6 +153,7 @@ export default class Reconcile extends PMOCommand {
       cwd: this.hqPath ?? process.cwd(),
       projectId: projectFlag,
       log: jsonMode ? undefined : msg => this.log(msg),
+      ...escalationOpts,
     })
 
     if (jsonMode) {
@@ -123,6 +164,9 @@ export default class Reconcile extends PMOCommand {
           skipped: report.skipped,
           failed: report.failed,
           errors: report.errors,
+          escalated: report.escalated,
+          cooledDown: report.cooledDown,
+          escalationDryRun: report.escalationDryRun,
           startedAt: report.startedAt,
           finishedAt: report.finishedAt,
           dryRun,
@@ -133,6 +177,36 @@ export default class Reconcile extends PMOCommand {
     }
 
     this.printSummary(report, dryRun)
+  }
+
+  /**
+   * Build a function that lists running executions from machine.db.
+   * Used for session-idle detection in escalation.
+   */
+  private buildExecutionLister(): () => Array<{
+    ticketId?: string
+    agentName: string
+    startedAt: Date
+    sessionId?: string
+  }> {
+    return () => {
+      try {
+        const machineDb = new MachineDB()
+        try {
+          const executions = machineDb.listExecutions({ status: 'running' })
+          return executions.map(e => ({
+            ticketId: e.ticketId,
+            agentName: e.agentName,
+            startedAt: e.startedAt,
+            sessionId: e.sessionId,
+          }))
+        } finally {
+          machineDb.close()
+        }
+      } catch {
+        return []
+      }
+    }
   }
 
   /**
@@ -178,6 +252,10 @@ export default class Reconcile extends PMOCommand {
     let cmd = `prlt reconcile --watch --foreground --interval ${interval}`
     if (dryRun) cmd += ' --dry-run'
     if (projectFlag) cmd += ` -P ${projectFlag}`
+    const escalateFlag = flags['escalate-to'] as string | undefined
+    if (escalateFlag) cmd += ` --escalate-to ${escalateFlag}`
+    const cooldownFlag = flags.cooldown as number | undefined
+    if (cooldownFlag !== undefined) cmd += ` --cooldown ${cooldownFlag}`
 
     // Spawn detached tmux session
     try {
@@ -241,9 +319,10 @@ export default class Reconcile extends PMOCommand {
   }
 
   private printSummary(report: ReconcileReport, dryRun: boolean): void {
-    const { checked, applied, skipped, failed, errors } = report
+    const { checked, applied, skipped, failed, errors, escalated, cooledDown, escalationDryRun } = report
+    const hasEscalation = escalated.length > 0 || cooledDown.length > 0 || escalationDryRun.length > 0
 
-    if (applied.length === 0 && skipped.length === 0 && failed.length === 0) {
+    if (applied.length === 0 && skipped.length === 0 && failed.length === 0 && !hasEscalation) {
       this.log(styles.muted(`Checked ${checked} ticket(s) — no drift detected.`))
       return
     }
@@ -280,6 +359,25 @@ export default class Reconcile extends PMOCommand {
       this.log(styles.error(`  Failed: ${failed.length}`))
       for (const f of failed) {
         this.log(styles.error(`    ${f.transition.ticketId}: ${f.error}`))
+      }
+    }
+
+    // Escalation summary (PRLT-1282)
+    if (escalated.length > 0) {
+      this.log(styles.warning(`  Escalated: ${escalated.length} issue(s) poked to orchestrator`))
+      for (const e of escalated) {
+        this.log(styles.muted(`    ${e.ticketId}: ${e.issueType} — ${e.summary}`))
+      }
+    }
+
+    if (cooledDown.length > 0) {
+      this.log(styles.muted(`  Cooldown: ${cooledDown.length} issue(s) skipped (recently poked)`))
+    }
+
+    if (escalationDryRun.length > 0) {
+      this.log(styles.warning(`  Escalation (dry-run): ${escalationDryRun.length} issue(s) detected`))
+      for (const e of escalationDryRun) {
+        this.log(styles.muted(`    [dry-run] ${e.ticketId}: ${e.issueType} — ${e.summary}`))
       }
     }
 

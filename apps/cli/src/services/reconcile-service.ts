@@ -36,6 +36,10 @@ export class ReconcileService {
         projectId: options.projectId,
         cwd: options.cwd,
         log: options.log,
+        escalateTo: options.escalateTo,
+        cooldownMinutes: options.cooldownMinutes,
+        escalationThresholds: options.escalationThresholds,
+        listRunningExecutions: options.listRunningExecutions,
       })
     } catch (error) {
       throw new ServiceError(
@@ -67,6 +71,10 @@ export class ReconcileService {
         intervalMs: options.intervalMs,
         shouldStop: options.shouldStop,
         onCycle: options.onCycle,
+        escalateTo: options.escalateTo,
+        cooldownMinutes: options.cooldownMinutes,
+        escalationThresholds: options.escalationThresholds,
+        listRunningExecutions: options.listRunningExecutions,
       })
     } catch (error) {
       throw new ServiceError(

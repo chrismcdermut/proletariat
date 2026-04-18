@@ -15,6 +15,7 @@
 
 import type { PRInfo } from '../pr/index.js'
 import type { Ticket } from '../pmo/types.js'
+import type { EscalationIssue, EscalationThresholds } from './escalation.js'
 
 /**
  * Source of a linked PR. Used for logging and to decide which PMO mapping
@@ -88,6 +89,42 @@ export interface ReconcileOptions {
    * branch name pattern. Tests use this to avoid the real gh CLI.
    */
   branchSearch?: BranchSearchFn
+
+  // ---- Escalation (PRLT-1282) ----
+
+  /**
+   * Session name to poke when the reconciler detects unresolvable state.
+   * When unset, the reconciler logs and skips (PRLT-1280 behavior).
+   */
+  escalateTo?: string
+
+  /**
+   * Configurable thresholds for weird state detection (days/minutes).
+   * Falls back to sensible defaults when omitted.
+   */
+  escalationThresholds?: Partial<EscalationThresholds>
+
+  /**
+   * Cooldown in minutes — same ticket+issue is not re-poked within this
+   * window. Default: 30.
+   */
+  cooldownMinutes?: number
+
+  /**
+   * Injectable poke function. Tests use this to avoid shelling out.
+   */
+  pokeFn?: (session: string, alert: string) => Promise<{ success: boolean; error?: string }>
+
+  /**
+   * Injectable execution lister for session-idle detection. Tests use
+   * this to avoid MachineDB.
+   */
+  listRunningExecutions?: () => Array<{
+    ticketId?: string
+    agentName: string
+    startedAt: Date
+    sessionId?: string
+  }>
 }
 
 /**
@@ -141,6 +178,15 @@ export interface ReconcileReport {
   startedAt: string
   /** ISO timestamp when the cycle finished */
   finishedAt: string
+
+  // ---- Escalation (PRLT-1282) ----
+
+  /** Issues poked to the orchestrator session */
+  escalated: EscalationIssue[]
+  /** Issues skipped due to cooldown */
+  cooledDown: EscalationIssue[]
+  /** Issues detected but not poked (dry-run or no --escalate-to) */
+  escalationDryRun: EscalationIssue[]
 }
 
 /**
