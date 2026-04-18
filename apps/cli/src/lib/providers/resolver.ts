@@ -19,7 +19,7 @@
  */
 
 import type Database from 'better-sqlite3'
-import { isLinearConfigured } from '../linear/config.js'
+import { isLinearConfigured, hasLinearTeamConfig } from '../linear/config.js'
 import { isClickUpConfigured } from '../clickup/config.js'
 import { isGitHubConfigured } from '../github/config.js'
 import { isJiraConfigured } from '../jira/config.js'
@@ -242,8 +242,11 @@ export function resolveProjectProvider(
   }
 
   // auto: use the first configured external provider
+  // For Linear, require BOTH API key AND HQ-local team config.
+  // Checking only the API key would silently fall back to another HQ's
+  // team via env vars when this HQ has no team configured (PRLT-1325).
   try {
-    if (isLinearConfigured(db)) {
+    if (isLinearConfigured(db) && hasLinearTeamConfig(db)) {
       const inner = new LinearTicketProvider(db)
       return wrapWithEventsNoResolver(inner, projectId)
     }

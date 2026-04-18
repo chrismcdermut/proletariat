@@ -83,6 +83,31 @@ export function clearLinearConfig(db: Database.Database): void {
 }
 
 /**
+ * Check if this HQ has a Linear team key configured in HQ-local storage.
+ *
+ * Only checks workspace_settings and provider_sources — NOT environment
+ * variables, which may leak from another HQ session.
+ * Used by auto-mode provider resolution to avoid cross-HQ fallback.
+ */
+export function hasLinearTeamConfig(db: Database.Database): boolean {
+  const settings = new SettingsStore(db)
+  const teamKey = settings.get(LINEAR_CONFIG_KEYS.defaultTeamKey)
+  if (teamKey) return true
+
+  // Also check provider sources
+  try {
+    const sources = loadProviderSources(db)
+    for (const source of sources) {
+      if (source.provider === 'linear' && source.teamProjectId) return true
+    }
+  } catch {
+    // Provider sources table may not exist in older databases
+  }
+
+  return false
+}
+
+/**
  * Get the Linear API key using the provider-sources resolution chain.
  *
  * Resolution order:
