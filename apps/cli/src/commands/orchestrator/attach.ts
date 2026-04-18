@@ -16,7 +16,6 @@ import {
 } from '../../lib/prompt-json.js'
 import { styles } from '../../lib/styles.js'
 import { getWorkspaceInfo } from '../../lib/agents/commands.js'
-import { findHQRoot } from '../../lib/workspace.js'
 import { loadExecutionConfig, shouldUseControlMode, buildTmuxAttachCommand } from '../../lib/execution/index.js'
 import {
   collectAllSessions,
@@ -78,14 +77,19 @@ export default class OrchestratorAttach extends PromptCommand {
       char: 'n',
       description: 'Name of the orchestrator to attach to (matches agentName)',
     }),
+    scope: Flags.string({
+      char: 's',
+      description: 'Scope of orchestrator sessions to show (current HQ or all HQs)',
+      options: ['current', 'all'],
+      default: 'current',
+    }),
     here: Flags.boolean({
-      description: 'Filter to orchestrators in the current HQ only',
+      description: '[deprecated] Now the default behavior. Use --scope all to see all HQs.',
       default: false,
-      exclusive: ['hq'],
+      hidden: true,
     }),
     hq: Flags.string({
       description: 'Filter to orchestrators in a specific HQ path',
-      exclusive: ['here'],
     }),
     'new-tab': Flags.boolean({
       description: 'Open in a new terminal tab instead of attaching in the current terminal',
@@ -107,26 +111,27 @@ export default class OrchestratorAttach extends PromptCommand {
     const { flags } = await this.parse(OrchestratorAttach)
     const jsonMode = shouldOutputJson(flags)
 
-    // Resolve HQ filter
+    // Resolve scope: --hq overrides --scope, --here is deprecated (now the default)
+    const scopeAll = flags.scope === 'all'
+
+    // Resolve explicit HQ filter (--hq flag takes precedence over scope)
     let hqPathFilter: string | undefined
-    if (flags.here) {
-      const cwdHq = findHQRoot(process.cwd())
-      if (cwdHq) hqPathFilter = cwdHq
-    } else if (flags.hq) {
+    if (flags.hq) {
       hqPathFilter = flags.hq
     }
 
-    // Always query machine-wide for orchestrators.
-    let orchestrators = collectAllSessions({
+    // Collect ALL orchestrator sessions machine-wide first, then apply scoping
+    const allOrchestrators = collectAllSessions({
       hqPathFilter,
       roleFilter: 'orchestrator',
       includeAll: false,
     })
 
     // Optional --name filter
+    let filteredOrchestrators = allOrchestrators
     if (flags.name) {
       const needle = flags.name.toLowerCase()
-      orchestrators = orchestrators.filter(
+      filteredOrchestrators = filteredOrchestrators.filter(
         s =>
           s.agentName.toLowerCase() === needle ||
           s.agentName.toLowerCase().includes(needle) ||
@@ -134,7 +139,43 @@ export default class OrchestratorAttach extends PromptCommand {
       )
     }
 
+    // Group sessions by HQ for scope filtering
+    const grouped = groupSessionsByHQ(filteredOrchestrators)
+    const currentHqPath = grouped.currentHq
+
+    // Apply scope filtering: default is current-HQ only
+    let orchestrators: UnifiedSession[]
+    let hiddenElsewhereCount = 0
+
+    if (scopeAll || !currentHqPath) {
+      // --scope all or not in any HQ: show everything
+      orchestrators = filteredOrchestrators
+    } else {
+      // Default (--scope current): show only current-HQ sessions
+      orchestrators = grouped.here
+      hiddenElsewhereCount = grouped.elsewhere.length
+    }
+
+    // Handle empty results with scope awareness
     if (orchestrators.length === 0) {
+      // Check if there are sessions in other HQs that were filtered out
+      if (hiddenElsewhereCount > 0) {
+        if (jsonMode) {
+          outputErrorAsJson(
+            'NO_CURRENT_HQ_SESSION',
+            `No orchestrator running in current HQ. ${hiddenElsewhereCount} orchestrator${hiddenElsewhereCount === 1 ? '' : 's'} in other HQs. Use --scope all to see them, or start one with: prlt orchestrator start`,
+            createMetadata('orchestrator attach', flags),
+          )
+          return
+        }
+        this.log('')
+        this.log(styles.warning('No orchestrator running in current HQ.'))
+        this.log(styles.muted(`${hiddenElsewhereCount} orchestrator${hiddenElsewhereCount === 1 ? '' : 's'} in other HQs. Use --scope all to see ${hiddenElsewhereCount === 1 ? 'it' : 'them'}.`))
+        this.log(styles.muted('Start one here with: prlt orchestrator start'))
+        this.log('')
+        return
+      }
+
       if (jsonMode) {
         outputErrorAsJson(
           'NOT_RUNNING',
@@ -150,20 +191,23 @@ export default class OrchestratorAttach extends PromptCommand {
       return
     }
 
-    // Pick a single orchestrator. Prefer current-HQ sessions when multiple exist.
+    // Pick a single orchestrator
     let picked: UnifiedSession | undefined
     if (orchestrators.length === 1) {
+      // Show a note about hidden sessions even when auto-picking
+      if (hiddenElsewhereCount > 0 && !jsonMode) {
+        this.log('')
+        this.log(styles.muted(`${hiddenElsewhereCount} orchestrator${hiddenElsewhereCount === 1 ? '' : 's'} in other HQs. Use --scope all to see ${hiddenElsewhereCount === 1 ? 'it' : 'them'}.`))
+      }
       picked = orchestrators[0]
     } else {
-      const grouped = groupSessionsByHQ(orchestrators)
-      const ordered: UnifiedSession[] = [...grouped.here, ...grouped.elsewhere]
-
-      const selectMessage = 'Multiple orchestrator sessions found. Select one to attach:'
-      const sessionChoices = ordered.map(s => {
+      const selectMessage = 'Select orchestrator session:'
+      const sessionChoices = orchestrators.map(s => {
         const hqLabel = s.hqPath ? tildifyPath(s.hqPath) : '(no HQ)'
         const tag = s.environment === 'container' ? ' (Docker)' : ''
+        const hqTag = scopeAll && currentHqPath && s.hqPath === currentHqPath ? ' (current HQ)' : ''
         return {
-          name: `${s.agentName}${tag} — ${hqLabel}`,
+          name: `${s.agentName}${tag} — ${hqLabel}${hqTag}`,
           value: s.sessionId,
           command: `prlt orchestrator attach --name "${s.agentName}" --json`,
         }
@@ -177,21 +221,10 @@ export default class OrchestratorAttach extends PromptCommand {
         return
       }
 
-      // Print a grouped preview banner above the picker.
-      if (grouped.currentHq) {
+      this.log('')
+      if (hiddenElsewhereCount > 0) {
+        this.log(styles.muted(`${hiddenElsewhereCount} orchestrator${hiddenElsewhereCount === 1 ? '' : 's'} in other HQs. Use --scope all to see ${hiddenElsewhereCount === 1 ? 'it' : 'them'}.`))
         this.log('')
-        this.log(
-          styles.header(
-            `Current HQ: ${tildifyPath(grouped.currentHq)} (${grouped.here.length} orchestrator${grouped.here.length === 1 ? '' : 's'})`,
-          ),
-        )
-      }
-      if (grouped.elsewhere.length > 0) {
-        this.log(
-          styles.muted(
-            `Other locations: ${grouped.elsewhere.length} orchestrator${grouped.elsewhere.length === 1 ? '' : 's'}`,
-          ),
-        )
       }
 
       const { session } = await this.prompt<{ session: string }>([{
@@ -200,7 +233,7 @@ export default class OrchestratorAttach extends PromptCommand {
         message: selectMessage,
         choices: sessionChoices,
       }])
-      picked = ordered.find(s => s.sessionId === session)
+      picked = orchestrators.find(s => s.sessionId === session)
     }
 
     if (!picked) {
