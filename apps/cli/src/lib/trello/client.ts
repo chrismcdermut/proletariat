@@ -2,7 +2,6 @@ import type {
   TrelloBoard,
   TrelloCard,
   TrelloCardUpsertInput,
-  TrelloLabel,
   TrelloList,
   TrelloMember,
 } from './types.js'

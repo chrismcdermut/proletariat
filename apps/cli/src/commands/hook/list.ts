@@ -16,7 +16,6 @@ import {
   outputErrorAsJson,
   createMetadata,
 } from '../../lib/prompt-json.js'
-import { ORCHESTRATE_EVENTS } from '../../lib/orchestrate/index.js'
 
 interface HookRow {
   id: string

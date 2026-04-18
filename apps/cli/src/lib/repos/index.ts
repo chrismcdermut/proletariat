@@ -14,7 +14,7 @@ import {
 import { createDevcontainerConfig } from '../execution/devcontainer.js';
 import { getGitIdentity } from '../pr/index.js';
 import { findHQRoot } from '../workspace.js';
-import { isLocalPath, findRemoteUrl, setOriginUrl, parseGitHubOwnerRepo, checkGitHubRepoArchived } from './git.js';
+import { isLocalPath, findRemoteUrl, setOriginUrl } from './git.js';
 import { getClaudeCodeVersion } from '../workspace-config.js';
 
 export interface RepoToAdd {

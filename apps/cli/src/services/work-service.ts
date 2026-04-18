@@ -20,7 +20,6 @@ import {
   getGitHubRepo,
   findPRForTicket,
   listOpenPRs,
-  isGHInstalled,
 } from '../lib/pr/index.js'
 import type { PRInfo } from '../lib/pr/index.js'
 import {
@@ -40,7 +39,6 @@ import type {
   ShipWorkResult,
   ShipAllOptions,
   ShipAllResult,
-  ShipDryRunDetails,
 } from './types.js'
 
 /**
@@ -370,7 +368,7 @@ export class WorkService {
       method = 'squash',
       whenGreen = false,
       deleteBranch = true,
-      rebaseSiblings = true,
+      rebaseSiblings: _rebaseSiblings = true,
       cwd,
     } = options
 
@@ -512,7 +510,7 @@ export class WorkService {
       const pending = checks.filter(c =>
         !c.conclusion || c.status === 'IN_PROGRESS' || c.status === 'QUEUED'
       )
-      const passed = checks.filter(c =>
+      const _passed = checks.filter(c =>
         c.conclusion === 'SUCCESS' || c.conclusion === 'SKIPPED'
       )
 

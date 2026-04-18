@@ -40,7 +40,7 @@ interface ShortcutSearchResponse {
   total?: number
 }
 
-interface ShortcutMember {
+interface _ShortcutMember {
   id?: string
   profile?: {
     name?: string

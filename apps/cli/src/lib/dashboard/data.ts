@@ -237,7 +237,7 @@ export function gatherSessionData(): DashboardSession[] {
     }
 
     for (const { sessionName } of allContainerSessions) {
-      const key = `${sessionName}`
+      const _key = `${sessionName}`
       // Check all container session entries
       let matched = false
       for (const k of matchedContainerSessions) {

@@ -14,7 +14,7 @@
 
 import type Database from 'better-sqlite3'
 import { JiraClient } from '../jira/client.js'
-import { getJiraApiToken, loadJiraConfig } from '../jira/config.js'
+import { loadJiraConfig } from '../jira/config.js'
 import {
   PMO_PRIORITY_TO_JIRA,
   JIRA_PRIORITY_TO_PMO,

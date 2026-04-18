@@ -44,7 +44,7 @@ import {
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution } from '../../lib/execution/runners.js'
-import { shouldOutputJson, outputErrorAsJson, createMetadata, outputExecutionResultAsJson } from '../../lib/prompt-json.js'
+import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 
 export default class WorkRun extends PromptCommand {
   static description = 'Run an agent without a ticket — ticketless work mode'

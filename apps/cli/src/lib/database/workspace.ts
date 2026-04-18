@@ -17,7 +17,6 @@ import { createDrizzleConnection, type DrizzleDB } from './drizzle.js'
 import {
   workspace as workspaceTable,
 } from './drizzle-schema.js'
-import { eq } from 'drizzle-orm'
 import type { DatabaseDriver } from './driver.js'
 import { BetterSqlite3Driver } from './driver.js'
 import {

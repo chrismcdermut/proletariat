@@ -13,7 +13,6 @@
  */
 
 import { execSync } from 'node:child_process'
-import { statSync } from 'node:fs'
 import { ExecutionStorage } from '../execution/storage.js'
 import type { AgentWork } from '../execution/types.js'
 import {

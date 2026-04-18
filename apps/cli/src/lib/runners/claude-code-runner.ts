@@ -11,7 +11,6 @@ import { execSync, execFileSync } from 'node:child_process'
 import type { AgentRunner, AgentSession, SpawnConfig } from './agent-runner.js'
 import {
   runHost,
-  buildSessionName,
 } from '../execution/runners.js'
 import { DEFAULT_EXECUTION_CONFIG } from '../execution/types.js'
 import type { ExecutionContext, ExecutionConfig } from '../execution/types.js'
@@ -127,7 +126,7 @@ export class ClaudeCodeRunner implements AgentRunner {
    * Uses the same naming convention as the existing system:
    * "{ticketId}-{action}-{agentName}" or falls back to a generated name.
    */
-  private buildSessionName(config: SpawnConfig): string {
+  private buildSessionName(_config: SpawnConfig): string {
     // If we have a full ExecutionContext-like task with ticket info, use buildSessionName
     // Otherwise generate a simple name from the runner and timestamp
     return `claude-${Date.now()}`
@@ -155,7 +154,7 @@ export class ClaudeCodeRunner implements AgentRunner {
   /**
    * Build ExecutionConfig from SpawnConfig defaults.
    */
-  private buildExecutionConfig(config: SpawnConfig): ExecutionConfig {
+  private buildExecutionConfig(_config: SpawnConfig): ExecutionConfig {
     return {
       ...DEFAULT_EXECUTION_CONFIG,
       permissionMode: 'danger',

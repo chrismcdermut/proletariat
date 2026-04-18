@@ -8,7 +8,7 @@
  */
 
 import * as fs from 'node:fs'
-import * as path from 'node:path'
+import * as _path from 'node:path'
 import { openWorkspaceDatabase } from '../database/index.js'
 import { getPMOContext } from '../pmo/pmo-context.js'
 import type { ProviderStorage } from '../providers/types.js'
@@ -178,7 +178,7 @@ async function cycle(): Promise<void> {
     log(`Error: ${msg}`)
   } finally {
     if (db) {
-      try { db.close() } catch {}
+      try { db.close() } catch { /* best-effort db cleanup */ }
     }
   }
 }

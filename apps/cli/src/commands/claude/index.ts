@@ -823,7 +823,6 @@ export default class Claude extends PromptCommand {
 
       // Now use the slug from ticket title if not provided
       // Note: slug reserved for future branch naming
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const _slug = flags.slug || ticketTitle!.toLowerCase().replace(/[^a-z0-9]+/g, '-').substring(0, 30)
 
       // Create ephemeral agent (with rollback on failure)
