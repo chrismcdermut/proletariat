@@ -31,6 +31,7 @@ import { hookModeTiers } from './0022_hook_mode_tiers.js'
 import { intentBasedActions } from './0023_intent_based_actions.js'
 import { dropDeadPmoTables } from './0024_drop_dead_pmo_tables.js'
 import { transitionMapManyToOne } from './0025_transition_map_many_to_one.js'
+import { hookActionType } from './0026_hook_action_type.js'
 
 /**
  * Ordered list of all migrations.
@@ -62,4 +63,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   intentBasedActions,
   dropDeadPmoTables,
   transitionMapManyToOne,
+  hookActionType,
 ]

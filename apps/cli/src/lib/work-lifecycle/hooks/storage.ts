@@ -18,7 +18,7 @@ export const HOOKS_TABLE_SCHEMA = `
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     event TEXT NOT NULL,
-    action_type TEXT NOT NULL CHECK (action_type IN ('shell', 'webhook', 'log')),
+    action_type TEXT NOT NULL CHECK (action_type IN ('shell', 'webhook', 'log', 'action')),
     action_value TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     description TEXT,

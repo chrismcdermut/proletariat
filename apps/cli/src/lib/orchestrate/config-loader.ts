@@ -134,8 +134,8 @@ export function applyPreset(db: Database.Database, presetName: PresetName): numb
       const created = storage.create({
         name: hookName,
         event: mapOrchestrateToHookable(hook.event),
-        actionType: 'shell',
-        actionValue: `prlt hook fire ${hook.event} --action ${hook.action}`,
+        actionType: 'action',
+        actionValue: hook.action,
         description: `Preset ${presetName}: ${hook.event} → ${hook.action} (${hook.mode})`,
       })
 
