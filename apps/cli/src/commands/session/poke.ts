@@ -6,10 +6,7 @@ import {
   captureTmuxPane,
   sendTmuxMessage,
 } from '../../lib/execution/session-utils.js'
-import {
-  collectAllSessions,
-  findSessionByIdentifier,
-} from '../../lib/session/renderer.js'
+import { SessionService } from '../../services/session-service.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
 import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
@@ -268,23 +265,17 @@ export default class SessionPoke extends PromptCommand {
    * Resolve an agent identifier (name, ticket ID, or tmux session name) to a
    * running session.
    *
-   * PRLT-1323: Uses the unified machine-wide session collection so this works
-   * for workers, orchestrators, AND daemons — any running tmux pane with a
-   * tracked record (workspace.db, machine.db, or tmux/Docker discovery) is
-   * reachable by identifier. No "active execution" row is required.
+   * PRLT-1263: Delegates to SessionService.resolveSession() — the same
+   * machine-wide collection path that `session list` uses — so poke and
+   * list always see an identical set of sessions.
    */
   private resolveAgentSession(
     identifier: string,
     jsonMode: boolean,
     flags: Record<string, unknown>,
   ): ResolvedSession | null {
-    // Collect every known session on the machine — across all registered HQs,
-    // machine.db, and discovered tmux/Docker sessions (orchestrators, daemons).
-    // includeAll: true so stale DB records are still considered; the helper
-    // prefers alive sessions and only falls back to stale rows when no live
-    // match exists (so tmux-level failures surface clearly to the caller).
-    const sessions = collectAllSessions({ includeAll: true })
-    const result = findSessionByIdentifier(sessions, identifier)
+    const sessionService = new SessionService()
+    const result = sessionService.resolveSession(identifier)
 
     if (result.kind === 'none') {
       if (jsonMode) {

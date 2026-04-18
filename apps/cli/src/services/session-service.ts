@@ -13,6 +13,7 @@ import {
   collectAllSessions,
   groupSessionsByHQ,
   bucketElsewhereByHq,
+  findSessionByIdentifier,
 } from '../lib/session/renderer.js'
 import type {
   UnifiedSession,
@@ -20,7 +21,7 @@ import type {
   SessionRole,
 } from '../lib/session/renderer.js'
 import { ServiceError } from './types.js'
-import type { ListSessionsOptions, ListSessionsResult } from './types.js'
+import type { ListSessionsOptions, ListSessionsResult, ResolveSessionResult } from './types.js'
 
 export class SessionService {
   /**
@@ -47,6 +48,32 @@ export class SessionService {
       throw new ServiceError(
         'INTERNAL',
         `Failed to collect sessions: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      )
+    }
+  }
+
+
+  /**
+   * Resolve a user-supplied identifier (agent name, ticket ID, tmux session
+   * name, or role shorthand) to a single session.
+   *
+   * Uses the same machine-wide collection path as listSessions() followed
+   * by findSessionByIdentifier(), ensuring poke and list always see
+   * the same set of sessions (PRLT-1263).
+   */
+  resolveSession(identifier: string, options: CollectOptions = {}): ResolveSessionResult {
+    try {
+      const sessions = collectAllSessions({
+        includeAll: options.includeAll ?? true,
+        hqPathFilter: options.hqPathFilter,
+        roleFilter: options.roleFilter,
+      })
+      return findSessionByIdentifier(sessions, identifier)
+    } catch (error) {
+      throw new ServiceError(
+        'INTERNAL',
+        `Failed to resolve session "${identifier}": ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       )
     }
