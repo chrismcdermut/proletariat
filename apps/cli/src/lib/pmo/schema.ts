@@ -205,6 +205,7 @@ export const PMO_TABLE_SCHEMAS = {
       end_prompt TEXT,
       from_intent TEXT,
       to_intent TEXT,
+      valid_from TEXT,
       executor TEXT CHECK (executor IN ('claude', 'codex', 'opencode', 'custom')),
       environment TEXT CHECK (environment IN ('devcontainer', 'docker', 'host', 'vm')),
       permission_mode TEXT CHECK (permission_mode IN ('full', 'readonly', 'bypassPermissions')),
