@@ -38,6 +38,7 @@ function toActionRecord(row: typeof actionsTable.$inferSelect): ActionRecord {
     endPrompt: row.endPrompt,
     fromIntent: row.fromIntent,
     toIntent: row.toIntent,
+    validFrom: row.validFrom,
     executor: row.executor,
     environment: row.environment,
     permissionMode: row.permissionMode,

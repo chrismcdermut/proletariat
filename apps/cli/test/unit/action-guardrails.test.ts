@@ -7,6 +7,7 @@ import { resolveTicketIntent, validateActionState } from '../../src/lib/work-lif
 import type { WorkAction } from '../../src/lib/pmo/types.js'
 import { SQLiteStorage } from '../../src/lib/pmo/storage-sqlite.js'
 import { PMO_TABLES } from '../../src/lib/pmo/schema.js'
+import { actionGuardrails } from '../../src/lib/database/migrations/0026_action_guardrails.js'
 
 // =============================================================================
 // Test Helpers
@@ -297,7 +298,6 @@ describe('Migration 0026 — action guardrails', () => {
       `).run()
 
       // Run migration
-      const { actionGuardrails } = await import('../../src/lib/database/migrations/0026_action_guardrails.js')
       actionGuardrails.up(db)
 
       // Verify valid_from column was added
