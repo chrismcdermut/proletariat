@@ -125,14 +125,18 @@ describe('SimplePoller', () => {
       expect(r2.message).to.equal(r1.message)
     })
 
-    it('should return null message when there is no state at all', async () => {
+    it('should return a formatted message even when there is no state', async () => {
       const db = createMockDb()
       const poller = createPoller(db)
 
       const result = await poller.poll()
 
       expect(result.items).to.have.length(0)
-      expect(result.message).to.be.null
+      // Always returns a full state report — no null messages (PRLT-1347)
+      expect(result.message).to.be.a('string')
+      expect(result.message).to.include('GitHub PRs: none')
+      expect(result.message).to.include('Ready tickets: none')
+      expect(result.message).to.include('Active agents: none')
     })
 
     it('should reflect state changes immediately without needing a prior baseline', async () => {

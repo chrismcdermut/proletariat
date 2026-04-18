@@ -34,10 +34,10 @@ export interface StateItem {
   summary: string
 }
 
-/** Result of a poll cycle. */
+/** Result of a poll cycle. Message is always a formatted state report. */
 export interface PollResult {
   items: StateItem[]
-  message: string | null
+  message: string
 }
 
 // Keep old name as alias for backward compatibility in re-exports
@@ -128,7 +128,7 @@ export class SimplePoller {
     items.push(...this.gatherAgentState())
     items.push(...this.gatherReadyTicketState())
 
-    const message = items.length > 0 ? this.formatStateMessage(items) : null
+    const message = this.formatStateMessage(items)
     return { items, message }
   }
 
