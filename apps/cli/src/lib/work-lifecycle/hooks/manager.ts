@@ -24,6 +24,7 @@ import {
   type HookableEvent,
   type HookExecutionResult,
   type HookActionHandler,
+  type AsyncHookActionHandler,
   type WorkHookConfig,
   type LlmDecision,
 } from './types.js'
@@ -76,6 +77,13 @@ export interface HookManagerOptions {
    * is called instead of shell/webhook/log execution.
    */
   actionHandlers?: Record<string, HookActionHandler>
+  /**
+   * Service-backed async action handlers for action-type hooks.
+   * These call services directly in-process (no shell) and are used
+   * when hook.actionType === 'action'. They take priority over
+   * actionHandlers for action-type hooks.
+   */
+  serviceActionHandlers?: Record<string, AsyncHookActionHandler>
 }
 
 // =============================================================================
@@ -110,6 +118,7 @@ export class HookManager {
   private onHumanEscalation?: (context: EscalationContext, reason: EscalationReason) => Promise<boolean>
   private llmTimeoutMs: number
   private actionHandlers: Record<string, HookActionHandler>
+  private serviceActionHandlers: Record<string, AsyncHookActionHandler>
   private _pendingConfirmations: PendingConfirmation[] = []
   private _pendingLlmDecisions: PendingLlmDecision[] = []
   private _pendingHumanEscalations: PendingHumanEscalation[] = []
@@ -124,6 +133,7 @@ export class HookManager {
     this.onHumanEscalation = options.onHumanEscalation
     this.llmTimeoutMs = options.llmTimeoutMs ?? DEFAULT_LLM_TIMEOUT_MS
     this.actionHandlers = options.actionHandlers ?? {}
+    this.serviceActionHandlers = options.serviceActionHandlers ?? {}
   }
 
   /**
@@ -348,6 +358,9 @@ export class HookManager {
    * Public so it can be tested in isolation.
    */
   static resolveActionName(hook: WorkHookConfig, knownActions: Record<string, unknown> = {}): string {
+    // For action-type hooks, the action_value IS the action name
+    if (hook.actionType === 'action') return hook.actionValue
+
     // If the action_value contains --action, extract the action name
     const actionMatch = hook.actionValue.match(/--action\s+(\S+)/)
     if (actionMatch) return actionMatch[1]
@@ -441,7 +454,7 @@ export class HookManager {
                   continue
                 }
                 // Human approved — fall through to execution
-                const result = this.executeHookAction(hook, eventName, eventData, ctx)
+                const result = await this.executeHookAction(hook, eventName, eventData, ctx)
                 results.push({ ...result, escalatedToHuman: true, tier: 'human' })
                 this.log(`[hooks] ${hook.name} → ${actionName}: ${result.success ? 'success' : `failed: ${result.error}`} (${result.durationMs}ms) [escalated to human]`)
                 continue
@@ -601,7 +614,7 @@ export class HookManager {
         }
 
         // --- auto / notify / confirmed / llm-approved / human-approved: execute ---
-        const result = this.executeHookAction(hook, eventName, eventData, ctx)
+        const result = await this.executeHookAction(hook, eventName, eventData, ctx)
         results.push(result)
 
         this.log(
@@ -622,16 +635,65 @@ export class HookManager {
 
   /**
    * Execute a hook action — either via a built-in handler or the standard executor.
+   *
+   * For action-type hooks (action_type='action'), the action_value is the
+   * built-in action name (e.g. 'move-ticket'). These are routed to async
+   * service handlers first (in-process, no shell), then fall back to
+   * sync action handlers.
+   *
+   * For shell-type hooks, we first check if the action_value resolves to a
+   * known built-in action (via --action flag parsing), then fall back to
+   * the standard executor for raw shell commands.
    */
-  private executeHookAction(
+  private async executeHookAction(
     hook: WorkHookConfig,
     eventName: string,
     eventData: Record<string, unknown>,
     ctx: Record<string, unknown>,
-  ): HookExecutionResult {
+  ): Promise<HookExecutionResult> {
     const actionName = HookManager.resolveActionName(hook, this.actionHandlers)
 
-    // Try built-in action handler first
+    // For action-type hooks, use service handlers first (async, in-process)
+    if (hook.actionType === 'action') {
+      if (this.serviceActionHandlers[actionName]) {
+        const handlerResult = await this.serviceActionHandlers[actionName](ctx, hook.config ?? undefined)
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: handlerResult.action,
+          success: handlerResult.success,
+          error: handlerResult.error,
+          durationMs: handlerResult.durationMs,
+          skipped: handlerResult.skipped,
+        }
+      }
+
+      // Fall back to sync action handlers for action-type hooks
+      if (this.actionHandlers[actionName]) {
+        const handlerResult = this.actionHandlers[actionName](ctx, hook.config ?? undefined)
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: handlerResult.action,
+          success: handlerResult.success,
+          error: handlerResult.error,
+          durationMs: handlerResult.durationMs,
+          skipped: handlerResult.skipped,
+        }
+      }
+
+      // action-type but no matching handler — this is a configuration error
+      return {
+        hookId: hook.id,
+        hookName: hook.name,
+        action: actionName,
+        success: false,
+        error: `No built-in action handler for '${actionName}'`,
+        durationMs: 0,
+      }
+    }
+
+    // For shell-type hooks, try built-in action handler first (backward compat)
     if (this.actionHandlers[actionName]) {
       const handlerResult = this.actionHandlers[actionName](ctx, hook.config ?? undefined)
       return {

@@ -14,8 +14,9 @@
 
 import type Database from 'better-sqlite3'
 import { HookManager } from '../work-lifecycle/hooks/manager.js'
-import type { HookExecutionResult, HookActionHandler, LlmDecision } from '../work-lifecycle/hooks/types.js'
+import type { HookExecutionResult, HookActionHandler, AsyncHookActionHandler, LlmDecision } from '../work-lifecycle/hooks/types.js'
 import { ACTION_HANDLERS } from './actions.js'
+import { createServiceActionHandlers } from './service-actions.js'
 import {
   NotificationManager,
   initNotificationManager,
@@ -75,6 +76,9 @@ export class OrchestrateEngine {
         }
       : undefined
 
+    // Create service-backed handlers for action-type hooks (in-process, no shell)
+    const serviceHandlers = createServiceActionHandlers(options.db)
+
     this.manager = new HookManager({
       db: options.db,
       log: options.log,
@@ -84,6 +88,7 @@ export class OrchestrateEngine {
       onHumanEscalation: options.onHumanEscalation,
       llmTimeoutMs: options.llmTimeoutMs,
       actionHandlers: ACTION_HANDLERS as Record<string, HookActionHandler>,
+      serviceActionHandlers: serviceHandlers as Record<string, AsyncHookActionHandler>,
     })
 
     // Initialize the notification manager so it subscribes to events

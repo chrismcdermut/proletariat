@@ -136,6 +136,20 @@ export function executeHook(
         console.log(`[hook:${hook.name}] ${message}`)
         break
       }
+
+      case 'action': {
+        // Action-type hooks are handled directly by HookManager via
+        // built-in action handlers — they should not reach the executor.
+        // If they do, return an error so the misconfiguration is visible.
+        return {
+          hookId: hook.id,
+          hookName: hook.name,
+          action: hook.actionValue,
+          success: false,
+          error: 'action-type hooks must be routed through built-in action handlers, not the executor',
+          durationMs: Date.now() - start,
+        }
+      }
     }
 
     return {

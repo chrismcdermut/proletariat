@@ -15,6 +15,7 @@ export type {
   WorkHookRow,
   HookExecutionResult,
   HookActionHandler,
+  AsyncHookActionHandler,
 } from './types.js'
 
 export { HOOKABLE_EVENTS, HOOK_MODES } from './types.js'

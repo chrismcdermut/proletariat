@@ -236,8 +236,8 @@ review:
     it('should store each preset hook with its correct event name, never work:status_changed fallback', () => {
       applyPreset(db, 'aggressive')
 
-      const hooks = db.prepare("SELECT event, action_value FROM pmo_work_hooks WHERE source = 'preset'")
-        .all() as Array<{ event: string; action_value: string }>
+      const hooks = db.prepare("SELECT event, action_type, action_value, name FROM pmo_work_hooks WHERE source = 'preset'")
+        .all() as Array<{ event: string; action_type: string; action_value: string; name: string }>
 
       // No hook should have been silently misrouted to work:status_changed
       // unless the preset actually defines a work:status_changed hook
@@ -245,10 +245,12 @@ review:
       const hasWorkStatusChanged = presetEvents.has('work:status_changed')
 
       for (const hook of hooks) {
-        // Extract the original event from the action_value: "prlt hook fire <event> --action ..."
-        const match = hook.action_value.match(/prlt hook fire (\S+) --action/)
-        expect(match, `Could not parse event from action_value: ${hook.action_value}`).to.not.be.null
-        const originalEvent = match![1]
+        // Preset hooks now use action_type='action' with the action name as action_value.
+        // Extract the original event from the hook name: "preset:<preset>:<event>:<action>:<idx>"
+        expect(hook.action_type).to.equal('action',
+          `Preset hook "${hook.name}" should use action_type='action', not '${hook.action_type}'`)
+        const nameParts = hook.name.split(':')
+        const originalEvent = nameParts[2]
 
         // The stored event MUST match the original event from the preset
         expect(hook.event).to.equal(originalEvent,
@@ -286,14 +288,16 @@ review:
         try { db.exec("DELETE FROM pmo_work_hooks WHERE source = 'preset'") } catch { /* */ }
         applyPreset(db, presetName)
 
-        const hooks = db.prepare("SELECT event, action_value FROM pmo_work_hooks WHERE source = 'preset'")
-          .all() as Array<{ event: string; action_value: string }>
+        const hooks = db.prepare("SELECT event, action_type, action_value, name FROM pmo_work_hooks WHERE source = 'preset'")
+          .all() as Array<{ event: string; action_type: string; action_value: string; name: string }>
 
         for (const hook of hooks) {
-          const match = hook.action_value.match(/prlt hook fire (\S+) --action/)
-          expect(match).to.not.be.null
-          expect(hook.event).to.equal(match![1],
-            `${presetName} preset: event "${match![1]}" misrouted to "${hook.event}"`)
+          // Preset hooks use action_type='action'. Extract expected event from hook name.
+          expect(hook.action_type).to.equal('action')
+          const nameParts = hook.name.split(':')
+          const originalEvent = nameParts[2]
+          expect(hook.event).to.equal(originalEvent,
+            `${presetName} preset: event "${originalEvent}" misrouted to "${hook.event}"`)
         }
       }
     })

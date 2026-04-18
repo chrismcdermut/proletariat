@@ -44,6 +44,11 @@ export {
 } from './actions.js'
 
 export {
+  createServiceActionHandlers,
+  SERVICE_BACKED_ACTIONS,
+} from './service-actions.js'
+
+export {
   OrchestrateEngine,
   initOrchestrateEngine,
   getOrchestrateEngine,

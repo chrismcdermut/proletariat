@@ -36,8 +36,8 @@ export default class WorkHooksAdd extends PromptCommand {
       options: HOOKABLE_EVENTS,
     }),
     'action-type': Flags.string({
-      description: 'Action type (shell, webhook, or log)',
-      options: ['shell', 'webhook', 'log'],
+      description: 'Action type (shell, webhook, log, or action)',
+      options: ['shell', 'webhook', 'log', 'action'],
     }),
     'action-value': Flags.string({
       description: 'Action payload (command, URL, or message template)',
@@ -134,6 +134,7 @@ export default class WorkHooksAdd extends PromptCommand {
           { name: 'shell — Run a shell command', value: 'shell' },
           { name: 'webhook — POST event data to a URL', value: 'webhook' },
           { name: 'log — Print a message to stdout', value: 'log' },
+          { name: 'action — Call a built-in action directly (no shell)', value: 'action' },
         ]
         const message = 'Action type:'
 
@@ -163,6 +164,7 @@ export default class WorkHooksAdd extends PromptCommand {
           shell: 'Shell command to run:',
           webhook: 'Webhook URL:',
           log: 'Log message template (use {{workItemId}}, {{event}}, etc.):',
+          action: 'Built-in action name (e.g. move-ticket, notify, merge-pr):',
         }
         const message = prompts[actionType!]
 
