@@ -728,7 +728,9 @@ describe('E2E: Watch -> Orchestrate -> Ship (PRLT-1333)', () => {
       const result = await poller.poll()
 
       expect(result.items).to.have.length(0)
-      expect(result.message).to.be.null
+      // Always returns a formatted state report, even when empty (PRLT-1347)
+      expect(result.message).to.be.a('string')
+      expect(result.message).to.include('none')
     })
   })
 

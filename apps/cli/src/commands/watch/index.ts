@@ -118,7 +118,7 @@ export default class Watch extends PromptCommand {
         cwd: workspaceInfo.path,
       })
 
-      // One-shot mode
+      // One-shot mode: single poll, always output full state
       if (flags.once) {
         const result = await poller.poll()
 
@@ -130,11 +130,7 @@ export default class Watch extends PromptCommand {
           return
         }
 
-        if (result.message) {
-          this.log(result.message)
-        } else {
-          this.log(styles.muted('No state to report.'))
-        }
+        this.log(result.message)
         return
       }
 
@@ -161,15 +157,6 @@ export default class Watch extends PromptCommand {
         this.log('')
       }
 
-      // Log initial state for debugging
-      this.log(styles.muted('  Capturing initial state...'))
-      const initial = await poller.poll()
-      if (initial.message && verbose) {
-        this.log(styles.muted(initial.message))
-      }
-      this.log(styles.muted(`  Initial state: ${initial.items.length} item(s). Polling every ${flags['poll-interval']}s...`))
-      this.log('')
-
       if (jsonMode) {
         // In daemon mode, output JSON status without throwing ExitError.
         // outputSuccessAsJson throws oclif ExitError which would kill the daemon loop.
@@ -182,27 +169,32 @@ export default class Watch extends PromptCommand {
         }, null, 2))
       }
 
-      // Poll loop
+      // Immediate first poll+poke — no baseline, no diff. The poller is a
+      // dumb pipe that pushes full state every cycle (PRLT-1347).
+      const pollAndPoke = async () => {
+        const result = await poller.poll()
+        if (verbose) {
+          this.log('')
+          this.log(styles.info(`[watch] State report (${result.items.length} items):`))
+          this.log(result.message)
+          this.log('')
+        }
+        this.pokeTarget(flags.target, result.message, verbose)
+      }
+
+      try {
+        await pollAndPoke()
+        this.log(styles.muted(`  First poke sent. Polling every ${flags['poll-interval']}s...`))
+        this.log('')
+      } catch (err) {
+        this.log(styles.error(`[watch] Initial poll error: ${err instanceof Error ? err.message : String(err)}`))
+      }
+
+      // Poll loop — every cycle polls and pokes, unconditionally
       const pollTimer = setInterval(async () => {
         try {
           if (verbose) this.log(styles.muted(`[watch] Polling at ${new Date().toISOString()}...`))
-
-          const result = await poller.poll()
-
-          if (result.message) {
-            // Always push full state — the orchestrator LLM determines what changed
-            if (verbose) {
-              this.log('')
-              this.log(styles.info(`[watch] State report (${result.items.length} items):`))
-              this.log(result.message)
-              this.log('')
-            }
-
-            // Poke the orchestrator with full state
-            this.pokeTarget(flags.target, result.message, verbose)
-          } else if (verbose) {
-            this.log(styles.muted('[watch] No state to report.'))
-          }
+          await pollAndPoke()
         } catch (err) {
           this.log(styles.error(`[watch] Poll error: ${err instanceof Error ? err.message : String(err)}`))
         }

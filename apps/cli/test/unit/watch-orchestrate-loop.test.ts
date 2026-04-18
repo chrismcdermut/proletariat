@@ -416,7 +416,93 @@ describe('Watch -> Orchestrate Loop -- Unit Tests (PRLT-1333)', () => {
       // Should not throw
       const result = await poller.poll()
       expect(result.items).to.have.length(0)
-      expect(result.message).to.be.null
+      // Always returns a formatted message, even when empty (PRLT-1347)
+      expect(result.message).to.be.a('string')
+      expect(result.message).to.include('none')
+    })
+  })
+
+  // ===========================================================================
+  // PRLT-1347: No baseline/diff — poke sent on first cycle
+  // ===========================================================================
+
+  describe('PRLT-1347: no baseline/diff, poke on first cycle', () => {
+    it('should produce a pokeable message on the very first poll — no baseline needed', async () => {
+      // Simulates 1 open PR reported by the poller. In production the PR comes
+      // from GitHub; here we use an agent entry as a proxy for "state exists."
+      const db = createMockDb({
+        agents: [{
+          id: 'exec-pr', ticket_id: 'PRLT-500', agent_name: 'pr-agent',
+          status: 'running', lifecycle_state: null, container_id: null,
+        }],
+      })
+      const poller = createTestPoller(db)
+
+      // First poll — previously this was swallowed as a "baseline" and the
+      // second poll (with identical state) produced an empty diff = no poke.
+      const result = await poller.poll()
+
+      // message must be non-null so the watch command pokes immediately
+      expect(result.message).to.be.a('string')
+      expect(result.message!.length).to.be.greaterThan(0)
+      expect(result.items).to.have.length(1)
+      expect(result.items[0].summary).to.include('PRLT-500')
+    })
+
+    it('should always produce a non-null message, even with zero items', async () => {
+      const db = createMockDb()
+      const poller = createTestPoller(db)
+
+      const result = await poller.poll()
+
+      // The watch command now pokes unconditionally — message must never be null
+      expect(result.message).to.be.a('string')
+      expect(result.message).to.include('GitHub PRs: none')
+      expect(result.message).to.include('Ready tickets: none')
+      expect(result.message).to.include('Active agents: none')
+    })
+
+    it('should produce identical messages on consecutive polls — stateless, no diff', async () => {
+      const db = createMockDb({
+        readyTickets: [{ id: 'TKT-700', title: 'Stable ticket' }],
+        agents: [{
+          id: 'exec-1', ticket_id: 'TKT-700', agent_name: 'stable-agent',
+          status: 'running', lifecycle_state: null, container_id: null,
+        }],
+      })
+      const poller = createTestPoller(db)
+
+      const r1 = await poller.poll()
+      const r2 = await poller.poll()
+      const r3 = await poller.poll()
+
+      // All three polls should produce the exact same message — the poller
+      // is a stateless pipe, no baseline or diff subtracted
+      expect(r1.message).to.equal(r2.message)
+      expect(r2.message).to.equal(r3.message)
+      expect(r1.items).to.deep.equal(r2.items)
+    })
+
+    it('message should be compact — under 31 lines for mobile scrollback', async () => {
+      // Simulate a moderately busy workspace: 3 agents + 3 ready tickets
+      const db = createMockDb({
+        readyTickets: [
+          { id: 'TKT-A', title: 'Feature A' },
+          { id: 'TKT-B', title: 'Feature B' },
+          { id: 'TKT-C', title: 'Feature C' },
+        ],
+        agents: [
+          { id: 'e1', ticket_id: 'TKT-A', agent_name: 'ag-1', status: 'running', lifecycle_state: null, container_id: null },
+          { id: 'e2', ticket_id: 'TKT-B', agent_name: 'ag-2', status: 'completed', lifecycle_state: 'completed', container_id: null },
+          { id: 'e3', ticket_id: 'TKT-C', agent_name: 'ag-3', status: 'starting', lifecycle_state: null, container_id: null },
+        ],
+      })
+      const poller = createTestPoller(db)
+
+      const result = await poller.poll()
+      const lineCount = result.message!.split('\n').length
+
+      expect(lineCount).to.be.at.most(31, `Message has ${lineCount} lines, exceeds 31-line mobile scrollback limit`)
     })
   })
 })
