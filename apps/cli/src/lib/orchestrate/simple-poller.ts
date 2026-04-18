@@ -16,6 +16,19 @@ import * as path from 'node:path'
 import type Database from 'better-sqlite3'
 import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks } from '../pr/index.js'
 import { getWorkflowConfig } from '../work-lifecycle/settings.js'
+import {
+  type AgentHealthState,
+  detectState,
+  countByState,
+  formatHealthSummary,
+} from '../session/health-detector.js'
+import {
+  getHostTmuxSessionNames,
+  getContainerTmuxSessionMap,
+  findSessionForExecution,
+  findContainerSessionsByPrefix,
+  captureTmuxPane,
+} from '../execution/session-utils.js'
 
 // =============================================================================
 // Types
@@ -32,6 +45,8 @@ export interface SimplePollerOptions {
 export interface StateItem {
   category: 'github' | 'board' | 'agents'
   summary: string
+  /** Health state for agent items (from tmux pane inspection). */
+  healthState?: AgentHealthState
 }
 
 /** Result of a poll cycle. Message is always a formatted state report. */
@@ -231,7 +246,7 @@ export class SimplePoller {
 
     try {
       const agents = this.db.prepare(`
-        SELECT id, ticket_id, agent_name, status, lifecycle_state, container_id
+        SELECT id, ticket_id, agent_name, status, lifecycle_state, container_id, session_id, environment
         FROM agent_work
         WHERE status IN ('starting', 'running', 'error', 'completed', 'failed', 'stopped')
         ORDER BY started_at DESC
@@ -243,18 +258,99 @@ export class SimplePoller {
         status: string
         lifecycle_state: string | null
         container_id: string | null
+        session_id: string | null
+        environment: string | null
       }>
+
+      // Discover live tmux sessions for pane-based state detection
+      let hostSessions: string[] = []
+      let containerSessionMap: Map<string, string[]> = new Map()
+      try {
+        hostSessions = getHostTmuxSessionNames()
+        containerSessionMap = getContainerTmuxSessionMap()
+      } catch {
+        // tmux/docker not available — fall back to DB state
+      }
 
       for (const agent of agents) {
         const label = `${agent.agent_name} (${agent.ticket_id})`
-        const effectiveState = agent.lifecycle_state || agent.status
-        items.push({ category: 'agents', summary: `${label}: ${effectiveState}` })
+        const isContainer = agent.environment === 'devcontainer' || agent.environment === 'docker'
+
+        // For terminal agents (starting/running), try to detect state via tmux pane
+        let healthState: AgentHealthState = 'UNKNOWN'
+        if (agent.status === 'starting' || agent.status === 'running') {
+          healthState = this.detectAgentHealth(
+            agent.ticket_id,
+            agent.agent_name,
+            agent.session_id,
+            isContainer ? (agent.container_id ?? undefined) : undefined,
+            isContainer,
+            hostSessions,
+            containerSessionMap,
+          )
+        } else if (agent.status === 'completed') {
+          healthState = 'DONE'
+        } else if (agent.status === 'error' || agent.status === 'failed') {
+          healthState = 'IDLE' // terminal state — not actively working
+        } else if (agent.status === 'stopped') {
+          healthState = 'IDLE'
+        }
+
+        items.push({
+          category: 'agents',
+          summary: `${label}: ${healthState}`,
+          healthState,
+        })
       }
     } catch {
       // Non-fatal DB error
     }
 
     return items
+  }
+
+  /**
+   * Detect an agent's health state by capturing its tmux pane content.
+   * Falls back to UNKNOWN if the tmux session can't be found.
+   */
+  private detectAgentHealth(
+    ticketId: string,
+    agentName: string,
+    sessionId: string | null,
+    containerId: string | undefined,
+    isContainer: boolean,
+    hostSessions: string[],
+    containerSessionMap: Map<string, string[]>,
+  ): AgentHealthState {
+    try {
+      let actualSessionId: string | null = sessionId
+
+      if (isContainer && containerId) {
+        const containerSessions = findContainerSessionsByPrefix(containerSessionMap, containerId)
+        if (actualSessionId && containerSessions.includes(actualSessionId)) {
+          // exact match
+        } else {
+          actualSessionId = findSessionForExecution(ticketId, agentName, containerSessions)
+        }
+        if (actualSessionId) {
+          const pane = captureTmuxPane(actualSessionId, 10, containerId)
+          return detectState(pane)
+        }
+      } else {
+        if (actualSessionId && hostSessions.includes(actualSessionId)) {
+          // exact match
+        } else {
+          actualSessionId = findSessionForExecution(ticketId, agentName, hostSessions)
+        }
+        if (actualSessionId) {
+          const pane = captureTmuxPane(actualSessionId, 10)
+          return detectState(pane)
+        }
+      }
+    } catch {
+      // Non-fatal — fall through to UNKNOWN
+    }
+    return 'UNKNOWN'
   }
 
   // ===========================================================================
@@ -340,9 +436,17 @@ export class SimplePoller {
     }
 
     if (agentItems.length > 0) {
+      const states = agentItems.map(c => c.healthState ?? 'UNKNOWN' as AgentHealthState)
+      const counts = countByState(states)
+      const summary = formatHealthSummary(counts)
       sections.push('')
-      sections.push(`Active agents (${agentItems.length}):`)
-      for (const c of agentItems) {
+      sections.push(`Active agents (${agentItems.length}): ${summary}`)
+
+      // Only list agents that need attention (working, hung) or have errors
+      const noteworthy = agentItems.filter(c =>
+        c.healthState === 'WORKING' || c.healthState === 'HUNG'
+      )
+      for (const c of noteworthy) {
         sections.push(`- ${c.summary}`)
       }
     } else {
