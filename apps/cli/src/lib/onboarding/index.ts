@@ -5,3 +5,9 @@ export {
   isFirstTimeUser,
   type OnboardingResult,
 } from './wizard.js';
+export {
+  runColumnWizard,
+  type ColumnWizardOptions,
+  type WizardResult,
+  type ProviderType,
+} from './column-wizard.js';
