@@ -6,6 +6,9 @@
  * canonical intent, and this store resolves that intent to whatever state
  * name exists on the connected board.
  *
+ * Supports many-to-one mapping: multiple board columns can map to the same
+ * intent (e.g., "New Issues" + "New Functionality Requests" → backlog).
+ *
  * Resolution order (in state-resolution.ts):
  * 1. pmo_transition_map (this store) — explicit user-confirmed mappings
  * 2. state-map.{intent} config override
@@ -31,8 +34,10 @@ export class TransitionMapStore {
   constructor(private db: Database.Database) {}
 
   /**
-   * Get the provider state name mapped to a transition intent.
+   * Get the first provider state name mapped to a transition intent.
    * Returns null if no mapping exists.
+   *
+   * For many-to-one mappings, use getMappingsForIntent() instead.
    */
   getMapping(provider: string, intent: string): TransitionMapping | null {
     try {
@@ -40,6 +45,7 @@ export class TransitionMapStore {
         SELECT provider, intent, provider_state_name, provider_state_id
         FROM pmo_transition_map
         WHERE provider = ? AND intent = ?
+        LIMIT 1
       `).get(provider, intent) as {
         provider: string
         intent: string
@@ -61,14 +67,42 @@ export class TransitionMapStore {
   }
 
   /**
+   * Get all provider state names mapped to a transition intent.
+   * Supports many-to-one: multiple columns can map to the same intent.
+   */
+  getMappingsForIntent(provider: string, intent: string): TransitionMapping[] {
+    try {
+      const rows = this.db.prepare(`
+        SELECT provider, intent, provider_state_name, provider_state_id
+        FROM pmo_transition_map
+        WHERE provider = ? AND intent = ?
+      `).all(provider, intent) as Array<{
+        provider: string
+        intent: string
+        provider_state_name: string
+        provider_state_id: string | null
+      }>
+
+      return rows.map(row => ({
+        provider: row.provider,
+        intent: row.intent as TransitionIntent,
+        providerStateName: row.provider_state_name,
+        providerStateId: row.provider_state_id,
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  /**
    * Add or update a transition mapping.
+   * With many-to-one support, conflict is on (provider, intent, provider_state_name).
    */
   upsertMapping(mapping: TransitionMapping): void {
     this.db.prepare(`
       INSERT INTO pmo_transition_map (provider, intent, provider_state_name, provider_state_id, updated_at)
       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(provider, intent) DO UPDATE SET
-        provider_state_name = excluded.provider_state_name,
+      ON CONFLICT(provider, intent, provider_state_name) DO UPDATE SET
         provider_state_id = excluded.provider_state_id,
         updated_at = CURRENT_TIMESTAMP
     `).run(
@@ -88,7 +122,7 @@ export class TransitionMapStore {
         SELECT provider, intent, provider_state_name, provider_state_id
         FROM pmo_transition_map
         WHERE provider = ?
-        ORDER BY intent
+        ORDER BY intent, provider_state_name
       `).all(provider) as Array<{
         provider: string
         intent: string
@@ -108,13 +142,24 @@ export class TransitionMapStore {
   }
 
   /**
-   * Remove a specific transition mapping.
+   * Remove a specific transition mapping by intent.
+   * Removes ALL state names mapped to this intent.
    */
   removeMapping(provider: string, intent: string): void {
     this.db.prepare(`
       DELETE FROM pmo_transition_map
       WHERE provider = ? AND intent = ?
     `).run(provider, intent)
+  }
+
+  /**
+   * Remove a specific state name mapping.
+   */
+  removeMappingByState(provider: string, intent: string, stateName: string): void {
+    this.db.prepare(`
+      DELETE FROM pmo_transition_map
+      WHERE provider = ? AND intent = ? AND provider_state_name = ?
+    `).run(provider, intent, stateName)
   }
 
   /**
@@ -129,7 +174,7 @@ export class TransitionMapStore {
 
   /**
    * Resolve a transition intent to a provider state name.
-   * Returns the mapped state name, or null if no mapping exists.
+   * Returns the first mapped state name, or null if no mapping exists.
    *
    * This is the primary resolution method called by work commands.
    * If this returns null, the caller should fall through to alias/LLM resolution.

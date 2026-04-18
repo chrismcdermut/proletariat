@@ -21,8 +21,8 @@ import {
   getLinearApiKey,
 } from '../../lib/linear/index.js'
 import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
-import { autoMapIntents, formatMappingTable} from '../../lib/providers/auto-mapper.js'
-import { TransitionMapStore, validateTransitionMap } from '../../lib/providers/transition-map.js'
+import { validateTransitionMap } from '../../lib/providers/transition-map.js'
+import { runColumnWizard } from '../../lib/onboarding/column-wizard.js'
 
 export default class LinearConnect extends PMOCommand {
   static description = 'Connect to Linear workspace and configure authentication'
@@ -444,8 +444,8 @@ export default class LinearConnect extends PMOCommand {
   }
 
   /**
-   * Pull board states from Linear, auto-guess intent mappings,
-   * show to user for confirmation, and store in pmo_transition_map.
+   * Pull board states from Linear, run the column mapping wizard,
+   * and store confirmed mappings in pmo_transition_map.
    */
   private async autoMapBoardStates(
     client: LinearClient,
@@ -460,74 +460,15 @@ export default class LinearConnect extends PMOCommand {
       // Sort by position for display
       const sortedStates = [...states].sort((a, b) => a.position - b.position)
 
-      // Auto-guess mappings using state types + name heuristics
-      const mappings = autoMapIntents(
-        sortedStates.map(s => ({ id: s.id, name: s.name, type: s.type, position: s.position })),
-        'linear',
-      )
-
-      if (mappings.length === 0) return
-
-      // Display the mapping table
-      if (!jsonMode) {
-        this.log('')
-        this.log(colors.primary('Board State Mapping'))
-        this.log('')
-        const lines = formatMappingTable(
-          mappings,
-          sortedStates.map(s => ({ id: s.id, name: s.name, type: s.type, position: s.position })),
-        )
-        for (const line of lines) {
-          this.log(colors.textMuted(`  ${line}`))
-        }
-        this.log('')
-      }
-
-      // In JSON mode, output the mappings for agent confirmation
-      if (jsonMode) {
-        // Store mappings automatically in JSON mode (agents can't confirm interactively)
-        const store = new TransitionMapStore(db)
-        for (const m of mappings) {
-          store.upsertMapping({
-            provider: 'linear',
-            intent: m.intent,
-            providerStateName: m.stateName,
-            providerStateId: m.stateId,
-          })
-        }
-        // Validate transition_map against actual provider states (PRLT-1299)
-        this.validateTransitionMapAgainstProvider(db, sortedStates.map(s => s.name), jsonMode)
-        return
-      }
-
-      // Interactive: ask user to confirm or edit mappings
-      const choices = [
-        { name: 'Yes, save these mappings', value: 'accept' },
-        { name: 'No, skip mapping for now', value: 'skip' },
-      ]
-      const message = 'Save these state mappings?'
-
-      const { action } = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
-        message,
-        choices,
-      }])
-
-      if (action === 'accept') {
-        const store = new TransitionMapStore(db)
-        for (const m of mappings) {
-          store.upsertMapping({
-            provider: 'linear',
-            intent: m.intent,
-            providerStateName: m.stateName,
-            providerStateId: m.stateId,
-          })
-        }
-        this.log(colors.textMuted(`  Saved ${mappings.length} state mappings`))
-      } else {
-        this.log(colors.textMuted('  Skipped state mapping. You can configure later with "prlt config set state-map.<intent> <state-name>"'))
-      }
+      // Run the column mapping wizard
+      await runColumnWizard({
+        states: sortedStates.map(s => ({ id: s.id, name: s.name, type: s.type, position: s.position })),
+        provider: 'linear',
+        providerType: 'linear',
+        db,
+        jsonMode,
+        log: (msg: string) => this.log(msg),
+      })
 
       // Validate transition_map against actual provider states (PRLT-1299)
       this.validateTransitionMapAgainstProvider(db, sortedStates.map(s => s.name), jsonMode)

@@ -4,6 +4,11 @@
  * Auto-guesses intent-to-state mappings when connecting a board.
  * Uses provider state types first, then name heuristics.
  *
+ * Supports:
+ * - Many-to-one: multiple board columns can map to the same intent
+ * - Custom intents: testing, blocked, rework beyond the base 7
+ * - Ambiguous state detection: flags states that need user input
+ *
  * Each provider can have different state type vocabularies:
  * - Linear: triage, backlog, unstarted, started, completed, canceled
  * - Jira: new, indeterminate, done, category-based
@@ -21,10 +26,27 @@ export interface BoardState {
 }
 
 export interface IntentMapping {
-  intent: TransitionIntent
+  intent: TransitionIntent | string
   stateName: string
   stateId: string
   confidence: 'type' | 'name' | 'none'
+}
+
+/**
+ * A state flagged as ambiguous — needs user disambiguation.
+ */
+export interface AmbiguousState {
+  state: BoardState
+  candidateIntents: Array<{ intent: string; reason: string }>
+}
+
+/**
+ * Result of auto-mapping with disambiguation info.
+ */
+export interface AutoMapResult {
+  mappings: IntentMapping[]
+  ambiguous: AmbiguousState[]
+  unmapped: BoardState[]
 }
 
 /**
@@ -50,6 +72,40 @@ const JIRA_CATEGORY_TO_INTENT: Record<string, TransitionIntent> = {
   indeterminate: 'started',
   done: 'completed',
 }
+
+/**
+ * Custom intent patterns for non-standard board columns.
+ * These extend beyond the base 7 canonical intents.
+ */
+const CUSTOM_INTENT_PATTERNS: Array<{ intent: string; patterns: string[] }> = [
+  { intent: 'testing', patterns: ['test', 'qa', 'quality'] },
+  { intent: 'blocked', patterns: ['block', 'wait', 'feedback', 'impediment'] },
+  { intent: 'rework', patterns: ['return', 'rework', 'revision', 'changes requested'] },
+]
+
+/**
+ * States that are ambiguous and need user disambiguation.
+ * Maps state name patterns to their possible intents.
+ */
+const AMBIGUOUS_PATTERNS: Array<{
+  pattern: RegExp
+  intents: Array<{ intent: string; reason: string }>
+}> = [
+  {
+    pattern: /^closed$/i,
+    intents: [
+      { intent: 'completed', reason: 'Work is finished' },
+      { intent: 'dropped', reason: 'Canceled or won\'t do' },
+    ],
+  },
+  {
+    pattern: /^not working on$/i,
+    intents: [
+      { intent: 'dropped', reason: 'Permanently removed' },
+      { intent: 'paused', reason: 'Temporarily deprioritized' },
+    ],
+  },
+]
 
 /**
  * Auto-guess transition intent mappings from a list of board states.
@@ -139,6 +195,142 @@ export function autoMapIntents(
 }
 
 /**
+ * Extended auto-mapping that also detects:
+ * - Ambiguous states needing user disambiguation
+ * - Unmapped states that could be custom intents
+ * - Many-to-one opportunities (multiple columns → same intent)
+ */
+export function autoMapWithDisambiguation(
+  states: BoardState[],
+  providerType: 'linear' | 'jira' | 'trello' | 'asana' | 'shortcut' | 'clickup' | 'github' | 'pmo' = 'pmo',
+): AutoMapResult {
+  // First pass: standard auto-mapping
+  const mappings = autoMapIntents(states, providerType)
+  const mappedStateIds = new Set(mappings.map(m => m.stateId))
+
+  const ambiguous: AmbiguousState[] = []
+  const unmapped: BoardState[] = []
+
+  // Second pass: check remaining states
+  for (const state of states) {
+    if (mappedStateIds.has(state.id)) continue
+
+    // Check if this is an ambiguous state
+    const ambiguousMatch = AMBIGUOUS_PATTERNS.find(p => p.pattern.test(state.name))
+    if (ambiguousMatch) {
+      ambiguous.push({
+        state,
+        candidateIntents: ambiguousMatch.intents,
+      })
+      continue
+    }
+
+    // Check if it matches a custom intent pattern
+    const customMatch = matchCustomIntent(state.name)
+    if (customMatch) {
+      mappings.push({
+        intent: customMatch as TransitionIntent,
+        stateName: state.name,
+        stateId: state.id,
+        confidence: 'name',
+      })
+      mappedStateIds.add(state.id)
+      continue
+    }
+
+    // Check if this state could be many-to-one with an existing mapping
+    const manyToOneMatch = findManyToOneMatch(state, mappings)
+    if (manyToOneMatch) {
+      mappings.push({
+        intent: manyToOneMatch,
+        stateName: state.name,
+        stateId: state.id,
+        confidence: 'name',
+      })
+      mappedStateIds.add(state.id)
+      continue
+    }
+
+    // Truly unmapped
+    unmapped.push(state)
+  }
+
+  return { mappings, ambiguous, unmapped }
+}
+
+/**
+ * Check if a state name matches a custom intent pattern.
+ */
+function matchCustomIntent(stateName: string): string | null {
+  const lower = stateName.toLowerCase()
+  for (const { intent, patterns } of CUSTOM_INTENT_PATTERNS) {
+    if (patterns.some(p => lower.includes(p))) {
+      return intent
+    }
+  }
+  return null
+}
+
+/**
+ * Check if an unmapped state is similar enough to an already-mapped state
+ * to be a many-to-one candidate (same intent, different column name).
+ *
+ * Heuristics:
+ * - "Duplicate" alongside "Canceled" → both map to `dropped`
+ * - States with the same provider type as an existing mapping
+ */
+function findManyToOneMatch(state: BoardState, existingMappings: IntentMapping[]): string | null {
+  const lower = state.name.toLowerCase()
+
+  // Check if the state name matches known patterns for existing mapped intents
+  const droppedPatterns = ['duplicate', 'won\'t fix', 'won\'t do', 'wontfix', 'obsolete']
+  if (droppedPatterns.some(p => lower.includes(p))) {
+    if (existingMappings.some(m => m.intent === 'dropped')) {
+      return 'dropped'
+    }
+  }
+
+  const backlogPatterns = ['new issue', 'new request', 'new functionality', 'intake', 'incoming']
+  if (backlogPatterns.some(p => lower.includes(p))) {
+    if (existingMappings.some(m => m.intent === 'backlog')) {
+      return 'backlog'
+    }
+  }
+
+  return null
+}
+
+/**
+ * Detect custom action suggestions based on non-standard columns.
+ * Returns suggestions like "You have Testing columns — want a QA action?"
+ */
+export function suggestCustomActions(
+  mappings: IntentMapping[],
+): string[] {
+  const suggestions: string[] = []
+
+  const testingMappings = mappings.filter(m => m.intent === 'testing')
+  if (testingMappings.length > 0) {
+    const names = testingMappings.map(m => m.stateName).join(' and ')
+    suggestions.push(`You have ${names} — want to create a test action that moves tickets through QA?`)
+  }
+
+  const reworkMappings = mappings.filter(m => m.intent === 'rework')
+  if (reworkMappings.length > 0) {
+    const names = reworkMappings.map(m => m.stateName).join(' and ')
+    suggestions.push(`You have ${names} — want to create a rework action that sends tickets back to development?`)
+  }
+
+  const blockedMappings = mappings.filter(m => m.intent === 'blocked')
+  if (blockedMappings.length > 0) {
+    const names = blockedMappings.map(m => m.stateName).join(' and ')
+    suggestions.push(`You have ${names} — want to create a block action for dependency tracking?`)
+  }
+
+  return suggestions
+}
+
+/**
  * Format intent mappings for display to the user.
  *
  * @param mappings - The auto-guessed mappings
@@ -164,6 +356,9 @@ export function formatMappingTable(
     paused: 'work stop',
     ready: 'work groom',
     dropped: 'work drop',
+    testing: '(custom)',
+    rework: '(custom)',
+    blocked: '(custom)',
   }
 
   // Map states to their intents
