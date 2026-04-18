@@ -32,7 +32,7 @@ describe('Watch Daemon (PRLT-1321)', () => {
       expect(spec.command).to.contain('--foreground')
       expect(spec.command).to.contain('--verbose')
       expect(spec.command).to.contain('--target orchestrator-main')
-      expect(spec.command).to.contain('--poll-interval 60')
+      expect(spec.command).to.contain('--poll-interval 300')
     })
 
     it('honors a custom poll interval', () => {

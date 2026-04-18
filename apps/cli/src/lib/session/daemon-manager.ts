@@ -220,7 +220,7 @@ export function reconcilerDaemonSpec(intervalSeconds: number = 300): DaemonSpec 
  */
 export function watchDaemonSpec(
   target: string,
-  pollIntervalSeconds: number = 60,
+  pollIntervalSeconds: number = 300,
 ): DaemonSpec {
   // Shell-escape the target name to survive the tmux new-session `sh -c`
   // wrapper. Target names are agent/session identifiers so this is a light

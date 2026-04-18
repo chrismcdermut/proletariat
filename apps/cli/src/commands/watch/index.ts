@@ -14,6 +14,7 @@
  */
 
 import { Flags } from '@oclif/core'
+import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { openWorkspaceDatabase } from '../../lib/database/index.js'
 import { PromptCommand } from '../../lib/prompt-command.js'
@@ -53,7 +54,7 @@ export default class Watch extends PromptCommand {
     }),
     'poll-interval': Flags.integer({
       description: 'Poll interval in seconds',
-      default: 60,
+      default: 300,
     }),
     verbose: Flags.boolean({
       description: 'Show detailed output including poll results',
@@ -169,10 +170,22 @@ export default class Watch extends PromptCommand {
         }, null, 2))
       }
 
-      // Immediate first poll+poke — no baseline, no diff. The poller is a
-      // dumb pipe that pushes full state every cycle (PRLT-1347).
+      // PRLT-1349: Track the hash of the last poked state. If the next poll
+      // produces identical state, suppress the poke to avoid interrupting the
+      // orchestrator with redundant messages.
+      let lastPokeHash: string | null = null
+
       const pollAndPoke = async () => {
         const result = await poller.poll()
+        const hash = createHash('sha256').update(result.message).digest('hex')
+
+        if (hash === lastPokeHash) {
+          if (verbose) {
+            this.log(styles.muted(`[watch] State unchanged — poke suppressed`))
+          }
+          return
+        }
+
         if (verbose) {
           this.log('')
           this.log(styles.info(`[watch] State report (${result.items.length} items):`))
@@ -180,6 +193,7 @@ export default class Watch extends PromptCommand {
           this.log('')
         }
         this.pokeTarget(flags.target, result.message, verbose)
+        lastPokeHash = hash
       }
 
       try {
