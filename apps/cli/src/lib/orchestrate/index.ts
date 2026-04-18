@@ -56,7 +56,7 @@ export { OrchestratePoller } from './poller.js'
 export type { PollerOptions } from './poller.js'
 
 export { SimplePoller } from './simple-poller.js'
-export type { SimplePollerOptions, PollChange, PollResult } from './simple-poller.js'
+export type { SimplePollerOptions, StateItem, PollChange, PollResult } from './simple-poller.js'
 
 export {
   createLlmDecisionHandler,

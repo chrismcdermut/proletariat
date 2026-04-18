@@ -120,14 +120,11 @@ export default class Watch extends PromptCommand {
 
       // One-shot mode
       if (flags.once) {
-        // Run two polls: first to capture baseline, second to detect changes
-        // In one-shot mode, we just report current state
-        await poller.poll() // baseline
         const result = await poller.poll()
 
         if (jsonMode) {
           outputSuccessAsJson(
-            { mode: 'once', changes: result.changes, message: result.message },
+            { mode: 'once', items: result.items, message: result.message },
             createMetadata('watch', flags),
           )
           return
@@ -136,7 +133,7 @@ export default class Watch extends PromptCommand {
         if (result.message) {
           this.log(result.message)
         } else {
-          this.log(styles.muted('No changes detected.'))
+          this.log(styles.muted('No state to report.'))
         }
         return
       }
@@ -164,10 +161,13 @@ export default class Watch extends PromptCommand {
         this.log('')
       }
 
-      // Initial baseline poll (captures current state without poking)
-      this.log(styles.muted('  Capturing baseline state...'))
-      await poller.poll()
-      this.log(styles.muted('  Baseline captured. Watching for changes...'))
+      // Log initial state for debugging
+      this.log(styles.muted('  Capturing initial state...'))
+      const initial = await poller.poll()
+      if (initial.message && verbose) {
+        this.log(styles.muted(initial.message))
+      }
+      this.log(styles.muted(`  Initial state: ${initial.items.length} item(s). Polling every ${flags['poll-interval']}s...`))
       this.log('')
 
       if (jsonMode) {
@@ -190,16 +190,18 @@ export default class Watch extends PromptCommand {
           const result = await poller.poll()
 
           if (result.message) {
-            // Always log changes — this is the core purpose of the watcher
-            this.log('')
-            this.log(styles.info(`[watch] ${result.changes.length} change(s) detected:`))
-            this.log(result.message)
-            this.log('')
+            // Always push full state — the orchestrator LLM determines what changed
+            if (verbose) {
+              this.log('')
+              this.log(styles.info(`[watch] State report (${result.items.length} items):`))
+              this.log(result.message)
+              this.log('')
+            }
 
-            // Poke the orchestrator
+            // Poke the orchestrator with full state
             this.pokeTarget(flags.target, result.message, verbose)
           } else if (verbose) {
-            this.log(styles.muted('[watch] No changes.'))
+            this.log(styles.muted('[watch] No state to report.'))
           }
         } catch (err) {
           this.log(styles.error(`[watch] Poll error: ${err instanceof Error ? err.message : String(err)}`))

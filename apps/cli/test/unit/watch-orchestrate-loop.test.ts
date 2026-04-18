@@ -1,8 +1,8 @@
 /**
- * Unit tests for the watch → orchestrate → ship integration loop (PRLT-1333).
+ * Unit tests for the watch -> orchestrate -> ship integration loop (PRLT-1333).
  *
  * These tests validate the individual components and their contracts:
- * - SimplePoller state diffing produces correct change summaries
+ * - SimplePoller state reporting produces correct state summaries
  * - OrchestrateEngine fires hooks with correct tier routing
  * - Poke message format matches what the orchestrator can parse
  * - The merge-pr action constructs the correct CLI command
@@ -94,13 +94,13 @@ function createEngineDb(): Database.Database {
 // Tests
 // =============================================================================
 
-describe('Watch → Orchestrate Loop — Unit Tests (PRLT-1333)', () => {
+describe('Watch -> Orchestrate Loop -- Unit Tests (PRLT-1333)', () => {
   // ===========================================================================
-  // SimplePoller Change Detection
+  // SimplePoller State Reporting
   // ===========================================================================
 
-  describe('SimplePoller change detection for loop integration', () => {
-    it('should produce correct change summary for agent lifecycle: starting → running → completed', async () => {
+  describe('SimplePoller state reporting for loop integration', () => {
+    it('should report agent state across its lifecycle: starting -> running -> completed', async () => {
       const db = createMockDb({
         agents: [{
           id: 'exec-1', ticket_id: 'PRLT-100', agent_name: 'loop-agent',
@@ -109,29 +109,28 @@ describe('Watch → Orchestrate Loop — Unit Tests (PRLT-1333)', () => {
       })
       const poller = createTestPoller(db)
 
-      // Baseline
-      await poller.poll()
+      // Starting state
+      const r1 = await poller.poll()
+      expect(r1.items.find(i => i.category === 'agents')!.summary).to.include('starting')
 
-      // starting → running
+      // Running state
       db._data.agents = [{
         id: 'exec-1', ticket_id: 'PRLT-100', agent_name: 'loop-agent',
         status: 'running', lifecycle_state: null, container_id: null,
       }]
-      const r1 = await poller.poll()
-      expect(r1.changes).to.have.length(1)
-      expect(r1.changes[0].summary).to.include('now running')
+      const r2 = await poller.poll()
+      expect(r2.items.find(i => i.category === 'agents')!.summary).to.include('running')
 
-      // running → completed
+      // Completed state
       db._data.agents = [{
         id: 'exec-1', ticket_id: 'PRLT-100', agent_name: 'loop-agent',
         status: 'completed', lifecycle_state: 'completed', container_id: null,
       }]
-      const r2 = await poller.poll()
-      expect(r2.changes).to.have.length(1)
-      expect(r2.changes[0].summary).to.include('completed')
+      const r3 = await poller.poll()
+      expect(r3.items.find(i => i.category === 'agents')!.summary).to.include('completed')
     })
 
-    it('should not report changes during the baseline poll', async () => {
+    it('should report full state on every poll — no empty baseline', async () => {
       const db = createMockDb({
         agents: [
           { id: 'a', ticket_id: 'T-1', agent_name: 'ag1', status: 'running', lifecycle_state: null, container_id: null },
@@ -141,27 +140,21 @@ describe('Watch → Orchestrate Loop — Unit Tests (PRLT-1333)', () => {
       })
       const poller = createTestPoller(db)
 
-      const baseline = await poller.poll()
-      expect(baseline.changes).to.have.length(0)
-      expect(baseline.message).to.be.null
+      const result = await poller.poll()
+      expect(result.items.length).to.be.greaterThan(0)
+      expect(result.message).to.not.be.null
     })
 
     it('should format poke message with section headers', async () => {
       const db = createMockDb({
-        agents: [{ id: 'a', ticket_id: 'T-1', agent_name: 'ag1', status: 'running', lifecycle_state: null, container_id: null }],
-        readyTickets: [],
+        agents: [{ id: 'a', ticket_id: 'T-1', agent_name: 'ag1', status: 'completed', lifecycle_state: 'completed', container_id: null }],
+        readyTickets: [{ id: 'T-5', title: 'New ticket' }],
       })
       const poller = createTestPoller(db)
 
-      await poller.poll()
-
-      // Agent completes + new ticket appears
-      db._data.agents = [{ id: 'a', ticket_id: 'T-1', agent_name: 'ag1', status: 'completed', lifecycle_state: 'completed', container_id: null }]
-      db._data.readyTickets = [{ id: 'T-5', title: 'New ticket' }]
-
       const result = await poller.poll()
-      expect(result.message).to.include('Board:')
-      expect(result.message).to.include('Agents:')
+      expect(result.message).to.include('Ready tickets')
+      expect(result.message).to.include('Active agents')
       expect(result.message).to.include('- ')
     })
   })
@@ -294,21 +287,14 @@ describe('Watch → Orchestrate Loop — Unit Tests (PRLT-1333)', () => {
   // ===========================================================================
 
   describe('poke message format contract', () => {
-    it('agent completion message should include agent name and ticket ID', async () => {
+    it('agent state message should include agent name and ticket ID', async () => {
       const db = createMockDb({
         agents: [{
           id: 'e1', ticket_id: 'PRLT-42', agent_name: 'swift-knuth',
-          status: 'running', lifecycle_state: null, container_id: null,
+          status: 'completed', lifecycle_state: 'completed', container_id: null,
         }],
       })
       const poller = createTestPoller(db)
-
-      await poller.poll()
-
-      db._data.agents = [{
-        id: 'e1', ticket_id: 'PRLT-42', agent_name: 'swift-knuth',
-        status: 'completed', lifecycle_state: 'completed', container_id: null,
-      }]
 
       const result = await poller.poll()
 
@@ -319,47 +305,37 @@ describe('Watch → Orchestrate Loop — Unit Tests (PRLT-1333)', () => {
       expect(result.message).to.include('completed')
     })
 
-    it('board change message should include ticket ID and title', async () => {
-      const db = createMockDb({ readyTickets: [] })
+    it('board state message should include ticket ID and title', async () => {
+      const db = createMockDb({
+        readyTickets: [{ id: 'PRLT-99', title: 'Add dark mode support' }],
+      })
       const poller = createTestPoller(db)
-
-      await poller.poll()
-
-      db._data.readyTickets = [{ id: 'PRLT-99', title: 'Add dark mode support' }]
 
       const result = await poller.poll()
 
       expect(result.message).to.include('PRLT-99')
       expect(result.message).to.include('Add dark mode support')
-      expect(result.message).to.include('Ready')
+      expect(result.message).to.include('ready')
     })
 
-    it('multiple changes should be formatted with section headers and bullets', async () => {
+    it('combined state should be formatted with section headers and bullets', async () => {
       const db = createMockDb({
-        readyTickets: [{ id: 'T-OLD', title: 'Will leave' }],
+        readyTickets: [{ id: 'T-NEW', title: 'Fresh ticket' }],
         agents: [
-          { id: 'a1', ticket_id: 'T-1', agent_name: 'agent-alpha', status: 'running', lifecycle_state: null, container_id: null },
+          { id: 'a1', ticket_id: 'T-1', agent_name: 'agent-alpha', status: 'completed', lifecycle_state: 'completed', container_id: null },
         ],
       })
       const poller = createTestPoller(db)
 
-      await poller.poll()
-
-      // Agent completes, old ticket leaves ready, new ticket arrives
-      db._data.agents = [
-        { id: 'a1', ticket_id: 'T-1', agent_name: 'agent-alpha', status: 'completed', lifecycle_state: 'completed', container_id: null },
-      ]
-      db._data.readyTickets = [{ id: 'T-NEW', title: 'Fresh ticket' }]
-
       const result = await poller.poll()
 
       // Should have section headers
-      expect(result.message).to.include('Board:')
-      expect(result.message).to.include('Agents:')
+      expect(result.message).to.include('Ready tickets')
+      expect(result.message).to.include('Active agents')
 
-      // Each change should be a bullet
+      // Each item should be a bullet
       const bullets = result.message!.split('\n').filter(l => l.startsWith('- '))
-      expect(bullets.length).to.be.at.least(3) // 2 board changes + 1 agent change
+      expect(bullets.length).to.be.at.least(2) // 1 board + 1 agent
     })
   })
 
@@ -422,7 +398,7 @@ describe('Watch → Orchestrate Loop — Unit Tests (PRLT-1333)', () => {
       const r1 = await engine.fireEvent('on_ci_green', { event: 'on_ci_green', ticket: 'T-1', pr: 1 })
       expect(r1[0].success).to.be.false
 
-      // Second event succeeds — engine didn't crash
+      // Second event succeeds -- engine didn't crash
       const r2 = await engine.fireEvent('on_ci_green', { event: 'on_ci_green', ticket: 'T-2', pr: 2 })
       expect(r2[0].success).to.be.true
 
@@ -439,7 +415,7 @@ describe('Watch → Orchestrate Loop — Unit Tests (PRLT-1333)', () => {
 
       // Should not throw
       const result = await poller.poll()
-      expect(result.changes).to.have.length(0)
+      expect(result.items).to.have.length(0)
       expect(result.message).to.be.null
     })
   })
