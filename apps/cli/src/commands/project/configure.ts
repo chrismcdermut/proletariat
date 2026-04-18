@@ -75,25 +75,6 @@ export default class ProjectConfigure extends PMOCommand {
         : undefined,
     })
 
-    // Get current board columns
-    const board = await this.storage.getProjectBoard(projectId)
-    if (!board) {
-      if (jsonMode) {
-        outputErrorAsJson('PROJECT_NOT_FOUND', 'Project not found.', createMetadata('project configure', flags))
-        return
-      }
-      this.error('Project not found.')
-    }
-
-    const columns = board.columns.map((col) => col.name)
-    if (columns.length === 0) {
-      if (jsonMode) {
-        outputErrorAsJson('NO_COLUMNS', 'No columns found on the board.', createMetadata('project configure', flags))
-        return
-      }
-      this.error('No columns found on the board.')
-    }
-
     if (!this.db) {
       if (jsonMode) {
         outputErrorAsJson('NO_DATABASE', 'No workspace database found.', createMetadata('project configure', flags))
@@ -116,12 +97,11 @@ export default class ProjectConfigure extends PMOCommand {
       }
     }
 
-    // Show-only mode
+    // Show-only mode — does not require board columns
     if (flags.show) {
       if (jsonMode) {
         outputSuccessAsJson({
           workflow: currentConfig,
-          columns,
         }, createMetadata('project configure', flags))
         return
       }
@@ -129,15 +109,14 @@ export default class ProjectConfigure extends PMOCommand {
       this.log(styles.emphasis('\nWorkflow Column Mapping:\n'))
       for (const intent of WORKFLOW_INTENTS) {
         const current = currentConfig[intent.key]
-        const exists = columns.some((c) => c.toLowerCase() === current.toLowerCase())
-        const status = exists ? styles.success('(exists)') : styles.warning('(not on board)')
-        this.log(`  ${intent.label}: ${styles.emphasis(current)} ${status}`)
+        this.log(`  ${intent.label}: ${styles.emphasis(current)}`)
       }
       this.log('')
       return
     }
 
-    // Non-interactive --set mode: parse key=value pairs and apply directly
+    // Non-interactive --set mode: parse key=value pairs and save directly
+    // Does not require board column lookup — the user/agent provides exact values.
     if (flags.set && flags.set.length > 0) {
       const newConfig: Partial<WorkflowConfig> = {}
 
@@ -170,17 +149,7 @@ export default class ProjectConfigure extends PMOCommand {
           this.error(`Empty value for key "${key}". Provide a column name.`)
         }
 
-        // Validate value is a valid board column (case-insensitive)
-        const matchedColumn = columns.find((c) => c.toLowerCase() === value.toLowerCase())
-        if (!matchedColumn) {
-          if (jsonMode) {
-            outputErrorAsJson('COLUMN_NOT_FOUND', `Column "${value}" not found on board. Available columns: ${columns.join(', ')}`, createMetadata('project configure', flags))
-            return
-          }
-          this.error(`Column "${value}" not found on board. Available columns: ${columns.join(', ')}`)
-        }
-
-        newConfig[key as WorkColumnType] = matchedColumn
+        newConfig[key as WorkColumnType] = value
       }
 
       setWorkflowConfig(this.db!, newConfig)
@@ -193,15 +162,37 @@ export default class ProjectConfigure extends PMOCommand {
       this.log(styles.success('\nWorkflow mapping saved.\n'))
       const merged = { ...currentConfig, ...newConfig }
       for (const intent of WORKFLOW_INTENTS) {
-        const value = merged[intent.key]
+        const val = merged[intent.key]
         const changed = newConfig[intent.key] ? styles.success(' (updated)') : ''
-        this.log(`  ${intent.label}: ${styles.emphasis(value)}${changed}`)
+        this.log(`  ${intent.label}: ${styles.emphasis(val)}${changed}`)
       }
       this.log('')
       return
     }
 
-    // Interactive mapping
+    // Interactive mapping — needs board columns from provider
+    let columns: string[]
+    try {
+      const board = await this.storage.getProjectBoard(projectId)
+      columns = board ? board.columns.map((col) => col.name) : []
+    } catch {
+      // PRLT-1299: getProjectBoard may be dead if provider handles boards.
+      // Fall back to current config values as the column list.
+      columns = []
+    }
+
+    if (columns.length === 0) {
+      // Fall back to current config values as column choices
+      columns = [...new Set(Object.values(currentConfig))]
+      if (columns.length === 0) {
+        if (jsonMode) {
+          outputErrorAsJson('NO_COLUMNS', 'No columns found. Use --set to configure workflow mappings directly (e.g., --set planned=Todo).', createMetadata('project configure', flags))
+          return
+        }
+        this.error('No columns found. Use --set to configure workflow mappings directly (e.g., --set planned=Todo).')
+      }
+    }
+
     if (!jsonMode) {
       this.log(styles.emphasis('\nWorkflow Column Mapping'))
       this.log(styles.muted('Map your board columns to workflow stages.\n'))
