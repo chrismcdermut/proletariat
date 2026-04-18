@@ -79,9 +79,14 @@ export default class WorkRun extends PromptCommand {
       description: 'Work in-place instead of creating a git worktree (for git repos)',
       default: false,
     }),
+    pr: Flags.string({
+      description: 'PR creation behavior (create=open PR when ready, skip=no PR)',
+      options: ['create', 'skip'],
+    }),
     'create-pr': Flags.boolean({
-      description: 'Create a PR when work is ready (no ticket linking)',
+      description: '[deprecated: use --pr create] Create a PR when work is ready',
       default: false,
+      hidden: true,
     }),
     'keep-alive': Flags.boolean({
       char: 'k',
@@ -119,6 +124,11 @@ export default class WorkRun extends PromptCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(WorkRun)
+
+    // === Deprecated flag resolution (backward compat) ===
+    if (flags['create-pr'] && !flags.pr) flags.pr = 'create'
+    if (flags.pr === 'create') flags['create-pr'] = true
+
     const jsonMode = shouldOutputJson(flags)
     const keepAlive = flags['keep-alive']
 

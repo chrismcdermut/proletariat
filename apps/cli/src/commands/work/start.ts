@@ -345,8 +345,9 @@ export default class WorkStart extends PMOCommand {
       description: 'VM host for vm mode',
     }),
     'run-on-host': Flags.boolean({
-      description: 'Run on host even if devcontainer exists (bypasses sandbox)',
+      description: '[deprecated: use --environment host] Run on host even if devcontainer exists',
       default: false,
+      hidden: true,
     }),
     reconfigure: Flags.boolean({
       description: 'Re-prompt for terminal app preference',
@@ -356,17 +357,28 @@ export default class WorkStart extends PMOCommand {
       description: 'Permission mode for selected executor (danger=skip checks, safe=require approval)',
       options: ['danger', 'safe'],
     }),
+    permissions: Flags.string({
+      description: 'Permission handling mode (skip=danger mode, ask=require approval)',
+      options: ['skip', 'ask'],
+    }),
     'skip-permissions': Flags.boolean({
-      description: 'Skip permission checks (shorthand for --permission-mode danger)',
+      description: '[deprecated: use --permissions skip] Skip permission checks',
       default: false,
+      hidden: true,
+    }),
+    pr: Flags.string({
+      description: 'PR creation behavior (create=open PR when ready, skip=no PR)',
+      options: ['create', 'skip'],
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready (canonical flag for PR behavior)',
+      description: '[deprecated: use --pr create] Create PR when work is ready',
       default: false,
+      hidden: true,
     }),
     'no-pr': Flags.boolean({
-      description: '[deprecated: use --create-pr instead] Skip PR creation when work is ready',
+      description: '[deprecated: use --pr skip] Skip PR creation when work is ready',
       default: false,
+      hidden: true,
     }),
     'verify-ci': Flags.boolean({
       description: 'Agent polls CI after pushing and fixes failures before exiting (PRLT-1126)',
@@ -391,17 +403,28 @@ export default class WorkStart extends PMOCommand {
     agent: Flags.string({
       description: 'Agent to assign (skips interactive selection)',
     }),
+    lifetime: Flags.string({
+      description: 'Agent lifetime (ephemeral=auto-generated disposable, persistent=named reusable)',
+      options: ['ephemeral', 'persistent'],
+    }),
     ephemeral: Flags.boolean({
-      description: 'Create an ephemeral agent on-demand (auto-generates name)',
+      description: '[deprecated: use --lifetime ephemeral] Create an ephemeral agent on-demand',
       default: false,
+      hidden: true,
     }),
     focus: Flags.boolean({
       description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
       default: false,
     }),
+    workspace: Flags.string({
+      description: 'Workspace isolation strategy (clone=independent copy, worktree=shared git)',
+      options: ['clone', 'worktree'],
+      default: 'worktree',
+    }),
     clone: Flags.boolean({
-      description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
+      description: '[deprecated: use --workspace clone] Use independent git clone',
       default: false,
+      hidden: true,
     }),
     'review-gate': Flags.string({
       description: 'Review gate mode: required (human approves before landing), auto (ship directly), post (ship then review)',
@@ -448,8 +471,8 @@ export default class WorkStart extends PMOCommand {
       default: false,
     }),
     environment: Flags.string({
-      description: 'Execution environment (devcontainer or host). Use to bypass the environment selection prompt.',
-      options: ['devcontainer', 'host'],
+      description: 'Execution environment (host=local, docker/devcontainer=container, auto=detect)',
+      options: ['host', 'docker', 'devcontainer', 'auto'],
     }),
   }
 
@@ -591,30 +614,57 @@ export default class WorkStart extends PMOCommand {
     const { args, flags, argv } = await this.parse(WorkStart)
     let projectId = (flags as { project?: string }).project
 
-    // Check for conflicting PR flags
+    // === Deprecated flag resolution (backward compat) ===
+
+    // --run-on-host → --environment host
+    if (flags['run-on-host'] && !flags.environment) {
+      flags.environment = 'host'
+    }
+    // --environment host → set run-on-host for downstream compat
+    if (flags.environment === 'host' || flags.environment === 'docker' || flags.environment === 'devcontainer') {
+      flags['run-on-host'] = flags.environment === 'host'
+    }
+
+    // --create-pr / --no-pr → --pr create|skip
     if (flags['create-pr'] && flags['no-pr']) {
       if (shouldOutputJson(flags)) {
-        outputErrorAsJson('CONFLICTING_FLAGS', '--create-pr and --no-pr are mutually exclusive', createMetadata('work start', flags))
+        outputErrorAsJson('CONFLICTING_FLAGS', '--create-pr and --no-pr are mutually exclusive. Use --pr create or --pr skip instead.', createMetadata('work start', flags))
         return
       }
-      this.error('--create-pr and --no-pr are mutually exclusive');
+      this.error('--create-pr and --no-pr are mutually exclusive. Use --pr create or --pr skip instead.');
+    }
+    if (flags['create-pr'] && !flags.pr) {
+      flags.pr = 'create'
+    }
+    if (flags['no-pr'] && !flags.pr) {
+      flags.pr = 'skip'
+    }
+    // Map new --pr flag back to old booleans for downstream compat
+    if (flags.pr === 'create') {
+      flags['create-pr'] = true
+      flags['no-pr'] = false
+    } else if (flags.pr === 'skip') {
+      flags['create-pr'] = false
+      flags['no-pr'] = true
     }
 
-    // Deprecation guidance for --no-pr
-    if (flags['no-pr']) {
-      this.warn('--no-pr is deprecated. Omit --create-pr instead (PR creation is off by default). --no-pr will continue to work.')
+    // --skip-permissions → --permissions skip
+    if (flags['skip-permissions'] && !flags.permissions) {
+      flags.permissions = 'skip'
+    }
+    if (flags.permissions === 'skip') {
+      flags['skip-permissions'] = true
     }
 
-    // Handle --skip-permissions flag (alias for --permission-mode danger)
-    // Check for conflicting flags first
+    // Handle --skip-permissions / --permission-mode conflict
     if (flags['skip-permissions'] && flags['permission-mode']) {
       if (shouldOutputJson(flags)) {
-        outputErrorAsJson('CONFLICTING_FLAGS', 'Cannot use both --skip-permissions and --permission-mode flags. Use only one: --skip-permissions OR --permission-mode danger/safe', createMetadata('work start', flags))
+        outputErrorAsJson('CONFLICTING_FLAGS', 'Cannot use both --skip-permissions and --permission-mode flags. Use --permissions skip or --permission-mode danger instead.', createMetadata('work start', flags))
         return
       }
       this.error(
         'Cannot use both --skip-permissions and --permission-mode flags.\n' +
-        'Use only one: --skip-permissions OR --permission-mode danger/safe'
+        'Use --permissions skip or --permission-mode danger instead.'
       )
     }
     // Apply --skip-permissions as --permission-mode danger
@@ -622,9 +672,20 @@ export default class WorkStart extends PMOCommand {
       flags['permission-mode'] = 'danger'
     }
 
-    // Handle --environment flag: normalize to --run-on-host for host mode
-    if (flags.environment === 'host') {
-      flags['run-on-host'] = true
+    // --ephemeral → --lifetime ephemeral
+    if (flags.ephemeral && !flags.lifetime) {
+      flags.lifetime = 'ephemeral'
+    }
+    if (flags.lifetime === 'ephemeral') {
+      flags.ephemeral = true
+    }
+
+    // --clone → --workspace clone
+    if (flags.clone && flags.workspace === 'worktree') {
+      flags.workspace = 'clone'
+    }
+    if (flags.workspace === 'clone') {
+      flags.clone = true
     }
 
     // Check if JSON output mode is active

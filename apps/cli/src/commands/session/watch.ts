@@ -46,9 +46,15 @@ export default class SessionWatch extends PromptCommand {
       default: true,
       allowNo: true,
     }),
+    'run-mode': Flags.string({
+      description: 'Run mode (once=single check, continuous=keep watching)',
+      options: ['once', 'continuous'],
+      default: 'continuous',
+    }),
     once: Flags.boolean({
-      description: 'Run a single check and exit (no polling loop)',
+      description: '[deprecated: use --run-mode once] Run a single check and exit',
       default: false,
+      hidden: true,
     }),
   }
 
@@ -58,6 +64,11 @@ export default class SessionWatch extends PromptCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(SessionWatch)
+
+    // === Deprecated flag resolution (backward compat) ===
+    if (flags.once && flags['run-mode'] === 'continuous') flags['run-mode'] = 'once'
+    if (flags['run-mode'] === 'once') flags.once = true
+
     const jsonMode = shouldOutputJson(flags)
 
     let db: Database.Database | null = null

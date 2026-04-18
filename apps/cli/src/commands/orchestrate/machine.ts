@@ -65,10 +65,15 @@ export default class OrchestrateMachine extends PromptCommand {
       default: false,
       exclusive: ['foreground'],
     }),
+    mode: Flags.string({
+      description: 'Run mode (foreground=attach to terminal, daemon=detached background)',
+      options: ['foreground', 'daemon'],
+    }),
     foreground: Flags.boolean({
       char: 'f',
-      description: 'Attach to the session in the current terminal (blocking)',
+      description: '[deprecated: use --mode foreground] Attach to terminal (blocking)',
       default: false,
+      hidden: true,
       exclusive: ['background'],
     }),
     executor: Flags.string({
@@ -90,6 +95,11 @@ export default class OrchestrateMachine extends PromptCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(OrchestrateMachine)
+
+    // === Deprecated flag resolution (backward compat) ===
+    if (flags.foreground && !flags.mode) flags.mode = 'foreground'
+    if (flags.mode === 'foreground') flags.foreground = true
+
     const jsonMode = shouldOutputJson(flags)
     const agentName = flags.name || MACHINE_ORCHESTRATOR_AGENT
     const executor = (flags.executor || 'claude-code') as ExecutorType

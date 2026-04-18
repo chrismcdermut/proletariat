@@ -141,9 +141,14 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Start even if work already in progress',
       default: false,
     }),
+    environment: Flags.string({
+      description: 'Execution environment (host=local, docker=container, auto=detect)',
+      options: ['host', 'docker', 'auto'],
+    }),
     'run-on-host': Flags.boolean({
-      description: 'Run on host even if devcontainer exists (bypasses sandbox)',
+      description: '[deprecated: use --environment host] Run on host',
       default: false,
+      hidden: true,
     }),
     limit: Flags.integer({
       char: 'l',
@@ -163,17 +168,28 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Output mode (batch mode only)',
       options: ['interactive', 'print'],
     }),
+    permissions: Flags.string({
+      description: 'Permission handling mode (skip=danger mode, ask=require approval)',
+      options: ['skip', 'ask'],
+    }),
     'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts - danger mode (batch mode only)',
+      description: '[deprecated: use --permissions skip] Skip permission prompts',
       default: false,
+      hidden: true,
+    }),
+    pr: Flags.string({
+      description: 'PR creation behavior (create=open PR when ready, skip=no PR)',
+      options: ['create', 'skip'],
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready (canonical flag for PR behavior, batch mode only)',
+      description: '[deprecated: use --pr create] Create PR when work is ready',
       default: false,
+      hidden: true,
     }),
     'no-pr': Flags.boolean({
-      description: '[deprecated: use --create-pr instead] Skip PR creation (batch mode only)',
+      description: '[deprecated: use --pr skip] Skip PR creation',
       default: false,
+      hidden: true,
     }),
     action: Flags.string({
       description: 'Action to perform (e.g., groom, implement, review, custom). Prompts if not provided.',
@@ -190,9 +206,15 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Bring terminal to foreground when opening new tabs (default: opens in background)',
       default: false,
     }),
+    workspace: Flags.string({
+      description: 'Workspace isolation strategy (clone=independent copy, worktree=shared git)',
+      options: ['clone', 'worktree'],
+      default: 'worktree',
+    }),
     clone: Flags.boolean({
-      description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
+      description: '[deprecated: use --workspace clone] Use independent git clone',
       default: false,
+      hidden: true,
     }),
     count: Flags.integer({
       char: 'n',
@@ -349,14 +371,48 @@ export default class WorkSpawn extends PMOCommand {
       this.error(message)
     }
 
-    // Check for conflicting PR flags (before deprecation warning to fail fast)
-    if (flags['create-pr'] && flags['no-pr']) {
-      this.error('--create-pr and --no-pr are mutually exclusive')
+    // === Deprecated flag resolution (backward compat) ===
+
+    // --run-on-host → --environment host
+    if (flags['run-on-host'] && !flags.environment) {
+      flags.environment = 'host'
+    }
+    if (flags.environment === 'host') {
+      flags['run-on-host'] = true
     }
 
-    // Deprecation guidance for --no-pr
-    if (flags['no-pr']) {
-      this.warn('--no-pr is deprecated. Omit --create-pr instead (PR creation is off by default). --no-pr will continue to work.')
+    // --create-pr / --no-pr → --pr create|skip
+    if (flags['create-pr'] && flags['no-pr']) {
+      this.error('--create-pr and --no-pr are mutually exclusive. Use --pr create or --pr skip instead.')
+    }
+    if (flags['create-pr'] && !flags.pr) {
+      flags.pr = 'create'
+    }
+    if (flags['no-pr'] && !flags.pr) {
+      flags.pr = 'skip'
+    }
+    if (flags.pr === 'create') {
+      flags['create-pr'] = true
+      flags['no-pr'] = false
+    } else if (flags.pr === 'skip') {
+      flags['create-pr'] = false
+      flags['no-pr'] = true
+    }
+
+    // --skip-permissions → --permissions skip
+    if (flags['skip-permissions'] && !flags.permissions) {
+      flags.permissions = 'skip'
+    }
+    if (flags.permissions === 'skip') {
+      flags['skip-permissions'] = true
+    }
+
+    // --clone → --workspace clone
+    if (flags.clone && flags.workspace === 'worktree') {
+      flags.workspace = 'clone'
+    }
+    if (flags.workspace === 'clone') {
+      flags.clone = true
     }
 
     // Parse ticket IDs from args (everything after flags)

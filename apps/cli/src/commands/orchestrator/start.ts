@@ -232,9 +232,14 @@ export default class OrchestratorStart extends RuntimeCommand {
       description: 'Executor type',
       options: ['claude-code', 'codex', 'custom'],
     }),
+    permissions: Flags.string({
+      description: 'Permission handling mode (skip=danger mode, ask=require approval)',
+      options: ['skip', 'ask'],
+    }),
     'skip-permissions': Flags.boolean({
-      description: 'Skip permission checks (shorthand for --permission-mode danger)',
+      description: '[deprecated: use --permissions skip] Skip permission checks',
       default: false,
+      hidden: true,
       exclusive: ['permission-mode'],
     }),
     'permission-mode': Flags.string({
@@ -252,26 +257,53 @@ export default class OrchestratorStart extends RuntimeCommand {
       default: false,
       exclusive: ['foreground'],
     }),
+    mode: Flags.string({
+      description: 'Run mode (foreground=attach to terminal, daemon=detached background)',
+      options: ['foreground', 'daemon'],
+    }),
     foreground: Flags.boolean({
       char: 'f',
-      description: 'Attach to the tmux session in the current terminal (blocking)',
+      description: '[deprecated: use --mode foreground] Attach to terminal (blocking)',
       default: false,
+      hidden: true,
       exclusive: ['background'],
     }),
+    environment: Flags.string({
+      description: 'Execution environment (host=local, docker=container, auto=detect)',
+      options: ['host', 'docker', 'auto'],
+    }),
     docker: Flags.boolean({
-      description: 'Run orchestrator in a Docker container (sibling container pattern)',
+      description: '[deprecated: use --environment docker] Run in Docker container',
       default: false,
+      hidden: true,
       exclusive: ['run-on-host'],
     }),
     'run-on-host': Flags.boolean({
-      description: 'Run orchestrator on host (default behavior)',
+      description: '[deprecated: use --environment host] Run on host',
       default: false,
+      hidden: true,
       exclusive: ['docker'],
     }),
   }
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(OrchestratorStart)
+
+    // === Deprecated flag resolution (backward compat) ===
+    // --run-on-host / --docker → --environment
+    if (flags['run-on-host'] && !flags.environment) flags.environment = 'host'
+    if (flags.docker && !flags.environment) flags.environment = 'docker'
+    if (flags.environment === 'host') flags['run-on-host'] = true
+    if (flags.environment === 'docker') flags.docker = true
+
+    // --foreground → --mode foreground
+    if (flags.foreground && !flags.mode) flags.mode = 'foreground'
+    if (flags.mode === 'foreground') flags.foreground = true
+
+    // --skip-permissions → --permissions skip
+    if (flags['skip-permissions'] && !flags.permissions) flags.permissions = 'skip'
+    if (flags.permissions === 'skip') flags['skip-permissions'] = true
+
     const jsonMode = shouldOutputJson(flags)
 
     // Use HQ path from RuntimeCommand (resolved in init())

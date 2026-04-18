@@ -50,17 +50,19 @@ export default class WorkReady extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
-    pr: Flags.boolean({
-      description: 'Create a pull request for this work',
-      default: false,
+    pr: Flags.string({
+      description: 'PR creation behavior (create=open PR, skip=no PR, draft=draft PR)',
+      options: ['create', 'skip', 'draft'],
     }),
     'draft-pr': Flags.boolean({
-      description: 'Create a draft pull request (implies --pr)',
+      description: '[deprecated: use --pr draft] Create a draft pull request',
       default: false,
+      hidden: true,
     }),
     'no-pr': Flags.boolean({
-      description: 'Skip PR creation prompt',
+      description: '[deprecated: use --pr skip] Skip PR creation prompt',
       default: false,
+      hidden: true,
     }),
     'no-transition': Flags.boolean({
       description: 'Skip board state transition (still runs other actions)',
@@ -72,14 +74,12 @@ export default class WorkReady extends PMOCommand {
     const { args, flags } = await this.parse(WorkReady);
     const projectId = (flags as { project?: string }).project;
 
-    // Check for conflicting PR flags
-    if (flags.pr && flags['no-pr']) {
-      if (shouldOutputJson(flags)) {
-        outputErrorAsJson('CONFLICTING_FLAGS', '--pr and --no-pr are mutually exclusive', createMetadata('work ready', flags));
-        return
-      }
-      this.error('--pr and --no-pr are mutually exclusive');
-    }
+    // === Deprecated flag resolution (backward compat) ===
+    if (flags['draft-pr'] && !flags.pr) flags.pr = 'draft'
+    if (flags['no-pr'] && !flags.pr) flags.pr = 'skip'
+    // Map new --pr flag back to old booleans for downstream compat
+    if (flags.pr === 'draft') flags['draft-pr'] = true
+    if (flags.pr === 'skip') flags['no-pr'] = true
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
@@ -218,7 +218,7 @@ export default class WorkReady extends PMOCommand {
       // Handle PR creation
       let prUrl: string | undefined;
       const jsonModeConfig = jsonMode ? { flags: flags as Record<string, unknown>, commandName: 'work ready' } : null;
-    const shouldCreatePR = flags.pr || flags['draft-pr'] || (!flags['no-pr'] && await this.shouldOfferPRCreation(jsonModeConfig));
+    const shouldCreatePR = flags.pr === 'create' || flags.pr === 'draft' || flags['draft-pr'] || (!flags['no-pr'] && !flags.pr && await this.shouldOfferPRCreation(jsonModeConfig));
 
       if (shouldCreatePR) {
         // Get branch from execution record, falling back to current HEAD branch

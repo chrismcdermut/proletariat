@@ -49,14 +49,25 @@ export default class Watch extends PromptCommand {
       char: 'v',
       default: false,
     }),
+    'run-mode': Flags.string({
+      description: 'Run mode (once=single poll cycle, continuous=keep watching)',
+      options: ['once', 'continuous'],
+      default: 'continuous',
+    }),
     once: Flags.boolean({
-      description: 'Run a single poll cycle and exit (useful for testing)',
+      description: '[deprecated: use --run-mode once] Run a single poll cycle and exit',
       default: false,
+      hidden: true,
     }),
   }
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Watch)
+
+    // === Deprecated flag resolution (backward compat) ===
+    if (flags.once && flags['run-mode'] === 'continuous') flags['run-mode'] = 'once'
+    if (flags['run-mode'] === 'once') flags.once = true
+
     const jsonMode = shouldOutputJson(flags)
     const verbose = flags.verbose
 

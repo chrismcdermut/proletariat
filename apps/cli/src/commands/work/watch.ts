@@ -61,22 +61,43 @@ export default class WorkWatch extends PMOCommand {
       default: 5,
       min: 1,
     }),
-    once: Flags.boolean({
-      description: 'Check once and exit (no continuous watching)',
-      default: false,
+    'run-mode': Flags.string({
+      description: 'Run mode (once=single poll cycle, continuous=keep watching)',
+      options: ['once', 'continuous'],
+      default: 'continuous',
     }),
-    mode: Flags.string({
+    once: Flags.boolean({
+      description: '[deprecated: use --run-mode once] Check once and exit',
+      default: false,
+      hidden: true,
+    }),
+    display: Flags.string({
       char: 'd',
       description: 'Display mode for agent output',
       options: ['terminal', 'background'],
     }),
+    mode: Flags.string({
+      description: '[deprecated: use --display] Display mode for agent output',
+      options: ['terminal', 'background'],
+      hidden: true,
+    }),
+    permissions: Flags.string({
+      description: 'Permission handling mode (skip=danger mode, ask=require approval)',
+      options: ['skip', 'ask'],
+    }),
     'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts (danger mode)',
+      description: '[deprecated: use --permissions skip] Skip permission prompts',
       default: false,
+      hidden: true,
+    }),
+    pr: Flags.string({
+      description: 'PR creation behavior (create=open PR when ready, skip=no PR)',
+      options: ['create', 'skip'],
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready (canonical flag for PR behavior)',
+      description: '[deprecated: use --pr create] Create PR when work is ready',
       default: false,
+      hidden: true,
     }),
   }
 
@@ -96,6 +117,19 @@ export default class WorkWatch extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(WorkWatch)
+
+    // === Deprecated flag resolution (backward compat) ===
+    // --once → --run-mode once
+    if (flags.once && flags['run-mode'] === 'continuous') flags['run-mode'] = 'once'
+    if (flags['run-mode'] === 'once') flags.once = true
+    // --mode → --display (renamed)
+    if (flags.mode && !flags.display) flags.display = flags.mode
+    // --skip-permissions → --permissions skip
+    if (flags['skip-permissions'] && !flags.permissions) flags.permissions = 'skip'
+    if (flags.permissions === 'skip') flags['skip-permissions'] = true
+    // --create-pr → --pr create
+    if (flags['create-pr'] && !flags.pr) flags.pr = 'create'
+    if (flags.pr === 'create') flags['create-pr'] = true
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags)
@@ -185,7 +219,7 @@ export default class WorkWatch extends PMOCommand {
       this.environment = 'host'
       this.displayMode = 'terminal'
 
-      if (!flags.mode) {
+      if (!flags.display) {
         if (hasDevcontainer) {
           const envChoices = [
             { name: '🐳 devcontainer (isolated, recommended)', value: 'devcontainer' },
@@ -275,7 +309,7 @@ export default class WorkWatch extends PMOCommand {
         const displayResult = await displayResolver.resolve()
         this.displayMode = displayResult.selectedDisplay as DisplayMode
       } else {
-        this.displayMode = flags.mode as DisplayMode
+        this.displayMode = (flags.display || flags.mode) as DisplayMode
         this.environment = hasDevcontainer && isDockerRunning() ? 'devcontainer' : 'host'
       }
 

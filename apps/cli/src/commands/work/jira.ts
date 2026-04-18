@@ -105,17 +105,32 @@ export default class WorkJira extends PMOCommand {
     message: Flags.string({
       description: 'Additional instructions appended to spawn context',
     }),
+    environment: Flags.string({
+      description: 'Execution environment (host=local, docker=container, auto=detect)',
+      options: ['host', 'docker', 'auto'],
+    }),
     'run-on-host': Flags.boolean({
-      description: 'Run on host even if devcontainer exists',
+      description: '[deprecated: use --environment host] Run on host',
       default: false,
+      hidden: true,
+    }),
+    permissions: Flags.string({
+      description: 'Permission handling mode (skip=danger mode, ask=require approval)',
+      options: ['skip', 'ask'],
     }),
     'skip-permissions': Flags.boolean({
-      description: 'Skip permission prompts (danger mode)',
+      description: '[deprecated: use --permissions skip] Skip permission prompts',
       default: false,
+      hidden: true,
+    }),
+    pr: Flags.string({
+      description: 'PR creation behavior (create=open PR when ready, skip=no PR)',
+      options: ['create', 'skip'],
     }),
     'create-pr': Flags.boolean({
-      description: 'Create PR when work is ready',
+      description: '[deprecated: use --pr create] Create PR when work is ready',
       default: false,
+      hidden: true,
     }),
     yes: Flags.boolean({
       char: 'y',
@@ -167,6 +182,15 @@ export default class WorkJira extends PMOCommand {
 
   async execute(): Promise<void> {
     const { flags } = await this.parse(WorkJira)
+
+    // === Deprecated flag resolution (backward compat) ===
+    if (flags['run-on-host'] && !flags.environment) flags.environment = 'host'
+    if (flags.environment === 'host') flags['run-on-host'] = true
+    if (flags['skip-permissions'] && !flags.permissions) flags.permissions = 'skip'
+    if (flags.permissions === 'skip') flags['skip-permissions'] = true
+    if (flags['create-pr'] && !flags.pr) flags.pr = 'create'
+    if (flags.pr === 'create') flags['create-pr'] = true
+
     const jsonMode = shouldOutputJson(flags)
 
     const projectId = await this.requireProject({

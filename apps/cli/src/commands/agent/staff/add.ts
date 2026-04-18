@@ -50,9 +50,15 @@ export default class Add extends PromptCommand {
       description: 'Pick agent name(s) from a theme (billionaires, toyotas, companies, or custom)',
     }),
     ...machineOutputFlags,
+    workspace: Flags.string({
+      description: 'Workspace isolation strategy (clone=independent copy, worktree=shared git)',
+      options: ['clone', 'worktree'],
+      default: 'worktree',
+    }),
     clone: Flags.boolean({
-      description: 'Use independent git clone instead of worktree (more isolation, no real-time sync)',
+      description: '[deprecated: use --workspace clone] Use independent git clone',
       default: false,
+      hidden: true,
     }),
   };
 
@@ -60,6 +66,10 @@ export default class Add extends PromptCommand {
 
   async run(): Promise<void> {
     const { argv, flags } = await this.parse(Add);
+
+    // === Deprecated flag resolution (backward compat) ===
+    if (flags.clone && flags.workspace === 'worktree') flags.workspace = 'clone'
+    if (flags.workspace === 'clone') flags.clone = true
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
