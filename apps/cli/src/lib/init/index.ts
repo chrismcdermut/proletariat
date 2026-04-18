@@ -27,6 +27,7 @@ import {
 } from '../machine-config.js';
 import { hasGitHubRemote } from '../repos/git.js';
 import { isGHInstalled, isGHAuthenticated } from '../pr/index.js';
+import { ensureMachineDb, cleanupStaleMachineDb } from '../machine-db.js';
 
 export interface HQConfig {
   type: 'hq';
@@ -453,6 +454,14 @@ export async function initializeHQ(options: InitOptions): Promise<void> {
   ensureMachineConfigDir();
   registerHeadquarters(hqPath, hqName, true, orgName);
   log(chalk.gray(`Registered headquarters in ~/.proletariat/config.json`));
+
+  // PRLT-1338: Ensure the machine-level database (~/.proletariat/machine.db)
+  // is initialized with its schema so commands can read/write immediately.
+  ensureMachineDb();
+
+  // PRLT-1338: Clean up stale 0-byte machine.db at HQ root if present.
+  // The correct location is ~/.proletariat/machine.db, not hqPath/machine.db.
+  cleanupStaleMachineDb(hqPath);
 
   log(chalk.green(`\n✅ Headquarters created successfully at ${hqPath}`));
 }
