@@ -341,6 +341,7 @@ export class HookManager {
   /**
    * Resolve the action name from a hook config and a set of known action handlers.
    *
+   * - If the hook has an action_ref, uses it (direct action reference)
    * - If the action_value contains `--action <name>`, extracts the name
    * - If the action_value is a known built-in action, uses it directly
    * - Otherwise uses the raw action_value (shell command)
@@ -348,6 +349,9 @@ export class HookManager {
    * Public so it can be tested in isolation.
    */
   static resolveActionName(hook: WorkHookConfig, knownActions: Record<string, unknown> = {}): string {
+    // If the hook has an explicit action_ref, use it (new direct dispatch)
+    if (hook.actionRef) return hook.actionRef
+
     // If the action_value contains --action, extract the action name
     const actionMatch = hook.actionValue.match(/--action\s+(\S+)/)
     if (actionMatch) return actionMatch[1]
@@ -631,7 +635,19 @@ export class HookManager {
   ): HookExecutionResult {
     const actionName = HookManager.resolveActionName(hook, this.actionHandlers)
 
-    // Try built-in action handler first
+    // For action-type hooks, the executor handles dispatch directly
+    if (hook.actionType === 'action') {
+      const result = executeHook(hook, eventName, ctx, this.actionHandlers)
+      return { ...result, action: actionName }
+    }
+
+    // For poke/llm types, the executor handles them natively
+    if (hook.actionType === 'poke' || hook.actionType === 'llm') {
+      const result = executeHook(hook, eventName, ctx)
+      return { ...result, action: actionName }
+    }
+
+    // Try built-in action handler first (legacy shell hooks with --action)
     if (this.actionHandlers[actionName]) {
       const handlerResult = this.actionHandlers[actionName](ctx, hook.config ?? undefined)
       return {

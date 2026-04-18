@@ -17,7 +17,7 @@ export type {
   HookActionHandler,
 } from './types.js'
 
-export { HOOKABLE_EVENTS, HOOK_MODES } from './types.js'
+export { HOOKABLE_EVENTS, HOOK_MODES, HOOK_ACTION_TYPES, EVENT_PAYLOAD_FIELDS } from './types.js'
 
 export {
   WorkHookStorage,
@@ -27,7 +27,7 @@ export {
   ensureHooksTable,
 } from './storage.js'
 
-export { executeHook } from './executor.js'
+export { executeHook, interpolate } from './executor.js'
 
 export {
   HookManager,

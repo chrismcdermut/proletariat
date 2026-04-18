@@ -67,8 +67,14 @@ export const HOOKABLE_EVENTS: HookableEvent[] = [
  * - shell: Run a shell command (with event data as env vars)
  * - webhook: POST event data to a URL
  * - log: Write a message to stdout (useful for notifications/debugging)
+ * - poke: Send a message to a named session (via tmux, no shell-out)
+ * - action: Fire a named pmo_action directly (skip shell indirection)
+ * - llm: Send to LLM for judgment/triage
  */
-export type HookActionType = 'shell' | 'webhook' | 'log'
+export type HookActionType = 'shell' | 'webhook' | 'log' | 'poke' | 'action' | 'llm'
+
+/** All valid hook action types. */
+export const HOOK_ACTION_TYPES: HookActionType[] = ['shell', 'webhook', 'log', 'poke', 'action', 'llm']
 
 /**
  * Automation mode for a hook — determines the decision tier.
@@ -122,8 +128,10 @@ export interface WorkHookConfig {
   event: HookableEvent
   /** Type of action to execute */
   actionType: HookActionType
-  /** Action payload — shell command, webhook URL, or log message template */
+  /** Action payload — shell command, webhook URL, log message template, or poke template */
   actionValue: string
+  /** Reference to a named action definition (for action_type='action' or shared definitions) */
+  actionRef: string | null
   /** Whether the hook is active */
   enabled: boolean
   /** Optional description */
@@ -147,6 +155,7 @@ export interface WorkHookRow {
   event: string
   action_type: string
   action_value: string
+  action_ref: string | null
   enabled: number
   description: string | null
   created_at: string
@@ -186,4 +195,86 @@ export interface HookExecutionResult {
   escalatedToHuman?: boolean
   /** The decision tier that handled this hook */
   tier?: DecisionTier
+}
+
+// =============================================================================
+// Event Payload Schemas
+// =============================================================================
+
+/**
+ * Typed event payloads — each event carries a known set of fields.
+ * Actions can reference these fields in templates: `{ticket_id}`, `{pr_number}`, `{author}`.
+ */
+
+export interface PrOpenedPayload {
+  pr_number: number
+  ticket_id?: string
+  branch: string
+  author: string
+  repo?: string
+}
+
+export interface PrMergedPayload {
+  pr_number: number
+  ticket_id?: string
+  branch: string
+  merge_sha?: string
+}
+
+export interface CiGreenPayload {
+  pr_number?: number
+  ticket_id?: string
+  check_suite_url?: string
+}
+
+export interface CiFailedPayload {
+  pr_number?: number
+  ticket_id?: string
+  failed_checks?: string[]
+}
+
+export interface AgentCompletedPayload {
+  agent_name: string
+  ticket_id?: string
+  execution_id?: string
+  summary?: string
+}
+
+export interface AgentDiedPayload {
+  agent_name: string
+  ticket_id?: string
+  execution_id?: string
+  exit_code?: number
+  error?: string
+}
+
+export interface PrCommentPayload {
+  pr_number: number
+  ticket_id?: string
+  comment_id: number
+  author: string
+  body: string
+  file?: string
+  line?: number
+}
+
+/**
+ * Map of event names to their payload field definitions.
+ * Used for documentation and template validation.
+ */
+export const EVENT_PAYLOAD_FIELDS: Record<string, string[]> = {
+  on_pr_opened: ['pr_number', 'ticket_id', 'branch', 'author', 'repo'],
+  on_pr_merged: ['pr_number', 'ticket_id', 'branch', 'merge_sha'],
+  on_ci_green: ['pr_number', 'ticket_id', 'check_suite_url'],
+  on_ci_failed: ['pr_number', 'ticket_id', 'failed_checks'],
+  on_agent_completed: ['agent_name', 'ticket_id', 'execution_id', 'summary'],
+  on_agent_died: ['agent_name', 'ticket_id', 'execution_id', 'exit_code', 'error'],
+  on_pr_comment: ['pr_number', 'ticket_id', 'comment_id', 'author', 'body', 'file', 'line'],
+  on_agent_spawned: ['agent_name', 'ticket_id', 'execution_id'],
+  on_agent_idle: ['agent_name', 'ticket_id', 'execution_id'],
+  on_ticket_ready: ['ticket_id'],
+  on_pr_conflicting: ['pr_number', 'ticket_id', 'branch'],
+  on_review_approved: ['pr_number', 'ticket_id', 'author'],
+  on_changes_requested: ['pr_number', 'ticket_id', 'author'],
+  on_version_published: ['ticket_id', 'version'],
 }

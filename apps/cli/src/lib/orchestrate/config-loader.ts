@@ -130,12 +130,16 @@ export function applyPreset(db: Database.Database, presetName: PresetName): numb
     const hook = preset.hooks[i]
     const hookName = `preset:${presetName}:${hook.event}:${hook.action}:${i}`
 
+    // Determine action type: poke-type hooks use 'poke', others use 'action'
+    // to skip shell indirection (direct dispatch instead of 4-hop shell → CLI → action)
+    const actionType = hook.actionType || 'action'
+
     try {
       const created = storage.create({
         name: hookName,
         event: mapOrchestrateToHookable(hook.event),
-        actionType: 'shell',
-        actionValue: `prlt hook fire ${hook.event} --action ${hook.action}`,
+        actionType,
+        actionRef: hook.action,
         description: `Preset ${presetName}: ${hook.event} → ${hook.action} (${hook.mode})`,
       })
 

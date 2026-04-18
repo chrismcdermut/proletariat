@@ -21,9 +21,11 @@ export default class WorkHooksAdd extends PromptCommand {
   static description = 'Add a work lifecycle hook'
 
   static examples = [
-    '<%= config.bin %> <%= command.id %> --name notify-start --event work:started --action-type log --action-value "Work started on {{workItemId}}"',
+    '<%= config.bin %> <%= command.id %> --name notify-start --event work:started --action-type log --action-value "Work started on {ticket_id}"',
     '<%= config.bin %> <%= command.id %> --name deploy-hook --event work:completed --action-type shell --action-value "./scripts/deploy.sh"',
     '<%= config.bin %> <%= command.id %> --name slack-notify --event work:pr_created --action-type webhook --action-value "https://hooks.slack.com/..."',
+    '<%= config.bin %> <%= command.id %> --name poke-orch --event on_pr_opened --action-type poke --action-ref orchestrator-main --action-value "{event}: PR #{pr_number} for {ticket_id}"',
+    '<%= config.bin %> <%= command.id %> --name auto-merge --event on_ci_green --action-type action --action-ref merge-pr',
   ]
 
   static flags = {
@@ -36,11 +38,14 @@ export default class WorkHooksAdd extends PromptCommand {
       options: HOOKABLE_EVENTS,
     }),
     'action-type': Flags.string({
-      description: 'Action type (shell, webhook, or log)',
-      options: ['shell', 'webhook', 'log'],
+      description: 'Action type (shell, webhook, log, poke, action, llm)',
+      options: ['shell', 'webhook', 'log', 'poke', 'action', 'llm'],
     }),
     'action-value': Flags.string({
-      description: 'Action payload (command, URL, or message template)',
+      description: 'Action payload (command, URL, message template, or poke template)',
+    }),
+    'action-ref': Flags.string({
+      description: 'Reference to a named action definition (for action/poke types)',
     }),
     description: Flags.string({
       description: 'Optional description',
@@ -134,6 +139,9 @@ export default class WorkHooksAdd extends PromptCommand {
           { name: 'shell — Run a shell command', value: 'shell' },
           { name: 'webhook — POST event data to a URL', value: 'webhook' },
           { name: 'log — Print a message to stdout', value: 'log' },
+          { name: 'poke — Send a message to a named session', value: 'poke' },
+          { name: 'action — Fire a named action directly (no shell)', value: 'action' },
+          { name: 'llm — Send to LLM for judgment', value: 'llm' },
         ]
         const message = 'Action type:'
 
@@ -162,7 +170,10 @@ export default class WorkHooksAdd extends PromptCommand {
         const prompts: Record<HookActionType, string> = {
           shell: 'Shell command to run:',
           webhook: 'Webhook URL:',
-          log: 'Log message template (use {{workItemId}}, {{event}}, etc.):',
+          log: 'Log message template (use {ticket_id}, {event}, etc.):',
+          poke: 'Poke message template (use {ticket_id}, {event}, etc.):',
+          action: 'Action name to fire (e.g. move-ticket, merge-pr):',
+          llm: 'LLM prompt template (use {ticket_id}, {event}, etc.):',
         }
         const message = prompts[actionType!]
 
@@ -179,11 +190,18 @@ export default class WorkHooksAdd extends PromptCommand {
             type: 'input',
             name: 'actionValue',
             message,
-            validate: (input: string) => input.trim().length > 0 || 'Action value is required',
+            validate: (input: string) => {
+              // action-type hooks can use action_ref instead
+              if (actionType === 'action' || actionType === 'poke') return true
+              return input.trim().length > 0 || 'Action value is required'
+            },
           }])
         )
         actionValue = result.actionValue
       }
+
+      // Collect optional action ref (for action/poke types)
+      const actionRef = (flags as { 'action-ref'?: string })['action-ref']
 
       // Collect optional description
       const description = (flags as { description?: string }).description
@@ -193,7 +211,8 @@ export default class WorkHooksAdd extends PromptCommand {
         name: name!,
         event: event!,
         actionType: actionType!,
-        actionValue: actionValue!,
+        actionValue: actionValue || '',
+        actionRef: actionRef,
         description,
       })
 

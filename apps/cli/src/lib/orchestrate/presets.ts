@@ -10,11 +10,14 @@
  */
 
 import type { HookMode, OrchestrateEvent, PresetName } from './types.js'
+import type { HookActionType } from '../work-lifecycle/hooks/types.js'
 
 interface PresetHook {
   event: OrchestrateEvent
   action: string
   mode: HookMode
+  /** Action type override (defaults to 'action' for direct dispatch) */
+  actionType?: HookActionType
   config?: Record<string, unknown>
 }
 
@@ -24,7 +27,19 @@ interface PresetDefinition {
   hooks: PresetHook[]
 }
 
-const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Record<string, unknown> }> = [
+/** Default poke-orchestrator template used to notify the orchestrator session. */
+const POKE_ORCHESTRATOR_TEMPLATE = '{event}: ticket={ticket_id} pr=#{pr_number} agent={agent_name} — {summary}'
+
+/** Events that should poke the orchestrator. */
+const POKE_ORCHESTRATOR_EVENTS: OrchestrateEvent[] = [
+  'on_pr_opened',
+  'on_ci_green',
+  'on_ci_failed',
+  'on_agent_completed',
+  'on_agent_died',
+]
+
+const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; actionType?: HookActionType; config?: Record<string, unknown> }> = [
   // PR lifecycle
   { event: 'on_ci_green', action: 'merge-pr' },
   { event: 'on_pr_merged', action: 'move-ticket', config: { target: 'done' } },
@@ -52,6 +67,13 @@ const SHARED_HOOKS: Array<{ event: OrchestrateEvent; action: string; config?: Re
   { event: 'on_ci_failed', action: 'spawn-fix-agent' },
   // Periodic cleanup
   { event: 'on_agent_completed', action: 'gc-sweep' },
+  // Poke orchestrator — shared action definition referenced by multiple events
+  ...POKE_ORCHESTRATOR_EVENTS.map(event => ({
+    event,
+    action: 'poke-orchestrator',
+    actionType: 'poke' as HookActionType,
+    config: { target: 'orchestrator-main', template: POKE_ORCHESTRATOR_TEMPLATE },
+  })),
 ]
 
 /**
