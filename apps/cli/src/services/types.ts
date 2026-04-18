@@ -295,6 +295,15 @@ export interface ListSessionsResult {
   grouped: GroupedSessions
 }
 
+
+/**
+ * Result of resolving a session by identifier.
+ */
+export type ResolveSessionResult =
+  | { kind: 'match'; session: UnifiedSession }
+  | { kind: 'multiple'; candidates: UnifiedSession[] }
+  | { kind: 'none' }
+
 // =============================================================================
 // Reconcile Service Types
 // =============================================================================

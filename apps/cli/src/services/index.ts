@@ -44,6 +44,7 @@ export type {
   GetTicketResult,
   ListSessionsOptions,
   ListSessionsResult,
+  ResolveSessionResult,
   RunReconcileOptions,
   WatchReconcileOptions,
   CreatePROptions,
