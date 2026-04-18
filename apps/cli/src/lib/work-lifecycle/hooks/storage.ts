@@ -12,24 +12,31 @@ import type { WorkHookConfig, WorkHookRow, HookableEvent, HookActionType, HookMo
 /** Table name for work hooks. */
 export const HOOKS_TABLE = 'pmo_work_hooks'
 
-/** SQL to create the hooks table. */
+/** SQL to create the hooks table (current schema — includes all columns). */
 export const HOOKS_TABLE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS ${HOOKS_TABLE} (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     event TEXT NOT NULL,
-    action_type TEXT NOT NULL CHECK (action_type IN ('shell', 'webhook', 'log', 'poke', 'action', 'llm')),
+    action_type TEXT NOT NULL DEFAULT 'shell' CHECK (action_type IN ('shell', 'webhook', 'log', 'poke', 'action', 'llm')),
     action_value TEXT NOT NULL DEFAULT '',
     action_ref TEXT,
     enabled INTEGER NOT NULL DEFAULT 1,
     description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    mode TEXT NOT NULL DEFAULT 'auto' CHECK (mode IN ('auto', 'confirm', 'notify', 'llm', 'human', 'off')),
+    priority INTEGER NOT NULL DEFAULT 0,
+    project_id TEXT,
+    source TEXT NOT NULL DEFAULT 'cli' CHECK (source IN ('yaml', 'cli', 'preset')),
+    config TEXT
   )
 `
 
 export const HOOKS_TABLE_INDEX = `
   CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_event ON ${HOOKS_TABLE}(event);
   CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_enabled ON ${HOOKS_TABLE}(enabled);
+  CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_priority ON ${HOOKS_TABLE}(event, priority);
+  CREATE INDEX IF NOT EXISTS idx_pmo_work_hooks_action_ref ON ${HOOKS_TABLE}(action_ref);
 `
 
 /**

@@ -14,6 +14,7 @@ function makeHook(overrides: Partial<WorkHookConfig> = {}): WorkHookConfig {
     event: 'work:started',
     actionType: 'log',
     actionValue: 'default log message',
+    actionRef: null,
     enabled: true,
     description: null,
     createdAt: new Date().toISOString(),
