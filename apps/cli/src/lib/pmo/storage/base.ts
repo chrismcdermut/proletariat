@@ -157,6 +157,15 @@ export function runMigrations(db: Database.Database): void {
         // Column may already exist
       }
     }
+
+    // PRLT-1317: Add valid_from column for action-level guardrails
+    if (!actionsColumnNames.has('valid_from')) {
+      try {
+        db.exec('ALTER TABLE pmo_actions ADD COLUMN valid_from TEXT')
+      } catch {
+        // Column may already exist
+      }
+    }
   }
 
   // Migration: Add new columns to ticket_templates table
