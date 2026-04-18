@@ -10,6 +10,7 @@ import {
   getStandaloneInstallDir,
   isNewerVersion,
   runNpmInstallWithRetry,
+  runBrewUpgradeWithSafety,
   type PackageManager,
 } from '../lib/update-check.js'
 
@@ -133,7 +134,10 @@ export default class Update extends Command {
     }
 
     try {
-      if (pm === 'npm') {
+      if (pm === 'brew') {
+        // PRLT-1344: safe brew upgrade — refreshes tap, verifies binary, recovers if missing
+        runBrewUpgradeWithSafety()
+      } else if (pm === 'npm') {
         runNpmInstallWithRetry(command)
       } else {
         execSync(command, {

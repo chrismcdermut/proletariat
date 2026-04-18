@@ -309,6 +309,125 @@ export function getStaleTapCommands(): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Brew upgrade safety (PRLT-1344)
+// ---------------------------------------------------------------------------
+
+/**
+ * Refresh the local Homebrew tap so the latest formula is available
+ * before attempting `brew upgrade`. Runs:
+ *   brew tap --force chrismcdermut/proletariat
+ *
+ * Returns true on success, false on failure (caller should still attempt
+ * the upgrade — brew may have a local cache that works).
+ */
+export function refreshBrewTap(): boolean {
+  try {
+    execSync('brew tap --force chrismcdermut/proletariat', {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 60_000,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check whether the prlt binary exists and is callable.
+ * Uses `which` to verify it is on PATH and resolves to a real file.
+ */
+export function verifyBrewBinaryExists(): boolean {
+  try {
+    const result = execSync('which prlt', {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+    }).trim()
+    // `which` found something — verify the file actually exists
+    // (handles dangling symlinks from partial uninstall)
+    return result.length > 0 && fs.existsSync(result)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Run `brew upgrade` with safety measures so the user never ends up
+ * without a working prlt binary (PRLT-1344).
+ *
+ * Steps:
+ * 1. Refresh the Homebrew tap to ensure the target formula version exists
+ * 2. Run `brew upgrade chrismcdermut/proletariat/prlt`
+ * 3. Verify the binary still exists after upgrade
+ * 4. If the binary is gone, attempt `brew reinstall` as recovery
+ * 5. If recovery fails, throw with clear manual instructions
+ *
+ * Throws on unrecoverable failure.
+ */
+export function runBrewUpgradeWithSafety(): void {
+  const upgradeCmd = 'brew upgrade chrismcdermut/proletariat/prlt'
+  const reinstallCmd = 'brew reinstall chrismcdermut/proletariat/prlt'
+
+  // Step 1: Refresh the tap
+  console.log('Refreshing Homebrew tap…')
+  const tapRefreshed = refreshBrewTap()
+  if (!tapRefreshed) {
+    console.log('Warning: could not refresh tap. Attempting upgrade anyway…')
+  }
+
+  // Step 2: Run the upgrade
+  let upgradeSucceeded = true
+  try {
+    execSync(upgradeCmd, {
+      stdio: 'inherit',
+      timeout: 120_000,
+    })
+  } catch {
+    upgradeSucceeded = false
+  }
+
+  // Step 3: Verify binary still exists
+  if (verifyBrewBinaryExists()) {
+    // Binary is present — whether or not the upgrade command itself exited
+    // cleanly (brew sometimes exits non-zero for "already installed")
+    if (!upgradeSucceeded) {
+      // Upgrade exited non-zero but binary is fine — likely "already installed"
+      throw new Error('brew upgrade exited with an error. prlt is still installed.')
+    }
+    return
+  }
+
+  // Step 4: Binary is gone — attempt recovery
+  console.error('')
+  console.error('brew upgrade removed prlt without installing the new version.')
+  console.error('Attempting to reinstall…')
+
+  try {
+    execSync(reinstallCmd, {
+      stdio: 'inherit',
+      timeout: 120_000,
+    })
+  } catch {
+    // reinstall also failed
+  }
+
+  // Step 5: Final verification
+  if (verifyBrewBinaryExists()) {
+    console.log('')
+    console.log('Recovery succeeded — prlt has been reinstalled.')
+    return
+  }
+
+  // Unrecoverable — give the user clear instructions
+  throw new Error(
+    'brew upgrade left prlt uninstalled and automatic recovery failed.\n' +
+    'Reinstall manually:\n' +
+    '  brew tap --force chrismcdermut/proletariat\n' +
+    '  brew install chrismcdermut/proletariat/prlt',
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Version fetching
 // ---------------------------------------------------------------------------
 
