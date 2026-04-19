@@ -208,6 +208,45 @@ describe('SimplePoller', () => {
       const result = await poller.poll()
       expect(result.items).to.have.length(0)
     })
+
+    it('should use category-based query, not status name match (PRLT-1350)', async () => {
+      // Regression: gatherReadyTicketState() used config.planned (defaults to "Planned")
+      // but the board status is named "Ready". The fix uses ws.category = 'unstarted'
+      // which matches any ready-like status regardless of name.
+      const queriesExecuted: string[] = []
+      const db = {
+        _data: { readyTickets: [{ id: 'TKT-R1', title: 'Ready ticket' }], agents: [] },
+        prepare: (sql: string) => {
+          queriesExecuted.push(sql)
+          return {
+            all: (..._args: unknown[]) => {
+              if (sql.includes('pmo_tickets') && sql.includes('unstarted')) {
+                return [{ id: 'TKT-R1', title: 'Ready ticket' }]
+              }
+              if (sql.includes('agent_work')) return []
+              return []
+            },
+            get: () => undefined,
+          }
+        },
+        close: () => {},
+      }
+      const poller = createPoller(db as any)
+
+      const result = await poller.poll()
+
+      // Must find the ticket via category-based query
+      const boardItems = result.items.filter(i => i.category === 'board')
+      expect(boardItems).to.have.length(1)
+      expect(boardItems[0].summary).to.include('TKT-R1')
+
+      // The ticket query must NOT use ws.name matching (the old broken approach)
+      const ticketQuery = queriesExecuted.find(q => q.includes('pmo_tickets') && q.includes('unstarted'))
+      expect(ticketQuery).to.exist
+      // Should not have a ws.name = ? clause in the ticket query
+      const nameMatchQuery = queriesExecuted.find(q => q.includes('pmo_tickets') && q.includes('ws.name'))
+      expect(nameMatchQuery).to.be.undefined
+    })
   })
 
   // ===========================================================================

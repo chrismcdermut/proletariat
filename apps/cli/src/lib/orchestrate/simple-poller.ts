@@ -15,7 +15,6 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type Database from 'better-sqlite3'
 import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks } from '../pr/index.js'
-import { getWorkflowConfig } from '../work-lifecycle/settings.js'
 import {
   type AgentHealthState,
   detectState,
@@ -361,38 +360,21 @@ export class SimplePoller {
     const items: StateItem[] = []
 
     try {
-      // Resolve configured ready status name
-      let readyStatusName: string | null = null
-      try {
-        const config = getWorkflowConfig(this.db)
-        readyStatusName = config.planned
-      } catch {
-        // pmo_settings may not exist yet
-      }
-
-      const readyTickets = readyStatusName
-        ? this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE LOWER(ws.name) = LOWER(?)
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
-                SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-              )
-            LIMIT 20
-          `).all(readyStatusName) as Array<{ id: string; title: string }>
-        : this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE ws.category = 'unstarted'
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
-                SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-              )
-            LIMIT 20
-          `).all() as Array<{ id: string; title: string }>
+      // Query by category ('unstarted') rather than a single status name.
+      // The 'unstarted' category covers all ready-to-work statuses regardless
+      // of name — "Ready", "Planned", "To Do", etc. — fixing the mismatch
+      // where config.planned defaults to "Planned" but the board uses "Ready".
+      const readyTickets = this.db.prepare(`
+        SELECT t.id, t.title
+        FROM pmo_tickets t
+        JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
+        WHERE ws.category = 'unstarted'
+          AND t.assignee IS NULL
+          AND t.id NOT IN (
+            SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
+          )
+        LIMIT 20
+      `).all() as Array<{ id: string; title: string }>
 
       for (const ticket of readyTickets) {
         items.push({ category: 'board', summary: `${ticket.id} "${ticket.title}": ready, unassigned` })
