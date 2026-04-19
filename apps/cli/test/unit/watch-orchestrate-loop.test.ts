@@ -51,7 +51,7 @@ function createMockDb(options?: {
     _data: data,
     prepare: (sql: string) => ({
       all: (..._args: unknown[]) => {
-        if (sql.includes('pmo_tickets') && (sql.includes('ws.name') || sql.includes('unstarted'))) {
+        if (sql.includes('ticket_refs') && sql.includes('status')) {
           return data.readyTickets
         }
         if (sql.includes('agent_work')) {
@@ -88,8 +88,7 @@ function createEngineDb(): Database.Database {
     // Columns may already exist
   }
 
-  db.exec(`CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL)`)
-  db.exec(`CREATE TABLE IF NOT EXISTS pmo_tickets (id TEXT PRIMARY KEY, title TEXT NOT NULL, status_id TEXT NOT NULL, assignee TEXT)`)
+  db.exec(`CREATE TABLE IF NOT EXISTS ticket_refs (id TEXT PRIMARY KEY, provider TEXT NOT NULL DEFAULT 'pmo', external_id TEXT, external_key TEXT, external_url TEXT, title TEXT NOT NULL, description TEXT, status TEXT, priority TEXT, category TEXT, assignee TEXT, project_id TEXT, cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`)
   db.exec(`CREATE TABLE IF NOT EXISTS agent_work (id TEXT PRIMARY KEY, ticket_id TEXT NOT NULL, agent_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'starting', lifecycle_state TEXT, container_id TEXT, last_heartbeat TEXT)`)
   db.exec(`CREATE TABLE IF NOT EXISTS pmo_projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, is_archived INTEGER NOT NULL DEFAULT 0)`)
 

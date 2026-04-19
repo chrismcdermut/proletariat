@@ -28,6 +28,7 @@ import {
   findContainerSessionsByPrefix,
   captureTmuxPane,
 } from '../execution/session-utils.js'
+import { getWorkflowConfig } from '../work-lifecycle/settings.js'
 
 // =============================================================================
 // Types
@@ -360,21 +361,32 @@ export class SimplePoller {
     const items: StateItem[] = []
 
     try {
-      // Query by category ('unstarted') rather than a single status name.
-      // The 'unstarted' category covers all ready-to-work statuses regardless
-      // of name — "Ready", "Planned", "To Do", etc. — fixing the mismatch
-      // where config.planned defaults to "Planned" but the board uses "Ready".
+      // Build list of status names that represent "ready" tickets.
+      // Include the configured planned column name and common synonyms
+      // that external providers use (e.g. Linear uses "Ready", "Todo").
+      const readyNames = new Set(['ready', 'planned', 'todo'])
+      try {
+        const config = getWorkflowConfig(this.db)
+        readyNames.add(config.planned.toLowerCase())
+      } catch {
+        // pmo_settings may not exist yet
+      }
+
+      const nameList = [...readyNames]
+      const placeholders = nameList.map(() => '?').join(', ')
+
+      // Query ticket_refs (runtime ticket cache) instead of the dropped
+      // pmo_tickets / pmo_workflow_statuses tables (PRLT-1350).
       const readyTickets = this.db.prepare(`
-        SELECT t.id, t.title
-        FROM pmo_tickets t
-        JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-        WHERE ws.category = 'unstarted'
-          AND t.assignee IS NULL
-          AND t.id NOT IN (
+        SELECT id, title
+        FROM ticket_refs
+        WHERE LOWER(status) IN (${placeholders})
+          AND (assignee IS NULL OR assignee = '')
+          AND id NOT IN (
             SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
           )
         LIMIT 20
-      `).all() as Array<{ id: string; title: string }>
+      `).all(...nameList) as Array<{ id: string; title: string }>
 
       for (const ticket of readyTickets) {
         items.push({ category: 'board', summary: `${ticket.id} "${ticket.title}": ready, unassigned` })

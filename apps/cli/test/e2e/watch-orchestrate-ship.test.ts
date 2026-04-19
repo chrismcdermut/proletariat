@@ -60,7 +60,7 @@ function createPollerMockDb(options?: {
     _data: data,
     prepare: (sql: string) => ({
       all: (..._args: unknown[]) => {
-        if (sql.includes('pmo_tickets') && (sql.includes('ws.name') || sql.includes('unstarted'))) {
+        if (sql.includes('ticket_refs') && sql.includes('status')) {
           return data.readyTickets
         }
         if (sql.includes('agent_work')) {
@@ -110,22 +110,23 @@ function createEngineDb(): Database.Database {
     // Columns may already exist
   }
 
-  // Create minimal tables for polling
+  // Create minimal tables for polling (PRLT-1350: ticket_refs replaces dropped pmo_tickets)
   db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
+    CREATE TABLE IF NOT EXISTS ticket_refs (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'pmo',
+      external_id TEXT,
+      external_key TEXT,
+      external_url TEXT,
       title TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'Backlog',
-      status_id TEXT NOT NULL,
+      description TEXT,
+      status TEXT,
+      priority TEXT,
+      category TEXT,
       assignee TEXT,
-      FOREIGN KEY (status_id) REFERENCES pmo_workflow_statuses(id)
+      project_id TEXT,
+      cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `)
   db.exec(`
@@ -146,12 +147,6 @@ function createEngineDb(): Database.Database {
       is_archived INTEGER NOT NULL DEFAULT 0
     )
   `)
-
-  // Insert statuses
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-backlog', 'Backlog', 'backlog')").run()
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ip', 'In Progress', 'started')").run()
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-review', 'Review', 'started')").run()
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-done', 'Done', 'completed')").run()
 
   return db
 }
@@ -290,7 +285,8 @@ describe('E2E: Watch -> Orchestrate -> Ship (PRLT-1333)', () => {
       const agentItem = pollResult.items.find(i => i.category === 'agents')
       expect(agentItem).to.exist
       expect(agentItem!.summary).to.include('bold-ada')
-      expect(agentItem!.summary).to.include('completed')
+      // PRLT-1348: completed agents report as DONE health state
+      expect(agentItem!.summary).to.include('DONE')
       expect(pollResult.message).to.not.be.null
 
       // -----------------------------------------------------------------------
@@ -472,9 +468,9 @@ describe('E2E: Watch -> Orchestrate -> Ship (PRLT-1333)', () => {
       const result = await poller.poll()
 
       expect(result.items.length).to.be.greaterThan(0)
-      expect(result.message).to.include('cool-turing')
-      expect(result.message).to.include('completed')
+      // PRLT-1348: done agents are summarized as counts, not listed individually
       expect(result.message).to.include('Active agents')
+      expect(result.message).to.include('1 done')
     })
 
     it('should report multiple items across categories in a single poll', async () => {
@@ -821,7 +817,9 @@ describe('E2E: Watch -> Orchestrate -> Ship (PRLT-1333)', () => {
       // Phase 1: Poll reports full state
       const agentPollResult = await poller.poll()
       expect(agentPollResult.message).to.not.be.null
-      expect(agentPollResult.message).to.include('sharp-lovelace')
+      // PRLT-1348: done agents are summarized as counts, not listed individually
+      expect(agentPollResult.message).to.include('Active agents')
+      expect(agentPollResult.message).to.include('1 done')
 
       // Phase 2: CI goes green (simulated state report from GitHub polling)
       const ciGreenMessage = 'GitHub PRs (1 open):\n- #150 (PRLT-999): "feat: implement" \u2014 CI: green, mergeable, no review\n\nReady tickets: none\n\nActive agents: none'

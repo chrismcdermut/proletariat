@@ -31,21 +31,23 @@ function createTestDb(): Database.Database {
     // Columns may already exist
   }
 
-  // Create minimal tables for polling
+  // Create minimal tables for polling (PRLT-1350: ticket_refs replaces dropped pmo_tickets)
   db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
+    CREATE TABLE IF NOT EXISTS ticket_refs (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'pmo',
+      external_id TEXT,
+      external_key TEXT,
+      external_url TEXT,
       title TEXT NOT NULL,
-      status_id TEXT NOT NULL,
+      description TEXT,
+      status TEXT,
+      priority TEXT,
+      category TEXT,
       assignee TEXT,
-      FOREIGN KEY (status_id) REFERENCES pmo_workflow_statuses(id)
+      project_id TEXT,
+      cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `)
   db.exec(`
@@ -66,10 +68,6 @@ function createTestDb(): Database.Database {
       is_archived INTEGER NOT NULL DEFAULT 0
     )
   `)
-
-  // Insert statuses
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ready', 'Ready', 'unstarted')").run()
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ip', 'In Progress', 'started')").run()
 
   return db
 }
@@ -118,8 +116,8 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
       insertSupervisedHooks(db)
 
       // Add some ready tickets that would normally trigger spawn-agent
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-1', 'Ready ticket 1', 'status-ready', NULL)").run()
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-2', 'Ready ticket 2', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-1', 'Ready ticket 1', 'Ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-2', 'Ready ticket 2', 'Ready', NULL)").run()
 
       const executedActions: OrchestrateActionResult[] = []
       const engine = new OrchestrateEngine({
@@ -155,7 +153,7 @@ describe('Orchestrate Daemon — Supervised Mode (PRLT-1223)', () => {
     it('pending confirmations should accumulate without executing', async () => {
       insertSupervisedHooks(db)
 
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-1', 'Ready', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-1', 'Ready', 'Ready', NULL)").run()
 
       const engine = new OrchestrateEngine({ db, log: () => {} })
 
