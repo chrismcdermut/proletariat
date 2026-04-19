@@ -39,8 +39,8 @@ function createMockDb(options?: {
     _data: data,
     prepare: (sql: string) => ({
       all: (..._args: unknown[]) => {
-        // Match ready tickets query (by status name or unstarted category)
-        if (sql.includes('pmo_tickets') && (sql.includes('ws.name') || sql.includes('unstarted'))) {
+        // Match ready tickets query against ticket_refs (PRLT-1350)
+        if (sql.includes('ticket_refs') && sql.includes('status')) {
           return data.readyTickets
         }
         if (sql.includes('agent_work')) {
@@ -51,7 +51,7 @@ function createMockDb(options?: {
       get: (..._args: unknown[]) => {
         // Handle pmo_settings lookups for getWorkflowConfig
         if (sql.includes('pmo_settings')) {
-          return undefined // No config -> fallback to category-based query
+          return undefined // No config -> use default ready status names
         }
         return undefined
       },
@@ -207,6 +207,46 @@ describe('SimplePoller', () => {
 
       const result = await poller.poll()
       expect(result.items).to.have.length(0)
+    })
+
+    it('should query ticket_refs table, not dropped pmo_tickets (PRLT-1350 regression)', async () => {
+      // This test verifies the fix: the poller must query ticket_refs,
+      // not the dropped pmo_tickets/pmo_workflow_statuses tables.
+      const queriedTables: string[] = []
+
+      const db = {
+        _data: { readyTickets: [], agents: [] },
+        prepare: (sql: string) => {
+          // Track which tables are queried
+          if (sql.includes('ticket_refs')) queriedTables.push('ticket_refs')
+          if (sql.includes('pmo_tickets')) queriedTables.push('pmo_tickets')
+          if (sql.includes('pmo_workflow_statuses')) queriedTables.push('pmo_workflow_statuses')
+
+          return {
+            all: () => {
+              // Check ticket_refs first — its query also references agent_work in a subquery
+              if (sql.includes('ticket_refs') && sql.includes('status')) return [{ id: 'PRLT-1236', title: 'Ready ticket' }]
+              if (sql.includes('agent_work')) return []
+              return []
+            },
+            get: () => undefined,
+          }
+        },
+        close: () => {},
+      }
+      const poller = createPoller(db as any)
+
+      const result = await poller.poll()
+
+      // Must query ticket_refs, not the dropped tables
+      expect(queriedTables).to.include('ticket_refs')
+      expect(queriedTables).to.not.include('pmo_tickets')
+      expect(queriedTables).to.not.include('pmo_workflow_statuses')
+
+      // The ready ticket should be found
+      const boardItems = result.items.filter(i => i.category === 'board')
+      expect(boardItems).to.have.length(1)
+      expect(boardItems[0].summary).to.include('PRLT-1236')
     })
   })
 

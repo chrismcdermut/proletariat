@@ -361,38 +361,32 @@ export class SimplePoller {
     const items: StateItem[] = []
 
     try {
-      // Resolve configured ready status name
-      let readyStatusName: string | null = null
+      // Build list of status names that represent "ready" tickets.
+      // Include the configured planned column name and common synonyms
+      // that external providers use (e.g. Linear uses "Ready", "Todo").
+      const readyNames = new Set(['ready', 'planned', 'todo'])
       try {
         const config = getWorkflowConfig(this.db)
-        readyStatusName = config.planned
+        readyNames.add(config.planned.toLowerCase())
       } catch {
         // pmo_settings may not exist yet
       }
 
-      const readyTickets = readyStatusName
-        ? this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE LOWER(ws.name) = LOWER(?)
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
-                SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-              )
-            LIMIT 20
-          `).all(readyStatusName) as Array<{ id: string; title: string }>
-        : this.db.prepare(`
-            SELECT t.id, t.title
-            FROM pmo_tickets t
-            JOIN pmo_workflow_statuses ws ON t.status_id = ws.id
-            WHERE ws.category = 'unstarted'
-              AND t.assignee IS NULL
-              AND t.id NOT IN (
-                SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-              )
-            LIMIT 20
-          `).all() as Array<{ id: string; title: string }>
+      const nameList = [...readyNames]
+      const placeholders = nameList.map(() => '?').join(', ')
+
+      // Query ticket_refs (runtime ticket cache) instead of the dropped
+      // pmo_tickets / pmo_workflow_statuses tables (PRLT-1350).
+      const readyTickets = this.db.prepare(`
+        SELECT id, title
+        FROM ticket_refs
+        WHERE LOWER(status) IN (${placeholders})
+          AND (assignee IS NULL OR assignee = '')
+          AND id NOT IN (
+            SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
+          )
+        LIMIT 20
+      `).all(...nameList) as Array<{ id: string; title: string }>
 
       for (const ticket of readyTickets) {
         items.push({ category: 'board', summary: `${ticket.id} "${ticket.title}": ready, unassigned` })

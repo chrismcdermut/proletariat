@@ -30,21 +30,23 @@ function createTestDb(): Database.Database {
     // May already exist
   }
 
-  // Create minimal ticket and status tables for polling
+  // Create ticket_refs (runtime ticket cache — PRLT-1350: replaces dropped pmo_tickets)
   db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_workflow_statuses (
+    CREATE TABLE IF NOT EXISTS ticket_refs (
       id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pmo_tickets (
-      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'pmo',
+      external_id TEXT,
+      external_key TEXT,
+      external_url TEXT,
       title TEXT NOT NULL,
-      status_id TEXT NOT NULL,
+      description TEXT,
+      status TEXT,
+      priority TEXT,
+      category TEXT,
       assignee TEXT,
-      FOREIGN KEY (status_id) REFERENCES pmo_workflow_statuses(id)
+      project_id TEXT,
+      cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `)
   db.exec(`
@@ -66,13 +68,6 @@ function createTestDb(): Database.Database {
       value TEXT NOT NULL
     )
   `)
-
-  // Insert statuses with proper categories
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ready', 'Ready', 'unstarted')").run()
-  db.prepare("INSERT INTO pmo_workflow_statuses (id, name, category) VALUES ('status-ip', 'In Progress', 'started')").run()
-
-  // Configure the ready status name so the poller can find it
-  db.prepare("INSERT INTO pmo_settings (key, value) VALUES ('column_planned', 'Ready')").run()
 
   return db
 }
@@ -110,7 +105,7 @@ describe('OrchestratePoller', () => {
 
   describe('ticket polling', () => {
     it('should fire on_ticket_ready for unassigned todo tickets', async () => {
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-1', 'Test ticket', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-1', 'Test ticket', 'Ready', NULL)").run()
 
       const poller = new OrchestratePoller({ engine, db, log: () => {} })
       await poller.poll()
@@ -121,7 +116,7 @@ describe('OrchestratePoller', () => {
     })
 
     it('should not fire for assigned tickets', async () => {
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-2', 'Assigned', 'status-ready', 'agent-1')").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-2', 'Assigned', 'Ready', 'agent-1')").run()
 
       const poller = new OrchestratePoller({ engine, db, log: () => {} })
       await poller.poll()
@@ -131,7 +126,7 @@ describe('OrchestratePoller', () => {
     })
 
     it('should not fire for tickets with active agents', async () => {
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-3', 'Active', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-3', 'Active', 'Ready', NULL)").run()
       db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status) VALUES ('aw-1', 'TKT-3', 'agent-1', 'running')").run()
 
       const poller = new OrchestratePoller({ engine, db, log: () => {} })
@@ -142,7 +137,7 @@ describe('OrchestratePoller', () => {
     })
 
     it('should not fire the same ticket twice (deduplication)', async () => {
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-4', 'Dedup', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-4', 'Dedup', 'Ready', NULL)").run()
 
       const poller = new OrchestratePoller({ engine, db, log: () => {} })
       await poller.poll()
@@ -152,14 +147,36 @@ describe('OrchestratePoller', () => {
       expect(readyEvents).to.have.length(1)
     })
 
-    it('should not fire for non-todo tickets', async () => {
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-5', 'In Progress', 'status-ip', NULL)").run()
+    it('should not fire for non-ready tickets', async () => {
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-5', 'In Progress', 'In Progress', NULL)").run()
 
       const poller = new OrchestratePoller({ engine, db, log: () => {} })
       await poller.poll()
 
       const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
       expect(readyEvents).to.be.empty
+    })
+
+    it('should match tickets with "Todo" status (PRLT-1350 regression)', async () => {
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-6', 'Todo ticket', 'Todo', NULL)").run()
+
+      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      await poller.poll()
+
+      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
+      expect(readyEvents).to.have.length(1)
+      expect(readyEvents[0].ctx.ticket).to.equal('TKT-6')
+    })
+
+    it('should match tickets with "Planned" status (PRLT-1350 regression)', async () => {
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-7', 'Planned ticket', 'Planned', NULL)").run()
+
+      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      await poller.poll()
+
+      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
+      expect(readyEvents).to.have.length(1)
+      expect(readyEvents[0].ctx.ticket).to.equal('TKT-7')
     })
   })
 
@@ -234,7 +251,7 @@ describe('OrchestratePoller', () => {
 
       const poller = new OrchestratePoller({ engine, db, log: () => {} })
 
-      // First poll: observe initial state
+      // First poll: observe initial state (no events)
       await poller.poll()
       expect(firedEvents.filter(e => e.event === 'on_agent_died')).to.be.empty
 
@@ -314,7 +331,7 @@ describe('OrchestratePoller', () => {
 
   describe('ticket dedup extended', () => {
     it('should fire on_ticket_ready only once across many poll cycles', async () => {
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-DEDUP', 'Dedup', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-DEDUP', 'Dedup', 'Ready', NULL)").run()
 
       const poller = new OrchestratePoller({ engine, db, log: () => {} })
 
@@ -328,9 +345,9 @@ describe('OrchestratePoller', () => {
     })
 
     it('should fire on_ticket_ready for multiple distinct tickets', async () => {
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-A', 'Ticket A', 'status-ready', NULL)").run()
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-B', 'Ticket B', 'status-ready', NULL)").run()
-      db.prepare("INSERT INTO pmo_tickets (id, title, status_id, assignee) VALUES ('TKT-C', 'Ticket C', 'status-ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-A', 'Ticket A', 'Ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-B', 'Ticket B', 'Ready', NULL)").run()
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-C', 'Ticket C', 'Ready', NULL)").run()
 
       const poller = new OrchestratePoller({ engine, db, log: () => {} })
       await poller.poll()
