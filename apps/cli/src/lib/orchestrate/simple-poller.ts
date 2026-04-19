@@ -166,8 +166,8 @@ export class SimplePoller {
         this.log(`[watch] Polled ${openPRs.length} open PR(s) from ${path.basename(repoDir)}`)
 
         for (const pr of openPRs) {
+          const repoName = path.basename(repoDir)
           const ticketId = this.extractTicketFromBranch(pr.headBranch)
-          const label = `#${pr.number}${ticketId ? ` (${ticketId})` : ''}`
 
           // Get CI status
           let ciState: 'pending' | 'success' | 'failure' | 'unknown' = 'unknown'
@@ -214,20 +214,17 @@ export class SimplePoller {
           }
 
           // Build state summary
-          const parts = [`${label}: "${pr.title}"`]
-          parts.push(`CI: ${ciState}`)
-          if (mergeable === 'CONFLICTING') {
-            parts.push('has merge conflicts')
-          } else if (mergeable === 'MERGEABLE') {
-            parts.push('mergeable')
-          }
-          if (reviewDecision) {
-            parts.push(`review: ${reviewDecision}`)
-          } else {
-            parts.push('no review')
-          }
+          const summary = SimplePoller.formatPRSummary({
+            repoName,
+            prNumber: pr.number,
+            title: pr.title,
+            ticketId,
+            ciState,
+            mergeable,
+            reviewDecision,
+          })
 
-          items.push({ category: 'github', summary: parts.join(' — ') })
+          items.push({ category: 'github', summary })
         }
       } catch (err) {
         this.log(`[watch] GitHub poll error for ${path.basename(repoDir)}: ${err instanceof Error ? err.message : String(err)}`)
@@ -462,5 +459,44 @@ export class SimplePoller {
   private extractTicketFromBranch(branch: string): string | undefined {
     const match = branch.match(/^([A-Z]+-\d+|TKT-\d+)\//)
     return match ? match[1] : undefined
+  }
+
+  /**
+   * Format a single PR's state summary line.
+   *
+   * Format: `repo#number (TICKET-ID): title — ...` when ticket is linked,
+   *         `repo#number: title — no linked ticket — ...` otherwise.
+   *
+   * Exposed as static for testability (PRLT-1353).
+   */
+  static formatPRSummary(options: {
+    repoName: string
+    prNumber: number
+    title: string
+    ticketId?: string
+    ciState: 'pending' | 'success' | 'failure' | 'unknown'
+    mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+    reviewDecision: string | null
+  }): string {
+    const { repoName, prNumber, title, ticketId, ciState, mergeable, reviewDecision } = options
+    const label = ticketId
+      ? `${repoName}#${prNumber} (${ticketId})`
+      : `${repoName}#${prNumber}`
+
+    const parts = [`${label}: ${title}`]
+    if (!ticketId) parts.push('no linked ticket')
+    parts.push(`CI: ${ciState}`)
+    if (mergeable === 'CONFLICTING') {
+      parts.push('has merge conflicts')
+    } else if (mergeable === 'MERGEABLE') {
+      parts.push('mergeable')
+    }
+    if (reviewDecision) {
+      parts.push(`review: ${reviewDecision}`)
+    } else {
+      parts.push('no review')
+    }
+
+    return parts.join(' — ')
   }
 }
