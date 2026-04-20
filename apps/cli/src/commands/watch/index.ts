@@ -28,6 +28,7 @@ import {
   createMetadata,
 } from '../../lib/prompt-json.js'
 import { SimplePoller } from '../../lib/orchestrate/simple-poller.js'
+import { formatDaemonMessage } from '../../lib/orchestrate/thread-router.js'
 import {
   getDaemonStatus,
   spawnDaemon,
@@ -192,7 +193,14 @@ export default class Watch extends PromptCommand {
           this.log(result.message)
           this.log('')
         }
-        this.pokeTarget(flags.target, result.message, verbose)
+        // PRLT-1352: Wrap state report with [daemon:poll] prefix so the
+        // orchestrator can distinguish automated state updates from human input.
+        const taggedMessage = formatDaemonMessage({
+          type: 'daemon',
+          eventName: 'poll',
+          body: result.message,
+        })
+        this.pokeTarget(flags.target, taggedMessage, verbose)
         lastPokeHash = hash
       }
 
