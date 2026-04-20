@@ -9,7 +9,7 @@ import type { OrchestrateEventContext } from '../../src/lib/orchestrate/types.js
  * Unit tests for OrchestratePoller.
  *
  * Tests cover:
- * - Ticket polling (on_ticket_ready)
+ * - Ticket polling (on_ticket_ready) via live provider
  * - Agent lifecycle polling (on_agent_died, on_agent_completed, on_agent_idle)
  * - Deduplication (same ticket not fired twice)
  * - Graceful error handling
@@ -30,7 +30,7 @@ function createTestDb(): Database.Database {
     // May already exist
   }
 
-  // Create ticket_refs (runtime ticket cache — PRLT-1350: replaces dropped pmo_tickets)
+  // Create ticket_refs (kept for other uses — ready ticket polling now uses provider)
   db.exec(`
     CREATE TABLE IF NOT EXISTS ticket_refs (
       id TEXT PRIMARY KEY,
@@ -72,6 +72,29 @@ function createTestDb(): Database.Database {
   return db
 }
 
+/**
+ * Create a fetchReadyTickets function that returns the given tickets.
+ * Simulates the live provider returning ready, unassigned tickets.
+ */
+function mockFetchReadyTickets(
+  tickets: Array<{ id: string; title: string }>,
+): (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>> {
+  return async (_readyNames: Set<string>) => tickets
+}
+
+/**
+ * Create a fetchReadyTickets function that filters tickets by readyNames.
+ * Simulates provider returning tickets with a statusName field.
+ */
+function mockFetchReadyTicketsWithStatus(
+  tickets: Array<{ id: string; title: string; statusName: string }>,
+): (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>> {
+  return async (readyNames: Set<string>) =>
+    tickets
+      .filter(t => readyNames.has(t.statusName.toLowerCase()))
+      .map(({ id, title }) => ({ id, title }))
+}
+
 describe('OrchestratePoller', () => {
   let db: Database.Database
   let engine: OrchestrateEngine
@@ -100,14 +123,19 @@ describe('OrchestratePoller', () => {
   })
 
   // ===========================================================================
-  // Ticket Polling
+  // Ticket Polling (via live provider — PRLT-1354)
   // ===========================================================================
 
   describe('ticket polling', () => {
-    it('should fire on_ticket_ready for unassigned todo tickets', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-1', 'Test ticket', 'Ready', NULL)").run()
-
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+    it('should fire on_ticket_ready for unassigned ready tickets from provider', async () => {
+      const poller = new OrchestratePoller({
+        engine,
+        db,
+        log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([
+          { id: 'TKT-1', title: 'Test ticket' },
+        ]),
+      })
       await poller.poll()
 
       const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
@@ -115,21 +143,17 @@ describe('OrchestratePoller', () => {
       expect(readyEvents[0].ctx.ticket).to.equal('TKT-1')
     })
 
-    it('should not fire for assigned tickets', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-2', 'Assigned', 'Ready', 'agent-1')").run()
-
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
-      await poller.poll()
-
-      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
-      expect(readyEvents).to.be.empty
-    })
-
     it('should not fire for tickets with active agents', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-3', 'Active', 'Ready', NULL)").run()
       db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status) VALUES ('aw-1', 'TKT-3', 'agent-1', 'running')").run()
 
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine,
+        db,
+        log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([
+          { id: 'TKT-3', title: 'Active agent ticket' },
+        ]),
+      })
       await poller.poll()
 
       const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
@@ -137,9 +161,14 @@ describe('OrchestratePoller', () => {
     })
 
     it('should not fire the same ticket twice (deduplication)', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-4', 'Dedup', 'Ready', NULL)").run()
-
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine,
+        db,
+        log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([
+          { id: 'TKT-4', title: 'Dedup' },
+        ]),
+      })
       await poller.poll()
       await poller.poll()
 
@@ -147,36 +176,58 @@ describe('OrchestratePoller', () => {
       expect(readyEvents).to.have.length(1)
     })
 
-    it('should not fire for non-ready tickets', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-5', 'In Progress', 'In Progress', NULL)").run()
+    it('should respect readyNames filtering via provider (PRLT-1354)', async () => {
+      const poller = new OrchestratePoller({
+        engine,
+        db,
+        log: () => {},
+        fetchReadyTickets: mockFetchReadyTicketsWithStatus([
+          { id: 'TKT-5', title: 'In Progress', statusName: 'In Progress' },
+          { id: 'TKT-6', title: 'Todo ticket', statusName: 'Todo' },
+          { id: 'TKT-7', title: 'Ready ticket', statusName: 'Ready' },
+        ]),
+      })
+      await poller.poll()
 
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
+      expect(readyEvents).to.have.length(2)
+      const ticketIds = readyEvents.map(e => e.ctx.ticket)
+      expect(ticketIds).to.include('TKT-6')
+      expect(ticketIds).to.include('TKT-7')
+    })
+
+    it('should match tickets with "Planned" status via provider', async () => {
+      const poller = new OrchestratePoller({
+        engine,
+        db,
+        log: () => {},
+        fetchReadyTickets: mockFetchReadyTicketsWithStatus([
+          { id: 'TKT-8', title: 'Planned ticket', statusName: 'Planned' },
+        ]),
+      })
+      await poller.poll()
+
+      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
+      expect(readyEvents).to.have.length(1)
+      expect(readyEvents[0].ctx.ticket).to.equal('TKT-8')
+    })
+
+    it('should not fire when provider returns empty results (PRLT-1354 regression)', async () => {
+      // This is the key regression test: even if ticket_refs has rows with
+      // empty status, the poller must query the live provider — which may
+      // return nothing if no tickets are truly ready.
+      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-STALE', 'Stale ref', '', NULL)").run()
+
+      const poller = new OrchestratePoller({
+        engine,
+        db,
+        log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
       await poller.poll()
 
       const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
       expect(readyEvents).to.be.empty
-    })
-
-    it('should match tickets with "Todo" status (PRLT-1350 regression)', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-6', 'Todo ticket', 'Todo', NULL)").run()
-
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
-      await poller.poll()
-
-      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
-      expect(readyEvents).to.have.length(1)
-      expect(readyEvents[0].ctx.ticket).to.equal('TKT-6')
-    })
-
-    it('should match tickets with "Planned" status (PRLT-1350 regression)', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-7', 'Planned ticket', 'Planned', NULL)").run()
-
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
-      await poller.poll()
-
-      const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
-      expect(readyEvents).to.have.length(1)
-      expect(readyEvents[0].ctx.ticket).to.equal('TKT-7')
     })
   })
 
@@ -188,7 +239,10 @@ describe('OrchestratePoller', () => {
     it('should fire on_agent_died when lifecycle_state transitions to died', async () => {
       db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status, lifecycle_state) VALUES ('aw-1', 'TKT-1', 'agent-1', 'running', 'healthy')").run()
 
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
       // First poll: observe initial state
       await poller.poll()
       expect(firedEvents.filter(e => e.event === 'on_agent_died')).to.be.empty
@@ -205,7 +259,10 @@ describe('OrchestratePoller', () => {
     it('should fire on_agent_completed when lifecycle_state transitions to completed', async () => {
       db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status, lifecycle_state) VALUES ('aw-2', 'TKT-2', 'agent-2', 'running', 'healthy')").run()
 
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
       await poller.poll() // observe initial
 
       db.prepare("UPDATE agent_work SET lifecycle_state = 'completed' WHERE id = 'aw-2'").run()
@@ -219,7 +276,10 @@ describe('OrchestratePoller', () => {
     it('should not fire on first observation (no transition)', async () => {
       db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status, lifecycle_state) VALUES ('aw-3', 'TKT-3', 'agent-3', 'error', 'died')").run()
 
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
       await poller.poll()
 
       // Should not fire because this is the first observation, not a transition
@@ -233,7 +293,10 @@ describe('OrchestratePoller', () => {
 
   describe('PRLT-1222: conflict resolution deduplication', () => {
     it('should expose activeConflictResolutions set for tracking', () => {
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
       // The poller should have the activeConflictResolutions tracking
       // This is a structural test — the set is private, so we verify
       // the poller can be created without errors
@@ -249,7 +312,10 @@ describe('OrchestratePoller', () => {
     it('should not fire same event twice for same agent state', async () => {
       db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status, lifecycle_state) VALUES ('aw-d1', 'TKT-D1', 'agent-d1', 'running', 'healthy')").run()
 
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
 
       // First poll: observe initial state
       await poller.poll()
@@ -275,7 +341,10 @@ describe('OrchestratePoller', () => {
         VALUES ('aw-idle', 'TKT-IDLE', 'idle-agent', 'running', 'healthy', datetime('now'))
       `).run()
 
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
 
       // First poll: observe initial state (records prevState as 'healthy')
       await poller.poll()
@@ -295,7 +364,10 @@ describe('OrchestratePoller', () => {
     it('should fire events only on state transitions, not on every poll', async () => {
       db.prepare("INSERT INTO agent_work (id, ticket_id, agent_name, status, lifecycle_state) VALUES ('aw-t1', 'TKT-T1', 'agent-t1', 'running', 'healthy')").run()
 
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
 
       // First poll: observe initial state (no events)
       await poller.poll()
@@ -331,9 +403,12 @@ describe('OrchestratePoller', () => {
 
   describe('ticket dedup extended', () => {
     it('should fire on_ticket_ready only once across many poll cycles', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-DEDUP', 'Dedup', 'Ready', NULL)").run()
-
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([
+          { id: 'TKT-DEDUP', title: 'Dedup' },
+        ]),
+      })
 
       // Poll 5 times
       for (let i = 0; i < 5; i++) {
@@ -345,11 +420,14 @@ describe('OrchestratePoller', () => {
     })
 
     it('should fire on_ticket_ready for multiple distinct tickets', async () => {
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-A', 'Ticket A', 'Ready', NULL)").run()
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-B', 'Ticket B', 'Ready', NULL)").run()
-      db.prepare("INSERT INTO ticket_refs (id, title, status, assignee) VALUES ('TKT-C', 'Ticket C', 'Ready', NULL)").run()
-
-      const poller = new OrchestratePoller({ engine, db, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine, db, log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([
+          { id: 'TKT-A', title: 'Ticket A' },
+          { id: 'TKT-B', title: 'Ticket B' },
+          { id: 'TKT-C', title: 'Ticket C' },
+        ]),
+      })
       await poller.poll()
 
       const readyEvents = firedEvents.filter(e => e.event === 'on_ticket_ready')
@@ -371,11 +449,29 @@ describe('OrchestratePoller', () => {
       const badDb = new Database(':memory:')
       // Don't create tables — queries will fail
       const badEngine = new OrchestrateEngine({ db: badDb, log: () => {} })
-      const poller = new OrchestratePoller({ engine: badEngine, db: badDb, log: () => {} })
+      const poller = new OrchestratePoller({
+        engine: badEngine,
+        db: badDb,
+        log: () => {},
+        fetchReadyTickets: mockFetchReadyTickets([]),
+      })
 
       // Should not throw
       await poller.poll()
       badDb.close()
+    })
+
+    it('should handle fetchReadyTickets throwing gracefully', async () => {
+      const poller = new OrchestratePoller({
+        engine,
+        db,
+        log: () => {},
+        fetchReadyTickets: async () => { throw new Error('provider unavailable') },
+      })
+
+      // Should not throw — error is caught by the outer try/catch
+      await poller.poll()
+      expect(firedEvents.filter(e => e.event === 'on_ticket_ready')).to.be.empty
     })
   })
 })

@@ -17,6 +17,7 @@ import { isGHInstalled, isGHAuthenticated, listOpenPRs, getPRChecks, getPRByNumb
 import type { PRReviewDecision } from '../pr/index.js'
 import { runSyncCycle, type SyncReport } from '../sync/engine.js'
 import { SQLiteStorage } from '../pmo/storage-sqlite.js'
+import { resolveProjectProvider } from '../providers/resolver.js'
 import type { OrchestrateEngine } from './engine.js'
 import { getWorkflowConfig } from '../work-lifecycle/settings.js'
 
@@ -30,6 +31,11 @@ export interface PollerOptions {
   log: (msg: string) => void
   /** Working directory for gh CLI commands */
   cwd?: string
+  /**
+   * Override ready ticket fetching for testing.
+   * When provided, replaces the default live-provider query.
+   */
+  fetchReadyTickets?: (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>>
 }
 
 interface TrackedPR {
@@ -48,6 +54,7 @@ export class OrchestratePoller {
   private db: Database.Database
   private log: (msg: string) => void
   private cwd?: string
+  private fetchReadyTicketsFn?: (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>>
 
   /** Tracks known PR state to detect transitions. */
   private trackedPRs = new Map<number, TrackedPR>()
@@ -68,6 +75,7 @@ export class OrchestratePoller {
     this.db = options.db
     this.log = options.log
     this.cwd = options.cwd
+    this.fetchReadyTicketsFn = options.fetchReadyTickets
   }
 
   /**
@@ -88,14 +96,12 @@ export class OrchestratePoller {
    * Check for tickets in the configured "ready" status with no active agent.
    * Fires on_ticket_ready for each.
    *
-   * Uses the configured ready/planned column name from pmo_settings.
-   * Falls back to category-based matching if no config is available.
+   * Queries the live ticket provider (Linear, Jira, etc.) for accurate status
+   * instead of the stale ticket_refs cache (PRLT-1354).
    */
   private async pollReadyTickets(): Promise<void> {
     try {
       // Build list of status names that represent "ready" tickets.
-      // Include the configured planned column name and common synonyms
-      // that external providers use (e.g. Linear uses "Ready", "Todo").
       const readyNames = new Set(['ready', 'planned', 'todo'])
       try {
         const config = getWorkflowConfig(this.db)
@@ -104,23 +110,21 @@ export class OrchestratePoller {
         // pmo_settings may not exist yet
       }
 
-      const nameList = [...readyNames]
-      const placeholders = nameList.map(() => '?').join(', ')
+      // Get active agent ticket IDs to exclude
+      const activeAgentTickets = new Set(
+        (this.db.prepare(
+          `SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')`,
+        ).all() as Array<{ ticket_id: string }>).map(r => r.ticket_id),
+      )
 
-      // Query ticket_refs (runtime ticket cache) instead of the dropped
-      // pmo_tickets / pmo_workflow_statuses tables (PRLT-1350).
-      const readyTickets = this.db.prepare(`
-        SELECT id, title
-        FROM ticket_refs
-        WHERE LOWER(status) IN (${placeholders})
-          AND (assignee IS NULL OR assignee = '')
-          AND id NOT IN (
-            SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-          )
-        LIMIT 10
-      `).all(...nameList) as Array<{ id: string; title: string }>
+      // Fetch ready tickets from the live provider (PRLT-1354).
+      // ticket_refs.status is empty — the provider has the truth.
+      const readyTickets = this.fetchReadyTicketsFn
+        ? await this.fetchReadyTicketsFn(readyNames)
+        : await this.fetchReadyTicketsFromProvider(readyNames)
 
       for (const ticket of readyTickets) {
+        if (activeAgentTickets.has(ticket.id)) continue
         if (this.firedReadyTickets.has(ticket.id)) continue
         this.firedReadyTickets.add(ticket.id)
 
@@ -133,6 +137,43 @@ export class OrchestratePoller {
     } catch {
       // Non-fatal polling error
     }
+  }
+
+  /**
+   * Default implementation: query live provider for ready, unassigned tickets.
+   */
+  private async fetchReadyTicketsFromProvider(
+    readyNames: Set<string>,
+  ): Promise<Array<{ id: string; title: string }>> {
+    const dbPath = this.getDbPath()
+    if (!dbPath) return []
+
+    const storage = new SQLiteStorage(dbPath)
+
+    const projects = this.db.prepare(
+      `SELECT id FROM pmo_projects WHERE is_archived = 0 LIMIT 20`,
+    ).all() as Array<{ id: string }>
+
+    const tickets: Array<{ id: string; title: string }> = []
+
+    for (const project of projects) {
+      try {
+        const provider = resolveProjectProvider(this.db, storage, project.id)
+        const result = await provider.listTickets(project.id)
+        if (!result.success) continue
+
+        for (const ticket of result.tickets) {
+          const statusLower = (ticket.statusName || '').toLowerCase()
+          if (readyNames.has(statusLower) && !ticket.assignee) {
+            tickets.push({ id: ticket.id, title: ticket.title })
+          }
+        }
+      } catch {
+        // Non-fatal: skip project on error
+      }
+    }
+
+    return tickets
   }
 
   // ===========================================================================

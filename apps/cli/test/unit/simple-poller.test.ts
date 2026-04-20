@@ -10,11 +10,10 @@ import { SimplePoller } from '../../src/lib/orchestrate/simple-poller.js'
 // =============================================================================
 
 /**
- * Create a mock DB where the prepare().all() results can be configured
- * to return specific state for each poll cycle.
+ * Create a mock DB for agent state queries.
+ * Ready tickets now come from the injected fetchReadyTickets, not from DB.
  */
 function createMockDb(options?: {
-  readyTickets?: Array<{ id: string; title: string }>
   agents?: Array<{
     id: string
     ticket_id: string
@@ -25,23 +24,24 @@ function createMockDb(options?: {
     session_id?: string | null
     environment?: string | null
   }>
+  activeAgentTicketIds?: string[]
 }) {
   const data = {
-    readyTickets: options?.readyTickets ?? [],
     agents: (options?.agents ?? []).map(a => ({
       ...a,
       session_id: a.session_id ?? null,
       environment: a.environment ?? 'host',
     })),
+    activeAgentTicketIds: options?.activeAgentTicketIds ?? [],
   }
 
   return {
     _data: data,
     prepare: (sql: string) => ({
       all: (..._args: unknown[]) => {
-        // Match ready tickets query against ticket_refs (PRLT-1350)
-        if (sql.includes('ticket_refs') && sql.includes('status')) {
-          return data.readyTickets
+        // Active agent ticket_ids query (for ready ticket exclusion)
+        if (sql.includes('agent_work') && sql.includes('ticket_id') && !sql.includes('agent_name')) {
+          return data.activeAgentTicketIds.map(id => ({ ticket_id: id }))
         }
         if (sql.includes('agent_work')) {
           return data.agents
@@ -61,14 +61,40 @@ function createMockDb(options?: {
 }
 
 /**
+ * Create a fetchReadyTickets mock that returns the given tickets.
+ */
+function mockFetchReadyTickets(
+  tickets: Array<{ id: string; title: string }>,
+): (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>> {
+  return async (_readyNames: Set<string>) => tickets
+}
+
+/**
+ * Create a fetchReadyTickets mock that filters by readyNames.
+ */
+function mockFetchReadyTicketsWithStatus(
+  tickets: Array<{ id: string; title: string; statusName: string }>,
+): (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>> {
+  return async (readyNames: Set<string>) =>
+    tickets
+      .filter(t => readyNames.has(t.statusName.toLowerCase()))
+      .map(({ id, title }) => ({ id, title }))
+}
+
+/**
  * Create a SimplePoller with GitHub CLI disabled (no external calls).
  * This lets us test DB-driven polling (agents + board) in isolation.
  */
-function createPoller(db: ReturnType<typeof createMockDb>, log?: (msg: string) => void) {
+function createPoller(
+  db: ReturnType<typeof createMockDb>,
+  readyTickets?: Array<{ id: string; title: string }>,
+  log?: (msg: string) => void,
+) {
   return new SimplePoller({
     db: db as any,
     log: log ?? (() => {}),
     cwd: '/nonexistent-test-dir',
+    fetchReadyTickets: mockFetchReadyTickets(readyTickets ?? []),
   })
 }
 
@@ -113,12 +139,11 @@ describe('SimplePoller', () => {
   describe('stateless state reporting', () => {
     it('should return full state on every poll — no baseline, no diffing', async () => {
       const db = createMockDb({
-        readyTickets: [{ id: 'TKT-001', title: 'Test ticket' }],
         agents: [
           { id: 'exec-1', ticket_id: 'TKT-001', agent_name: 'bold-ada', status: 'running', lifecycle_state: null, container_id: null },
         ],
       })
-      const poller = createPoller(db)
+      const poller = createPoller(db, [{ id: 'TKT-001', title: 'Test ticket' }])
 
       // First poll returns full state (not empty like the old baseline behavior)
       const r1 = await poller.poll()
@@ -146,35 +171,40 @@ describe('SimplePoller', () => {
     })
 
     it('should reflect state changes immediately without needing a prior baseline', async () => {
-      const db = createMockDb({ readyTickets: [] })
-      const poller = createPoller(db)
+      let currentTickets: Array<{ id: string; title: string }> = []
+      const db = createMockDb()
+      const poller = new SimplePoller({
+        db: db as any,
+        log: () => {},
+        cwd: '/nonexistent-test-dir',
+        fetchReadyTickets: async () => currentTickets,
+      })
 
       // First poll: nothing
       const r1 = await poller.poll()
-      expect(r1.items).to.have.length(0)
+      expect(r1.items.filter(i => i.category === 'board')).to.have.length(0)
 
       // Ticket appears — immediately reported, no baseline needed
-      db._data.readyTickets = [{ id: 'TKT-010', title: 'New feature' }]
+      currentTickets = [{ id: 'TKT-010', title: 'New feature' }]
       const r2 = await poller.poll()
-      expect(r2.items).to.have.length(1)
-      expect(r2.items[0].summary).to.include('TKT-010')
-      expect(r2.items[0].summary).to.include('New feature')
+      const boardItems = r2.items.filter(i => i.category === 'board')
+      expect(boardItems).to.have.length(1)
+      expect(boardItems[0].summary).to.include('TKT-010')
+      expect(boardItems[0].summary).to.include('New feature')
     })
   })
 
   // ===========================================================================
-  // Ready Ticket State
+  // Ready Ticket State (PRLT-1354: via live provider)
   // ===========================================================================
 
   describe('ready ticket state', () => {
-    it('should report all ready tickets', async () => {
-      const db = createMockDb({
-        readyTickets: [
-          { id: 'TKT-011', title: 'Feature A' },
-          { id: 'TKT-012', title: 'Feature B' },
-        ],
-      })
-      const poller = createPoller(db)
+    it('should report all ready tickets from provider', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-011', title: 'Feature A' },
+        { id: 'TKT-012', title: 'Feature B' },
+      ])
 
       const result = await poller.poll()
 
@@ -187,9 +217,9 @@ describe('SimplePoller', () => {
       expect(boardItems[1].summary).to.include('TKT-012')
     })
 
-    it('should report no board items when no tickets are ready', async () => {
-      const db = createMockDb({ readyTickets: [] })
-      const poller = createPoller(db)
+    it('should report no board items when provider returns no ready tickets', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [])
 
       const result = await poller.poll()
 
@@ -197,53 +227,63 @@ describe('SimplePoller', () => {
       expect(boardItems).to.have.length(0)
     })
 
-    it('should handle DB errors gracefully without throwing', async () => {
-      const db = {
-        _data: { readyTickets: [], agents: [] },
-        prepare: () => { throw new Error('table does not exist') },
-        close: () => {},
-      }
-      const poller = createPoller(db as any)
+    it('should handle fetchReadyTickets errors gracefully without throwing', async () => {
+      const db = createMockDb()
+      const poller = new SimplePoller({
+        db: db as any,
+        log: () => {},
+        cwd: '/nonexistent-test-dir',
+        fetchReadyTickets: async () => { throw new Error('provider unavailable') },
+      })
 
       const result = await poller.poll()
-      expect(result.items).to.have.length(0)
+      expect(result.items.filter(i => i.category === 'board')).to.have.length(0)
     })
 
-    it('should query ticket_refs table, not dropped pmo_tickets (PRLT-1350 regression)', async () => {
-      // This test verifies the fix: the poller must query ticket_refs,
-      // not the dropped pmo_tickets/pmo_workflow_statuses tables.
-      const queriedTables: string[] = []
-
-      const db = {
-        _data: { readyTickets: [], agents: [] },
-        prepare: (sql: string) => {
-          // Track which tables are queried
-          if (sql.includes('ticket_refs')) queriedTables.push('ticket_refs')
-          if (sql.includes('pmo_tickets')) queriedTables.push('pmo_tickets')
-          if (sql.includes('pmo_workflow_statuses')) queriedTables.push('pmo_workflow_statuses')
-
-          return {
-            all: () => {
-              // Check ticket_refs first — its query also references agent_work in a subquery
-              if (sql.includes('ticket_refs') && sql.includes('status')) return [{ id: 'PRLT-1236', title: 'Ready ticket' }]
-              if (sql.includes('agent_work')) return []
-              return []
-            },
-            get: () => undefined,
-          }
-        },
-        close: () => {},
-      }
-      const poller = createPoller(db as any)
+    it('should exclude tickets with active agents', async () => {
+      const db = createMockDb({
+        activeAgentTicketIds: ['TKT-ACTIVE'],
+      })
+      const poller = new SimplePoller({
+        db: db as any,
+        log: () => {},
+        cwd: '/nonexistent-test-dir',
+        fetchReadyTickets: mockFetchReadyTickets([
+          { id: 'TKT-ACTIVE', title: 'Has running agent' },
+          { id: 'TKT-FREE', title: 'No agent' },
+        ]),
+      })
 
       const result = await poller.poll()
 
-      // Must query ticket_refs, not the dropped tables
-      expect(queriedTables).to.include('ticket_refs')
-      expect(queriedTables).to.not.include('pmo_tickets')
-      expect(queriedTables).to.not.include('pmo_workflow_statuses')
+      const boardItems = result.items.filter(i => i.category === 'board')
+      expect(boardItems).to.have.length(1)
+      expect(boardItems[0].summary).to.include('TKT-FREE')
+    })
 
-      // The ready ticket should be found
+    it('should use live provider, not stale ticket_refs.status (PRLT-1354 regression)', async () => {
+      // The key regression test: ticket_refs.status is empty for all rows.
+      // The poller must use the live provider, not the stale local cache.
+      // Verify by ensuring the fetchReadyTickets function is called instead
+      // of any ticket_refs SQL query.
+      let providerCalled = false
+      const db = createMockDb()
+      const poller = new SimplePoller({
+        db: db as any,
+        log: () => {},
+        cwd: '/nonexistent-test-dir',
+        fetchReadyTickets: async (readyNames: Set<string>) => {
+          providerCalled = true
+          expect(readyNames).to.include('ready')
+          expect(readyNames).to.include('todo')
+          expect(readyNames).to.include('planned')
+          return [{ id: 'PRLT-1236', title: 'Ready ticket from provider' }]
+        },
+      })
+
+      const result = await poller.poll()
+
+      expect(providerCalled).to.be.true
       const boardItems = result.items.filter(i => i.category === 'board')
       expect(boardItems).to.have.length(1)
       expect(boardItems[0].summary).to.include('PRLT-1236')
@@ -378,12 +418,11 @@ describe('SimplePoller', () => {
 
     it('should format message with section headers', async () => {
       const db = createMockDb({
-        readyTickets: [{ id: 'TKT-060', title: 'New ready ticket' }],
         agents: [
           { id: 'exec-m1', ticket_id: 'TKT-050', agent_name: 'multi-agent', status: 'completed', lifecycle_state: 'completed', container_id: null },
         ],
       })
-      const poller = createPoller(db)
+      const poller = createPoller(db, [{ id: 'TKT-060', title: 'New ready ticket' }])
 
       const result = await poller.poll()
 
@@ -394,13 +433,11 @@ describe('SimplePoller', () => {
     })
 
     it('should include counts in section headers', async () => {
-      const db = createMockDb({
-        readyTickets: [
-          { id: 'TKT-070', title: 'First' },
-          { id: 'TKT-071', title: 'Second' },
-        ],
-      })
-      const poller = createPoller(db)
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-070', title: 'First' },
+        { id: 'TKT-071', title: 'Second' },
+      ])
 
       const result = await poller.poll()
 
@@ -408,10 +445,8 @@ describe('SimplePoller', () => {
     })
 
     it('should show "none" sections when category is empty', async () => {
-      const db = createMockDb({
-        readyTickets: [{ id: 'TKT-001', title: 'Solo' }],
-      })
-      const poller = createPoller(db)
+      const db = createMockDb()
+      const poller = createPoller(db, [{ id: 'TKT-001', title: 'Solo' }])
 
       const result = await poller.poll()
 
@@ -421,13 +456,11 @@ describe('SimplePoller', () => {
     })
 
     it('should list ticket items as bullet points', async () => {
-      const db = createMockDb({
-        readyTickets: [
-          { id: 'TKT-070', title: 'First' },
-          { id: 'TKT-071', title: 'Second' },
-        ],
-      })
-      const poller = createPoller(db)
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-070', title: 'First' },
+        { id: 'TKT-071', title: 'Second' },
+      ])
 
       const result = await poller.poll()
 
@@ -470,12 +503,11 @@ describe('SimplePoller', () => {
   describe('combined state across categories', () => {
     it('should report agents and tickets together', async () => {
       const db = createMockDb({
-        readyTickets: [{ id: 'TKT-080', title: 'Feature X' }],
         agents: [
           { id: 'exec-1', ticket_id: 'TKT-090', agent_name: 'lifecycle-agent', status: 'starting', lifecycle_state: null, container_id: null },
         ],
       })
-      const poller = createPoller(db)
+      const poller = createPoller(db, [{ id: 'TKT-080', title: 'Feature X' }])
 
       const result = await poller.poll()
 

@@ -51,8 +51,8 @@ function createMockDb(options?: {
     _data: data,
     prepare: (sql: string) => ({
       all: (..._args: unknown[]) => {
-        if (sql.includes('ticket_refs') && sql.includes('status')) {
-          return data.readyTickets
+        if (sql.includes('agent_work') && sql.includes('ticket_id') && !sql.includes('agent_name')) {
+          return [] // No active agent exclusions
         }
         if (sql.includes('agent_work')) {
           return data.agents
@@ -70,6 +70,7 @@ function createTestPoller(db: ReturnType<typeof createMockDb>) {
     db: db as any,
     log: () => {},
     cwd: '/nonexistent-test-dir',
+    fetchReadyTickets: async () => db._data.readyTickets,
   })
 }
 
