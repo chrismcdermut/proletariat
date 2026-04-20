@@ -231,6 +231,62 @@ describe('Granular Telemetry Events (PRLT-1070)', () => {
       expect(event!.metadata?.exit_reason).to.equal('errored')
       expect(event!.metadata?.error_type).to.equal('timeout')
     })
+
+    it('includes error_message and ticket_id when provided (PRLT-1357)', async () => {
+      const { trackAgentErrored } = await import('../../src/lib/telemetry/analytics.js')
+
+      clearQueue()
+      trackAgentErrored({
+        action: 'implement',
+        durationMs: 8000,
+        exitReason: 'errored',
+        errorType: 'container',
+        errorMessage: 'Docker container exited with code 137',
+        ticketId: 'PRLT-1234',
+      })
+
+      const events = readQueue()
+      const event = events.find(e => e.name === 'agent_errored')
+      expect(event).to.exist
+      expect(event!.metadata?.error_message).to.equal('Docker container exited with code 137')
+      expect(event!.metadata?.ticket_id).to.equal('PRLT-1234')
+      expect(event!.metadata?.error_type).to.equal('container')
+    })
+
+    it('truncates error_message to 256 characters (PRLT-1357)', async () => {
+      const { trackAgentErrored } = await import('../../src/lib/telemetry/analytics.js')
+
+      clearQueue()
+      const longMessage = 'x'.repeat(500)
+      trackAgentErrored({
+        action: 'implement',
+        durationMs: 1000,
+        exitReason: 'errored',
+        errorMessage: longMessage,
+      })
+
+      const events = readQueue()
+      const event = events.find(e => e.name === 'agent_errored')
+      expect(event).to.exist
+      expect(event!.metadata?.error_message).to.have.length(256)
+    })
+
+    it('omits error_message and ticket_id when not provided', async () => {
+      const { trackAgentErrored } = await import('../../src/lib/telemetry/analytics.js')
+
+      clearQueue()
+      trackAgentErrored({
+        action: 'review',
+        durationMs: 3000,
+        exitReason: 'errored',
+      })
+
+      const events = readQueue()
+      const event = events.find(e => e.name === 'agent_errored')
+      expect(event).to.exist
+      expect(event!.metadata).to.not.have.property('error_message')
+      expect(event!.metadata).to.not.have.property('ticket_id')
+    })
   })
 
   describe('trackTicketOperation', () => {
@@ -356,11 +412,10 @@ describe('Granular Telemetry Events (PRLT-1070)', () => {
   })
 
   describe('Privacy compliance', () => {
-    it('none of the new events include ticket IDs', async () => {
+    it('non-error events do not include ticket IDs or sensitive data', async () => {
       const {
         trackPrimitiveExecuted,
         trackAgentCompleted,
-        trackAgentErrored,
         trackTicketOperation,
       } = await import('../../src/lib/telemetry/analytics.js')
 
@@ -368,7 +423,6 @@ describe('Granular Telemetry Events (PRLT-1070)', () => {
 
       trackPrimitiveExecuted({ primitive: 'implement', durationMs: 100, success: true })
       trackAgentCompleted({ action: 'implement', durationMs: 100, exitReason: 'completed', prCreated: false })
-      trackAgentErrored({ action: 'review', durationMs: 100, exitReason: 'errored' })
       trackTicketOperation({ operation: 'move', provider: 'linear', durationMs: 100, success: true })
 
       const events = readQueue()
@@ -385,6 +439,33 @@ describe('Granular Telemetry Events (PRLT-1070)', () => {
           expect(keys).to.not.include('description')
         }
       }
+    })
+
+    it('agent_errored intentionally includes ticket_id and error_message for debugging (PRLT-1357)', async () => {
+      const { trackAgentErrored } = await import('../../src/lib/telemetry/analytics.js')
+
+      clearQueue()
+      trackAgentErrored({
+        action: 'implement',
+        durationMs: 100,
+        exitReason: 'errored',
+        errorMessage: 'test error',
+        ticketId: 'PRLT-42',
+      })
+
+      const events = readQueue()
+      const event = events.find(e => e.name === 'agent_errored')
+      expect(event).to.exist
+      // These are intentionally present for error triage
+      expect(event!.metadata?.ticket_id).to.equal('PRLT-42')
+      expect(event!.metadata?.error_message).to.equal('test error')
+      // But still no sensitive data
+      const keys = Object.keys(event!.metadata!)
+      expect(keys).to.not.include('branch')
+      expect(keys).to.not.include('username')
+      expect(keys).to.not.include('api_key')
+      expect(keys).to.not.include('file_path')
+      expect(keys).to.not.include('code')
     })
   })
 })

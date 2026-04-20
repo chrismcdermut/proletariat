@@ -535,18 +535,23 @@ export function trackAgentCompleted(options: {
 /**
  * Track an agent encountering an error.
  *
- * Privacy: No ticket IDs, error messages (may contain PII), or stack traces.
+ * Includes error_message (truncated to 256 chars) and ticket_id for debugging.
+ * Error messages are capped to limit PII exposure while remaining useful for triage.
  */
 export function trackAgentErrored(options: {
   action: string
   durationMs: number
   exitReason: 'errored'
   errorType?: string
+  errorMessage?: string
+  ticketId?: string
 }): void {
   trackEvent('agent_errored', options.durationMs, {
     action: options.action,
     exit_reason: options.exitReason,
     ...(options.errorType ? { error_type: options.errorType } : {}),
+    ...(options.errorMessage ? { error_message: options.errorMessage.slice(0, 256) } : {}),
+    ...(options.ticketId ? { ticket_id: options.ticketId } : {}),
   })
 }
 

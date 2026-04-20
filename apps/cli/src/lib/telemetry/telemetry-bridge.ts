@@ -18,7 +18,7 @@ import {
 } from './analytics.js'
 
 // Track agent spawn times by sessionId for duration calculation
-const agentSpawnTimes = new Map<string, { timestamp: Date; action: string }>()
+const agentSpawnTimes = new Map<string, { timestamp: Date; action: string; ticketId?: string }>()
 
 // Track primitive start times by command ID
 const primitiveStartTimes = new Map<string, { timestamp: Date; primitive: string }>()
@@ -60,6 +60,7 @@ export function startTelemetryBridge(): void {
           action: spawnInfo?.action ?? 'unknown',
           durationMs,
           exitReason: 'errored',
+          ticketId: spawnInfo?.ticketId,
         })
       } else {
         trackAgentCompleted({
@@ -87,6 +88,8 @@ export function startTelemetryBridge(): void {
         durationMs,
         exitReason: 'errored',
         errorType: classifyError(event.error),
+        errorMessage: event.error,
+        ticketId: spawnInfo?.ticketId,
       })
 
       agentSpawnTimes.delete(event.sessionId)
@@ -134,13 +137,16 @@ export function endPrimitiveTracking(id: string, success: boolean, errorType?: s
 }
 
 /**
- * Enrich an agent session with its action name (called from work:start).
- * This lets agent_completed/agent_errored events report the correct action.
+ * Enrich an agent session with its action name and ticket ID (called from work:start).
+ * This lets agent_completed/agent_errored events report the correct action and ticket.
  */
-export function enrichAgentSession(sessionId: string, action: string): void {
+export function enrichAgentSession(sessionId: string, action: string, ticketId?: string): void {
   const existing = agentSpawnTimes.get(sessionId)
   if (existing) {
     existing.action = action
+    if (ticketId) {
+      existing.ticketId = ticketId
+    }
   }
 }
 

@@ -197,6 +197,110 @@ describe('Telemetry Bridge (PRLT-1070)', () => {
     expect(errorEvent!.metadata?.error_type).to.equal('timeout')
   })
 
+  it('includes error_message from agent:error events (PRLT-1357)', async () => {
+    const { startTelemetryBridge } = await import('../../src/lib/telemetry/telemetry-bridge.js')
+    const { getEventBus } = await import('../../src/lib/events/event-bus.js')
+
+    clearQueue()
+    startTelemetryBridge()
+
+    const bus = getEventBus()
+    const now = new Date()
+
+    bus.emit('agent:spawned', {
+      sessionId: 'error-msg-test',
+      runner: 'claude-code',
+      task: 'implement feature',
+      workdir: '/tmp/test',
+      background: false,
+      timestamp: now,
+    })
+
+    bus.emit('agent:error', {
+      sessionId: 'error-msg-test',
+      runner: 'claude-code',
+      error: 'Process exceeded memory limit (OOM killed)',
+      timestamp: new Date(now.getTime() + 100),
+    })
+
+    const events = readQueue()
+    const errorEvent = events.find(e => e.name === 'agent_errored')
+    expect(errorEvent).to.exist
+    expect(errorEvent!.metadata?.error_message).to.equal('Process exceeded memory limit (OOM killed)')
+    expect(errorEvent!.metadata?.error_type).to.equal('memory')
+  })
+
+  it('includes ticket_id from enriched session on agent:error (PRLT-1357)', async () => {
+    const { startTelemetryBridge, enrichAgentSession } = await import('../../src/lib/telemetry/telemetry-bridge.js')
+    const { getEventBus } = await import('../../src/lib/events/event-bus.js')
+
+    clearQueue()
+    startTelemetryBridge()
+
+    const bus = getEventBus()
+    const now = new Date()
+
+    bus.emit('agent:spawned', {
+      sessionId: 'ticket-error-test',
+      runner: 'claude-code',
+      task: 'implement feature',
+      workdir: '/tmp/test',
+      background: false,
+      timestamp: now,
+    })
+
+    enrichAgentSession('ticket-error-test', 'implement', 'PRLT-1357')
+
+    bus.emit('agent:error', {
+      sessionId: 'ticket-error-test',
+      runner: 'claude-code',
+      error: 'Build step timed out',
+      timestamp: new Date(now.getTime() + 300),
+    })
+
+    const events = readQueue()
+    const errorEvent = events.find(e => e.name === 'agent_errored')
+    expect(errorEvent).to.exist
+    expect(errorEvent!.metadata?.ticket_id).to.equal('PRLT-1357')
+    expect(errorEvent!.metadata?.error_message).to.equal('Build step timed out')
+    expect(errorEvent!.metadata?.action).to.equal('implement')
+  })
+
+  it('includes ticket_id on agent:stopped with error reason (PRLT-1357)', async () => {
+    const { startTelemetryBridge, enrichAgentSession } = await import('../../src/lib/telemetry/telemetry-bridge.js')
+    const { getEventBus } = await import('../../src/lib/events/event-bus.js')
+
+    clearQueue()
+    startTelemetryBridge()
+
+    const bus = getEventBus()
+    const now = new Date()
+
+    bus.emit('agent:spawned', {
+      sessionId: 'stopped-error-test',
+      runner: 'claude-code',
+      task: 'review code',
+      workdir: '/tmp/test',
+      background: false,
+      timestamp: now,
+    })
+
+    enrichAgentSession('stopped-error-test', 'review', 'PRLT-999')
+
+    bus.emit('agent:stopped', {
+      sessionId: 'stopped-error-test',
+      runner: 'claude-code',
+      reason: 'error',
+      timestamp: new Date(now.getTime() + 500),
+    })
+
+    const events = readQueue()
+    const errorEvent = events.find(e => e.name === 'agent_errored')
+    expect(errorEvent).to.exist
+    expect(errorEvent!.metadata?.ticket_id).to.equal('PRLT-999')
+    expect(errorEvent!.metadata?.action).to.equal('review')
+  })
+
   it('classifies error messages into safe categories', async () => {
     const { startTelemetryBridge } = await import('../../src/lib/telemetry/telemetry-bridge.js')
     const { getEventBus } = await import('../../src/lib/events/event-bus.js')
