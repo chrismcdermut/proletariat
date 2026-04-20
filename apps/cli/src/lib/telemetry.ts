@@ -85,6 +85,7 @@ export function writeTelemetryConfig(telemetry: TelemetryConfig): void {
  * Check if telemetry is enabled.
  *
  * Disabled when any of:
+ * - CI=true (standard CI environment variable — GitHub Actions, GitLab CI, etc.)
  * - DO_NOT_TRACK=1 (consoledonottrack.com standard)
  * - PRLT_TELEMETRY_DISABLED=1
  * - User ran `prlt telemetry disable` (config.telemetry === false)
@@ -93,6 +94,7 @@ export function writeTelemetryConfig(telemetry: TelemetryConfig): void {
  */
 export function isTelemetryEnabled(): boolean {
   // Env vars take precedence
+  if (process.env.CI === 'true' || process.env.CI === '1') return false
   if (process.env.DO_NOT_TRACK === '1') return false
   if (process.env.PRLT_TELEMETRY_DISABLED === '1') return false
 

@@ -133,6 +133,9 @@ function writeTelemetryConfig(config: TelemetryConfig): void {
  * Check if telemetry is disabled by environment variables or config.
  */
 export function isTelemetryEnabled(): boolean {
+  // CI environments should never send telemetry (prevents ghost machine IDs in PostHog)
+  if (process.env.CI === 'true' || process.env.CI === '1') return false
+
   // Environment variable opt-outs (standard + prlt-specific)
   if (process.env.DO_NOT_TRACK === '1' || process.env.DO_NOT_TRACK === 'true') return false
   if (process.env.PRLT_TELEMETRY_DISABLED === '1' || process.env.PRLT_TELEMETRY_DISABLED === 'true') return false
@@ -176,6 +179,9 @@ export function getTelemetryStatus(): {
   const config = readTelemetryConfig()
 
   // Check for env var overrides
+  if (process.env.CI === 'true' || process.env.CI === '1') {
+    return { enabled: false, machineId: config.machineId, envOverride: true, envVar: 'CI' }
+  }
   if (process.env.DO_NOT_TRACK === '1' || process.env.DO_NOT_TRACK === 'true') {
     return { enabled: false, machineId: config.machineId, envOverride: true, envVar: 'DO_NOT_TRACK' }
   }

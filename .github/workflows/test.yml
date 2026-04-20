@@ -22,6 +22,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Disable prlt telemetry in CI to prevent ghost machine IDs in PostHog.
+# Each CI run would otherwise generate a fresh UUID and send events, polluting analytics.
+# The telemetry code also auto-detects CI=true, but this is explicit belt-and-suspenders.
+env:
+  PRLT_TELEMETRY_DISABLED: '1'
+
 # Native module CI expectations:
 # - better-sqlite3 requires a native .node binding compiled for the exact Node.js ABI in use.
 # - pnpm-workspace.yaml lists better-sqlite3 under ignoredBuiltDependencies, so pnpm install
