@@ -508,6 +508,145 @@ describe('SimplePoller', () => {
   })
 
   // ===========================================================================
+  // PR Summary Format (PRLT-1353)
+  // ===========================================================================
+
+  describe('formatPRSummary', () => {
+    it('should include repo name in PR label', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'proletariat',
+        prNumber: 1224,
+        title: 'fix ready ticket query',
+        ticketId: 'PRLT-1350',
+        ciState: 'success',
+        mergeable: 'MERGEABLE',
+        reviewDecision: null,
+      })
+
+      expect(summary).to.include('proletariat#1224')
+    })
+
+    it('should include ticket ID in parentheses when linked', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'proletariat',
+        prNumber: 1224,
+        title: 'fix ready ticket query',
+        ticketId: 'PRLT-1350',
+        ciState: 'success',
+        mergeable: 'MERGEABLE',
+        reviewDecision: null,
+      })
+
+      expect(summary).to.include('proletariat#1224 (PRLT-1350)')
+      expect(summary).to.not.include('no linked ticket')
+    })
+
+    it('should show "no linked ticket" when no ticket ID', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'proletariat-marketing',
+        prNumber: 16,
+        title: 'Add security sandboxing',
+        ciState: 'pending',
+        mergeable: 'UNKNOWN',
+        reviewDecision: null,
+      })
+
+      expect(summary).to.include('proletariat-marketing#16')
+      expect(summary).to.include('no linked ticket')
+      expect(summary).to.not.include('(')
+    })
+
+    it('should format title without quotes', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'my-repo',
+        prNumber: 42,
+        title: 'Add new feature',
+        ticketId: 'TKT-001',
+        ciState: 'unknown',
+        mergeable: 'UNKNOWN',
+        reviewDecision: null,
+      })
+
+      expect(summary).to.include(': Add new feature')
+      expect(summary).to.not.include('"Add new feature"')
+    })
+
+    it('should include CI state', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'repo',
+        prNumber: 1,
+        title: 'test',
+        ticketId: 'TKT-001',
+        ciState: 'failure',
+        mergeable: 'UNKNOWN',
+        reviewDecision: null,
+      })
+
+      expect(summary).to.include('CI: failure')
+    })
+
+    it('should show merge conflicts when CONFLICTING', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'repo',
+        prNumber: 1,
+        title: 'test',
+        ticketId: 'TKT-001',
+        ciState: 'success',
+        mergeable: 'CONFLICTING',
+        reviewDecision: null,
+      })
+
+      expect(summary).to.include('has merge conflicts')
+    })
+
+    it('should show review decision when present', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'repo',
+        prNumber: 1,
+        title: 'test',
+        ticketId: 'TKT-001',
+        ciState: 'success',
+        mergeable: 'MERGEABLE',
+        reviewDecision: 'APPROVED',
+      })
+
+      expect(summary).to.include('review: APPROVED')
+      expect(summary).to.not.include('no review')
+    })
+
+    it('should produce full expected format: repo#N (TICKET): title — CI — mergeable — review', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'proletariat',
+        prNumber: 1224,
+        title: 'fix watch daemon pollers',
+        ticketId: 'PRLT-1350',
+        ciState: 'success',
+        mergeable: 'MERGEABLE',
+        reviewDecision: 'APPROVED',
+      })
+
+      expect(summary).to.equal(
+        'proletariat#1224 (PRLT-1350): fix watch daemon pollers — CI: success — mergeable — review: APPROVED',
+      )
+    })
+
+    it('should produce full expected format for unlinked PR', () => {
+      const summary = SimplePoller.formatPRSummary({
+        repoName: 'proletariat-marketing',
+        prNumber: 16,
+        title: 'Add security sandboxing',
+        ciState: 'pending',
+        mergeable: 'UNKNOWN',
+        reviewDecision: null,
+      })
+
+      expect(summary).to.equal(
+        'proletariat-marketing#16: Add security sandboxing — no linked ticket — CI: pending — no review',
+      )
+    })
+  })
+
+  // ===========================================================================
   // Repo Directory Resolution (PRLT-1313 fix)
   // ===========================================================================
 
