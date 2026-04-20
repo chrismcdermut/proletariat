@@ -29,6 +29,8 @@ import {
   captureTmuxPane,
 } from '../execution/session-utils.js'
 import { getWorkflowConfig } from '../work-lifecycle/settings.js'
+import { SQLiteStorage } from '../pmo/storage-sqlite.js'
+import { resolveProjectProvider } from '../providers/resolver.js'
 
 // =============================================================================
 // Types
@@ -39,6 +41,11 @@ export interface SimplePollerOptions {
   log: (msg: string) => void
   /** Working directory for gh CLI commands */
   cwd?: string
+  /**
+   * Override ready ticket fetching for testing.
+   * When provided, replaces the default live-provider query.
+   */
+  fetchReadyTickets?: (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>>
 }
 
 /** A single item in the state report. */
@@ -66,6 +73,7 @@ export class SimplePoller {
   private db: Database.Database
   private log: (msg: string) => void
   private cwd?: string
+  private fetchReadyTicketsFn?: (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>>
 
   /** Git repo directories to poll for PRs. Resolved from cwd on construction. */
   private repoDirs: string[]
@@ -77,6 +85,7 @@ export class SimplePoller {
     this.db = options.db
     this.log = options.log
     this.cwd = options.cwd
+    this.fetchReadyTicketsFn = options.fetchReadyTickets
     this.repoDirs = SimplePoller.resolveRepoDirs(options.cwd, options.log)
   }
 
@@ -141,7 +150,7 @@ export class SimplePoller {
 
     items.push(...this.gatherGitHubPRState())
     items.push(...this.gatherAgentState())
-    items.push(...this.gatherReadyTicketState())
+    items.push(...await this.gatherReadyTicketState())
 
     const message = this.formatStateMessage(items)
     return { items, message }
@@ -354,13 +363,16 @@ export class SimplePoller {
   // Board / Ready Ticket State
   // ===========================================================================
 
-  private gatherReadyTicketState(): StateItem[] {
+  /**
+   * Gather ready ticket state from the live provider (PRLT-1354).
+   * Queries the configured ticket provider (Linear, Jira, etc.) for accurate
+   * status instead of the stale ticket_refs cache.
+   */
+  private async gatherReadyTicketState(): Promise<StateItem[]> {
     const items: StateItem[] = []
 
     try {
       // Build list of status names that represent "ready" tickets.
-      // Include the configured planned column name and common synonyms
-      // that external providers use (e.g. Linear uses "Ready", "Todo").
       const readyNames = new Set(['ready', 'planned', 'todo'])
       try {
         const config = getWorkflowConfig(this.db)
@@ -369,30 +381,79 @@ export class SimplePoller {
         // pmo_settings may not exist yet
       }
 
-      const nameList = [...readyNames]
-      const placeholders = nameList.map(() => '?').join(', ')
+      // Get active agent ticket IDs to exclude
+      let activeAgentTickets = new Set<string>()
+      try {
+        activeAgentTickets = new Set(
+          (this.db.prepare(
+            `SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')`,
+          ).all() as Array<{ ticket_id: string }>).map(r => r.ticket_id),
+        )
+      } catch {
+        // agent_work table may not exist
+      }
 
-      // Query ticket_refs (runtime ticket cache) instead of the dropped
-      // pmo_tickets / pmo_workflow_statuses tables (PRLT-1350).
-      const readyTickets = this.db.prepare(`
-        SELECT id, title
-        FROM ticket_refs
-        WHERE LOWER(status) IN (${placeholders})
-          AND (assignee IS NULL OR assignee = '')
-          AND id NOT IN (
-            SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')
-          )
-        LIMIT 20
-      `).all(...nameList) as Array<{ id: string; title: string }>
+      // Fetch ready tickets from the live provider (PRLT-1354).
+      const readyTickets = this.fetchReadyTicketsFn
+        ? await this.fetchReadyTicketsFn(readyNames)
+        : await this.fetchReadyTicketsFromProvider(readyNames)
 
       for (const ticket of readyTickets) {
+        if (activeAgentTickets.has(ticket.id)) continue
         items.push({ category: 'board', summary: `${ticket.id} "${ticket.title}": ready, unassigned` })
       }
     } catch {
-      // Non-fatal DB error (table may not exist)
+      // Non-fatal error
     }
 
     return items
+  }
+
+  /**
+   * Default implementation: query live provider for ready, unassigned tickets.
+   */
+  private async fetchReadyTicketsFromProvider(
+    readyNames: Set<string>,
+  ): Promise<Array<{ id: string; title: string }>> {
+    if (!this.cwd) return []
+
+    const dbPath = path.join(this.cwd, '.proletariat', 'workspace.db')
+    let storage: InstanceType<typeof SQLiteStorage>
+    try {
+      storage = new SQLiteStorage(dbPath)
+    } catch {
+      return []
+    }
+
+    let projects: Array<{ id: string }> = []
+    try {
+      projects = this.db.prepare(
+        `SELECT id FROM pmo_projects WHERE is_archived = 0 LIMIT 20`,
+      ).all() as Array<{ id: string }>
+    } catch {
+      return []
+    }
+
+    const tickets: Array<{ id: string; title: string }> = []
+
+    for (const project of projects) {
+      try {
+        const provider = resolveProjectProvider(this.db, storage, project.id)
+        const result = await provider.listTickets(project.id)
+        if (!result.success) continue
+
+        for (const ticket of result.tickets) {
+          const statusLower = (ticket.statusName || '').toLowerCase()
+          if (readyNames.has(statusLower) && !ticket.assignee) {
+            tickets.push({ id: ticket.id, title: ticket.title })
+          }
+        }
+      } catch {
+        // Non-fatal: skip project on error
+      }
+    }
+
+    return tickets
   }
 
   // ===========================================================================
