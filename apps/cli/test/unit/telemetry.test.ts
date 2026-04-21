@@ -13,6 +13,7 @@ import {
 describe('Telemetry', () => {
   let testDir: string;
   let originalHome: string | undefined;
+  let originalCI: string | undefined;
   let originalDoNotTrack: string | undefined;
   let originalPrltTelemetryDisabled: string | undefined;
 
@@ -21,9 +22,11 @@ describe('Telemetry', () => {
     originalHome = process.env.HOME;
     process.env.HOME = testDir;
 
-    // Save and clear env vars
+    // Save and clear env vars (CI must be cleared so tests can assert telemetry-enabled behavior)
+    originalCI = process.env.CI;
     originalDoNotTrack = process.env.DO_NOT_TRACK;
     originalPrltTelemetryDisabled = process.env.PRLT_TELEMETRY_DISABLED;
+    delete process.env.CI;
     delete process.env.DO_NOT_TRACK;
     delete process.env.PRLT_TELEMETRY_DISABLED;
   });
@@ -36,6 +39,12 @@ describe('Telemetry', () => {
     }
 
     // Restore env vars
+    if (originalCI !== undefined) {
+      process.env.CI = originalCI;
+    } else {
+      delete process.env.CI;
+    }
+
     if (originalDoNotTrack !== undefined) {
       process.env.DO_NOT_TRACK = originalDoNotTrack;
     } else {
@@ -153,6 +162,22 @@ describe('Telemetry', () => {
     it('env var PRLT_TELEMETRY_DISABLED overrides config', () => {
       writeTelemetryConfig({ enabled: true });
       process.env.PRLT_TELEMETRY_DISABLED = '1';
+      expect(isTelemetryEnabled()).to.be.false;
+    });
+
+    it('returns false when CI=true (auto-detect CI environment)', () => {
+      process.env.CI = 'true';
+      expect(isTelemetryEnabled()).to.be.false;
+    });
+
+    it('returns false when CI=1', () => {
+      process.env.CI = '1';
+      expect(isTelemetryEnabled()).to.be.false;
+    });
+
+    it('CI env var overrides config', () => {
+      writeTelemetryConfig({ enabled: true });
+      process.env.CI = 'true';
       expect(isTelemetryEnabled()).to.be.false;
     });
   });

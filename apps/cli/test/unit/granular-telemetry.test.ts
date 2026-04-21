@@ -17,6 +17,7 @@ import * as os from 'node:os'
 // because analytics reads from ~/.proletariat/telemetry.json
 let testDir: string
 let originalHome: string | undefined
+let originalCI: string | undefined
 let originalDoNotTrack: string | undefined
 let originalPrltTelemetryDisabled: string | undefined
 
@@ -45,9 +46,11 @@ describe('Granular Telemetry Events (PRLT-1070)', () => {
     originalHome = process.env.HOME
     process.env.HOME = testDir
 
-    // Ensure telemetry is enabled
+    // Ensure telemetry is enabled (CI must be cleared so tests can assert telemetry-enabled behavior)
+    originalCI = process.env.CI
     originalDoNotTrack = process.env.DO_NOT_TRACK
     originalPrltTelemetryDisabled = process.env.PRLT_TELEMETRY_DISABLED
+    delete process.env.CI
     delete process.env.DO_NOT_TRACK
     delete process.env.PRLT_TELEMETRY_DISABLED
 
@@ -71,6 +74,12 @@ describe('Granular Telemetry Events (PRLT-1070)', () => {
       process.env.HOME = originalHome
     } else {
       delete process.env.HOME
+    }
+
+    if (originalCI !== undefined) {
+      process.env.CI = originalCI
+    } else {
+      delete process.env.CI
     }
 
     if (originalDoNotTrack !== undefined) {

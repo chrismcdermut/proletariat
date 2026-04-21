@@ -59,6 +59,7 @@ ${script}
         env: {
           ...process.env,
           HOME: testDir,
+          CI: '',
           DO_NOT_TRACK: '',
           PRLT_TELEMETRY_DISABLED: '',
           // Clear agent-related env vars by default

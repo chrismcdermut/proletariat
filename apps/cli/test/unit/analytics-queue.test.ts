@@ -144,6 +144,7 @@ ${script}
         env: {
           ...process.env,
           HOME: testDir,
+          CI: '',
           DO_NOT_TRACK: '',
           PRLT_TELEMETRY_DISABLED: '',
         },
