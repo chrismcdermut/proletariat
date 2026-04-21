@@ -2622,9 +2622,13 @@ export default class WorkStart extends PMOCommand {
         })
 
         // Enrich telemetry bridge session so agent_completed/agent_errored
-        // events report the correct action name
+        // events report the correct action name and ticket
         if (result.sessionId) {
-          enrichAgentSession(result.sessionId, context.actionId || 'implement')
+          enrichAgentSession(
+            result.sessionId,
+            context.actionId || 'implement',
+            ticketExternalMetadata.key || context.ticketId,
+          )
         }
 
         // Register in machine-wide agent registry
@@ -3607,6 +3611,15 @@ export default class WorkStart extends PMOCommand {
         sessionId: result.sessionId,
         containerId: result.containerId,
       })
+
+      // Enrich telemetry bridge session for batch-spawned agents
+      if (result.sessionId) {
+        enrichAgentSession(
+          result.sessionId,
+          context.actionId || 'implement',
+          ticketExternalMetadata.key || context.ticketId,
+        )
+      }
 
       // Register in machine-wide agent registry
       try {
