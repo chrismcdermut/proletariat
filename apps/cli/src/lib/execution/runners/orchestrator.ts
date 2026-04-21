@@ -34,6 +34,8 @@ import {
   getCCAppPermissionSettings,
 } from '../cc-version.js'
 
+import { getMachineId } from '../../telemetry/analytics.js'
+
 /**
  * Run orchestrator in a Docker container using the sibling container pattern.
  *
@@ -152,6 +154,8 @@ export async function runOrchestratorInDocker(
       ...(process.env.GH_TOKEN ? [`-e GH_TOKEN="${process.env.GH_TOKEN}"`] : []),
       // Pass ANTHROPIC_API_KEY if available (for cases where OAuth is not set up)
       ...(process.env.ANTHROPIC_API_KEY ? [`-e ANTHROPIC_API_KEY="${process.env.ANTHROPIC_API_KEY}"`] : []),
+      // PRLT-1355: Propagate host machine ID so orchestrator telemetry uses same distinct_id
+      `-e PRLT_TELEMETRY_MACHINE_ID="${getMachineId()}"`,
     ]
 
     // Create and start container

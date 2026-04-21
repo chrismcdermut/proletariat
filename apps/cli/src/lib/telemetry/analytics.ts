@@ -25,6 +25,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as crypto from 'node:crypto'
+import * as os from 'node:os'
 import { getMachineConfigDir, ensureMachineConfigDir } from '../machine-config.js'
 
 // PostHog API key (public — PostHog client keys are meant to be public)
@@ -74,6 +75,24 @@ let cliVersion: string | null = null
 let initPromise: Promise<void> | null = null
 let analyticsShutdown = false
 
+// ─── Stable Machine Fingerprint ─────────────────────────────────────────────
+
+/**
+ * Generate a deterministic machine ID from hostname + username.
+ * Returns a UUID-shaped hex string so it slots into PostHog's distinct_id
+ * without changing the schema. The same physical machine always produces
+ * the same ID regardless of CWD, worktree, or container context.
+ *
+ * Exported for testing.
+ */
+export function generateStableFingerprint(): string {
+  const hostname = os.hostname()
+  const username = os.userInfo().username
+  const hash = crypto.createHash('sha256').update(`${hostname}:${username}`).digest('hex')
+  // Format as UUID-shaped string: 8-4-4-4-12
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`
+}
+
 // ─── Telemetry Config ────────────────────────────────────────────────────────
 
 function getTelemetryConfigPath(): string {
@@ -95,8 +114,11 @@ function readTelemetryConfig(): TelemetryConfig {
     }
   }
 
-  // Use inherited machine ID from host (Docker containers), or generate a new one
-  const machineId = process.env.PRLT_TELEMETRY_MACHINE_ID || crypto.randomUUID()
+  // Use inherited machine ID from host (Docker containers), or derive a stable fingerprint.
+  // The fingerprint is a SHA-256 hash of hostname + username, formatted as a UUID v4-like
+  // string. This ensures the same physical machine always gets the same ID — even across
+  // worktrees, containers that fail to inherit the env var, or fresh config files.
+  const machineId = process.env.PRLT_TELEMETRY_MACHINE_ID || generateStableFingerprint()
 
   telemetryConfig = {
     enabled: true,
@@ -377,12 +399,15 @@ export function trackEvent(eventName: string, value?: string | number | null, me
 
   try {
     // Derive telemetry source context from environment
-    const telemetrySource = process.env.PRLT_AGENT_NAME ? 'agent' : 'host'
-    const runtimeEnvironment = process.env.PRLT_AGENT_NAME ? 'docker' : 'host'
+    const isAgent = !!process.env.PRLT_AGENT_NAME
+    const telemetrySource = isAgent ? 'agent' : 'host'
+    const runtimeEnvironment = isAgent ? 'docker' : 'host'
     const sourceContext: Record<string, unknown> = {
       telemetry_source: telemetrySource,
       runtime_environment: runtimeEnvironment,
-      ...(process.env.PRLT_AGENT_NAME ? { agent_name: process.env.PRLT_AGENT_NAME } : {}),
+      // PRLT-1355: Explicit boolean so PostHog can filter agent events
+      agent: isAgent,
+      ...(isAgent ? { agent_name: process.env.PRLT_AGENT_NAME } : {}),
     }
 
     // Convert metadata values to strings as required by the client SDK

@@ -5,15 +5,17 @@ import * as os from 'node:os'
 import { execFileSync } from 'node:child_process'
 
 /**
- * Tests for telemetry identity unification (PRLT-1111).
+ * Tests for telemetry identity unification (PRLT-1111, PRLT-1355).
  *
  * Verifies:
  * - Host machine ID is inherited via PRLT_TELEMETRY_MACHINE_ID env var
- * - Events include telemetry_source, environment, and agent_name context
+ * - Stable fingerprint fallback (hostname + username hash) instead of random UUID
+ * - Events include telemetry_source, environment, agent_name, and agent context
  * - Docker container creation passes PRLT_TELEMETRY_MACHINE_ID
+ * - Orchestrator container passes PRLT_TELEMETRY_MACHINE_ID
  */
 
-describe('Telemetry Identity (PRLT-1111)', () => {
+describe('Telemetry Identity (PRLT-1111, PRLT-1355)', () => {
   let testDir: string
   // Use source path (not dist/) — tests must not depend on build artifacts
   // .js extension for Node16 module resolution (ts-node/esm resolves .js → .ts)
@@ -43,7 +45,7 @@ describe('Telemetry Identity (PRLT-1111)', () => {
     const fullScript = `
 const ANALYTICS_URL = ${JSON.stringify(analyticsUrl)};
 const analytics = await import(ANALYTICS_URL);
-const { initAnalytics, trackEvent, trackCommandRun, getMachineId, shutdownAnalytics } = analytics;
+const { initAnalytics, trackEvent, trackCommandRun, getMachineId, generateStableFingerprint, shutdownAnalytics } = analytics;
 ${script}
 `
 
@@ -114,17 +116,36 @@ ${script}
       expect(stderr).to.equal('')
     })
 
-    it('generates a new UUID when PRLT_TELEMETRY_MACHINE_ID is not set', () => {
+    it('generates a stable fingerprint when PRLT_TELEMETRY_MACHINE_ID is not set', () => {
       const { telemetryConfig, stderr } = runAnalyticsScript(`
         const id = getMachineId();
       `)
 
       expect(telemetryConfig, `telemetry config should exist, stderr: ${stderr}`).to.not.be.null
-      // Should be a valid UUID v4 (not the inherited one)
+      // Should be a UUID-shaped hex string (stable fingerprint, not random)
       expect(telemetryConfig!.machineId).to.be.a('string')
       expect(telemetryConfig!.machineId as string).to.match(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
       )
+    })
+
+    it('produces the same fingerprint across multiple runs (deterministic)', () => {
+      // Run 1: generate the machine ID
+      const { telemetryConfig: config1, stderr: stderr1 } = runAnalyticsScript(`
+        const id = getMachineId();
+        process.stdout.write('machineId:' + id);
+      `)
+      expect(config1, `run 1 config should exist, stderr: ${stderr1}`).to.not.be.null
+
+      // Run 2: generate again (fresh process, no existing config)
+      const { telemetryConfig: config2, stderr: stderr2 } = runAnalyticsScript(`
+        const id = getMachineId();
+        process.stdout.write('machineId:' + id);
+      `)
+      expect(config2, `run 2 config should exist, stderr: ${stderr2}`).to.not.be.null
+
+      // Same host + username → same fingerprint
+      expect(config1!.machineId).to.equal(config2!.machineId)
     })
 
     it('preserves existing machine ID when config already exists', () => {
@@ -181,7 +202,7 @@ ${script}
   // ── Source Context Properties ──────────────────────────────────────────
 
   describe('Telemetry source context in events', () => {
-    it('tags events with telemetry_source=host when not in agent container', () => {
+    it('tags events with telemetry_source=host and agent=false when not in agent container', () => {
       const { queue, stderr } = runAnalyticsScript(`
         trackEvent('test_event', null, { custom: 'value' });
       `)
@@ -191,10 +212,11 @@ ${script}
       const event = queue![0]
       expect(event.metadata?.telemetry_source).to.equal('host')
       expect(event.metadata?.runtime_environment).to.equal('host')
+      expect(event.metadata?.agent).to.equal('false')
       expect(event.metadata).to.not.have.property('agent_name')
     })
 
-    it('tags events with telemetry_source=agent when PRLT_AGENT_NAME is set', () => {
+    it('tags events with telemetry_source=agent and agent=true when PRLT_AGENT_NAME is set', () => {
       const { queue, stderr } = runAnalyticsScript(`
         trackEvent('test_event', null, { custom: 'value' });
       `, { PRLT_AGENT_NAME: 'test-agent-alpha' })
@@ -204,10 +226,11 @@ ${script}
       const event = queue![0]
       expect(event.metadata?.telemetry_source).to.equal('agent')
       expect(event.metadata?.runtime_environment).to.equal('docker')
+      expect(event.metadata?.agent).to.equal('true')
       expect(event.metadata?.agent_name).to.equal('test-agent-alpha')
     })
 
-    it('includes source context in trackCommandRun events', () => {
+    it('includes source context with agent=true in trackCommandRun events', () => {
       const { queue, stderr } = runAnalyticsScript(`
         trackCommandRun({ command: 'work:start', durationMs: 100, success: true, flags: [] });
       `, { PRLT_AGENT_NAME: 'my-agent' })
@@ -216,6 +239,7 @@ ${script}
       const event = queue![0]
       expect(event.metadata?.telemetry_source).to.equal('agent')
       expect(event.metadata?.runtime_environment).to.equal('docker')
+      expect(event.metadata?.agent).to.equal('true')
       expect(event.metadata?.agent_name).to.equal('my-agent')
       // Original metadata should still be present
       expect(event.metadata?.command).to.equal('work:start')
@@ -233,6 +257,48 @@ ${script}
     })
   })
 
+  // ── Stable fingerprint ─────────────────────────────────────────────────
+
+  describe('Stable fingerprint (PRLT-1355)', () => {
+    it('generateStableFingerprint returns a UUID-shaped deterministic string', () => {
+      const { stdout, stderr } = runAnalyticsScript(`
+        const fp = generateStableFingerprint();
+        process.stdout.write('fp:' + fp);
+      `)
+
+      expect(stderr).to.equal('')
+      const fp = stdout.split('fp:')[1]
+      expect(fp).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+    })
+
+    it('generateStableFingerprint is deterministic across calls', () => {
+      const { stdout: stdout1 } = runAnalyticsScript(`
+        const fp = generateStableFingerprint();
+        process.stdout.write('fp:' + fp);
+      `)
+      const { stdout: stdout2 } = runAnalyticsScript(`
+        const fp = generateStableFingerprint();
+        process.stdout.write('fp:' + fp);
+      `)
+
+      const fp1 = stdout1.split('fp:')[1]
+      const fp2 = stdout2.split('fp:')[1]
+      expect(fp1).to.equal(fp2)
+    })
+
+    it('fallback uses stable fingerprint instead of random UUID when no env var set', () => {
+      // Run twice without PRLT_TELEMETRY_MACHINE_ID — both should produce the same machine ID
+      const { telemetryConfig: config1 } = runAnalyticsScript(`
+        getMachineId();
+      `)
+      const { telemetryConfig: config2 } = runAnalyticsScript(`
+        getMachineId();
+      `)
+
+      expect(config1!.machineId).to.equal(config2!.machineId)
+    })
+  })
+
   // ── Docker env var passthrough ─────────────────────────────────────────
 
   describe('Docker container PRLT_TELEMETRY_MACHINE_ID passthrough', () => {
@@ -240,6 +306,17 @@ ${script}
       // Verify the import relationship exists by checking the source
       const dockerMgmtPath = path.resolve(process.cwd(), 'src/lib/execution/runners/docker-management.ts')
       const content = fs.readFileSync(dockerMgmtPath, 'utf-8')
+      expect(content).to.include('getMachineId')
+      expect(content).to.include('PRLT_TELEMETRY_MACHINE_ID')
+    })
+  })
+
+  // ── Orchestrator env var passthrough (PRLT-1355) ──────────────────────
+
+  describe('Orchestrator container PRLT_TELEMETRY_MACHINE_ID passthrough (PRLT-1355)', () => {
+    it('orchestrator runner imports getMachineId and passes PRLT_TELEMETRY_MACHINE_ID', () => {
+      const orchestratorPath = path.resolve(process.cwd(), 'src/lib/execution/runners/orchestrator.ts')
+      const content = fs.readFileSync(orchestratorPath, 'utf-8')
       expect(content).to.include('getMachineId')
       expect(content).to.include('PRLT_TELEMETRY_MACHINE_ID')
     })
