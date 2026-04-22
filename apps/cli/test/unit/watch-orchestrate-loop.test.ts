@@ -477,7 +477,7 @@ describe('Watch -> Orchestrate Loop -- Unit Tests (PRLT-1333)', () => {
       // The watch command now pokes unconditionally — message must never be null
       expect(result.message).to.be.a('string')
       expect(result.message).to.include('GitHub PRs: none')
-      expect(result.message).to.include('Ready tickets: none')
+      expect(result.message).to.include('Board: no active tickets')
       expect(result.message).to.include('Active agents: none')
     })
 

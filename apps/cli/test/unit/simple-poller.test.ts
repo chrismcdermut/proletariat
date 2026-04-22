@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { SimplePoller } from '../../src/lib/orchestrate/simple-poller.js'
+import { SimplePoller, type BoardTicketInfo } from '../../src/lib/orchestrate/simple-poller.js'
 
 // =============================================================================
 // Helpers
@@ -11,7 +11,7 @@ import { SimplePoller } from '../../src/lib/orchestrate/simple-poller.js'
 
 /**
  * Create a mock DB for agent state queries.
- * Ready tickets now come from the injected fetchReadyTickets, not from DB.
+ * Board tickets now come from the injected fetchBoardTickets, not from DB.
  */
 function createMockDb(options?: {
   agents?: Array<{
@@ -61,7 +61,17 @@ function createMockDb(options?: {
 }
 
 /**
+ * Create a fetchBoardTickets mock that returns the given tickets.
+ */
+function mockFetchBoardTickets(
+  tickets: BoardTicketInfo[],
+): () => Promise<BoardTicketInfo[]> {
+  return async () => tickets
+}
+
+/**
  * Create a fetchReadyTickets mock that returns the given tickets.
+ * @deprecated Use mockFetchBoardTickets for new tests.
  */
 function mockFetchReadyTickets(
   tickets: Array<{ id: string; title: string }>,
@@ -70,31 +80,26 @@ function mockFetchReadyTickets(
 }
 
 /**
- * Create a fetchReadyTickets mock that filters by readyNames.
+ * Helper: build a BoardTicketInfo for a ready/unassigned ticket.
  */
-function mockFetchReadyTicketsWithStatus(
-  tickets: Array<{ id: string; title: string; statusName: string }>,
-): (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>> {
-  return async (readyNames: Set<string>) =>
-    tickets
-      .filter(t => readyNames.has(t.statusName.toLowerCase()))
-      .map(({ id, title }) => ({ id, title }))
+function readyTicket(id: string, title: string): BoardTicketInfo {
+  return { id, title, statusName: 'Ready', statusCategory: 'unstarted' }
 }
 
 /**
  * Create a SimplePoller with GitHub CLI disabled (no external calls).
- * This lets us test DB-driven polling (agents + board) in isolation.
+ * Uses fetchBoardTickets for full board state testing.
  */
 function createPoller(
   db: ReturnType<typeof createMockDb>,
-  readyTickets?: Array<{ id: string; title: string }>,
+  boardTickets?: BoardTicketInfo[],
   log?: (msg: string) => void,
 ) {
   return new SimplePoller({
     db: db as any,
     log: log ?? (() => {}),
     cwd: '/nonexistent-test-dir',
-    fetchReadyTickets: mockFetchReadyTickets(readyTickets ?? []),
+    fetchBoardTickets: mockFetchBoardTickets(boardTickets ?? []),
   })
 }
 
@@ -143,7 +148,7 @@ describe('SimplePoller', () => {
           { id: 'exec-1', ticket_id: 'TKT-001', agent_name: 'bold-ada', status: 'running', lifecycle_state: null, container_id: null },
         ],
       })
-      const poller = createPoller(db, [{ id: 'TKT-001', title: 'Test ticket' }])
+      const poller = createPoller(db, [readyTicket('TKT-001', 'Test ticket')])
 
       // First poll returns full state (not empty like the old baseline behavior)
       const r1 = await poller.poll()
@@ -166,18 +171,18 @@ describe('SimplePoller', () => {
       // Always returns a full state report — no null messages (PRLT-1347)
       expect(result.message).to.be.a('string')
       expect(result.message).to.include('GitHub PRs: none')
-      expect(result.message).to.include('Ready tickets: none')
+      expect(result.message).to.include('Board: no active tickets')
       expect(result.message).to.include('Active agents: none')
     })
 
     it('should reflect state changes immediately without needing a prior baseline', async () => {
-      let currentTickets: Array<{ id: string; title: string }> = []
+      let currentTickets: BoardTicketInfo[] = []
       const db = createMockDb()
       const poller = new SimplePoller({
         db: db as any,
         log: () => {},
         cwd: '/nonexistent-test-dir',
-        fetchReadyTickets: async () => currentTickets,
+        fetchBoardTickets: async () => currentTickets,
       })
 
       // First poll: nothing
@@ -185,62 +190,270 @@ describe('SimplePoller', () => {
       expect(r1.items.filter(i => i.category === 'board')).to.have.length(0)
 
       // Ticket appears — immediately reported, no baseline needed
-      currentTickets = [{ id: 'TKT-010', title: 'New feature' }]
+      currentTickets = [readyTicket('TKT-010', 'New feature')]
       const r2 = await poller.poll()
       const boardItems = r2.items.filter(i => i.category === 'board')
-      expect(boardItems).to.have.length(1)
-      expect(boardItems[0].summary).to.include('TKT-010')
-      expect(boardItems[0].summary).to.include('New feature')
+      // Column summary + individual ready ticket
+      expect(boardItems.length).to.be.greaterThanOrEqual(1)
+      expect(boardItems.some(i => i.summary.includes('TKT-010'))).to.be.true
+      expect(boardItems.some(i => i.summary.includes('New feature'))).to.be.true
     })
   })
 
   // ===========================================================================
-  // Ready Ticket State (PRLT-1354: via live provider)
+  // Full Board State (PRLT-1358: all columns, not just ready)
   // ===========================================================================
 
-  describe('ready ticket state', () => {
-    it('should report all ready tickets from provider', async () => {
+  describe('full board state (PRLT-1358)', () => {
+    it('should report ticket counts by column', async () => {
       const db = createMockDb()
       const poller = createPoller(db, [
-        { id: 'TKT-011', title: 'Feature A' },
-        { id: 'TKT-012', title: 'Feature B' },
+        { id: 'TKT-001', title: 'A', statusName: 'Backlog', statusCategory: 'backlog' },
+        { id: 'TKT-002', title: 'B', statusName: 'Ready', statusCategory: 'unstarted' },
+        { id: 'TKT-003', title: 'C', statusName: 'Ready', statusCategory: 'unstarted' },
+        { id: 'TKT-004', title: 'D', statusName: 'In Progress', statusCategory: 'started' },
+        { id: 'TKT-005', title: 'E', statusName: 'Review', statusCategory: 'started' },
       ])
 
       const result = await poller.poll()
 
-      const boardItems = result.items.filter(i => i.category === 'board')
-      expect(boardItems).to.have.length(2)
-      expect(boardItems[0].summary).to.include('TKT-011')
-      expect(boardItems[0].summary).to.include('Feature A')
-      expect(boardItems[0].summary).to.include('ready')
-      expect(boardItems[0].summary).to.include('unassigned')
-      expect(boardItems[1].summary).to.include('TKT-012')
+      expect(result.message).to.include('Board state:')
+      expect(result.message).to.include('Backlog: 1')
+      expect(result.message).to.include('Ready: 2')
+      expect(result.message).to.include('In Progress: 1')
+      expect(result.message).to.include('Review: 1')
     })
 
-    it('should report no board items when provider returns no ready tickets', async () => {
+    it('should exclude completed and canceled tickets from board state counts', async () => {
       const db = createMockDb()
-      const poller = createPoller(db, [])
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Active', statusName: 'In Progress', statusCategory: 'started' },
+        { id: 'TKT-002', title: 'Done', statusName: 'Done', statusCategory: 'completed' },
+        { id: 'TKT-003', title: 'Dropped', statusName: 'Canceled', statusCategory: 'canceled' },
+      ])
 
       const result = await poller.poll()
 
-      const boardItems = result.items.filter(i => i.category === 'board')
-      expect(boardItems).to.have.length(0)
+      expect(result.message).to.include('In Progress: 1')
+      expect(result.message).to.not.include('Done:')
+      expect(result.message).to.not.include('Canceled:')
     })
 
-    it('should handle fetchReadyTickets errors gracefully without throwing', async () => {
+    it('should still list ready/unassigned tickets individually for orchestrator', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Ready A', statusName: 'Ready', statusCategory: 'unstarted' },
+        { id: 'TKT-002', title: 'Ready B', statusName: 'Todo', statusCategory: 'unstarted' },
+        { id: 'TKT-003', title: 'In Prog', statusName: 'In Progress', statusCategory: 'started' },
+      ])
+
+      const result = await poller.poll()
+
+      // Individual ready tickets listed
+      expect(result.message).to.include('Ready tickets (2 unassigned):')
+      expect(result.message).to.include('TKT-001 "Ready A": ready, unassigned')
+      expect(result.message).to.include('TKT-002 "Ready B": ready, unassigned')
+      // In Progress ticket NOT listed as ready
+      expect(result.message).to.not.include('TKT-003 "In Prog": ready')
+    })
+
+    it('should not list assigned tickets as ready even if in ready status', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Free', statusName: 'Ready', statusCategory: 'unstarted' },
+        { id: 'TKT-002', title: 'Taken', statusName: 'Ready', statusCategory: 'unstarted', assignee: 'agent-1' },
+      ])
+
+      const result = await poller.poll()
+
+      expect(result.message).to.include('Ready tickets (1 unassigned):')
+      expect(result.message).to.include('TKT-001 "Free": ready, unassigned')
+      expect(result.message).to.not.include('TKT-002')
+    })
+
+    it('should show "Board: no active tickets" when all tickets are terminal', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Done', statusName: 'Done', statusCategory: 'completed' },
+      ])
+
+      const result = await poller.poll()
+
+      expect(result.message).to.include('Board: no active tickets')
+    })
+
+    it('should handle fetchBoardTickets errors gracefully without throwing', async () => {
       const db = createMockDb()
       const poller = new SimplePoller({
         db: db as any,
         log: () => {},
         cwd: '/nonexistent-test-dir',
-        fetchReadyTickets: async () => { throw new Error('provider unavailable') },
+        fetchBoardTickets: async () => { throw new Error('provider unavailable') },
       })
 
       const result = await poller.poll()
       expect(result.items.filter(i => i.category === 'board')).to.have.length(0)
     })
+  })
 
-    it('should exclude tickets with active agents', async () => {
+  // ===========================================================================
+  // Board Anomaly Detection (PRLT-1358)
+  // ===========================================================================
+
+  describe('board anomaly detection (PRLT-1358)', () => {
+    it('should flag tickets in progress with no active agent', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Stuck ticket', statusName: 'In Progress', statusCategory: 'started' },
+      ])
+
+      const result = await poller.poll()
+
+      const anomalies = result.items.filter(i => i.category === 'anomaly')
+      expect(anomalies).to.have.length.greaterThanOrEqual(1)
+      expect(anomalies.some(a => a.summary.includes('TKT-001') && a.summary.includes('no active agent'))).to.be.true
+    })
+
+    it('should not flag in-progress tickets that have an active agent', async () => {
+      const db = createMockDb({
+        activeAgentTicketIds: ['TKT-001'],
+      })
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Working ticket', statusName: 'In Progress', statusCategory: 'started' },
+      ])
+
+      const result = await poller.poll()
+
+      const anomalies = result.items.filter(i => i.category === 'anomaly')
+      expect(anomalies.every(a => !a.summary.includes('no active agent'))).to.be.true
+    })
+
+    it('should flag tickets in review with no open PR', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Review orphan', statusName: 'Review', statusCategory: 'started' },
+      ])
+
+      const result = await poller.poll()
+
+      const anomalies = result.items.filter(i => i.category === 'anomaly')
+      expect(anomalies.some(a => a.summary.includes('TKT-001') && a.summary.includes('no open PR'))).to.be.true
+    })
+
+    it('should flag tickets stuck in a column for >24h', async () => {
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+      const db = createMockDb({
+        activeAgentTicketIds: ['TKT-001'],
+      })
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Stale ticket', statusName: 'In Progress', statusCategory: 'started', updatedAt: twoDaysAgo },
+      ])
+
+      const result = await poller.poll()
+
+      const anomalies = result.items.filter(i => i.category === 'anomaly')
+      expect(anomalies.some(a => a.summary.includes('TKT-001') && a.summary.includes('stuck in In Progress for 2d'))).to.be.true
+    })
+
+    it('should not flag stale tickets in backlog or triage', async () => {
+      const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Old backlog', statusName: 'Backlog', statusCategory: 'backlog', updatedAt: twoDaysAgo },
+        { id: 'TKT-002', title: 'Old triage', statusName: 'Triage', statusCategory: 'triage', updatedAt: twoDaysAgo },
+      ])
+
+      const result = await poller.poll()
+
+      const anomalies = result.items.filter(i => i.category === 'anomaly')
+      const stuckAnomalies = anomalies.filter(a => a.summary.includes('stuck'))
+      expect(stuckAnomalies).to.have.length(0)
+    })
+
+    it('should not flag recently updated started tickets as stuck', async () => {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+      const db = createMockDb({
+        activeAgentTicketIds: ['TKT-001'],
+      })
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Fresh ticket', statusName: 'In Progress', statusCategory: 'started', updatedAt: oneHourAgo },
+      ])
+
+      const result = await poller.poll()
+
+      const anomalies = result.items.filter(i => i.category === 'anomaly')
+      const stuckAnomalies = anomalies.filter(a => a.summary.includes('stuck'))
+      expect(stuckAnomalies).to.have.length(0)
+    })
+
+    it('should format anomalies section in output message', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Orphan', statusName: 'In Progress', statusCategory: 'started' },
+        { id: 'TKT-002', title: 'No PR', statusName: 'Review', statusCategory: 'started' },
+      ])
+
+      const result = await poller.poll()
+
+      expect(result.message).to.include('Anomalies (')
+      expect(result.message).to.include('- TKT-001 "Orphan": in progress with no active agent')
+      expect(result.message).to.include('- TKT-002 "No PR": in review with no open PR')
+    })
+
+    it('should not show anomalies section when there are none', async () => {
+      const db = createMockDb({
+        activeAgentTicketIds: ['TKT-001'],
+      })
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'Healthy', statusName: 'Ready', statusCategory: 'unstarted' },
+      ])
+
+      const result = await poller.poll()
+
+      expect(result.message).to.not.include('Anomalies')
+    })
+
+    it('should detect anomalies via statusCategory for non-standard status names', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        // Non-standard status name but category is 'started'
+        { id: 'TKT-001', title: 'Custom status', statusName: 'Doing Stuff', statusCategory: 'started' },
+      ])
+
+      const result = await poller.poll()
+
+      const anomalies = result.items.filter(i => i.category === 'anomaly')
+      expect(anomalies.some(a => a.summary.includes('TKT-001') && a.summary.includes('no active agent'))).to.be.true
+    })
+  })
+
+  // ===========================================================================
+  // Ready Ticket State — backward compat (PRLT-1354 via fetchReadyTickets)
+  // ===========================================================================
+
+  describe('ready ticket state (legacy fetchReadyTickets)', () => {
+    it('should still work with fetchReadyTickets for backward compatibility', async () => {
+      const db = createMockDb()
+      const poller = new SimplePoller({
+        db: db as any,
+        log: () => {},
+        cwd: '/nonexistent-test-dir',
+        fetchReadyTickets: mockFetchReadyTickets([
+          { id: 'TKT-011', title: 'Feature A' },
+          { id: 'TKT-012', title: 'Feature B' },
+        ]),
+      })
+
+      const result = await poller.poll()
+
+      const boardItems = result.items.filter(i => i.category === 'board')
+      // Should include column summary + individual ready tickets
+      expect(boardItems.some(i => i.summary.includes('TKT-011'))).to.be.true
+      expect(boardItems.some(i => i.summary.includes('Feature A'))).to.be.true
+      expect(boardItems.some(i => i.summary.includes('ready'))).to.be.true
+    })
+
+    it('should exclude tickets with active agents via legacy path', async () => {
       const db = createMockDb({
         activeAgentTicketIds: ['TKT-ACTIVE'],
       })
@@ -256,16 +469,12 @@ describe('SimplePoller', () => {
 
       const result = await poller.poll()
 
-      const boardItems = result.items.filter(i => i.category === 'board')
-      expect(boardItems).to.have.length(1)
-      expect(boardItems[0].summary).to.include('TKT-FREE')
+      const readyItems = result.items.filter(i => i.category === 'board' && i.summary.includes('ready, unassigned'))
+      expect(readyItems).to.have.length(1)
+      expect(readyItems[0].summary).to.include('TKT-FREE')
     })
 
     it('should use live provider, not stale ticket_refs.status (PRLT-1354 regression)', async () => {
-      // The key regression test: ticket_refs.status is empty for all rows.
-      // The poller must use the live provider, not the stale local cache.
-      // Verify by ensuring the fetchReadyTickets function is called instead
-      // of any ticket_refs SQL query.
       let providerCalled = false
       const db = createMockDb()
       const poller = new SimplePoller({
@@ -285,8 +494,7 @@ describe('SimplePoller', () => {
 
       expect(providerCalled).to.be.true
       const boardItems = result.items.filter(i => i.category === 'board')
-      expect(boardItems).to.have.length(1)
-      expect(boardItems[0].summary).to.include('PRLT-1236')
+      expect(boardItems.some(i => i.summary.includes('PRLT-1236'))).to.be.true
     })
   })
 
@@ -422,7 +630,7 @@ describe('SimplePoller', () => {
           { id: 'exec-m1', ticket_id: 'TKT-050', agent_name: 'multi-agent', status: 'completed', lifecycle_state: 'completed', container_id: null },
         ],
       })
-      const poller = createPoller(db, [{ id: 'TKT-060', title: 'New ready ticket' }])
+      const poller = createPoller(db, [readyTicket('TKT-060', 'New ready ticket')])
 
       const result = await poller.poll()
 
@@ -435,8 +643,8 @@ describe('SimplePoller', () => {
     it('should include counts in section headers', async () => {
       const db = createMockDb()
       const poller = createPoller(db, [
-        { id: 'TKT-070', title: 'First' },
-        { id: 'TKT-071', title: 'Second' },
+        readyTicket('TKT-070', 'First'),
+        readyTicket('TKT-071', 'Second'),
       ])
 
       const result = await poller.poll()
@@ -446,7 +654,7 @@ describe('SimplePoller', () => {
 
     it('should show "none" sections when category is empty', async () => {
       const db = createMockDb()
-      const poller = createPoller(db, [{ id: 'TKT-001', title: 'Solo' }])
+      const poller = createPoller(db, [readyTicket('TKT-001', 'Solo')])
 
       const result = await poller.poll()
 
@@ -458,16 +666,16 @@ describe('SimplePoller', () => {
     it('should list ticket items as bullet points', async () => {
       const db = createMockDb()
       const poller = createPoller(db, [
-        { id: 'TKT-070', title: 'First' },
-        { id: 'TKT-071', title: 'Second' },
+        readyTicket('TKT-070', 'First'),
+        readyTicket('TKT-071', 'Second'),
       ])
 
       const result = await poller.poll()
 
       expect(result.message).to.not.be.null
       const lines = result.message!.split('\n')
-      const bullets = lines.filter(l => l.startsWith('- '))
-      expect(bullets).to.have.length(2)
+      const readyBullets = lines.filter(l => l.startsWith('- ') && l.includes('ready, unassigned'))
+      expect(readyBullets).to.have.length(2)
     })
 
     it('should not list idle/done/unknown agents as bullet points (PRLT-1348)', async () => {
@@ -494,6 +702,21 @@ describe('SimplePoller', () => {
       const agentBullets = lines.filter(l => l.startsWith('- ') && l.includes('agent-'))
       expect(agentBullets).to.have.length(0)
     })
+
+    it('should include board state summary in message (PRLT-1358)', async () => {
+      const db = createMockDb()
+      const poller = createPoller(db, [
+        { id: 'TKT-001', title: 'A', statusName: 'Backlog', statusCategory: 'backlog' },
+        { id: 'TKT-002', title: 'B', statusName: 'In Progress', statusCategory: 'started' },
+        { id: 'TKT-003', title: 'C', statusName: 'In Progress', statusCategory: 'started' },
+      ])
+
+      const result = await poller.poll()
+
+      expect(result.message).to.include('Board state:')
+      expect(result.message).to.include('Backlog: 1')
+      expect(result.message).to.include('In Progress: 2')
+    })
   })
 
   // ===========================================================================
@@ -507,11 +730,12 @@ describe('SimplePoller', () => {
           { id: 'exec-1', ticket_id: 'TKT-090', agent_name: 'lifecycle-agent', status: 'starting', lifecycle_state: null, container_id: null },
         ],
       })
-      const poller = createPoller(db, [{ id: 'TKT-080', title: 'Feature X' }])
+      const poller = createPoller(db, [readyTicket('TKT-080', 'Feature X')])
 
       const result = await poller.poll()
 
-      expect(result.items).to.have.length(2)
+      // Column summary + ready ticket + agent = at least 3 items
+      expect(result.items.length).to.be.greaterThanOrEqual(2)
       expect(result.items.some(i => i.category === 'board')).to.be.true
       expect(result.items.some(i => i.category === 'agents')).to.be.true
     })

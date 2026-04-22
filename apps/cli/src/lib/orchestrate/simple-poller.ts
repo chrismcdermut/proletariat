@@ -36,25 +36,50 @@ import { resolveProjectProvider } from '../providers/resolver.js'
 // Types
 // =============================================================================
 
+/** A ticket from the board with full status info for board state reporting. */
+export interface BoardTicketInfo {
+  id: string
+  title: string
+  statusName: string
+  statusCategory?: string
+  assignee?: string
+  updatedAt?: Date
+}
+
 export interface SimplePollerOptions {
   db: Database.Database
   log: (msg: string) => void
   /** Working directory for gh CLI commands */
   cwd?: string
   /**
-   * Override ready ticket fetching for testing.
+   * Override board ticket fetching for testing.
    * When provided, replaces the default live-provider query.
+   * Returns all tickets with status info for full board state reporting.
+   */
+  fetchBoardTickets?: () => Promise<BoardTicketInfo[]>
+  /**
+   * @deprecated Use fetchBoardTickets instead. Kept for backward compatibility.
+   * When fetchBoardTickets is not provided, falls back to this (ready-only mode).
    */
   fetchReadyTickets?: (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>>
 }
 
 /** A single item in the state report. */
 export interface StateItem {
-  category: 'github' | 'board' | 'agents'
+  category: 'github' | 'board' | 'agents' | 'anomaly'
   summary: string
   /** Health state for agent items (from tmux pane inspection). */
   healthState?: AgentHealthState
 }
+
+/** Column count entry for the board state summary. */
+export interface ColumnCount {
+  statusName: string
+  count: number
+}
+
+/** Anomaly types detected during board state analysis. */
+export type AnomalyType = 'no_agent' | 'merged_pr' | 'stale'
 
 /** Result of a poll cycle. Message is always a formatted state report. */
 export interface PollResult {
@@ -73,6 +98,7 @@ export class SimplePoller {
   private db: Database.Database
   private log: (msg: string) => void
   private cwd?: string
+  private fetchBoardTicketsFn?: () => Promise<BoardTicketInfo[]>
   private fetchReadyTicketsFn?: (readyNames: Set<string>) => Promise<Array<{ id: string; title: string }>>
 
   /** Git repo directories to poll for PRs. Resolved from cwd on construction. */
@@ -85,6 +111,7 @@ export class SimplePoller {
     this.db = options.db
     this.log = options.log
     this.cwd = options.cwd
+    this.fetchBoardTicketsFn = options.fetchBoardTickets
     this.fetchReadyTicketsFn = options.fetchReadyTickets
     this.repoDirs = SimplePoller.resolveRepoDirs(options.cwd, options.log)
   }
@@ -148,9 +175,10 @@ export class SimplePoller {
   async poll(): Promise<PollResult> {
     const items: StateItem[] = []
 
-    items.push(...this.gatherGitHubPRState())
+    const githubItems = this.gatherGitHubPRState()
+    items.push(...githubItems)
     items.push(...this.gatherAgentState())
-    items.push(...await this.gatherReadyTicketState())
+    items.push(...await this.gatherBoardState(githubItems))
 
     const message = this.formatStateMessage(items)
     return { items, message }
@@ -360,48 +388,100 @@ export class SimplePoller {
   }
 
   // ===========================================================================
-  // Board / Ready Ticket State
+  // Board State (PRLT-1358: full board state, not just ready tickets)
   // ===========================================================================
 
+  /** Status names considered "ready" for unassigned ticket reporting. */
+  private getReadyNames(): Set<string> {
+    const readyNames = new Set(['ready', 'planned', 'todo'])
+    try {
+      const config = getWorkflowConfig(this.db)
+      readyNames.add(config.planned.toLowerCase())
+    } catch {
+      // pmo_settings may not exist yet
+    }
+    return readyNames
+  }
+
+  /** Get ticket IDs that have active agents (starting or running). */
+  private getActiveAgentTicketIds(): Set<string> {
+    try {
+      return new Set(
+        (this.db.prepare(
+          `SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')`,
+        ).all() as Array<{ ticket_id: string }>).map(r => r.ticket_id),
+      )
+    } catch {
+      return new Set()
+    }
+  }
+
   /**
-   * Gather ready ticket state from the live provider (PRLT-1354).
-   * Queries the configured ticket provider (Linear, Jira, etc.) for accurate
-   * status instead of the stale ticket_refs cache.
+   * Gather full board state from the live provider (PRLT-1358).
+   * Reports ticket counts by column and flags anomalies:
+   * - Tickets In Progress with no agent
+   * - Tickets in Review with merged PRs
+   * - Tickets stuck in a column for >24h
    */
-  private async gatherReadyTicketState(): Promise<StateItem[]> {
+  private async gatherBoardState(githubItems: StateItem[]): Promise<StateItem[]> {
     const items: StateItem[] = []
 
     try {
-      // Build list of status names that represent "ready" tickets.
-      const readyNames = new Set(['ready', 'planned', 'todo'])
-      try {
-        const config = getWorkflowConfig(this.db)
-        readyNames.add(config.planned.toLowerCase())
-      } catch {
-        // pmo_settings may not exist yet
+      const readyNames = this.getReadyNames()
+      const activeAgentTickets = this.getActiveAgentTicketIds()
+
+      // Fetch tickets — prefer full board, fall back to ready-only for backward compat
+      let allTickets: BoardTicketInfo[]
+      if (this.fetchBoardTicketsFn) {
+        allTickets = await this.fetchBoardTicketsFn()
+      } else if (this.fetchReadyTicketsFn) {
+        // Legacy path: only ready tickets available
+        const readyTickets = await this.fetchReadyTicketsFn(readyNames)
+        allTickets = readyTickets.map(t => ({
+          id: t.id,
+          title: t.title,
+          statusName: 'Ready',
+          statusCategory: 'unstarted',
+          assignee: undefined,
+        }))
+      } else {
+        allTickets = await this.fetchBoardTicketsFromProvider()
       }
 
-      // Get active agent ticket IDs to exclude
-      let activeAgentTickets = new Set<string>()
-      try {
-        activeAgentTickets = new Set(
-          (this.db.prepare(
-            `SELECT ticket_id FROM agent_work WHERE status IN ('starting', 'running')`,
-          ).all() as Array<{ ticket_id: string }>).map(r => r.ticket_id),
-        )
-      } catch {
-        // agent_work table may not exist
+      // Exclude terminal states from active board reporting
+      const terminalCategories = new Set(['completed', 'canceled'])
+      const activeTickets = allTickets.filter(
+        t => !terminalCategories.has(t.statusCategory ?? ''),
+      )
+
+      // Group by status name for column counts
+      const columnCounts = new Map<string, number>()
+      for (const ticket of activeTickets) {
+        const status = ticket.statusName || 'Unknown'
+        columnCounts.set(status, (columnCounts.get(status) ?? 0) + 1)
       }
 
-      // Fetch ready tickets from the live provider (PRLT-1354).
-      const readyTickets = this.fetchReadyTicketsFn
-        ? await this.fetchReadyTicketsFn(readyNames)
-        : await this.fetchReadyTicketsFromProvider(readyNames)
-
-      for (const ticket of readyTickets) {
-        if (activeAgentTickets.has(ticket.id)) continue
-        items.push({ category: 'board', summary: `${ticket.id} "${ticket.title}": ready, unassigned` })
+      // Emit board summary item
+      if (columnCounts.size > 0) {
+        const countParts = Array.from(columnCounts.entries())
+          .map(([name, count]) => `${name}: ${count}`)
+          .join(', ')
+        items.push({
+          category: 'board',
+          summary: `columns: ${countParts}`,
+        })
       }
+
+      // Emit individual ready/unassigned tickets (orchestrator needs these to assign agents)
+      for (const ticket of activeTickets) {
+        const statusLower = (ticket.statusName || '').toLowerCase()
+        if (readyNames.has(statusLower) && !ticket.assignee && !activeAgentTickets.has(ticket.id)) {
+          items.push({ category: 'board', summary: `${ticket.id} "${ticket.title}": ready, unassigned` })
+        }
+      }
+
+      // Detect anomalies
+      items.push(...this.detectAnomalies(activeTickets, activeAgentTickets, githubItems))
     } catch {
       // Non-fatal error
     }
@@ -410,11 +490,74 @@ export class SimplePoller {
   }
 
   /**
-   * Default implementation: query live provider for ready, unassigned tickets.
+   * Detect board anomalies (PRLT-1358).
+   * Exposed as static-like for testability.
    */
-  private async fetchReadyTicketsFromProvider(
-    readyNames: Set<string>,
-  ): Promise<Array<{ id: string; title: string }>> {
+  private detectAnomalies(
+    tickets: BoardTicketInfo[],
+    activeAgentTickets: Set<string>,
+    githubItems: StateItem[],
+  ): StateItem[] {
+    const items: StateItem[] = []
+    const now = Date.now()
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000
+
+    // Build set of ticket IDs that have open PRs
+    const ticketsWithOpenPRs = new Set<string>()
+    for (const item of githubItems) {
+      const match = item.summary.match(/\(([A-Z]+-\d+|TKT-\d+)\)/)
+      if (match) ticketsWithOpenPRs.add(match[1])
+    }
+
+    // In Progress categories: 'started'
+    const startedNames = new Set(['in progress', 'in development', 'developing', 'working', 'active', 'started'])
+    // Review categories
+    const reviewNames = new Set(['review', 'in review', 'code review', 'peer review', 'needs review'])
+
+    for (const ticket of tickets) {
+      const statusLower = (ticket.statusName || '').toLowerCase()
+      const isStarted = ticket.statusCategory === 'started' || startedNames.has(statusLower)
+      const isReview = reviewNames.has(statusLower)
+
+      // Anomaly: In Progress with no active agent
+      if (isStarted && !activeAgentTickets.has(ticket.id) && !isReview) {
+        items.push({
+          category: 'anomaly',
+          summary: `${ticket.id} "${ticket.title}": in progress with no active agent`,
+        })
+      }
+
+      // Anomaly: In Review but no open PR (PR may have been merged already)
+      if (isReview && !ticketsWithOpenPRs.has(ticket.id)) {
+        items.push({
+          category: 'anomaly',
+          summary: `${ticket.id} "${ticket.title}": in review with no open PR`,
+        })
+      }
+
+      // Anomaly: Stuck in column >24h (non-terminal, non-backlog)
+      if (ticket.updatedAt) {
+        const age = now - ticket.updatedAt.getTime()
+        const isNonTrivialColumn = ticket.statusCategory === 'started' || isReview
+        if (age > TWENTY_FOUR_HOURS && isNonTrivialColumn) {
+          const hours = Math.floor(age / (60 * 60 * 1000))
+          const days = Math.floor(hours / 24)
+          const timeStr = days > 0 ? `${days}d` : `${hours}h`
+          items.push({
+            category: 'anomaly',
+            summary: `${ticket.id} "${ticket.title}": stuck in ${ticket.statusName} for ${timeStr}`,
+          })
+        }
+      }
+    }
+
+    return items
+  }
+
+  /**
+   * Default implementation: query live provider for all active tickets.
+   */
+  private async fetchBoardTicketsFromProvider(): Promise<BoardTicketInfo[]> {
     if (!this.cwd) return []
 
     const dbPath = path.join(this.cwd, '.proletariat', 'workspace.db')
@@ -434,7 +577,7 @@ export class SimplePoller {
       return []
     }
 
-    const tickets: Array<{ id: string; title: string }> = []
+    const tickets: BoardTicketInfo[] = []
 
     for (const project of projects) {
       try {
@@ -443,10 +586,14 @@ export class SimplePoller {
         if (!result.success) continue
 
         for (const ticket of result.tickets) {
-          const statusLower = (ticket.statusName || '').toLowerCase()
-          if (readyNames.has(statusLower) && !ticket.assignee) {
-            tickets.push({ id: ticket.id, title: ticket.title })
-          }
+          tickets.push({
+            id: ticket.id,
+            title: ticket.title,
+            statusName: ticket.statusName || '',
+            statusCategory: ticket.statusCategory,
+            assignee: ticket.assignee,
+            updatedAt: ticket.updatedAt,
+          })
         }
       } catch {
         // Non-fatal: skip project on error
@@ -466,7 +613,9 @@ export class SimplePoller {
     const githubItems = items.filter(c => c.category === 'github')
     const boardItems = items.filter(c => c.category === 'board')
     const agentItems = items.filter(c => c.category === 'agents')
+    const anomalyItems = items.filter(c => c.category === 'anomaly')
 
+    // --- GitHub PRs ---
     if (githubItems.length > 0) {
       sections.push(`GitHub PRs (${githubItems.length} open):`)
       for (const c of githubItems) {
@@ -476,17 +625,37 @@ export class SimplePoller {
       sections.push('GitHub PRs: none')
     }
 
-    if (boardItems.length > 0) {
+    // --- Board State ---
+    // Separate column summary from individual ready tickets
+    const columnSummary = boardItems.find(c => c.summary.startsWith('columns:'))
+    const readyTickets = boardItems.filter(c => !c.summary.startsWith('columns:'))
+
+    if (columnSummary) {
       sections.push('')
-      sections.push(`Ready tickets (${boardItems.length} unassigned):`)
-      for (const c of boardItems) {
-        sections.push(`- ${c.summary}`)
-      }
-    } else {
-      sections.push('')
-      sections.push('Ready tickets: none')
+      sections.push(`Board state: ${columnSummary.summary.replace('columns: ', '')}`)
     }
 
+    if (readyTickets.length > 0) {
+      sections.push('')
+      sections.push(`Ready tickets (${readyTickets.length} unassigned):`)
+      for (const c of readyTickets) {
+        sections.push(`- ${c.summary}`)
+      }
+    } else if (!columnSummary) {
+      sections.push('')
+      sections.push('Board: no active tickets')
+    }
+
+    // --- Anomalies ---
+    if (anomalyItems.length > 0) {
+      sections.push('')
+      sections.push(`Anomalies (${anomalyItems.length}):`)
+      for (const c of anomalyItems) {
+        sections.push(`- ${c.summary}`)
+      }
+    }
+
+    // --- Active Agents ---
     if (agentItems.length > 0) {
       const states = agentItems.map(c => c.healthState ?? 'UNKNOWN' as AgentHealthState)
       const counts = countByState(states)
