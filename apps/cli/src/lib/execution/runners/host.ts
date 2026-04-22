@@ -8,7 +8,7 @@ import {
   resolveCodexExecutionContext, validateCodexMode, getCodexCommand, resolveToolsForSpawn,
   RunnerResult, buildWindowTitle, buildTmuxWindowName,
   buildPrompt, buildOrchestratorSystemPrompt, getExecutorCommand, isClaudeExecutor,
-  shouldUseControlMode, buildTmuxMouseOption, buildTmuxAttachCommand, configureITermTmuxWindowMode,
+  shouldUseControlMode, buildTmuxMouseOption, buildTmuxTitleOptions, buildTmuxAttachCommand, configureITermTmuxWindowMode,
 } from './shared.js'
 import { buildSrtCommand } from './sandbox.js'
 
@@ -254,7 +254,8 @@ ${postExecBlock}`
     // Step 1: Create host tmux session (detached)
     // Only enable mouse mode if NOT using control mode (control mode lets iTerm handle mouse natively)
     const mouseOption = buildTmuxMouseOption(useControlMode)
-    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption} \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"`
+    const titleOptions = buildTmuxTitleOptions()
+    const tmuxCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "${scriptPath}"${mouseOption}${titleOptions}`
 
     try {
       execSync(tmuxCmd, { stdio: 'pipe' })

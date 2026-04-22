@@ -22,6 +22,7 @@ import {
   buildWindowTitle,
   shouldUseControlMode,
   buildTmuxMouseOption,
+  buildTmuxTitleOptions,
   buildTmuxAttachCommand,
   configureITermTmuxWindowMode,
 } from './shared.js'
@@ -141,7 +142,8 @@ ${containerPostExec}
     } catch { /* Session doesn't exist */ }
 
     // Create tmux session
-    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "bash ${scriptPath}"${mouseOption} \; set-option -g set-titles on \; set-option -g set-titles-string "#{window_name}"`
+    const titleOptions = buildTmuxTitleOptions()
+    const createSessionCmd = `tmux new-session -d -s "${sessionName}" -n "${sessionName}" "bash ${scriptPath}"${mouseOption}${titleOptions}`
     try {
       execSync(`docker exec ${actualContainerId} bash -c '${createSessionCmd}'`, { stdio: 'pipe' })
     } catch (error) {

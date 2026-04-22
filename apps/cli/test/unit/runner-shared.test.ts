@@ -5,6 +5,7 @@ import {
   buildTmuxWindowName,
   shouldUseControlMode,
   buildTmuxMouseOption,
+  buildTmuxTitleOptions,
   buildTmuxAttachCommand,
   isDockerRunning,
   checkDockerDaemon,
@@ -150,6 +151,52 @@ describe('Runner Shared Utilities (TKT-140)', () => {
     it('should always return mouse-on option regardless of param', () => {
       expect(buildTmuxMouseOption(true)).to.include('mouse on')
       expect(buildTmuxMouseOption(false)).to.include('mouse on')
+    })
+  })
+
+  // =========================================================================
+  // PRLT-1351: tmux title options escaping
+  // =========================================================================
+  describe('buildTmuxTitleOptions', () => {
+    it('should include set-titles on and set-titles-string', () => {
+      const result = buildTmuxTitleOptions()
+      expect(result).to.include('set-titles on')
+      expect(result).to.include('set-titles-string')
+    })
+
+    it('should contain backslash-escaped semicolons for bash passthrough', () => {
+      // PRLT-1351 regression: without \\; in the JS source, template literals
+      // produce bare ; which bash treats as a command separator instead of
+      // passing it through to tmux. The string value must contain literal \;
+      const result = buildTmuxTitleOptions()
+      expect(result).to.include('\\;')
+      // Must NOT contain bare ; (without preceding backslash) as a tmux separator
+      // Split on \; first, then check remaining parts don't have bare ;
+      const withoutEscaped = result.replace(/\\;/g, '')
+      expect(withoutEscaped).to.not.include(';',
+        'bare semicolons without backslash escape will be parsed by bash, not tmux')
+    })
+
+    it('should use same escaping pattern as buildTmuxMouseOption', () => {
+      // Both helpers must use \\; so they are safe when concatenated into
+      // a command string passed through bash -c (devcontainer) or execSync (host)
+      const mouseOpt = buildTmuxMouseOption(false)
+      const titleOpt = buildTmuxTitleOptions()
+      // Both should have \; in the runtime string value
+      expect(mouseOpt).to.include('\\;')
+      expect(titleOpt).to.include('\\;')
+    })
+
+    it('should produce command that bash -c passes through to tmux correctly', () => {
+      // Simulate what happens when the options are embedded in a bash -c command:
+      // The \\; in JS becomes \; in the string, which inside bash -c single quotes
+      // is interpreted as a literal ; and forwarded to tmux as a command separator.
+      const mouseOpt = buildTmuxMouseOption(false)
+      const titleOpt = buildTmuxTitleOptions()
+      const cmd = `tmux new-session -d -s "test" "script.sh"${mouseOpt}${titleOpt}`
+      // Count bare semicolons (not preceded by backslash) — should be zero
+      const bareSemicolons = cmd.match(/(?<!\\);/g)
+      expect(bareSemicolons).to.be.null
     })
   })
 

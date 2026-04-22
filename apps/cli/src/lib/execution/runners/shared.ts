@@ -112,6 +112,20 @@ export function buildTmuxMouseOption(_useControlMode: boolean): string {
   return ' \\; set-option -g mouse on'
 }
 
+/**
+ * Build tmux set-titles options string.
+ * Uses \\; which produces \; in the output — required so that
+ * bash interprets the semicolons as literal characters (not command
+ * separators) and passes them through to tmux as tmux command separators.
+ *
+ * PRLT-1351: Extracted to prevent escaping divergence between host.ts
+ * and devcontainer-tmux.ts (where \; in a JS template literal silently
+ * becomes a bare ; and bash runs set-option as a shell command).
+ */
+export function buildTmuxTitleOptions(): string {
+  return ' \\; set-option -g set-titles on \\; set-option -g set-titles-string "#{window_name}"'
+}
+
 export function buildTmuxAttachCommand(useControlMode: boolean, includeUnicodeFlag: boolean = false): string {
   const unicodeFlag = includeUnicodeFlag ? '-u ' : ''
   if (useControlMode) {
