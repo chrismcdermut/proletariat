@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { PMOCommand, pmoBaseFlags, autoExportToBoard } from '../../lib/pmo/index.js';
 import { styles } from '../../lib/styles.js';
-import { getWorkspaceInfo } from '../../lib/agents/commands.js';
+import { getWorkspaceInfo, cleanupAgent } from '../../lib/agents/commands.js';
 import { ExecutionStorage } from '../../lib/execution/storage.js';
 import {
   requireGhCli,
@@ -89,6 +89,11 @@ export default class WorkShip extends PMOCommand {
     'no-transition': Flags.boolean({
       description: 'Skip board state transition (still merges PR)',
       default: false,
+    }),
+    'auto-prune': Flags.boolean({
+      description: 'Automatically clean up the agent that worked on this ticket after shipping',
+      default: true,
+      allowNo: true,
     }),
   };
 
@@ -200,6 +205,38 @@ export default class WorkShip extends PMOCommand {
         await autoExportToBoard(this.pmoPath, this.storage);
       }
 
+      // --- Auto-prune agent (PRLT-1359) ---
+      let prunedAgent: string | undefined;
+      if (result.success && !flags['dry-run'] && flags['auto-prune']) {
+        try {
+          const ticketIdForLookup = result.ticket?.id ?? args.ticketId;
+          if (ticketIdForLookup) {
+            const executionStorage = new ExecutionStorage(db);
+            const completedExecs = executionStorage.listExecutions({ ticketId: ticketIdForLookup });
+            const completedExec = completedExecs.find(e => e.status === 'completed');
+            if (completedExec) {
+              const freshWorkspace = getWorkspaceInfo();
+              const agent = freshWorkspace.agents.find(a => a.name === completedExec.agentName);
+              if (agent && agent.type === 'ephemeral' && (agent.status === 'active' || agent.status === 'running')) {
+                // Ensure agent has no other running work
+                const runningExecs = executionStorage.getAgentRunningExecutions(agent.name);
+                if (runningExecs.length === 0) {
+                  const cleanupResult = await cleanupAgent(freshWorkspace, agent.name, {
+                    force: true, // Work is shipped — safe to force cleanup
+                    log: jsonMode ? undefined : (msg) => this.log(styles.muted(`   ${msg}`)),
+                  });
+                  if (cleanupResult.success) {
+                    prunedAgent = agent.name;
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          // Non-critical — don't fail ship because of cleanup
+        }
+      }
+
       // --- Output ---
       if (flags['dry-run'] && result.dryRunDetails) {
         this.outputDryRun(result, flags);
@@ -215,9 +252,10 @@ export default class WorkShip extends PMOCommand {
           newState: result.newState ?? null,
           siblingsRebased: result.siblingsRebased,
           siblingCount: result.siblingCount,
+          prunedAgent: prunedAgent ?? null,
         }, createMetadata('work ship', flags));
       } else {
-        this.outputHuman(result);
+        this.outputHuman(result, prunedAgent);
       }
     } catch (error) {
       if (error instanceof ServiceError) {
@@ -242,7 +280,7 @@ export default class WorkShip extends PMOCommand {
     }
   }
 
-  private outputHuman(result: any): void {
+  private outputHuman(result: any, prunedAgent?: string): void {
     this.log('');
     if (result.alreadyMerged) {
       this.log(styles.success(`Synced: ${result.ticket?.id ?? `PR #${result.pr?.number}`} (PR already merged)`));
@@ -258,6 +296,9 @@ export default class WorkShip extends PMOCommand {
     }
     if (result.siblingsRebased) {
       this.log(styles.muted(`   Sibling rebases: ${result.siblingCount}`));
+    }
+    if (prunedAgent) {
+      this.log(styles.muted(`   Pruned agent: ${prunedAgent}`));
     }
   }
 

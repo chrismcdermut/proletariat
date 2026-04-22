@@ -1547,3 +1547,32 @@ export function getCleanableAgents(
     return sessions.length === 0;
   });
 }
+
+/**
+ * Get agents whose work has been shipped (execution completed/stopped).
+ *
+ * PRLT-1359: Unlike getCleanableAgents() which finds idle agents without
+ * tmux sessions, this finds agents with completed work that may still have
+ * active sessions — the "zombie" agents consuming resources after ship.
+ *
+ * @param workspaceInfo - Workspace info with agent list
+ * @param completedAgentNames - Agent names with completed/stopped executions
+ * @param busyAgentNames - Agent names with running/starting executions (excluded for safety)
+ */
+export function getShippedAgents(
+  workspaceInfo: WorkspaceInfo,
+  completedAgentNames: Set<string>,
+  busyAgentNames: Set<string>,
+): Agent[] {
+  return workspaceInfo.agents.filter(agent => {
+    // Only clean ephemeral agents
+    if (agent.type !== 'ephemeral') return false;
+    // Only clean agents still in active/running lifecycle state
+    if (agent.status !== 'active' && agent.status !== 'running') return false;
+    // Must have completed work
+    if (!completedAgentNames.has(agent.name)) return false;
+    // Safety: don't clean agents with other running executions
+    if (busyAgentNames.has(agent.name)) return false;
+    return true;
+  });
+}
