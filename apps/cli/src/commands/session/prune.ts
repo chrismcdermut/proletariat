@@ -5,6 +5,7 @@ import {
   getWorkspaceInfo,
   cleanupAgent,
   getCleanableAgents,
+  getShippedAgents,
   killTmuxSession,
   CleanupResult,
 } from '../../lib/agents/commands.js'
@@ -34,6 +35,7 @@ interface PruneResult {
   orphanSessionsKilled: string[]
   deadContainersKilled: string[]
   ephemeralAgentsCleaned: CleanupResult[]
+  shippedAgentsCleaned: CleanupResult[]
   errors: string[]
 }
 
@@ -105,6 +107,7 @@ export default class SessionPrune extends PromptCommand {
         orphanSessionsKilled: [],
         deadContainersKilled: [],
         ephemeralAgentsCleaned: [],
+        shippedAgentsCleaned: [],
         errors: [],
       }
 
@@ -251,9 +254,38 @@ export default class SessionPrune extends PromptCommand {
         })
       }
 
+      // =====================================================================
+      // Step 5: Clean up agents whose work has been shipped (PRLT-1359)
+      // =====================================================================
+      // Find agents with completed executions but still active sessions/worktrees.
+      // These are "zombie" agents — their ticket is Done, PR is merged, but
+      // their tmux sessions and worktrees still consume resources.
+      const shippedExecutions = executionStorage.listExecutions({ status: 'completed' })
+      const stoppedExecutions = executionStorage.listExecutions({ status: 'stopped' })
+      const completedAgentNames = new Set(
+        [...shippedExecutions, ...stoppedExecutions].map(e => e.agentName),
+      )
+      const busyAgentNames = new Set(
+        [...runningExecutions, ...startingExecutions].map(e => e.agentName),
+      )
+      let shippedAgents = getShippedAgents(freshWorkspaceInfo, completedAgentNames, busyAgentNames)
+
+      // Remove agents already in the cleanableAgents list to avoid double-cleanup
+      const cleanableNames = new Set(cleanableAgents.map(a => a.name))
+      shippedAgents = shippedAgents.filter(a => !cleanableNames.has(a.name))
+
+      // Apply age filter if specified
+      if (ageHours > 0) {
+        const cutoffMs = ageHours * 60 * 60 * 1000
+        shippedAgents = shippedAgents.filter(agent => {
+          const agentCreated = agent.created_at ? new Date(agent.created_at).getTime() : 0
+          return agentCreated > 0 && (Date.now() - agentCreated) > cutoffMs
+        })
+      }
+
       // Determine total work to be done
       const totalOrphans = orphanHostSessions.length + orphanContainerSessions.length
-      const totalWork = staleCount + totalOrphans + cleanableAgents.length + result.deadContainersKilled.length
+      const totalWork = staleCount + totalOrphans + cleanableAgents.length + shippedAgents.length + result.deadContainersKilled.length
 
       if (totalWork === 0) {
         if (jsonMode) {
@@ -299,11 +331,18 @@ export default class SessionPrune extends PromptCommand {
             this.log(styles.muted(`    - ${agent.name}`))
           }
         }
+        if (shippedAgents.length > 0) {
+          this.log(styles.info(`  ${shippedAgents.length} shipped agent(s) ${dryRun ? 'would be ' : ''}cleaned up (work done, PR merged):`))
+          for (const agent of shippedAgents) {
+            this.log(styles.muted(`    - ${agent.name}`))
+          }
+        }
         this.log('')
       }
 
       // Confirm unless --yes or --dry-run
-      if (!skipConfirm && !dryRun && (cleanableAgents.length > 0 || result.deadContainersKilled.length > 0)) {
+      const hasDestructiveWork = cleanableAgents.length > 0 || shippedAgents.length > 0 || result.deadContainersKilled.length > 0
+      if (!skipConfirm && !dryRun && hasDestructiveWork) {
         if (jsonMode) {
           outputSuccessAsJson({
             message: 'Confirmation required',
@@ -312,6 +351,7 @@ export default class SessionPrune extends PromptCommand {
               orphanSessions: totalOrphans,
               deadContainers: result.deadContainersKilled.length,
               ephemeralAgents: cleanableAgents.map(a => a.name),
+              shippedAgents: shippedAgents.map(a => a.name),
             },
           }, createMetadata('session prune', flags))
           return
@@ -374,6 +414,42 @@ export default class SessionPrune extends PromptCommand {
         }
       }
 
+      // Clean up shipped agents (PRLT-1359)
+      if (!dryRun) {
+        for (const agent of shippedAgents) {
+          if (!jsonMode) {
+            this.log(styles.info(`  Cleaning up shipped agent: ${agent.name}`))
+          }
+
+          // eslint-disable-next-line no-await-in-loop -- Sequential cleanup
+          const cleanupResult = await cleanupAgent(freshWorkspaceInfo, agent.name, {
+            log: jsonMode ? undefined : (msg) => this.log(styles.muted(`    ${msg}`)),
+            dryRun: false,
+            force: true, // Work is shipped — safe to force cleanup
+          })
+
+          result.shippedAgentsCleaned.push(cleanupResult)
+
+          if (!cleanupResult.success && !jsonMode) {
+            this.log(styles.warning(`    Failed to clean up ${agent.name}: ${cleanupResult.errors.join(', ')}`))
+          }
+        }
+      } else {
+        for (const agent of shippedAgents) {
+          result.shippedAgentsCleaned.push({
+            agent: agent.name,
+            success: true,
+            tmuxSessionsKilled: [],
+            containersRemoved: [],
+            directoriesRemoved: [],
+            branchesDeleted: [],
+            remoteBranchesDeleted: [],
+            executionRecordsCleaned: 0,
+            errors: [],
+          })
+        }
+      }
+
       // Output results
       if (jsonMode) {
         outputSuccessAsJson({
@@ -386,6 +462,8 @@ export default class SessionPrune extends PromptCommand {
             deadContainersKilled: result.deadContainersKilled.length,
             ephemeralAgentsCleaned: result.ephemeralAgentsCleaned.filter(r => r.success).length,
             ephemeralAgentsFailed: result.ephemeralAgentsCleaned.filter(r => !r.success).length,
+            shippedAgentsCleaned: result.shippedAgentsCleaned.filter(r => r.success).length,
+            shippedAgentsFailed: result.shippedAgentsCleaned.filter(r => !r.success).length,
           },
         }, createMetadata('session prune', flags))
         return
@@ -414,6 +492,16 @@ export default class SessionPrune extends PromptCommand {
       }
       if (failedCleanups.length > 0) {
         this.log(styles.warning(`  ${failedCleanups.length} agent(s) skipped (unsaved work)`))
+      }
+
+      const successfulShipped = result.shippedAgentsCleaned.filter(r => r.success)
+      const failedShipped = result.shippedAgentsCleaned.filter(r => !r.success)
+
+      if (successfulShipped.length > 0) {
+        this.log(styles.success(`  ${successfulShipped.length} shipped agent(s) ${dryRun ? 'would be ' : ''}cleaned up`))
+      }
+      if (failedShipped.length > 0) {
+        this.log(styles.warning(`  ${failedShipped.length} shipped agent(s) failed to clean up`))
       }
       if (result.errors.length > 0) {
         for (const err of result.errors) {
