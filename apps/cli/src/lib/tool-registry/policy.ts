@@ -13,6 +13,7 @@ import type {
   ToolPolicy,
   McpServerConfig,
   CliToolConfig,
+  ApiToolConfig,
 } from './types.js'
 import { BUILTIN_PRLT_TOOL } from './types.js'
 
@@ -80,9 +81,10 @@ export function listPolicies(hqPath: string): string[] {
 export function filterByPolicy(
   registry: ToolRegistry,
   policy: ToolPolicy | null
-): { mcpServers: McpServerConfig[]; cliTools: CliToolConfig[] } {
+): { mcpServers: McpServerConfig[]; cliTools: CliToolConfig[]; apiTools: ApiToolConfig[] } {
   const allMcp = Object.entries(registry['mcp-servers'])
   const allCli = Object.entries(registry['cli-tools'])
+  const allApi = Object.entries(registry['api-tools'])
 
   // No policy = full access
   if (!policy) {
@@ -93,6 +95,7 @@ export function filterByPolicy(
         // Always include prlt
         ...(allCli.some(([name]) => name === 'prlt') ? [] : [BUILTIN_PRLT_TOOL]),
       ],
+      apiTools: allApi.map(([name, config]) => ({ name, ...config })),
     }
   }
 
@@ -116,5 +119,11 @@ export function filterByPolicy(
     cliTools.push(BUILTIN_PRLT_TOOL)
   }
 
-  return { mcpServers, cliTools }
+  // Filter API tools
+  const allowedApi = new Set(policy.api || [])
+  const apiTools = allApi
+    .filter(([name]) => allowedApi.has(name))
+    .map(([name, config]) => ({ name, ...config }))
+
+  return { mcpServers, cliTools, apiTools }
 }

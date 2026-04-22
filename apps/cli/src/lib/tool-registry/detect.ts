@@ -9,10 +9,11 @@ import type {
   ToolRegistry,
   CliToolConfig,
   McpServerConfig,
+  ApiToolConfig,
   ToolCheckResult,
 } from './types.js'
 import { COMMON_CLI_TOOLS } from './types.js'
-import { getMcpServers, getCliTools } from './registry.js'
+import { getMcpServers, getCliTools, getApiTools } from './registry.js'
 
 /**
  * Check if a CLI tool is available on the system.
@@ -62,6 +63,11 @@ export function checkAllTools(registry: ToolRegistry): ToolCheckResult[] {
     results.push(checkCliTool(tool))
   }
 
+  // Check API tools
+  for (const api of getApiTools(registry)) {
+    results.push(checkApiTool(api))
+  }
+
   return results
 }
 
@@ -106,5 +112,30 @@ function checkCliTool(tool: CliToolConfig): ToolCheckResult {
     available,
     error: available ? undefined : `Command not found: ${tool.command}`,
     installHint: available ? undefined : tool.install,
+  }
+}
+
+function checkApiTool(api: ApiToolConfig): ToolCheckResult {
+  // Check if the auth env var is set
+  if (!process.env[api.auth]) {
+    return {
+      name: api.name,
+      type: 'api',
+      available: false,
+      error: `Missing environment variable: ${api.auth}`,
+    }
+  }
+
+  // Check if the URL is reachable via a HEAD request
+  try {
+    execSync(`curl -s -o /dev/null -w '%{http_code}' --max-time 5 --head "${api.url}"`, { stdio: 'pipe' })
+    return { name: api.name, type: 'api', available: true }
+  } catch {
+    return {
+      name: api.name,
+      type: 'api',
+      available: false,
+      error: `API not reachable: ${api.url}`,
+    }
   }
 }

@@ -12,6 +12,7 @@ import type {
   ToolRegistry,
   McpServerConfig,
   CliToolConfig,
+  ApiToolConfig,
 } from './types.js'
 import { BUILTIN_PRLT_TOOL } from './types.js'
 
@@ -34,6 +35,7 @@ export function loadToolRegistry(hqPath: string): ToolRegistry {
   const empty: ToolRegistry = {
     'mcp-servers': {},
     'cli-tools': {},
+    'api-tools': {},
   }
 
   if (!fs.existsSync(configPath)) {
@@ -47,6 +49,7 @@ export function loadToolRegistry(hqPath: string): ToolRegistry {
     return {
       'mcp-servers': parsed?.['mcp-servers'] ?? {},
       'cli-tools': parsed?.['cli-tools'] ?? {},
+      'api-tools': parsed?.['api-tools'] ?? {},
     }
   } catch {
     return empty
@@ -100,6 +103,16 @@ export function getCliTools(registry: ToolRegistry): CliToolConfig[] {
 }
 
 /**
+ * Get all API tools from the registry, hydrated with their names.
+ */
+export function getApiTools(registry: ToolRegistry): ApiToolConfig[] {
+  return Object.entries(registry['api-tools']).map(([name, config]) => ({
+    name,
+    ...config,
+  }))
+}
+
+/**
  * Add an MCP server to the registry.
  */
 export function addMcpServer(
@@ -126,7 +139,20 @@ export function addCliTool(
 }
 
 /**
- * Remove a tool (MCP or CLI) from the registry.
+ * Add an API tool to the registry.
+ */
+export function addApiTool(
+  hqPath: string,
+  name: string,
+  config: Omit<ApiToolConfig, 'name'>
+): void {
+  const registry = loadToolRegistry(hqPath)
+  registry['api-tools'][name] = config
+  saveToolRegistry(hqPath, registry)
+}
+
+/**
+ * Remove a tool (MCP, CLI, or API) from the registry.
  * Returns true if the tool was found and removed.
  */
 export function removeTool(hqPath: string, name: string): boolean {
@@ -144,6 +170,12 @@ export function removeTool(hqPath: string, name: string): boolean {
       return false // Can't remove built-in tools
     }
     delete registry['cli-tools'][name]
+    saveToolRegistry(hqPath, registry)
+    return true
+  }
+
+  if (name in registry['api-tools']) {
+    delete registry['api-tools'][name]
     saveToolRegistry(hqPath, registry)
     return true
   }

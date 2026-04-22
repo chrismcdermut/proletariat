@@ -10,7 +10,7 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { McpServerConfig, CliToolConfig, ToolPolicy } from './types.js'
+import type { McpServerConfig, CliToolConfig, ApiToolConfig, ToolPolicy } from './types.js'
 import { loadToolRegistry } from './registry.js'
 import { loadToolPolicy, filterByPolicy } from './policy.js'
 
@@ -94,9 +94,10 @@ export function writeMcpConfigFile(
  */
 export function buildToolsPromptSection(
   mcpServers: McpServerConfig[],
-  cliTools: CliToolConfig[]
+  cliTools: CliToolConfig[],
+  apiTools: ApiToolConfig[] = []
 ): string {
-  if (mcpServers.length === 0 && cliTools.length === 0) return ''
+  if (mcpServers.length === 0 && cliTools.length === 0 && apiTools.length === 0) return ''
 
   let section = `## Available Tools\n\n`
 
@@ -116,6 +117,19 @@ export function buildToolsPromptSection(
     section += `\n`
   }
 
+  if (apiTools.length > 0) {
+    section += `**REST APIs:**\n`
+    for (const api of apiTools) {
+      const authHeader = api.auth_header || 'Authorization: Bearer'
+      section += `- ${api.name} API is available at ${api.url}. Auth: ${authHeader} $${api.auth}. ${api.description}`
+      if (api.docs) {
+        section += `. Docs: ${api.docs}`
+      }
+      section += `\n`
+    }
+    section += `\n`
+  }
+
   section += `Use these tools for external interactions. Prefer registered tools over raw curl or API calls.\n\n`
 
   return section
@@ -130,6 +144,7 @@ export interface SpawnToolsResult {
   promptSection: string
   mcpServers: McpServerConfig[]
   cliTools: CliToolConfig[]
+  apiTools: ApiToolConfig[]
 }
 
 /**
@@ -150,10 +165,10 @@ export function resolveToolsForSpawn(
     ? loadToolPolicy(hqPath, policyName)
     : null
 
-  const { mcpServers, cliTools } = filterByPolicy(registry, policy)
+  const { mcpServers, cliTools, apiTools } = filterByPolicy(registry, policy)
 
   const mcpConfigPath = writeMcpConfigFile(mcpServers, outputDir)
-  const promptSection = buildToolsPromptSection(mcpServers, cliTools)
+  const promptSection = buildToolsPromptSection(mcpServers, cliTools, apiTools)
 
-  return { mcpConfigPath, promptSection, mcpServers, cliTools }
+  return { mcpConfigPath, promptSection, mcpServers, cliTools, apiTools }
 }

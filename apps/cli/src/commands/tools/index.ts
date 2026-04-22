@@ -7,6 +7,7 @@ import {
   loadToolRegistry,
   getMcpServers,
   getCliTools,
+  getApiTools,
 } from '../../lib/tool-registry/index.js'
 
 export default class ToolsList extends Command {
@@ -40,6 +41,7 @@ export default class ToolsList extends Command {
     const registry = loadToolRegistry(hqPath)
     const mcpServers = getMcpServers(registry)
     const cliTools = getCliTools(registry)
+    const apiTools = getApiTools(registry)
 
     if (jsonMode) {
       this.log(JSON.stringify({
@@ -56,6 +58,15 @@ export default class ToolsList extends Command {
           command: t.command,
           description: t.description,
           builtin: t.builtin || false,
+        })),
+        apiTools: apiTools.map(a => ({
+          name: a.name,
+          type: 'api',
+          url: a.url,
+          auth: a.auth,
+          auth_header: a.auth_header,
+          description: a.description,
+          docs: a.docs,
         })),
       }, null, 2))
       return
@@ -89,6 +100,20 @@ export default class ToolsList extends Command {
       for (const tool of cliTools) {
         const builtin = tool.builtin ? chalk.dim(' [built-in]') : ''
         this.log(`  ${chalk.green(tool.name)} (${tool.command}) — ${tool.description}${builtin}`)
+      }
+    }
+
+    // API Tools
+    this.log(`\n${chalk.bold('REST APIs')}`)
+    this.log('─'.repeat(40))
+    if (apiTools.length === 0) {
+      this.log(chalk.dim('  No API tools registered'))
+      this.log(chalk.dim('  Add one: prlt tools add api <name> --url <url> --auth <ENV_VAR>'))
+    } else {
+      for (const api of apiTools) {
+        const docs = api.docs ? chalk.dim(` [docs: ${api.docs}]`) : ''
+        this.log(`  ${chalk.yellow(api.name)} — ${api.description}`)
+        this.log(`    ${chalk.dim(api.url)} [auth: $${api.auth}]${docs}`)
       }
     }
 

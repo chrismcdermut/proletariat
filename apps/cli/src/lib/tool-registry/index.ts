@@ -6,6 +6,7 @@
 export type {
   McpServerConfig,
   CliToolConfig,
+  ApiToolConfig,
   ToolRegistry,
   ToolPolicy,
   ToolCheckResult,
@@ -19,8 +20,10 @@ export {
   saveToolRegistry,
   getMcpServers,
   getCliTools,
+  getApiTools,
   addMcpServer,
   addCliTool,
+  addApiTool,
   removeTool,
 } from './registry.js'
 

@@ -25,6 +25,25 @@ export interface McpServerConfig {
 }
 
 // =============================================================================
+// API Tool Registry
+// =============================================================================
+
+export interface ApiToolConfig {
+  /** Tool name (unique identifier) */
+  name: string
+  /** Base URL of the REST API */
+  url: string
+  /** Environment variable name holding the auth token (e.g., "POSTHOG_API_KEY") */
+  auth: string
+  /** Auth header format (default: "Authorization: Bearer") */
+  auth_header?: string
+  /** Human-readable description */
+  description: string
+  /** Link to API documentation */
+  docs?: string
+}
+
+// =============================================================================
 // CLI Tool Registry
 // =============================================================================
 
@@ -50,6 +69,7 @@ export interface CliToolConfig {
 export interface ToolRegistry {
   'mcp-servers': Record<string, Omit<McpServerConfig, 'name'>>
   'cli-tools': Record<string, Omit<CliToolConfig, 'name'>>
+  'api-tools': Record<string, Omit<ApiToolConfig, 'name'>>
 }
 
 // =============================================================================
@@ -59,6 +79,7 @@ export interface ToolRegistry {
 export interface ToolPolicy {
   mcp: string[]
   cli: string[]
+  api: string[]
   /** Per-MCP-server fine-grained access (e.g., arcade: { allow: ['asana', 'slack'] }) */
   [serverName: string]: string[] | { allow: string[] } | undefined
 }
@@ -69,7 +90,7 @@ export interface ToolPolicy {
 
 export interface ToolCheckResult {
   name: string
-  type: 'mcp' | 'cli'
+  type: 'mcp' | 'cli' | 'api'
   available: boolean
   error?: string
   installHint?: string
