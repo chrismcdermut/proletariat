@@ -1,8 +1,15 @@
 /**
- * Tool Registry — Load, save, and manage tools.yaml config
+ * Tool Registry — Load, save, and manage tool configuration
  *
- * The tools.yaml file lives at .proletariat/tools.yaml in the HQ root.
- * It registers MCP servers and CLI tools that agents can use.
+ * Primary storage is the tool_registry table in workspace.db.
+ * Falls back to .proletariat/tools.yaml for migration from older workspaces.
+ *
+ * Migration path:
+ * 1. Open workspace DB, read tool_registry table
+ * 2. If table is empty AND tools.yaml exists, import YAML data into DB
+ * 3. All writes go to DB only
+ *
+ * PRLT-1360: Move tool registry from tools.yaml to workspace DB
  */
 
 import * as fs from 'node:fs'
@@ -14,6 +21,17 @@ import type {
   CliToolConfig,
 } from './types.js'
 import { BUILTIN_PRLT_TOOL } from './types.js'
+import { openWorkspaceDatabase } from '../database/index.js'
+import {
+  toolRegistryTableExists,
+  loadRegistryFromDb,
+  saveRegistryToDb,
+  upsertMcpServer,
+  upsertCliTool,
+  removeToolFromDb,
+  isRegistryEmpty,
+  getToolFromDb,
+} from './db.js'
 
 const TOOLS_FILENAME = 'tools.yaml'
 
@@ -25,19 +43,13 @@ export function getToolsConfigPath(hqPath: string): string {
 }
 
 /**
- * Load the tool registry from .proletariat/tools.yaml.
- * Returns an empty registry if the file doesn't exist.
+ * Load tools from the legacy YAML file.
+ * Returns null if the file doesn't exist.
  */
-export function loadToolRegistry(hqPath: string): ToolRegistry {
+function loadFromYaml(hqPath: string): ToolRegistry | null {
   const configPath = getToolsConfigPath(hqPath)
-
-  const empty: ToolRegistry = {
-    'mcp-servers': {},
-    'cli-tools': {},
-  }
-
   if (!fs.existsSync(configPath)) {
-    return empty
+    return null
   }
 
   try {
@@ -49,14 +61,92 @@ export function loadToolRegistry(hqPath: string): ToolRegistry {
       'cli-tools': parsed?.['cli-tools'] ?? {},
     }
   } catch {
-    return empty
+    return null
   }
 }
 
 /**
- * Save the tool registry to .proletariat/tools.yaml.
+ * Open the workspace database, run a callback, and close.
+ * Returns the callback result, or falls back to YAML-only mode
+ * if the database cannot be opened.
+ */
+function withWorkspaceDb<T>(
+  hqPath: string,
+  fn: (db: import('better-sqlite3').Database) => T,
+  fallback: () => T,
+): T {
+  try {
+    const db = openWorkspaceDatabase(hqPath)
+    try {
+      return fn(db)
+    } finally {
+      db.close()
+    }
+  } catch {
+    return fallback()
+  }
+}
+
+/**
+ * Load the tool registry from workspace.db.
+ * Falls back to tools.yaml for migration from older workspaces.
+ * Returns an empty registry if neither source has data.
+ */
+export function loadToolRegistry(hqPath: string): ToolRegistry {
+  const empty: ToolRegistry = {
+    'mcp-servers': {},
+    'cli-tools': {},
+  }
+
+  return withWorkspaceDb(
+    hqPath,
+    (db) => {
+      if (!toolRegistryTableExists(db)) {
+        // DB doesn't have the table yet (pre-migration) — fall back to YAML
+        return loadFromYaml(hqPath) ?? empty
+      }
+
+      // If DB table is empty, try migrating from YAML
+      if (isRegistryEmpty(db)) {
+        const yamlRegistry = loadFromYaml(hqPath)
+        if (yamlRegistry && (
+          Object.keys(yamlRegistry['mcp-servers']).length > 0 ||
+          Object.keys(yamlRegistry['cli-tools']).length > 0
+        )) {
+          // Migrate YAML data into DB
+          saveRegistryToDb(db, yamlRegistry)
+          return yamlRegistry
+        }
+      }
+
+      return loadRegistryFromDb(db)
+    },
+    () => loadFromYaml(hqPath) ?? empty,
+  )
+}
+
+/**
+ * Save the tool registry to workspace.db.
  */
 export function saveToolRegistry(hqPath: string, registry: ToolRegistry): void {
+  withWorkspaceDb(
+    hqPath,
+    (db) => {
+      if (!toolRegistryTableExists(db)) {
+        // Fall back to YAML if table doesn't exist yet
+        saveToYaml(hqPath, registry)
+        return
+      }
+      saveRegistryToDb(db, registry)
+    },
+    () => saveToYaml(hqPath, registry),
+  )
+}
+
+/**
+ * Legacy YAML save — used as fallback when DB is unavailable.
+ */
+function saveToYaml(hqPath: string, registry: ToolRegistry): void {
   const configPath = getToolsConfigPath(hqPath)
   const dir = path.dirname(configPath)
   fs.mkdirSync(dir, { recursive: true })
@@ -107,9 +197,33 @@ export function addMcpServer(
   name: string,
   config: Omit<McpServerConfig, 'name'>
 ): void {
-  const registry = loadToolRegistry(hqPath)
-  registry['mcp-servers'][name] = config
-  saveToolRegistry(hqPath, registry)
+  withWorkspaceDb(
+    hqPath,
+    (db) => {
+      if (!toolRegistryTableExists(db)) {
+        // Fall back to YAML-based add
+        const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {} }
+        registry['mcp-servers'][name] = config
+        saveToYaml(hqPath, registry)
+        return
+      }
+
+      // Ensure YAML data is migrated first
+      if (isRegistryEmpty(db)) {
+        const yamlRegistry = loadFromYaml(hqPath)
+        if (yamlRegistry) {
+          saveRegistryToDb(db, yamlRegistry)
+        }
+      }
+
+      upsertMcpServer(db, name, config)
+    },
+    () => {
+      const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {} }
+      registry['mcp-servers'][name] = config
+      saveToYaml(hqPath, registry)
+    },
+  )
 }
 
 /**
@@ -120,9 +234,31 @@ export function addCliTool(
   name: string,
   config: Omit<CliToolConfig, 'name'>
 ): void {
-  const registry = loadToolRegistry(hqPath)
-  registry['cli-tools'][name] = config
-  saveToolRegistry(hqPath, registry)
+  withWorkspaceDb(
+    hqPath,
+    (db) => {
+      if (!toolRegistryTableExists(db)) {
+        const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {} }
+        registry['cli-tools'][name] = config
+        saveToYaml(hqPath, registry)
+        return
+      }
+
+      if (isRegistryEmpty(db)) {
+        const yamlRegistry = loadFromYaml(hqPath)
+        if (yamlRegistry) {
+          saveRegistryToDb(db, yamlRegistry)
+        }
+      }
+
+      upsertCliTool(db, name, config)
+    },
+    () => {
+      const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {} }
+      registry['cli-tools'][name] = config
+      saveToYaml(hqPath, registry)
+    },
+  )
 }
 
 /**
@@ -130,21 +266,50 @@ export function addCliTool(
  * Returns true if the tool was found and removed.
  */
 export function removeTool(hqPath: string, name: string): boolean {
-  const registry = loadToolRegistry(hqPath)
+  return withWorkspaceDb(
+    hqPath,
+    (db) => {
+      if (!toolRegistryTableExists(db)) {
+        return removeFromYaml(hqPath, name)
+      }
+
+      // Ensure YAML data is migrated first
+      if (isRegistryEmpty(db)) {
+        const yamlRegistry = loadFromYaml(hqPath)
+        if (yamlRegistry) {
+          saveRegistryToDb(db, yamlRegistry)
+        }
+      }
+
+      // Check if tool is built-in before removing
+      const tool = getToolFromDb(db, name)
+      if (!tool) return false
+      if (tool.builtin) return false
+
+      return removeToolFromDb(db, name)
+    },
+    () => removeFromYaml(hqPath, name),
+  )
+}
+
+/**
+ * Legacy YAML remove — used as fallback.
+ */
+function removeFromYaml(hqPath: string, name: string): boolean {
+  const registry = loadFromYaml(hqPath)
+  if (!registry) return false
 
   if (name in registry['mcp-servers']) {
     delete registry['mcp-servers'][name]
-    saveToolRegistry(hqPath, registry)
+    saveToYaml(hqPath, registry)
     return true
   }
 
   if (name in registry['cli-tools']) {
     const tool = registry['cli-tools'][name]
-    if (tool.builtin) {
-      return false // Can't remove built-in tools
-    }
+    if (tool.builtin) return false
     delete registry['cli-tools'][name]
-    saveToolRegistry(hqPath, registry)
+    saveToYaml(hqPath, registry)
     return true
   }
 

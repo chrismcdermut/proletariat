@@ -24,6 +24,19 @@ export {
   removeTool,
 } from './registry.js'
 
+// Database operations (for direct DB access when a connection is available)
+export {
+  toolRegistryTableExists,
+  loadRegistryFromDb,
+  saveRegistryToDb,
+  upsertMcpServer,
+  upsertCliTool,
+  removeToolFromDb,
+  toolExistsInDb,
+  getToolFromDb,
+  isRegistryEmpty,
+} from './db.js'
+
 // Detection and health
 export {
   isCliToolAvailable,
