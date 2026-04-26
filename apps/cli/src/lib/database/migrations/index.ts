@@ -35,6 +35,7 @@ import { hookActionType } from './0026_hook_action_type.js'
 import { actionValidFrom } from './0027_action_valid_from.js'
 import { hookActionTypesExpand } from './0028_hook_action_types_expand.js'
 import { toolRegistry } from './0029_tool_registry.js'
+import { apiToolColumns } from './0030_api_tool_columns.js'
 
 /**
  * Ordered list of all migrations.
@@ -70,4 +71,5 @@ export const ALL_MIGRATIONS: Migration[] = [
   actionValidFrom,
   hookActionTypesExpand,
   toolRegistry,
+  apiToolColumns,
 ]

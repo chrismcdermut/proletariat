@@ -12,19 +12,22 @@ import type {
   ToolRegistry,
   McpServerConfig,
   CliToolConfig,
+  ApiToolConfig,
 } from './types.js'
 
 interface ToolRow {
   name: string
-  type: 'mcp' | 'cli'
+  type: 'mcp' | 'cli' | 'api'
   description: string
   url: string | null
   command: string | null
   args: string | null
   auth: string | null
+  auth_header: string | null
   detect: string | null
   install: string | null
   builtin: number
+  docs: string | null
   created_at: string
 }
 
@@ -48,6 +51,7 @@ export function loadRegistryFromDb(db: Database.Database): ToolRegistry {
   const registry: ToolRegistry = {
     'mcp-servers': {},
     'cli-tools': {},
+    'api-tools': {},
   }
 
   for (const row of rows) {
@@ -62,6 +66,15 @@ export function loadRegistryFromDb(db: Database.Database): ToolRegistry {
       }
       if (row.auth) config.auth = row.auth
       registry['mcp-servers'][row.name] = config
+    } else if (row.type === 'api') {
+      const config: Omit<ApiToolConfig, 'name'> = {
+        url: row.url || '',
+        description: row.description,
+      }
+      if (row.auth) config.auth = row.auth
+      if (row.auth_header) config.auth_header = row.auth_header
+      if (row.docs) config.docs = row.docs
+      registry['api-tools'][row.name] = config
     } else {
       const config: Omit<CliToolConfig, 'name'> = {
         command: row.command || row.name,
@@ -82,8 +95,8 @@ export function loadRegistryFromDb(db: Database.Database): ToolRegistry {
  */
 export function saveRegistryToDb(db: Database.Database, registry: ToolRegistry): void {
   const upsert = db.prepare(`
-    INSERT INTO tool_registry (name, type, description, url, command, args, auth, detect, install, builtin)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tool_registry (name, type, description, url, command, args, auth, auth_header, detect, install, builtin, docs)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(name) DO UPDATE SET
       type = excluded.type,
       description = excluded.description,
@@ -91,9 +104,11 @@ export function saveRegistryToDb(db: Database.Database, registry: ToolRegistry):
       command = excluded.command,
       args = excluded.args,
       auth = excluded.auth,
+      auth_header = excluded.auth_header,
       detect = excluded.detect,
       install = excluded.install,
-      builtin = excluded.builtin
+      builtin = excluded.builtin,
+      docs = excluded.docs
   `)
 
   const saveAll = db.transaction(() => {
@@ -108,7 +123,7 @@ export function saveRegistryToDb(db: Database.Database, registry: ToolRegistry):
         config.command ?? null,
         config.args ? JSON.stringify(config.args) : null,
         config.auth ?? null,
-        null, null, 0,
+        null, null, null, 0, null,
       )
     }
 
@@ -120,9 +135,25 @@ export function saveRegistryToDb(db: Database.Database, registry: ToolRegistry):
         config.command,
         null,
         null,
+        null,
         config.detect ?? null,
         config.install ?? null,
         config.builtin ? 1 : 0,
+        null,
+      )
+    }
+
+    for (const [name, config] of Object.entries(registry['api-tools'])) {
+      names.add(name)
+      upsert.run(
+        name, 'api', config.description,
+        config.url,
+        null,
+        null,
+        config.auth ?? null,
+        config.auth_header ?? null,
+        null, null, 0,
+        config.docs ?? null,
       )
     }
 
@@ -192,6 +223,34 @@ export function upsertCliTool(
     config.detect ?? null,
     config.install ?? null,
     config.builtin ? 1 : 0,
+  )
+}
+
+/**
+ * Upsert a single API tool into the tool_registry table.
+ */
+export function upsertApiTool(
+  db: Database.Database,
+  name: string,
+  config: Omit<ApiToolConfig, 'name'>
+): void {
+  db.prepare(`
+    INSERT INTO tool_registry (name, type, description, url, auth, auth_header, docs)
+    VALUES (?, 'api', ?, ?, ?, ?, ?)
+    ON CONFLICT(name) DO UPDATE SET
+      type = 'api',
+      description = excluded.description,
+      url = excluded.url,
+      auth = excluded.auth,
+      auth_header = excluded.auth_header,
+      docs = excluded.docs
+  `).run(
+    name,
+    config.description,
+    config.url,
+    config.auth ?? null,
+    config.auth_header ?? null,
+    config.docs ?? null,
   )
 }
 
