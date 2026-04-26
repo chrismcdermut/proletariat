@@ -16,6 +16,7 @@ import {
 } from '../types.js'
 import { readDevcontainerJson } from '../devcontainer.js'
 import { isClaudeExecutor } from './executor.js'
+import { CLAUDE_CREDENTIALS_VOLUME } from './docker-credentials.js'
 import { getMachineId } from '../../telemetry/analytics.js'
 import {
   getCCAppPermissionSettings,
@@ -305,7 +306,7 @@ export function buildContainerMounts(
     ...(context.repoWorktrees || []).map(
       repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:cached"`
     ),
-    ...(isClaudeExecutor(executor) ? [`-v "claude-credentials:/home/node/.claude"`] : []),
+    ...(isClaudeExecutor(executor) ? [`-v "${CLAUDE_CREDENTIALS_VOLUME}:/home/node/.claude"`] : []),
     // PRLT-1130: Mount pnpm store cache read-only for fast installs.
     // If the cache volume doesn't exist, Docker creates an empty one (harmless).
     ...(pnpmStoreCacheExists() ? [`-v "${PNPM_STORE_CACHE_VOLUME}:/tmp/pnpm-store-cache:ro"`] : []),
@@ -422,6 +423,35 @@ export function verifyWorkspaceMount(containerId: string): SpawnStageError | nul
       message: `Failed to inspect /workspace in container ${containerId}: ${err.message || 'docker exec failed'}`,
       stderr,
     }
+  }
+}
+
+/**
+ * PRLT-1362: Verify that a reused container has the claude-credentials volume
+ * mounted at /home/node/.claude. Containers created before the mount was added
+ * (or with a different executor) will lack this mount and need recreation.
+ *
+ * Returns true if the mount exists or the executor doesn't need it,
+ * false if the mount is missing and the container should be recreated.
+ */
+export function verifyCredentialMount(containerId: string, executor: ExecutorType = 'claude-code'): boolean {
+  if (!isClaudeExecutor(executor)) {
+    return true
+  }
+
+  try {
+    const inspectOutput = execSync(
+      `docker inspect --format '{{json .Mounts}}' ${containerId}`,
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
+    )
+    const mounts = JSON.parse(inspectOutput.trim()) as Array<{ Destination?: string; Name?: string }>
+    return mounts.some(m =>
+      m.Destination === '/home/node/.claude' ||
+      m.Name === CLAUDE_CREDENTIALS_VOLUME
+    )
+  } catch {
+    // If inspect fails, assume the mount is missing to be safe
+    return false
   }
 }
 
@@ -751,23 +781,37 @@ export function ensureDockerContainerDetailed(
     if (isContainerRunning(containerName)) {
       const containerId = getContainerId(containerName)
       if (containerId) {
-        console.debug(`[runners:docker] Reusing running container ${containerName} (${containerId}), skipping setup`)
-        // PRLT-1322: Even for reused containers, verify /workspace is populated.
-        // A container may be running with an empty mount if the previous spawn
-        // attempt leaked it. Bail out with a clear error rather than silently
-        // handing the agent an empty workspace.
-        const mountError = verifyWorkspaceMount(containerId)
-        if (mountError) {
-          return { containerId: null, error: mountError }
+        // PRLT-1362: Verify credential mount exists before reusing.
+        // Containers created before the mount was added lack /home/node/.claude
+        // and Claude Code will prompt for login. Force recreation.
+        if (!verifyCredentialMount(containerId, executor)) {
+          console.debug(`[runners:docker] Reused container ${containerName} is missing credential mount, recreating`)
+          try {
+            execSync(`docker rm -f ${containerName}`, { stdio: 'pipe', timeout: 10000 })
+          } catch {
+            // Ignore removal errors
+          }
+          // Fall through to create a new container below
+        } else {
+          console.debug(`[runners:docker] Reusing running container ${containerName} (${containerId}), skipping setup`)
+          // PRLT-1322: Even for reused containers, verify /workspace is populated.
+          // A container may be running with an empty mount if the previous spawn
+          // attempt leaked it. Bail out with a clear error rather than silently
+          // handing the agent an empty workspace.
+          const mountError = verifyWorkspaceMount(containerId)
+          if (mountError) {
+            return { containerId: null, error: mountError }
+          }
+          return { containerId }
         }
-        return { containerId }
       }
-    }
-    console.debug(`[runners:docker] Removing stopped container ${containerName} to create fresh one`)
-    try {
-      execSync(`docker rm -f ${containerName}`, { stdio: 'pipe', timeout: 10000 })
-    } catch {
-      // Ignore removal errors
+    } else {
+      console.debug(`[runners:docker] Removing stopped container ${containerName} to create fresh one`)
+      try {
+        execSync(`docker rm -f ${containerName}`, { stdio: 'pipe', timeout: 10000 })
+      } catch {
+        // Ignore removal errors
+      }
     }
   }
 

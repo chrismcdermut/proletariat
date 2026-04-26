@@ -374,6 +374,7 @@ export {
   ensureDockerContainer,
   ensureDockerContainerDetailed,
   verifyWorkspaceMount,
+  verifyCredentialMount,
   seedClaudeOnboarding,
   checkDockerMemoryCapacity,
 } from './docker-management.js'

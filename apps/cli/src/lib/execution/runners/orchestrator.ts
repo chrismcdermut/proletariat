@@ -35,6 +35,7 @@ import {
 } from '../cc-version.js'
 
 import { getMachineId } from '../../telemetry/analytics.js'
+import { CLAUDE_CREDENTIALS_VOLUME } from './docker-credentials.js'
 
 /**
  * Run orchestrator in a Docker container using the sibling container pattern.
@@ -139,7 +140,7 @@ export async function runOrchestratorInDocker(
       // Docker socket for sibling container pattern
       `-v /var/run/docker.sock:/var/run/docker.sock`,
       // Claude credentials volume (shared with agent containers)
-      ...(executor === 'claude-code' ? ['-v "claude-credentials:/home/node/.claude"'] : []),
+      ...(executor === 'claude-code' ? [`-v "${CLAUDE_CREDENTIALS_VOLUME}:/home/node/.claude"`] : []),
       // Persistent bash history
       '-v "claude-bash-history:/commandhistory"',
     ]
