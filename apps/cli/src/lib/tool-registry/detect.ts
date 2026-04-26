@@ -9,10 +9,11 @@ import type {
   ToolRegistry,
   CliToolConfig,
   McpServerConfig,
+  ApiToolConfig,
   ToolCheckResult,
 } from './types.js'
 import { COMMON_CLI_TOOLS } from './types.js'
-import { getMcpServers, getCliTools } from './registry.js'
+import { getMcpServers, getCliTools, getApiTools } from './registry.js'
 
 /**
  * Check if a CLI tool is available on the system.
@@ -49,7 +50,7 @@ export function detectAvailableTools(registry: ToolRegistry): CliToolConfig[] {
  * Check health of all registered tools.
  * Returns status for each tool (available or not).
  */
-export function checkAllTools(registry: ToolRegistry): ToolCheckResult[] {
+export async function checkAllTools(registry: ToolRegistry): Promise<ToolCheckResult[]> {
   const results: ToolCheckResult[] = []
 
   // Check MCP servers
@@ -60,6 +61,11 @@ export function checkAllTools(registry: ToolRegistry): ToolCheckResult[] {
   // Check CLI tools
   for (const tool of getCliTools(registry)) {
     results.push(checkCliTool(tool))
+  }
+
+  // Check API tools
+  for (const tool of getApiTools(registry)) {
+    results.push(await checkApiTool(tool))
   }
 
   return results
@@ -106,5 +112,44 @@ function checkCliTool(tool: CliToolConfig): ToolCheckResult {
     available,
     error: available ? undefined : `Command not found: ${tool.command}`,
     installHint: available ? undefined : tool.install,
+  }
+}
+
+async function checkApiTool(tool: ApiToolConfig): Promise<ToolCheckResult> {
+  // Check auth env var if required
+  if (tool.auth) {
+    const hasAuth = !!process.env[tool.auth]
+    if (!hasAuth) {
+      return {
+        name: tool.name,
+        type: 'api',
+        available: false,
+        error: `Missing environment variable: ${tool.auth}`,
+      }
+    }
+  }
+
+  // Check if the API URL is reachable
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    const response = await fetch(tool.url, {
+      method: 'HEAD',
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+    // Any response (even 4xx/5xx) means the server is reachable
+    return {
+      name: tool.name,
+      type: 'api',
+      available: true,
+    }
+  } catch {
+    return {
+      name: tool.name,
+      type: 'api',
+      available: false,
+      error: `API not reachable: ${tool.url}`,
+    }
   }
 }

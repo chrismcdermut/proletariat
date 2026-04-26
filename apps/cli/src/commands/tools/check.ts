@@ -32,7 +32,7 @@ export default class ToolsCheck extends Command {
     }
 
     const registry = loadToolRegistry(hqPath)
-    const results = checkAllTools(registry)
+    const results = await checkAllTools(registry)
 
     if (jsonMode) {
       this.log(JSON.stringify({ results }, null, 2))
@@ -50,7 +50,7 @@ export default class ToolsCheck extends Command {
       this.log(`\n${chalk.green('Available')}`)
       this.log('─'.repeat(40))
       for (const result of available) {
-        const badge = result.type === 'mcp' ? chalk.cyan('[MCP]') : chalk.green('[CLI]')
+        const badge = result.type === 'mcp' ? chalk.cyan('[MCP]') : result.type === 'api' ? chalk.magenta('[API]') : chalk.green('[CLI]')
         this.log(`  ${chalk.green('✓')} ${badge} ${result.name}`)
       }
     }
@@ -59,7 +59,7 @@ export default class ToolsCheck extends Command {
       this.log(`\n${chalk.red('Unavailable')}`)
       this.log('─'.repeat(40))
       for (const result of unavailable) {
-        const badge = result.type === 'mcp' ? chalk.cyan('[MCP]') : chalk.green('[CLI]')
+        const badge = result.type === 'mcp' ? chalk.cyan('[MCP]') : result.type === 'api' ? chalk.magenta('[API]') : chalk.green('[CLI]')
         this.log(`  ${chalk.red('✗')} ${badge} ${result.name}`)
         if (result.error) this.log(`    ${chalk.dim(result.error)}`)
         if (result.installHint) this.log(`    ${chalk.dim(`Install: ${result.installHint}`)}`)
