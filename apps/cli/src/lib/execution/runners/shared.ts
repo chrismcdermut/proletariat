@@ -343,6 +343,7 @@ export {
   ensureTmuxServerHasKeychainAccess,
   copyClaudeCredentials,
   refreshCredentialVolume,
+  CREDENTIAL_SYNC_FILES,
 } from './docker-credentials.js'
 
 export {
@@ -373,6 +374,7 @@ export {
   ensureDockerContainer,
   ensureDockerContainerDetailed,
   verifyWorkspaceMount,
+  verifyCredentialMount,
   seedClaudeOnboarding,
   checkDockerMemoryCapacity,
 } from './docker-management.js'

@@ -164,16 +164,17 @@ describe('Docker Version Pinning & Credential Refresh (PRLT-1296)', () => {
       expect(content).to.include('export function refreshCredentialVolume()')
     })
 
-    it('should check for host credentials before attempting copy', () => {
+    it('should check for host credential directory before attempting copy', () => {
       const fnMatch = content.match(
         /export function refreshCredentialVolume\(\)[\s\S]*?^}/m
       )
       expect(fnMatch, 'refreshCredentialVolume function not found').to.exist
       const fnBody = fnMatch![0]
 
-      // Should check if host credentials exist
-      expect(fnBody).to.include('.credentials.json')
+      // PRLT-1362: Should check ~/.claude directory (not just a single file)
+      // and use CREDENTIAL_SYNC_FILES to determine which files to sync
       expect(fnBody).to.include('existsSync')
+      expect(fnBody).to.include('CREDENTIAL_SYNC_FILES')
     })
 
     it('should use --pull never to avoid Docker Hub auth issues', () => {
