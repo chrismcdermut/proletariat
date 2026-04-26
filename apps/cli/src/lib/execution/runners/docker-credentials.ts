@@ -94,11 +94,22 @@ export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?:
 }
 
 /**
- * PRLT-1296: Refresh the claude-credentials Docker volume with fresh credentials from the host.
+ * Files from ~/.claude/ that should be synced into the credential volume.
+ * Only credential and config files — skip caches, sessions, and large dirs.
+ */
+export const CREDENTIAL_SYNC_FILES = [
+  '.credentials.json',
+  'settings.json',
+]
+
+/**
+ * PRLT-1296 / PRLT-1362: Refresh the claude-credentials Docker volume with
+ * fresh credentials AND settings from the host.
  *
- * OAuth tokens expire every ~24h. The host's Claude Code auto-refreshes its tokens,
- * but the Docker volume is a snapshot that goes stale. This copies the host's current
- * credentials into the volume before each container spawn, ensuring fresh tokens.
+ * OAuth tokens expire every ~24h. The host's Claude Code auto-refreshes its
+ * tokens, but the Docker volume is a snapshot that goes stale. This copies
+ * ALL relevant files from the host's ~/.claude/ into the volume before each
+ * container spawn, ensuring fresh tokens and current settings.
  *
  * Creates the volume if it doesn't exist.
  * Sets file ownership to UID 1000 (node user) so the container can read them.
@@ -107,42 +118,57 @@ export function getDockerCredentialInfo(): { expiresAt: Date; subscriptionType?:
  */
 export function refreshCredentialVolume(): boolean {
   const homeDir = process.env.HOME || os.homedir()
-  const hostCredPath = path.join(homeDir, '.claude', '.credentials.json')
+  const hostClaudeDir = path.join(homeDir, '.claude')
 
-  // Check if host has credentials to copy
-  if (!fs.existsSync(hostCredPath)) {
-    console.debug('[runners:credentials] No host credentials at ~/.claude/.credentials.json, skipping refresh')
+  // Check if host has a ~/.claude directory at all
+  if (!fs.existsSync(hostClaudeDir)) {
+    console.debug('[runners:credentials] No host ~/.claude directory, skipping refresh')
     return false
   }
+
+  // Determine which files exist on the host and need syncing
+  const filesToSync = CREDENTIAL_SYNC_FILES.filter(f =>
+    fs.existsSync(path.join(hostClaudeDir, f))
+  )
+
+  if (filesToSync.length === 0) {
+    console.debug('[runners:credentials] No credential files found in ~/.claude/, skipping refresh')
+    return false
+  }
+
+  // Build the copy + chown command for all files
+  const copyCommands = filesToSync
+    .map(f => `cp /src/${f} /dest/${f} && chown 1000:1000 /dest/${f}`)
+    .join(' && ')
 
   try {
     // Use a temporary container to copy host credentials into the named volume.
     // -v ~/.claude:/src:ro  → mount host credentials read-only
     // -v claude-credentials:/dest  → mount the target volume
-    // cp + chown ensures node user (UID 1000) owns the file inside the container.
+    // cp + chown ensures node user (UID 1000) owns the files inside the container.
     // --pull never avoids Docker Hub auth issues on locked keychains / headless environments.
     const refreshCmd = [
       'docker run --rm --pull never',
-      `-v "${path.join(homeDir, '.claude')}:/src:ro"`,
+      `-v "${hostClaudeDir}:/src:ro"`,
       `-v "${CLAUDE_CREDENTIALS_VOLUME}:/dest"`,
-      `alpine sh -c 'cp /src/.credentials.json /dest/.credentials.json && chown 1000:1000 /dest/.credentials.json'`,
+      `alpine sh -c '${copyCommands}'`,
     ].join(' ')
 
     execSync(refreshCmd, { stdio: 'pipe', timeout: 15000 })
-    console.debug('[runners:credentials] Refreshed credential volume with host credentials')
+    console.debug(`[runners:credentials] Refreshed credential volume with ${filesToSync.length} files: ${filesToSync.join(', ')}`)
     return true
   } catch (error) {
     // alpine image may not be cached — try with node:22 which is already pulled for agent builds
     try {
       const fallbackCmd = [
         'docker run --rm --pull never',
-        `-v "${path.join(homeDir, '.claude')}:/src:ro"`,
+        `-v "${hostClaudeDir}:/src:ro"`,
         `-v "${CLAUDE_CREDENTIALS_VOLUME}:/dest"`,
-        `node:22 bash -c 'cp /src/.credentials.json /dest/.credentials.json && chown 1000:1000 /dest/.credentials.json'`,
+        `node:22 bash -c '${copyCommands}'`,
       ].join(' ')
 
       execSync(fallbackCmd, { stdio: 'pipe', timeout: 15000 })
-      console.debug('[runners:credentials] Refreshed credential volume with host credentials (node:22 fallback)')
+      console.debug(`[runners:credentials] Refreshed credential volume with ${filesToSync.length} files (node:22 fallback)`)
       return true
     } catch {
       console.debug('[runners:credentials] Failed to refresh credential volume:', error)
