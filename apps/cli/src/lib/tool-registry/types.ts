@@ -1,8 +1,8 @@
 /**
  * Tool Registry Types
  *
- * Types for MCP servers and CLI tools as pluggable integration providers
- * with per-agent access control via policy profiles.
+ * Types for MCP servers, CLI tools, and REST APIs as pluggable integration
+ * providers with per-agent access control via policy profiles.
  */
 
 // =============================================================================
@@ -44,12 +44,32 @@ export interface CliToolConfig {
 }
 
 // =============================================================================
+// REST API Registry
+// =============================================================================
+
+export interface ApiToolConfig {
+  /** API name (unique identifier) */
+  name: string
+  /** Base URL for the API (e.g., "https://app.posthog.com/api") */
+  url: string
+  /** Environment variable name holding the auth token (e.g., "POSTHOG_API_KEY") */
+  auth?: string
+  /** Auth header format (default: "Authorization: Bearer") */
+  auth_header?: string
+  /** Human-readable description */
+  description: string
+  /** Link to API documentation */
+  docs?: string
+}
+
+// =============================================================================
 // Tool Registry (combined)
 // =============================================================================
 
 export interface ToolRegistry {
   'mcp-servers': Record<string, Omit<McpServerConfig, 'name'>>
   'cli-tools': Record<string, Omit<CliToolConfig, 'name'>>
+  'api-tools': Record<string, Omit<ApiToolConfig, 'name'>>
 }
 
 // =============================================================================
@@ -59,6 +79,7 @@ export interface ToolRegistry {
 export interface ToolPolicy {
   mcp: string[]
   cli: string[]
+  api: string[]
   /** Per-MCP-server fine-grained access (e.g., arcade: { allow: ['asana', 'slack'] }) */
   [serverName: string]: string[] | { allow: string[] } | undefined
 }
@@ -69,7 +90,7 @@ export interface ToolPolicy {
 
 export interface ToolCheckResult {
   name: string
-  type: 'mcp' | 'cli'
+  type: 'mcp' | 'cli' | 'api'
   available: boolean
   error?: string
   installHint?: string

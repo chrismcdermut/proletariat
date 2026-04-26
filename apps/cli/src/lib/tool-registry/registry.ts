@@ -19,6 +19,7 @@ import type {
   ToolRegistry,
   McpServerConfig,
   CliToolConfig,
+  ApiToolConfig,
 } from './types.js'
 import { BUILTIN_PRLT_TOOL } from './types.js'
 import { openWorkspaceDatabase } from '../database/index.js'
@@ -28,6 +29,7 @@ import {
   saveRegistryToDb,
   upsertMcpServer,
   upsertCliTool,
+  upsertApiTool,
   removeToolFromDb,
   isRegistryEmpty,
   getToolFromDb,
@@ -59,6 +61,7 @@ function loadFromYaml(hqPath: string): ToolRegistry | null {
     return {
       'mcp-servers': parsed?.['mcp-servers'] ?? {},
       'cli-tools': parsed?.['cli-tools'] ?? {},
+      'api-tools': parsed?.['api-tools'] ?? {},
     }
   } catch {
     return null
@@ -96,6 +99,7 @@ export function loadToolRegistry(hqPath: string): ToolRegistry {
   const empty: ToolRegistry = {
     'mcp-servers': {},
     'cli-tools': {},
+    'api-tools': {},
   }
 
   return withWorkspaceDb(
@@ -111,7 +115,8 @@ export function loadToolRegistry(hqPath: string): ToolRegistry {
         const yamlRegistry = loadFromYaml(hqPath)
         if (yamlRegistry && (
           Object.keys(yamlRegistry['mcp-servers']).length > 0 ||
-          Object.keys(yamlRegistry['cli-tools']).length > 0
+          Object.keys(yamlRegistry['cli-tools']).length > 0 ||
+          Object.keys(yamlRegistry['api-tools']).length > 0
         )) {
           // Migrate YAML data into DB
           saveRegistryToDb(db, yamlRegistry)
@@ -190,6 +195,16 @@ export function getCliTools(registry: ToolRegistry): CliToolConfig[] {
 }
 
 /**
+ * Get all API tools from the registry, hydrated with their names.
+ */
+export function getApiTools(registry: ToolRegistry): ApiToolConfig[] {
+  return Object.entries(registry['api-tools']).map(([name, config]) => ({
+    name,
+    ...config,
+  }))
+}
+
+/**
  * Add an MCP server to the registry.
  */
 export function addMcpServer(
@@ -202,7 +217,7 @@ export function addMcpServer(
     (db) => {
       if (!toolRegistryTableExists(db)) {
         // Fall back to YAML-based add
-        const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {} }
+        const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {}, 'api-tools': {} }
         registry['mcp-servers'][name] = config
         saveToYaml(hqPath, registry)
         return
@@ -219,7 +234,7 @@ export function addMcpServer(
       upsertMcpServer(db, name, config)
     },
     () => {
-      const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {} }
+      const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {}, 'api-tools': {} }
       registry['mcp-servers'][name] = config
       saveToYaml(hqPath, registry)
     },
@@ -238,7 +253,7 @@ export function addCliTool(
     hqPath,
     (db) => {
       if (!toolRegistryTableExists(db)) {
-        const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {} }
+        const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {}, 'api-tools': {} }
         registry['cli-tools'][name] = config
         saveToYaml(hqPath, registry)
         return
@@ -254,7 +269,7 @@ export function addCliTool(
       upsertCliTool(db, name, config)
     },
     () => {
-      const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {} }
+      const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {}, 'api-tools': {} }
       registry['cli-tools'][name] = config
       saveToYaml(hqPath, registry)
     },
@@ -262,7 +277,42 @@ export function addCliTool(
 }
 
 /**
- * Remove a tool (MCP or CLI) from the registry.
+ * Add an API tool to the registry.
+ */
+export function addApiTool(
+  hqPath: string,
+  name: string,
+  config: Omit<ApiToolConfig, 'name'>
+): void {
+  withWorkspaceDb(
+    hqPath,
+    (db) => {
+      if (!toolRegistryTableExists(db)) {
+        const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {}, 'api-tools': {} }
+        registry['api-tools'][name] = config
+        saveToYaml(hqPath, registry)
+        return
+      }
+
+      if (isRegistryEmpty(db)) {
+        const yamlRegistry = loadFromYaml(hqPath)
+        if (yamlRegistry) {
+          saveRegistryToDb(db, yamlRegistry)
+        }
+      }
+
+      upsertApiTool(db, name, config)
+    },
+    () => {
+      const registry = loadFromYaml(hqPath) ?? { 'mcp-servers': {}, 'cli-tools': {}, 'api-tools': {} }
+      registry['api-tools'][name] = config
+      saveToYaml(hqPath, registry)
+    },
+  )
+}
+
+/**
+ * Remove a tool (MCP, CLI, or API) from the registry.
  * Returns true if the tool was found and removed.
  */
 export function removeTool(hqPath: string, name: string): boolean {
@@ -309,6 +359,12 @@ function removeFromYaml(hqPath: string, name: string): boolean {
     const tool = registry['cli-tools'][name]
     if (tool.builtin) return false
     delete registry['cli-tools'][name]
+    saveToYaml(hqPath, registry)
+    return true
+  }
+
+  if (name in registry['api-tools']) {
+    delete registry['api-tools'][name]
     saveToYaml(hqPath, registry)
     return true
   }

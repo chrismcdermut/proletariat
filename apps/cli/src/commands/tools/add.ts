@@ -12,22 +12,24 @@ import { machineOutputFlags } from '../../lib/pmo/index.js'
 import {
   addMcpServer,
   addCliTool,
+  addApiTool,
   loadToolRegistry,
 } from '../../lib/tool-registry/index.js'
 
 export default class ToolsAdd extends PromptCommand {
-  static description = 'Register an MCP server or CLI tool'
+  static description = 'Register an MCP server, CLI tool, or REST API'
 
   static examples = [
     '<%= config.bin %> tools add mcp arcade --url https://api.arcade.dev/mcp --auth ARCADE_API_KEY --description "Arcade integrations"',
     '<%= config.bin %> tools add cli gh --command gh --detect "which gh" --install "brew install gh" --description "GitHub CLI"',
+    '<%= config.bin %> tools add api posthog --url https://app.posthog.com/api --auth POSTHOG_API_KEY --description "PostHog analytics API" --docs https://posthog.com/docs/api',
   ]
 
   static args = {
     type: Args.string({
-      description: 'Tool type (mcp or cli)',
+      description: 'Tool type (mcp, cli, or api)',
       required: true,
-      options: ['mcp', 'cli'],
+      options: ['mcp', 'cli', 'api'],
     }),
     name: Args.string({
       description: 'Tool name (unique identifier)',
@@ -56,6 +58,12 @@ export default class ToolsAdd extends PromptCommand {
       char: 'd',
       description: 'Human-readable description',
       required: true,
+    }),
+    'auth-header': Flags.string({
+      description: 'Auth header format (default: "Authorization: Bearer")',
+    }),
+    docs: Flags.string({
+      description: 'Link to API documentation',
     }),
   }
 
@@ -147,6 +155,48 @@ export default class ToolsAdd extends PromptCommand {
       } else {
         this.log(chalk.green(`\nCLI tool '${args.name}' registered successfully.`))
         this.log(chalk.dim(`  Command: ${command}`))
+        this.log('')
+      }
+    } else if (args.type === 'api') {
+      if (!flags.url) {
+        if (jsonMode) {
+          outputErrorAsJson('MISSING_FLAG', 'API tool requires --url', meta())
+          return
+        } else {
+          this.error('API tool requires --url (base URL of the API)')
+        }
+        return
+      }
+
+      if (args.name in registry['api-tools']) {
+        if (jsonMode) {
+          outputErrorAsJson('DUPLICATE', `API tool '${args.name}' already exists`, meta())
+          return
+        } else {
+          this.error(`API tool '${args.name}' already exists. Remove it first with: prlt tools remove ${args.name}`)
+        }
+        return
+      }
+
+      addApiTool(hqPath, args.name, {
+        url: flags.url,
+        auth: flags.auth,
+        auth_header: flags['auth-header'],
+        description: flags.description,
+        docs: flags.docs,
+      })
+
+      if (jsonMode) {
+        outputSuccessAsJson(
+          { name: args.name, type: 'api', url: flags.url, description: flags.description },
+          meta()
+        )
+        return
+      } else {
+        this.log(chalk.green(`\nAPI tool '${args.name}' registered successfully.`))
+        this.log(chalk.dim(`  URL: ${flags.url}`))
+        if (flags.auth) this.log(chalk.dim(`  Auth: $${flags.auth}`))
+        if (flags.docs) this.log(chalk.dim(`  Docs: ${flags.docs}`))
         this.log('')
       }
     }
