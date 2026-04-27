@@ -105,8 +105,12 @@ export function generateDevcontainerJson(options: DevcontainerOptions, config?: 
   const mounts: string[] = [
     'source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached',
     'source=claude-bash-history,target=/commandhistory,type=volume',
-    // Claude credentials volume - only needed for Claude Code executor
-    ...(isClaude ? ['source=claude-credentials,target=/home/node/.claude,type=volume'] : []),
+    // PRLT-1366: Bind-mount host's live ~/.claude directory read-only.
+    // The previous Docker volume (claude-credentials) was a stale snapshot —
+    // tokens expire every ~24h but the volume was never refreshed automatically.
+    // The host's Claude Code keeps tokens fresh, so mounting the live directory
+    // ensures the container always has valid credentials.
+    ...(isClaude ? ['source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind,readonly'] : []),
     // NOTE: ~/.claude.json is COPIED (not mounted) to /workspace/.claude.json
     // to avoid corruption from concurrent writes by multiple containers
     // NOTE: SSH agent socket mounting doesn't work reliably on Docker Desktop for Mac
@@ -1050,7 +1054,8 @@ export function updateDevcontainerMounts(agentDir: string, _repoWorktrees: strin
   devcontainerJson.mounts = [
     'source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached',
     'source=claude-bash-history,target=/commandhistory,type=volume',
-    'source=claude-credentials,target=/home/node/.claude,type=volume',
+    // PRLT-1366: Host bind mount (not Docker volume) for live credentials
+    'source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind,readonly',
   ]
 
   // Write back
