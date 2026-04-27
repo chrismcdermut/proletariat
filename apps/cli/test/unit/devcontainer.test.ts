@@ -645,27 +645,33 @@ describe('Devcontainer', () => {
     })
 
     describe('generateDevcontainerJson', () => {
-      it('should include claude-credentials mount for claude-code executor', () => {
+      // PRLT-1366: Devcontainer now uses host bind mount instead of Docker volume
+      it('should include host bind mount for ~/.claude for claude-code executor', () => {
         const options = makeOptions({ executor: 'claude-code' })
         const result = generateDevcontainerJson(options)
 
-        const credentialMount = result.mounts.find(m => m.includes('claude-credentials'))
+        const credentialMount = result.mounts.find(m => m.includes('/home/node/.claude'))
         expect(credentialMount).to.exist
+        expect(credentialMount).to.include('type=bind')
+        expect(credentialMount).to.include('readonly')
+        expect(credentialMount).to.include('${localEnv:HOME}/.claude')
       })
 
-      it('should include claude-credentials mount when executor is not specified (default)', () => {
+      it('should include host bind mount for ~/.claude when executor is not specified (default)', () => {
         const options = makeOptions()
         const result = generateDevcontainerJson(options)
 
-        const credentialMount = result.mounts.find(m => m.includes('claude-credentials'))
+        const credentialMount = result.mounts.find(m => m.includes('/home/node/.claude'))
         expect(credentialMount).to.exist
+        expect(credentialMount).to.include('type=bind')
+        expect(credentialMount).to.include('${localEnv:HOME}/.claude')
       })
 
-      it('should NOT include claude-credentials mount for codex executor', () => {
+      it('should NOT include credential mount for codex executor', () => {
         const options = makeOptions({ executor: 'codex' })
         const result = generateDevcontainerJson(options)
 
-        const credentialMount = result.mounts.find(m => m.includes('claude-credentials'))
+        const credentialMount = result.mounts.find(m => m.includes('/home/node/.claude'))
         expect(credentialMount).to.not.exist
       })
 
@@ -802,7 +808,7 @@ describe('Devcontainer', () => {
         expect(firewall).to.include('api.openai.com')
       })
 
-      it('should NOT include claude-credentials mount in devcontainer.json for codex executor', () => {
+      it('should NOT include credential mount in devcontainer.json for codex executor', () => {
         const options: DevcontainerOptions = {
           agentName: 'codex-agent',
           agentDir: testDir,
@@ -816,7 +822,7 @@ describe('Devcontainer', () => {
           'utf-8'
         )
         const config = JSON.parse(jsonContent)
-        const credentialMount = config.mounts.find((m: string) => m.includes('claude-credentials'))
+        const credentialMount = config.mounts.find((m: string) => m.includes('/home/node/.claude'))
         expect(credentialMount).to.not.exist
       })
     })
