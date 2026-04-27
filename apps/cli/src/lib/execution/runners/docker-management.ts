@@ -7,6 +7,7 @@
 
 import { execSync } from 'node:child_process'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   PermissionMode,
@@ -299,6 +300,8 @@ export function buildContainerMounts(
   context: ExecutionContext,
   executor: ExecutorType = 'claude-code',
 ): string[] {
+  const homeDir = process.env.HOME || os.homedir()
+  const hostClaudeDir = path.join(homeDir, '.claude')
   return [
     `-v "${context.agentDir}:/workspace:cached"`,
     ...(context.hqPath ? [`-v "${context.hqPath}/.proletariat:/hq/.proletariat:ro"`] : []),
@@ -306,7 +309,12 @@ export function buildContainerMounts(
     ...(context.repoWorktrees || []).map(
       repoName => `-v "${context.hqPath}/repos/${repoName}:/hq/repos/${repoName}:cached"`
     ),
-    ...(isClaudeExecutor(executor) ? [`-v "${CLAUDE_CREDENTIALS_VOLUME}:/home/node/.claude"`] : []),
+    // PRLT-1363: Bind-mount the host's live ~/.claude directory read-only.
+    // The previous Docker volume (claude-credentials) was a stale snapshot —
+    // tokens expire every ~24h but the volume was never refreshed automatically.
+    // The host's Claude Code keeps tokens fresh, so mounting the live directory
+    // ensures the container always has valid credentials.
+    ...(isClaudeExecutor(executor) ? [`-v "${hostClaudeDir}:/home/node/.claude:ro"`] : []),
     // PRLT-1130: Mount pnpm store cache read-only for fast installs.
     // If the cache volume doesn't exist, Docker creates an empty one (harmless).
     ...(pnpmStoreCacheExists() ? [`-v "${PNPM_STORE_CACHE_VOLUME}:/tmp/pnpm-store-cache:ro"`] : []),
@@ -427,9 +435,12 @@ export function verifyWorkspaceMount(containerId: string): SpawnStageError | nul
 }
 
 /**
- * PRLT-1362: Verify that a reused container has the claude-credentials volume
- * mounted at /home/node/.claude. Containers created before the mount was added
- * (or with a different executor) will lack this mount and need recreation.
+ * PRLT-1362 / PRLT-1363: Verify that a reused container has the host's ~/.claude
+ * bind-mounted at /home/node/.claude. Containers created before this mount was
+ * added (or with the old Docker volume approach) will lack it and need recreation.
+ *
+ * Accepts both bind-mounts (Type=bind) and the legacy Docker volume
+ * (Name=claude-credentials) to avoid needless recreation during the transition.
  *
  * Returns true if the mount exists or the executor doesn't need it,
  * false if the mount is missing and the container should be recreated.
@@ -444,7 +455,7 @@ export function verifyCredentialMount(containerId: string, executor: ExecutorTyp
       `docker inspect --format '{{json .Mounts}}' ${containerId}`,
       { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 }
     )
-    const mounts = JSON.parse(inspectOutput.trim()) as Array<{ Destination?: string; Name?: string }>
+    const mounts = JSON.parse(inspectOutput.trim()) as Array<{ Destination?: string; Name?: string; Type?: string }>
     return mounts.some(m =>
       m.Destination === '/home/node/.claude' ||
       m.Name === CLAUDE_CREDENTIALS_VOLUME
@@ -619,35 +630,30 @@ export function runContainerSetup(containerId: string, _permissionMode: Permissi
     seedClaudeOnboarding(containerId)
   }
 
-  // PRLT-1240: We also still write ~/.claude/settings.json — Claude Code does
-  // not clobber that file, so permission settings and hooks are persisted.
+  // PRLT-1363: Host ~/.claude is now bind-mounted read-only at /home/node/.claude
+  // so we write agent-specific settings and hooks to the project-level path
+  // (/workspace/.claude/) which sits on the writable workspace mount. Claude Code
+  // reads settings from both user-level (~/.claude/) and project-level, so the
+  // agent gets host credentials (read-only) plus agent-specific hooks (writable).
   if (isClaudeExecutor(executor)) {
     try {
-      // Write app settings to settings.json (skipDangerousModePermissionPrompt etc.)
+      // Write app settings + lifecycle hooks to project-level settings.json
       const appPermSettings = getCCAppPermissionSettings()
-      const claudeSettings = JSON.stringify(appPermSettings)
-      execSync(
-        `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude && cat > /home/node/.claude/settings.json'`,
-        { input: claudeSettings, stdio: ['pipe', 'pipe', 'pipe'] }
-      )
-      console.debug(`[runners:docker] Wrote ~/.claude/settings.json to container`)
-
-      // Write Claude Code lifecycle hooks (PRLT-1224, extends PRLT-1061)
       const lifecycleHooks = buildClaudeLifecycleHooks()
-      const mergedSettings = { ...JSON.parse(claudeSettings), ...lifecycleHooks }
+      const mergedSettings = { ...appPermSettings, ...lifecycleHooks }
       execSync(
-        `docker exec -i ${containerId} bash -c 'cat > /home/node/.claude/settings.json'`,
+        `docker exec -i ${containerId} bash -c 'mkdir -p /workspace/.claude && cat > /workspace/.claude/settings.json'`,
         { input: JSON.stringify(mergedSettings), stdio: ['pipe', 'pipe', 'pipe'] }
       )
-      console.debug(`[runners:docker] Configured Claude Code lifecycle hooks for agent containers`)
+      console.debug(`[runners:docker] Wrote /workspace/.claude/settings.json with agent hooks`)
 
       // PRLT-1225: Write the enforce-tests hook script into the container
       const enforceTestsScript = buildEnforceTestsHookScript()
       execSync(
-        `docker exec -i ${containerId} bash -c 'mkdir -p /home/node/.claude/hooks && cat > /home/node/.claude/hooks/enforce-tests.sh && chmod +x /home/node/.claude/hooks/enforce-tests.sh'`,
+        `docker exec -i ${containerId} bash -c 'mkdir -p /workspace/.claude/hooks && cat > /workspace/.claude/hooks/enforce-tests.sh && chmod +x /workspace/.claude/hooks/enforce-tests.sh'`,
         { input: enforceTestsScript, stdio: ['pipe', 'pipe', 'pipe'] }
       )
-      console.debug(`[runners:docker] Wrote enforce-tests hook script to container`)
+      console.debug(`[runners:docker] Wrote enforce-tests hook script to /workspace/.claude/hooks/`)
     } catch (error) {
       console.debug('[runners:docker] Failed to write Claude settings to container:', error)
     }
