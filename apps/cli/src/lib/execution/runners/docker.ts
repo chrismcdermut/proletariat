@@ -1,6 +1,12 @@
 /**
  * Docker Runner
  *
+ * @deprecated Prefer the devcontainer runner for new code paths.
+ * This module is kept for backward compatibility with the 'docker' execution
+ * environment type but delegates mount construction to buildContainerMounts()
+ * in docker-management.ts so that all Docker code paths share a single source
+ * of truth for volume mounts (PRLT-1364).
+ *
  * Runs commands in detached Docker containers.
  * Uses simple docker run for standalone container execution.
  */
@@ -20,11 +26,16 @@ import {
   getExecutorCommand,
   isClaudeExecutor,
   checkDockerDaemon,
+  buildContainerMounts,
 } from './shared.js'
 
 /**
  * Run command in a detached Docker container.
  * Uses simple docker run with -d flag for background execution.
+ *
+ * @deprecated Prefer the devcontainer runner (runDevcontainer) for new code.
+ * PRLT-1364: Now delegates to buildContainerMounts() for volume mounts
+ * instead of building mounts inline.
  */
 export async function runDocker(
   context: ExecutionContext,
@@ -44,9 +55,14 @@ export async function runDocker(
       }
     }
 
+    // PRLT-1364: Use buildContainerMounts() — single source of truth for
+    // all Docker volume mounts including credential bind-mounts, HQ, PMO,
+    // repo worktrees, and pnpm store cache.
+    const mounts = buildContainerMounts(context, executor)
+
     // Build docker run command
     let dockerCmd = `docker run -d --name ${containerName}`
-    dockerCmd += ` -v "${context.worktreePath}:/workspace"`
+    dockerCmd += ` ${mounts.join(' ')}`
     dockerCmd += ` -w /workspace`
     dockerCmd += ` -e TICKET_ID="${context.ticketId}"`
 
