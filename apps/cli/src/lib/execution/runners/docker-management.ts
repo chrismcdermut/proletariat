@@ -14,17 +14,61 @@ import {
   ExecutorType,
   ExecutionContext,
   ExecutionConfig,
+  RunnerResult,
 } from '../types.js'
 import { readDevcontainerJson } from '../devcontainer.js'
-import { isClaudeExecutor } from './executor.js'
+import { isClaudeExecutor, getExecutorCommand } from './executor.js'
 import { CLAUDE_CREDENTIALS_VOLUME } from './docker-credentials.js'
 import { getMachineId } from '../../telemetry/analytics.js'
 import {
   getCCAppPermissionSettings,
 } from '../cc-version.js'
+import { buildPrompt } from './prompt-builder.js'
+import { validateCodexMode } from '../codex-adapter.js'
 
 /** Docker volume name for the shared pnpm store cache (PRLT-1130) */
 export const PNPM_STORE_CACHE_VOLUME = 'pnpm-store-cache'
+
+// =============================================================================
+// Docker Daemon Status (TKT-081)
+// =============================================================================
+
+export type DockerDaemonStatus = {
+  available: boolean
+  reason: 'ready' | 'not-installed' | 'daemon-not-ready'
+  message: string
+}
+
+export function checkDockerDaemon(): DockerDaemonStatus {
+  try {
+    execSync('which docker', { stdio: 'pipe', timeout: 3000 })
+  } catch {
+    return { available: false, reason: 'not-installed', message: 'Docker is not installed.' }
+  }
+  const timeout = 5000
+  try {
+    execSync('docker ps -q --no-trunc', { stdio: 'pipe', timeout })
+    return { available: true, reason: 'ready', message: 'Docker daemon is ready.' }
+  } catch (error: unknown) {
+    const stderr = (error as { stderr?: Buffer })?.stderr?.toString() || ''
+    const isTimeout = (error as { killed?: boolean })?.killed === true
+    let message: string
+    if (isTimeout) {
+      message = 'Docker daemon is not responding (timed out after 5s). Docker Desktop may be initializing or stuck — check for license/login prompts.'
+    } else if (stderr.includes('500') || stderr.includes('Internal Server Error')) {
+      message = 'Docker daemon is returning errors (500). Docker Desktop needs attention — check for license/login prompts.'
+    } else if (stderr.includes('connect') || stderr.includes('Cannot connect') || stderr.includes('Is the docker daemon running')) {
+      message = 'Docker daemon is not running. Start Docker Desktop and try again.'
+    } else {
+      message = `Docker daemon is not ready: ${stderr.trim() || 'unknown error'}. Check Docker Desktop status.`
+    }
+    return { available: false, reason: 'daemon-not-ready', message }
+  }
+}
+
+export function isDockerRunning(): boolean {
+  return checkDockerDaemon().available
+}
 
 /**
  * Parse a Docker memory string (e.g., '4g', '512m', '2048m') into bytes.
@@ -944,4 +988,91 @@ export function ensureDockerContainer(
     )
   }
   return result.containerId
+}
+
+// =============================================================================
+// Simple detached Docker runner (PRLT-1365)
+//
+// Runs a one-shot prompt in a detached `docker run -d` container. Unlike the
+// devcontainer pipeline (image build + entrypoint + tmux), this path is for
+// the 'docker' execution environment — a fire-and-forget container that
+// executes the prompt and exits. Both paths share buildContainerMounts() as
+// the single source of truth for volume mounts.
+// =============================================================================
+
+export async function runDocker(
+  context: ExecutionContext,
+  executor: ExecutorType,
+  config: ExecutionConfig
+): Promise<RunnerResult> {
+  const prompt = buildPrompt(context)
+  const containerName = `work-${context.ticketId}-${Date.now()}`
+
+  try {
+    const dockerStatus = checkDockerDaemon()
+    if (!dockerStatus.available) {
+      return {
+        success: false,
+        error: `Docker daemon is not available. ${dockerStatus.message}`,
+      }
+    }
+
+    const mounts = buildContainerMounts(context, executor)
+
+    let dockerCmd = `docker run -d --name ${containerName}`
+    dockerCmd += ` ${mounts.join(' ')}`
+    dockerCmd += ` -w /workspace`
+    dockerCmd += ` -e TICKET_ID="${context.ticketId}"`
+
+    if (config.docker.network) {
+      dockerCmd += ` --network ${config.docker.network}`
+    }
+    if (config.docker.memory) {
+      dockerCmd += ` --memory ${config.docker.memory}`
+    }
+    if (config.docker.cpus) {
+      dockerCmd += ` --cpus ${config.docker.cpus}`
+    }
+
+    // HEALTHCHECK for heartbeat-based stale detection. Session watcher reads
+    // this status via `docker inspect`.
+    dockerCmd += ` --health-cmd "kill -0 1 || exit 1"`
+    dockerCmd += ` --health-interval 5m`
+    dockerCmd += ` --health-timeout 10s`
+    dockerCmd += ` --health-retries 3`
+    dockerCmd += ` --health-start-period 30s`
+
+    if (executor === 'codex') {
+      const codexPermission: PermissionMode = config.permissionMode
+      const modeError = validateCodexMode(codexPermission, 'non-tty')
+      if (modeError) {
+        return { success: false, error: modeError.message }
+      }
+    }
+
+    const escapedPrompt = prompt.replace(/'/g, "'\\''")
+    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
+
+    dockerCmd += ` ${config.docker.image}`
+    if (isClaudeExecutor(executor)) {
+      // TKT-053: Disable plan mode — detached, no user to approve.
+      // PRLT-950: Use -- to separate flags from positional prompt argument.
+      dockerCmd += ` ${cmd} --print --disallowedTools EnterPlanMode -- '${escapedPrompt}'`
+    } else {
+      const argsStr = args.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
+      dockerCmd += ` ${cmd} ${argsStr}`
+    }
+
+    const containerId = execSync(dockerCmd, { encoding: 'utf-8' }).trim()
+
+    return {
+      success: true,
+      containerId: containerId.substring(0, 12),
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to start docker container',
+    }
+  }
 }
