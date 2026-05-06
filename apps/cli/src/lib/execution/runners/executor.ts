@@ -38,9 +38,13 @@ export function getExecutorCommand(executor: ExecutorType, prompt: string, skipP
 
 /**
  * Check if an executor is Claude Code.
+ *
+ * Accepts both 'claude-code' (current canonical value) and 'claude' (legacy
+ * value seeded by migration 0023 into workspace_settings.execution.default_executor).
+ * Without this, the credential bind mount is skipped for workspaces seeded with 'claude'.
  */
 export function isClaudeExecutor(executor: ExecutorType): boolean {
-  return executor === 'claude-code'
+  return executor === 'claude-code' || (executor as string) === 'claude'
 }
 
 /**
