@@ -16,11 +16,10 @@ import {
   loadNotionConfig,
   saveNotionApiKey,
   saveNotionDefaultDatabase,
-  clearNotionConfig,
   getNotionApiKey,
 } from '../../lib/notion/index.js'
 import type { NotionDatabase } from '../../lib/notion/index.js'
-import { upsertProviderSource, removeProviderSourcesByProvider } from '../../lib/work-source/provider-sources.js'
+import { upsertProviderSource } from '../../lib/work-source/provider-sources.js'
 
 function databaseTitle(db: NotionDatabase): string {
   if (db.title && db.title.length > 0) {
