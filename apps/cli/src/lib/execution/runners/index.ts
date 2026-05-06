@@ -78,10 +78,9 @@ export async function runExecution(
 // =============================================================================
 
 // Shared utilities
+// Note: RunnerResult and Runner come from types.js (re-exported via execution/index.ts)
+// to avoid duplicate-export lint errors.
 export {
-  // Runner types
-  RunnerResult,
-  Runner,
   // Session/title helpers
   buildSessionName,
   buildWindowTitle,
