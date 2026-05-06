@@ -36,6 +36,16 @@ export class NotionClient {
     return this.request<NotionDatabase>('GET', `/databases/${databaseId}`)
   }
 
+  async searchDatabases(query?: string): Promise<NotionDatabase[]> {
+    const body: Record<string, unknown> = {
+      filter: { property: 'object', value: 'database' },
+      page_size: 100,
+    }
+    if (query) body.query = query
+    const response = await this.request<{ results: NotionDatabase[] }>('POST', '/search', body)
+    return response.results
+  }
+
   async queryDatabase(databaseId: string, options?: {
     filter?: Record<string, unknown>
     sorts?: Array<Record<string, unknown>>
