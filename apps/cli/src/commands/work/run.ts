@@ -44,6 +44,7 @@ import {
   DEFAULT_EXECUTION_CONFIG,
 } from '../../lib/execution/types.js'
 import { runExecution } from '../../lib/execution/runners.js'
+import { readExecutorOverridesFromFlags } from '../../lib/execution/executor-overrides.js'
 import { shouldOutputJson, outputErrorAsJson, createMetadata } from '../../lib/prompt-json.js'
 
 export default class WorkRun extends PromptCommand {
@@ -98,6 +99,15 @@ export default class WorkRun extends PromptCommand {
       description: 'AI executor to use',
       options: ['claude-code', 'codex'],
       default: 'claude-code',
+    }),
+    'executor-env': Flags.string({
+      description:
+        'Set env var on spawned executor (KEY=VALUE). Repeatable. ' +
+        'e.g. --executor-env CLAUDE_CONFIG_DIR=$HOME/.claude-work',
+      multiple: true,
+    }),
+    'executor-bin': Flags.string({
+      description: 'Override executor binary path. Defaults to claude/codex.',
     }),
     mode: Flags.string({
       description: 'Display mode for agent output',
@@ -279,6 +289,7 @@ export default class WorkRun extends PromptCommand {
       // =====================================================================
       // Build execution context (no ticket, just prompt)
       // =====================================================================
+      const executorOverrides = readExecutorOverridesFromFlags(flags)
       const context: ExecutionContext = {
         ticketId: execution.id,
         ticketTitle: flags.prompt.substring(0, 60),
@@ -294,6 +305,9 @@ export default class WorkRun extends PromptCommand {
         modifiesCode: workspace.isGitRepo && !keepAlive, // Non-git or persistent = no code mods expected
         executionEnvironment: environment,
         isEphemeral: !keepAlive,
+        // PRLT-1369: executor env/bin overrides for multi-account / wrapper scripts
+        executorEnv: executorOverrides?.env,
+        executorBin: executorOverrides?.bin,
       }
 
       // =====================================================================

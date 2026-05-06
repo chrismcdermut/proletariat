@@ -80,17 +80,24 @@ export async function runCloud(
 
     // Execute on remote using executor-appropriate command
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
+    const { cmd: executorCmd, args: executorArgs } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger', context.executorBin)
+
+    // PRLT-1369: Build env var prefix for the remote command (e.g. CLAUDE_CONFIG_DIR)
+    const envPrefix = context.executorEnv
+      ? Object.entries(context.executorEnv)
+          .map(([k, v]) => `${k}='${v.replace(/'/g, "'\\''")}'`)
+          .join(' ') + ' '
+      : ''
 
     // Build the remote command based on executor type
     let remoteCmd: string
     if (isClaudeExecutor(executor)) {
       // TKT-053: Disable plan mode — VM runner is always nohup (no user to approve)
       // PRLT-950: Use -- to separate flags from positional prompt argument.
-      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} --print --disallowedTools EnterPlanMode -- '${escapedPrompt}'`
+      remoteCmd = `cd ${remoteWorkspace} && ${envPrefix}${executorCmd} --print --disallowedTools EnterPlanMode -- '${escapedPrompt}'`
     } else {
       const argsStr = executorArgs.map(a => a === escapedPrompt ? `'${escapedPrompt}'` : a).join(' ')
-      remoteCmd = `cd ${remoteWorkspace} && ${executorCmd} ${argsStr}`
+      remoteCmd = `cd ${remoteWorkspace} && ${envPrefix}${executorCmd} ${argsStr}`
     }
     const sshCmd = `ssh ${sshOpts} ${user}@${targetHost} "nohup ${remoteCmd} > /tmp/work-${context.ticketId}.log 2>&1 &"`
 

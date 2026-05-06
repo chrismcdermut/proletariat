@@ -59,6 +59,7 @@ import {
 import { loadExecutionConfig, getTerminalApp, promptTerminalPreference, getShell, promptShellPreference, hasTerminalPreference, hasShellPreference, getAuthMethod, saveAuthMethod, getCreatePrDefault, getVerifyCiDefault, getMirrorToPmoDefault, getCleanupPolicy } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
 import { detectRepoWorktrees, resolveWorktreePath, buildWorkspaceRepos } from '../../lib/execution/context.js'
+import { readExecutorOverridesFromFlags } from '../../lib/execution/executor-overrides.js'
 import { isGHInstalled, isGHAuthenticated } from '../../lib/pr/index.js'
 import {
   buildLinearMetadata,
@@ -328,6 +329,15 @@ export default class WorkStart extends PMOCommand {
       char: 'e',
       description: 'Override executor',
       options: ['claude-code', 'codex', 'custom'],
+    }),
+    'executor-env': Flags.string({
+      description:
+        'Set env var on spawned executor (KEY=VALUE). Repeatable. ' +
+        'Use --executor-env CLAUDE_CONFIG_DIR=$HOME/.claude-work to switch Claude accounts.',
+      multiple: true,
+    }),
+    'executor-bin': Flags.string({
+      description: 'Override executor binary path (e.g. wrapper script). Defaults to claude/codex.',
     }),
     prompt: Flags.string({
       char: 'p',
@@ -1566,6 +1576,11 @@ export default class WorkStart extends PMOCommand {
         customMessage: externalIssueContextMessage ?? flags.message,
         // Connected integrations for prompt injection
         connectedIntegrations: getConnectedIntegrations(db),
+        // PRLT-1369: executor env/bin overrides for multi-account / wrapper scripts
+        ...(readExecutorOverridesFromFlags(flags) ? {
+          executorEnv: readExecutorOverridesFromFlags(flags)!.env,
+          executorBin: readExecutorOverridesFromFlags(flags)!.bin,
+        } : {}),
       }
 
       // Check if agent has devcontainer config
@@ -3432,6 +3447,8 @@ export default class WorkStart extends PMOCommand {
       executor?: string
       session?: string
       'tool-policy'?: string
+      'executor-env'?: string[]
+      'executor-bin'?: string
     }
   ): Promise<void> {
     const agentName = agent.name
@@ -3503,6 +3520,11 @@ export default class WorkStart extends PMOCommand {
       networkAllowlist: defaultAction?.networkAllowlist,
       // Connected integrations for prompt injection
       connectedIntegrations: getConnectedIntegrations(db),
+      // PRLT-1369: executor env/bin overrides for multi-account / wrapper scripts
+      ...(readExecutorOverridesFromFlags(flags) ? {
+        executorEnv: readExecutorOverridesFromFlags(flags)!.env,
+        executorBin: readExecutorOverridesFromFlags(flags)!.bin,
+      } : {}),
     }
 
     // Use devcontainer by default if available

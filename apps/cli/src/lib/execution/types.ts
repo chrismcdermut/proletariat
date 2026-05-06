@@ -256,6 +256,11 @@ export interface ExecutionContext {
   toolPolicy?: string // Policy profile name (e.g., 'code-agent') for tool access control
   // PRLT-1337: Execution lifecycle tracking
   executionId?: string // agent_work row ID — passed to runner scripts for exit code reporting
+  // PRLT-1369: Multiple Claude accounts / custom executor binaries
+  /** Env vars exported on the spawned executor process (e.g. CLAUDE_CONFIG_DIR for account switching). */
+  executorEnv?: Record<string, string>
+  /** Override the executor binary (absolute path or wrapper script). Defaults to the executor's native command. */
+  executorBin?: string
 }
 
 // =============================================================================

@@ -28,6 +28,7 @@ import {
   checkDockerDaemon,
   buildContainerMounts,
 } from './shared.js'
+import { buildDockerEnvFlags } from '../executor-overrides.js'
 
 /**
  * Run command in a detached Docker container.
@@ -65,6 +66,8 @@ export async function runDocker(
     dockerCmd += ` ${mounts.join(' ')}`
     dockerCmd += ` -w /workspace`
     dockerCmd += ` -e TICKET_ID="${context.ticketId}"`
+    // PRLT-1369: Inject user-supplied executor env vars (e.g. CLAUDE_CONFIG_DIR).
+    dockerCmd += buildDockerEnvFlags(context.executorEnv)
 
     if (config.docker.network) {
       dockerCmd += ` --network ${config.docker.network}`
@@ -96,7 +99,7 @@ export async function runDocker(
 
     // Build executor command using getExecutorCommand() for correct invocation
     const escapedPrompt = prompt.replace(/'/g, "'\\''")
-    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger')
+    const { cmd, args } = getExecutorCommand(executor, escapedPrompt, config.permissionMode === 'danger', context.executorBin)
 
     // For Claude Code in Docker, use --print for non-interactive output
     // Non-Claude executors use their native command format from getExecutorCommand()

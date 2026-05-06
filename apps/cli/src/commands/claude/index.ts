@@ -39,6 +39,7 @@ import {
   hasShellPreference,
 } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import { readExecutorOverridesFromFlags } from '../../lib/execution/executor-overrides.js'
 
 // Catch-all devcontainer image for directories without .devcontainer
 const CATCHALL_DEVCONTAINER_IMAGE = 'ghcr.io/chrismcdermut/proletariat-claude:latest'
@@ -101,6 +102,15 @@ export default class Claude extends PromptCommand {
     prompt: Flags.string({
       description: 'Initial task/prompt for Claude',
     }),
+    'executor-env': Flags.string({
+      description:
+        'Set env var on Claude (KEY=VALUE). Repeatable. ' +
+        'e.g. --executor-env CLAUDE_CONFIG_DIR=$HOME/.claude-work to switch accounts.',
+      multiple: true,
+    }),
+    'executor-bin': Flags.string({
+      description: 'Override the claude binary path (e.g. wrapper script). Defaults to "claude".',
+    }),
     directory: Flags.string({
       description: 'Directory to run in (default: cwd)',
     }),
@@ -151,6 +161,8 @@ export default class Claude extends PromptCommand {
       environment?: string
       'display-mode'?: string
       prompt?: string
+      'executor-env'?: string[]
+      'executor-bin'?: string
       json: boolean
     },
     jsonMode: boolean
@@ -396,6 +408,7 @@ export default class Claude extends PromptCommand {
 
     // Build minimal execution context for yolo mode
     // Use devcontainerConfigDir for worktreePath so runner finds .devcontainer there
+    const yoloOverrides = readExecutorOverridesFromFlags(flags)
     const context: ExecutionContext = {
       ticketId: 'ADHOC',
       ticketTitle: `Ad-hoc: ${slug}`,
@@ -406,6 +419,9 @@ export default class Claude extends PromptCommand {
       actionName: slug,
       actionPrompt: flags.prompt,
       modifiesCode: false, // Don't try to create branches
+      // PRLT-1369: switch Claude accounts / use wrapper binary
+      executorEnv: yoloOverrides?.env,
+      executorBin: yoloOverrides?.bin,
     }
 
     // Load execution config (use defaults for yolo mode)
@@ -507,6 +523,8 @@ export default class Claude extends PromptCommand {
       prompt?: string
       project?: string
       title?: string
+      'executor-env'?: string[]
+      'executor-bin'?: string
       json: boolean
     },
     jsonMode: boolean
@@ -850,6 +868,7 @@ export default class Claude extends PromptCommand {
       this.log(styles.success(`   Agent: ${agentName}`))
 
       // Build execution context
+      const trackedOverrides = readExecutorOverridesFromFlags(flags)
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
@@ -864,6 +883,9 @@ export default class Claude extends PromptCommand {
         actionName: 'Ad-hoc',
         actionPrompt: flags.prompt,
         modifiesCode: false, // Don't manage branches for adhoc
+        // PRLT-1369: switch Claude accounts / use wrapper binary
+        executorEnv: trackedOverrides?.env,
+        executorBin: trackedOverrides?.bin,
       }
 
       // Create execution record

@@ -1,4 +1,4 @@
-import { Args } from '@oclif/core';
+import { Args, Flags } from '@oclif/core';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
@@ -19,6 +19,10 @@ import {
   shouldOutputJson,
 } from '../../lib/prompt-json.js';
 import { trackChildProcess } from '../../lib/signal-handler.js';
+import {
+  buildShellExports,
+  parseExecutorEnv,
+} from '../../lib/execution/executor-overrides.js';
 
 export default class Shell extends PMOCommand {
   static description = 'Open an interactive shell in an agent workspace';
@@ -37,6 +41,15 @@ export default class Shell extends PMOCommand {
 
   static flags = {
     ...pmoBaseFlags,
+    'executor-env': Flags.string({
+      description:
+        'Set env var on Claude (KEY=VALUE). Repeatable. ' +
+        'e.g. --executor-env CLAUDE_CONFIG_DIR=$HOME/.claude-work to switch accounts.',
+      multiple: true,
+    }),
+    'executor-bin': Flags.string({
+      description: 'Override the claude binary path (e.g. wrapper script). Defaults to "claude".',
+    }),
   };
 
   protected getPMOOptions() {
@@ -48,6 +61,15 @@ export default class Shell extends PMOCommand {
 
     // Check if JSON output mode is active
     const jsonMode = shouldOutputJson(flags);
+
+    // PRLT-1369: parse --executor-env / --executor-bin once up front
+    let executorEnv: Record<string, string> | undefined
+    try {
+      executorEnv = parseExecutorEnv(flags['executor-env'] as string[] | undefined)
+    } catch (err) {
+      this.error(err instanceof Error ? err.message : String(err))
+    }
+    const executorBin = (flags['executor-bin'] as string | undefined) || 'claude'
 
     // Error handling config
     const errorConfig = { jsonMode, commandName: 'agent shell', flags };
@@ -172,9 +194,9 @@ export default class Shell extends PMOCommand {
       const dangerMode = permissionMode === 'danger';
 
       if (environment === 'devcontainer') {
-        await this.openDevcontainerShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
+        await this.openDevcontainerShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode, executorEnv, executorBin);
       } else {
-        await this.openHostShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode);
+        await this.openHostShell(workspaceInfo.path, agentDir, agentName!, displayMode, dangerMode, executorEnv, executorBin);
       }
       return;
     }
@@ -245,7 +267,15 @@ export default class Shell extends PMOCommand {
     }
   }
 
-  private async openDevcontainerShell(hqPath: string, agentDir: string, agentName: string, displayMode: 'terminal' | 'foreground', dangerMode: boolean): Promise<void> {
+  private async openDevcontainerShell(
+    hqPath: string,
+    agentDir: string,
+    agentName: string,
+    displayMode: 'terminal' | 'foreground',
+    dangerMode: boolean,
+    executorEnv?: Record<string, string>,
+    executorBin: string = 'claude',
+  ): Promise<void> {
     // Check Docker is running
     if (!isDockerRunning()) {
       this.error('Docker is not running. Please start Docker Desktop and try again.');
@@ -281,8 +311,18 @@ export default class Shell extends PMOCommand {
     this.log(colors.success(`✓ Container running: ${containerId}`));
     this.log('');
 
+    // PRLT-1369: pass --executor-env values into the container as -e KEY=VALUE flags.
+    const envFlags: string[] = []
+    if (executorEnv) {
+      for (const [k, v] of Object.entries(executorEnv)) {
+        envFlags.push('-e', `${k}=${v}`)
+      }
+    }
+
     // The command to run inside the container
-    const claudeArgs = dangerMode ? ['exec', '-it', '-w', '/workspace', containerId!, 'claude', '--dangerously-skip-permissions'] : ['exec', '-it', '-w', '/workspace', containerId!, 'claude'];
+    const claudeArgs = dangerMode
+      ? ['exec', '-it', '-w', '/workspace', ...envFlags, containerId!, executorBin, '--dangerously-skip-permissions']
+      : ['exec', '-it', '-w', '/workspace', ...envFlags, containerId!, executorBin];
 
     if (displayMode === 'foreground') {
       // Run Claude directly in current terminal
@@ -318,9 +358,15 @@ export default class Shell extends PMOCommand {
         const scriptPath = path.join(baseDir, `shell-${agentName}-${Date.now()}.sh`);
 
         // Launch claude inside the container
+        // PRLT-1369: -e KEY=VALUE flags forward env vars; executorBin overrides the binary
+        const envFlagStr = executorEnv
+          ? ' ' + Object.entries(executorEnv)
+              .map(([k, v]) => `-e ${k}='${v.replace(/'/g, "'\\''")}'`)
+              .join(' ')
+          : ''
         const claudeCmd = dangerMode
-          ? `docker exec -it -w /workspace ${containerId} claude --dangerously-skip-permissions`
-          : `docker exec -it -w /workspace ${containerId} claude`;
+          ? `docker exec -it -w /workspace${envFlagStr} ${containerId} ${executorBin} --dangerously-skip-permissions`
+          : `docker exec -it -w /workspace${envFlagStr} ${containerId} ${executorBin}`;
 
         const scriptContent = `#!/bin/bash
 # Shell for agent ${agentName}
@@ -351,15 +397,25 @@ exec bash
     }
   }
 
-  private async openHostShell(hqPath: string, agentDir: string, agentName: string, displayMode: 'terminal' | 'foreground', dangerMode: boolean): Promise<void> {
+  private async openHostShell(
+    hqPath: string,
+    agentDir: string,
+    agentName: string,
+    displayMode: 'terminal' | 'foreground',
+    dangerMode: boolean,
+    executorEnv?: Record<string, string>,
+    executorBin: string = 'claude',
+  ): Promise<void> {
     if (displayMode === 'foreground') {
       this.log(colors.text(`Starting Claude Code in ${agentDir}...`));
       this.log('');
 
       const claudeArgs = dangerMode ? ['--dangerously-skip-permissions'] : [];
-      const child = spawn('claude', claudeArgs, {
+      const child = spawn(executorBin, claudeArgs, {
         stdio: 'inherit',
         cwd: agentDir,
+        // PRLT-1369: --executor-env merges into process env (e.g. CLAUDE_CONFIG_DIR)
+        env: executorEnv ? { ...process.env, ...executorEnv } : process.env,
       });
 
       trackChildProcess(child);
@@ -386,7 +442,10 @@ exec bash
         fs.mkdirSync(baseDir, { recursive: true });
         const scriptPath = path.join(baseDir, `shell-${agentName}-${Date.now()}.sh`);
 
-        const claudeCmd = dangerMode ? 'claude --dangerously-skip-permissions' : 'claude';
+        const claudeCmd = dangerMode ? `${executorBin} --dangerously-skip-permissions` : executorBin;
+        // PRLT-1369: emit `export KEY='VALUE'` lines for user-supplied env (e.g. CLAUDE_CONFIG_DIR)
+        const envExports = buildShellExports(executorEnv);
+        const envBlock = envExports ? `\n${envExports}\n` : '';
 
         const scriptContent = `#!/bin/bash
 # Shell for agent ${agentName}
@@ -395,7 +454,7 @@ echo "======================================"
 echo "Agent Shell: ${agentName} (host)"
 echo "======================================"
 echo ""
-
+${envBlock}
 cd "${agentDir}"
 
 # Run Claude Code
