@@ -74,11 +74,18 @@ export class SwitchboardServer {
         this.handleConnection(socket)
       })
 
+      // Single error handler — reject during startup, log after
+      let started = false
       this.server.on('error', (err) => {
-        this.log(`switchboard server error: ${err.message}`)
+        if (!started) {
+          reject(err)
+        } else {
+          this.log(`switchboard server error: ${err.message}`)
+        }
       })
 
       this.server.listen(this.socketPath, () => {
+        started = true
         // Make socket world-readable so containers can connect
         try {
           fs.chmodSync(this.socketPath, 0o777)
@@ -88,8 +95,6 @@ export class SwitchboardServer {
         this.log(`switchboard server listening on ${this.socketPath}`)
         resolve()
       })
-
-      this.server.on('error', reject)
     })
   }
 

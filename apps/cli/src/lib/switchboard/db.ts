@@ -367,7 +367,7 @@ export class SwitchboardDB {
   purgeDelivered(retentionHours: number = 24): number {
     const cutoff = new Date(Date.now() - retentionHours * 60 * 60 * 1000).toISOString()
     const result = this.db.prepare(
-      "DELETE FROM messages WHERE status = 'delivered' AND delivered_at < ?"
+      "DELETE FROM messages WHERE status = 'delivered' AND delivered_at <= ?"
     ).run(cutoff)
     return result.changes
   }
@@ -379,7 +379,7 @@ export class SwitchboardDB {
   purgeExpired(retentionDays: number = 7): number {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString()
     const result = this.db.prepare(
-      "DELETE FROM messages WHERE status = 'expired' AND created_at < ?"
+      "DELETE FROM messages WHERE status = 'expired' AND created_at <= ?"
     ).run(cutoff)
     return result.changes
   }
@@ -391,7 +391,7 @@ export class SwitchboardDB {
   purgeFailed(retentionDays: number = 7): number {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString()
     const result = this.db.prepare(
-      "DELETE FROM messages WHERE status = 'failed' AND created_at < ?"
+      "DELETE FROM messages WHERE status = 'failed' AND created_at <= ?"
     ).run(cutoff)
     return result.changes
   }
@@ -402,7 +402,7 @@ export class SwitchboardDB {
   purgeInactiveSubscriptions(retentionDays: number = 30): number {
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString()
     const result = this.db.prepare(
-      'DELETE FROM subscriptions WHERE active = 0 AND created_at < ?'
+      'DELETE FROM subscriptions WHERE active = 0 AND created_at <= ?'
     ).run(cutoff)
     return result.changes
   }
