@@ -22,6 +22,34 @@ import { execSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
 
 /**
+ * Pattern matcher used by waitForOutput.
+ * Exported for unit testing.
+ */
+export function matchesPattern(text: string, pattern: string | RegExp): boolean {
+  if (pattern instanceof RegExp) {
+    return pattern.test(text);
+  }
+  return text.includes(pattern);
+}
+
+/**
+ * Returns true when the given string is a tmux special-key name
+ * (e.g. "Up", "Enter", "C-c") rather than literal text input.
+ * Exported for unit testing.
+ */
+export function isTmuxSpecialKey(keys: string): boolean {
+  return /^(Up|Down|Left|Right|Enter|Escape|Tab|Space|BSpace|C-[a-z]|M-[a-z])$/.test(keys);
+}
+
+/**
+ * POSIX single-quote shell escape suitable for `sh -c`.
+ * Exported for unit testing.
+ */
+export function shellEscape(str: string): string {
+  return `'${str.replace(/'/g, "'\\''")}'`;
+}
+
+/**
  * Configuration for an interactive test session.
  */
 export interface InteractiveSessionConfig {
@@ -375,9 +403,7 @@ export class InteractiveTestSession {
   private tmuxSendKeys(keys: string): void {
     // For special keys and Ctrl combos, don't quote them
     // For text input, quote it to preserve spaces
-    const isSpecialKey = /^(Up|Down|Left|Right|Enter|Escape|Tab|Space|BSpace|C-[a-z]|M-[a-z])$/.test(keys);
-
-    if (isSpecialKey) {
+    if (isTmuxSpecialKey(keys)) {
       this.tmuxExec(`send-keys -t ${this.sessionName} ${keys}`);
     } else {
       // Send as literal text to avoid key interpretation issues
@@ -390,15 +416,11 @@ export class InteractiveTestSession {
   }
 
   private matchesPattern(text: string, pattern: string | RegExp): boolean {
-    if (pattern instanceof RegExp) {
-      return pattern.test(text);
-    }
-    return text.includes(pattern);
+    return matchesPattern(text, pattern);
   }
 
   private shellEscape(str: string): string {
-    // Use single quotes for shell escaping, handling embedded single quotes
-    return `'${str.replace(/'/g, "'\\''")}'`;
+    return shellEscape(str);
   }
 
   private sleep(ms: number): void {

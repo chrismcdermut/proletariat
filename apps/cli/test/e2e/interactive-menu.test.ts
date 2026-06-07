@@ -453,6 +453,146 @@ const skipSuite = !hasTmux() || !hasPrlt();
   });
 
   // ===========================================================================
+  // PRLT-1233 ticket-required interactive flows
+  // ===========================================================================
+  describe('Work start interactive flow (prlt work start)', () => {
+    it('should show a ticket dropdown or external-source picker when run without args', () => {
+      session.sendCommand('prlt work start');
+      // Two possible entry points depending on provider config:
+      //   1. "Select ticket to work on:" — when a provider returns ready tickets
+      //   2. "Select external issue source:" — when no provider is configured
+      session.waitForOutput(
+        /Select ticket to work on|Select external issue source|No tickets available|❯/,
+        MENU_TIMEOUT
+      );
+
+      const screen = session.getScreen();
+      expect(screen.raw).to.match(
+        /Select ticket to work on|Select external issue source|No tickets available/i
+      );
+    });
+  });
+
+  describe('Ticket move interactive flow (prlt ticket move)', () => {
+    it('should show the ticket picker when run without args', () => {
+      session.sendCommand('prlt ticket move');
+      session.waitForOutput(
+        /Select ticket to move|No tickets|TKT-|PRLT-/,
+        MENU_TIMEOUT
+      );
+
+      const screen = session.getScreen();
+      // Either the ticket picker rendered, or we hit a no-data path that
+      // still proves the command did not silently exit.
+      expect(screen.raw).to.match(/Select ticket to move|No tickets|TKT-|PRLT-/i);
+    });
+
+    it('should advance to the column picker after selecting a ticket', function (this: Mocha.Context) {
+      session.sendCommand('prlt ticket move');
+      // If there are no tickets, the picker won't render — skip that case.
+      try {
+        session.waitForOutput('Select ticket to move', MENU_TIMEOUT);
+      } catch {
+        this.skip();
+        return;
+      }
+
+      // Pick the first ticket
+      session.send('Space'); // checkbox prompt requires Space to mark
+      session.waitForStable(300);
+      session.send('Enter');
+
+      // After selecting we expect either a column picker or a destination prompt
+      session.waitForOutput(/Move to|column|Move selected tickets/i, MENU_TIMEOUT);
+      const screen = session.getScreen();
+      expect(screen.raw).to.match(/Move to|column|Move selected tickets/i);
+    });
+  });
+
+  describe('Session attach interactive flow (prlt session attach)', () => {
+    it('should show a session list or a clear empty-state message', () => {
+      session.sendCommand('prlt session attach');
+      // Either we get a session selector, or a graceful empty-state message —
+      // both prove the command rendered output without hanging.
+      session.waitForOutput(
+        /Select a session to attach to|No sessions|No active sessions|sessions found/i,
+        MENU_TIMEOUT
+      );
+
+      const screen = session.getScreen();
+      expect(screen.raw).to.match(/session/i);
+    });
+  });
+
+  describe('Orchestrator menu (prlt orchestrator)', () => {
+    it('should show orchestrator action choices', () => {
+      session.sendCommand('prlt orchestrator');
+      session.waitForOutput(/Orchestrator.*What would you like to do|Start orchestrator|Attach to/, MENU_TIMEOUT);
+
+      const screen = session.getScreen();
+      // The menu lists at least one of the documented actions
+      expect(screen.raw).to.match(/Start orchestrator|Attach|Check orchestrator status|List registered threads/i);
+    });
+
+    it('should render the inquirer ❯ selection indicator', () => {
+      session.sendCommand('prlt orchestrator');
+      session.waitForOutput(/Orchestrator.*What would you like to do|Start orchestrator|Attach to/, MENU_TIMEOUT);
+
+      const screen = session.getScreen();
+      expect(screen.raw).to.include('❯');
+    });
+  });
+
+  // ===========================================================================
+  // PRLT-1233: --json flag must bypass all interactive prompts
+  // ===========================================================================
+  describe('Non-interactive bypass (--json)', () => {
+    /**
+     * In --json mode, prlt should never render an inquirer menu — it should
+     * either complete the command, emit a JSON prompt config (the JSON-mode
+     * fallback for required input), or exit cleanly with a JSON error.
+     * In none of those cases should the ❯ selection indicator appear.
+     */
+    function assertNoInteractiveMenu(screen: { raw: string; lines: string[] }): void {
+      // No inquirer-style selection arrows
+      const inquirerLines = screen.lines.filter((line) => line.includes('❯'));
+      expect(
+        inquirerLines,
+        `Expected no inquirer ❯ selection in --json output. Screen:\n${screen.raw}`
+      ).to.have.length(0);
+
+      // No "Use arrow keys" hint, which only appears in interactive list prompts
+      expect(screen.raw, `--json should not render arrow-key hint. Screen:\n${screen.raw}`)
+        .to.not.match(/Use arrow keys to navigate/i);
+    }
+
+    it('prlt work start --json — does not render an interactive menu', () => {
+      session.sendCommand('prlt work start --json');
+      // Wait for any output to settle
+      session.waitForStable(1500, MENU_TIMEOUT);
+      assertNoInteractiveMenu(session.getScreen());
+    });
+
+    it('prlt ticket move --json — does not render an interactive menu', () => {
+      session.sendCommand('prlt ticket move --json');
+      session.waitForStable(1500, MENU_TIMEOUT);
+      assertNoInteractiveMenu(session.getScreen());
+    });
+
+    it('prlt session attach --json — does not render an interactive menu', () => {
+      session.sendCommand('prlt session attach --json');
+      session.waitForStable(1500, MENU_TIMEOUT);
+      assertNoInteractiveMenu(session.getScreen());
+    });
+
+    it('prlt orchestrator --json — does not render an interactive menu', () => {
+      session.sendCommand('prlt orchestrator --json');
+      session.waitForStable(1500, MENU_TIMEOUT);
+      assertNoInteractiveMenu(session.getScreen());
+    });
+  });
+
+  // ===========================================================================
   // Output formatting & rendering
   // ===========================================================================
   describe('Output formatting', () => {
