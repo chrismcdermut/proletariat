@@ -25,6 +25,7 @@ import {
   runOrchestratorInDocker,
 } from '../../lib/execution/runners.js'
 import { getHostTmuxSessionNames } from '../../lib/execution/session-utils.js'
+import { readExecutorOverridesFromFlags } from '../../lib/execution/executor-overrides.js'
 import { ExecutionStorage } from '../../lib/execution/storage.js'
 import {
   createMirrorExecution,
@@ -237,6 +238,15 @@ export default class OrchestratorStart extends RuntimeCommand {
       char: 'e',
       description: 'Executor type',
       options: ['claude-code', 'codex', 'custom'],
+    }),
+    'executor-env': Flags.string({
+      description:
+        'Set env var on the orchestrator executor (KEY=VALUE). Repeatable. ' +
+        'e.g. --executor-env CLAUDE_CONFIG_DIR=$HOME/.claude-work',
+      multiple: true,
+    }),
+    'executor-bin': Flags.string({
+      description: 'Override executor binary path. Defaults to claude/codex.',
     }),
     'skip-permissions': Flags.boolean({
       description: 'Skip permission checks (shorthand for --permission-mode danger)',
@@ -574,6 +584,7 @@ export default class OrchestratorStart extends RuntimeCommand {
     // Build execution context
     // Use ticketId='prlt', actionName='orchestrator', agentName=orchestratorName
     // so buildSessionName produces 'prlt-orchestrator-{name}'
+    const orchExecutorOverrides = readExecutorOverridesFromFlags(flags)
     const context: ExecutionContext = {
       ticketId: 'prlt',
       ticketTitle: 'Orchestrator',
@@ -588,6 +599,9 @@ export default class OrchestratorStart extends RuntimeCommand {
       isOrchestrator: true,
       hqName,
       executionEnvironment: environment,
+      // PRLT-1369: pin orchestrator session to a specific Claude account / binary
+      executorEnv: orchExecutorOverrides?.env,
+      executorBin: orchExecutorOverrides?.bin,
     }
 
     // Build execution config

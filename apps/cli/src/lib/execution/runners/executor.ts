@@ -14,25 +14,40 @@ import {
 } from '../types.js'
 import { getCodexCommand } from '../codex-adapter.js'
 
-export function getExecutorCommand(executor: ExecutorType, prompt: string, skipPermissions: boolean = true): { cmd: string; args: string[] } {
+export function getExecutorCommand(
+  executor: ExecutorType,
+  prompt: string,
+  skipPermissions: boolean = true,
+  binOverride?: string,
+): { cmd: string; args: string[] } {
+  // PRLT-1369: --executor-bin overrides the default binary (e.g. wrap claude with
+  // a custom script, or point at an alternate install). 'custom' executor keeps
+  // its echo fallback unless the user explicitly supplies --executor-bin.
   switch (executor) {
-    case 'claude-code':
+    case 'claude-code': {
+      const cmd = binOverride || 'claude'
       if (skipPermissions) {
-        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', '--effort', 'high', prompt] }
+        return { cmd, args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', '--effort', 'high', prompt] }
       }
-      return { cmd: 'claude', args: [prompt] }
+      return { cmd, args: [prompt] }
+    }
     case 'codex': {
       const codexPermission: PermissionMode = skipPermissions ? 'danger' : 'safe'
       const codexResult = getCodexCommand(prompt, codexPermission, 'interactive')
-      return { cmd: codexResult.cmd, args: codexResult.args }
+      return { cmd: binOverride || codexResult.cmd, args: codexResult.args }
     }
     case 'custom':
-      return { cmd: 'echo', args: ['Custom executor not configured'] }
-    default:
-      if (skipPermissions) {
-        return { cmd: 'claude', args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', '--effort', 'high', prompt] }
+      if (binOverride) {
+        return { cmd: binOverride, args: [prompt] }
       }
-      return { cmd: 'claude', args: [prompt] }
+      return { cmd: 'echo', args: ['Custom executor not configured'] }
+    default: {
+      const cmd = binOverride || 'claude'
+      if (skipPermissions) {
+        return { cmd, args: ['--permission-mode', 'bypassPermissions', '--dangerously-skip-permissions', '--effort', 'high', prompt] }
+      }
+      return { cmd, args: [prompt] }
+    }
   }
 }
 

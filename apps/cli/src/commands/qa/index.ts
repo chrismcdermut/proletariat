@@ -39,6 +39,7 @@ import {
   hasShellPreference,
 } from '../../lib/execution/config.js'
 import { hasDevcontainerConfig } from '../../lib/execution/devcontainer.js'
+import { readExecutorOverridesFromFlags } from '../../lib/execution/executor-overrides.js'
 
 // Catch-all devcontainer image for directories without .devcontainer
 const CATCHALL_DEVCONTAINER_IMAGE = 'ghcr.io/chrismcdermut/proletariat-claude:latest'
@@ -85,6 +86,15 @@ export default class QA extends PromptCommand {
     }),
     prompt: Flags.string({
       description: 'Additional instructions to append to the QA prompt',
+    }),
+    'executor-env': Flags.string({
+      description:
+        'Set env var on Claude (KEY=VALUE). Repeatable. ' +
+        'e.g. --executor-env CLAUDE_CONFIG_DIR=$HOME/.claude-work to switch accounts.',
+      multiple: true,
+    }),
+    'executor-bin': Flags.string({
+      description: 'Override the claude binary path (e.g. wrapper script). Defaults to "claude".',
     }),
   }
 
@@ -243,6 +253,8 @@ Clean up your tmux session when done.`,
       'display-mode'?: string
       'permission-mode'?: string
       prompt?: string
+      'executor-env'?: string[]
+      'executor-bin'?: string
       json: boolean
     },
     jsonMode: boolean
@@ -376,6 +388,7 @@ Clean up your tmux session when done.`,
       }
 
       // Build execution context
+      const qaHQOverrides = readExecutorOverridesFromFlags(flags)
       const context: ExecutionContext = {
         ticketId: ticket.id,
         ticketTitle: ticket.title,
@@ -391,6 +404,9 @@ Clean up your tmux session when done.`,
         actionPrompt,
         actionEndPrompt: actionData.endPrompt,
         modifiesCode: false,
+        // PRLT-1369: switch Claude accounts / use wrapper binary
+        executorEnv: qaHQOverrides?.env,
+        executorBin: qaHQOverrides?.bin,
       }
 
       // Create execution record
@@ -488,6 +504,8 @@ Clean up your tmux session when done.`,
       'display-mode'?: string
       'permission-mode'?: string
       prompt?: string
+      'executor-env'?: string[]
+      'executor-bin'?: string
       json: boolean
     },
     jsonMode: boolean
@@ -553,6 +571,7 @@ Clean up your tmux session when done.`,
     }
 
     // Build execution context
+    const qaYoloOverrides = readExecutorOverridesFromFlags(flags)
     const context: ExecutionContext = {
       ticketId: 'QA',
       ticketTitle: 'Exploratory QA Session',
@@ -565,6 +584,9 @@ Clean up your tmux session when done.`,
       actionPrompt,
       actionEndPrompt: actionData.endPrompt,
       modifiesCode: false,
+      // PRLT-1369: switch Claude accounts / use wrapper binary
+      executorEnv: qaYoloOverrides?.env,
+      executorBin: qaYoloOverrides?.bin,
     }
 
     // Load execution config

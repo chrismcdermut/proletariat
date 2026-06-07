@@ -41,6 +41,7 @@ import { runDevcontainerInTmux } from './devcontainer-tmux.js'
 import { runDevcontainerInTerminal } from './devcontainer-terminal.js'
 import { writeWorkspaceManifest } from '../context.js'
 import type { WorkspaceManifest } from '../types.js'
+import { buildDockerEnvFlags } from '../executor-overrides.js'
 
 // =============================================================================
 // Prompt File Management
@@ -152,8 +153,10 @@ export function buildDevcontainerCommand(
     const disallowPlanFlag = displayMode === 'background' ? '--disallowedTools EnterPlanMode ' : ''
     // Tool registry (TKT-083): pass MCP config to Claude Code via --mcp-config flag
     const mcpConfigFlag = mcpConfigFile ? `--mcp-config ${mcpConfigFile} ` : ''
+    // PRLT-1369: --executor-bin overrides the claude binary inside the container
+    const claudeCmd = context.executorBin || 'claude'
     // PRLT-950: Use -- to separate flags from positional prompt argument.
-    executorCmd = `claude ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${mcpConfigFlag}-- "$(cat ${promptFile})"`
+    executorCmd = `${claudeCmd} ${bypassTrustFlag}${permissionsFlag}${effortFlag}${printFlag}${disallowPlanFlag}${mcpConfigFlag}-- "$(cat ${promptFile})"`
   } else if (executor === 'codex') {
     const codexPermission: PermissionMode = permissionMode
     const codexContext = resolveCodexExecutionContext(displayMode, outputMode)
@@ -163,17 +166,23 @@ export function buildDevcontainerCommand(
     }
     const codexResult = getCodexCommand('PLACEHOLDER', codexPermission, codexContext)
     const argsStr = codexResult.args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
-    executorCmd = `${codexResult.cmd} ${argsStr}`
+    // PRLT-1369: honor --executor-bin for codex if provided
+    const codexCmd = context.executorBin || codexResult.cmd
+    executorCmd = `${codexCmd} ${argsStr}`
   } else {
-    const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, skipPermissions)
+    const { cmd, args } = getExecutorCommand(executor, `PLACEHOLDER`, skipPermissions, context.executorBin)
     const argsStr = args.map(a => a === 'PLACEHOLDER' ? `"$(cat ${promptFile})"` : a).join(' ')
     executorCmd = `${cmd} ${argsStr}`
   }
 
   const fullCmd = `${cdCmd}${executorCmd} && rm -f ${promptFile}`
   const ttyFlags = displayMode === 'background' ? '' : '-it '
+  // PRLT-1369: Inject executor env vars into the docker exec invocation.
+  // Used for switching Claude accounts inside the container, e.g.
+  //   --executor-env CLAUDE_CONFIG_DIR=/home/node/.claude-work
+  const envFlags = buildDockerEnvFlags(context.executorEnv)
 
-  return `docker exec ${ttyFlags}${containerId} bash -c '${fullCmd}'`
+  return `docker exec ${ttyFlags}${envFlags ? envFlags.trimStart() + ' ' : ''}${containerId} bash -c '${fullCmd}'`
 }
 
 // =============================================================================

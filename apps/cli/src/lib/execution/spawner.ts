@@ -185,6 +185,10 @@ export interface SpawnOptions {
   cleanupPolicy?: CleanupPolicy
   /** Extra domains to allow in container firewall (PRLT-1079) */
   networkAllowlist?: string[]
+  /** PRLT-1369: env vars to set on the spawned executor (e.g. CLAUDE_CONFIG_DIR for account switching) */
+  executorEnv?: Record<string, string>
+  /** PRLT-1369: override the executor binary (absolute path or wrapper script) */
+  executorBin?: string
 }
 
 export interface SpawnResult {
@@ -376,6 +380,8 @@ export async function spawnAgentForTicket(
     createPR: options.createPR ?? false,
     toolPolicy: options.toolPolicy,
     networkAllowlist: options.networkAllowlist,
+    executorEnv: options.executorEnv,
+    executorBin: options.executorBin,
   }
 
   // Determine execution environment and display mode

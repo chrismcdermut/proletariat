@@ -11,6 +11,7 @@ import {
   shouldUseControlMode, buildTmuxMouseOption, buildTmuxTitleOptions, buildTmuxAttachCommand, configureITermTmuxWindowMode,
 } from './shared.js'
 import { buildSrtCommand } from './sandbox.js'
+import { buildShellExports } from '../executor-overrides.js'
 
 /**
  * Run command on the host machine with tmux session for persistence.
@@ -45,7 +46,7 @@ export async function runHost(
     }
   }
 
-  const { cmd, args: _args } = getExecutorCommand(executor, prompt, skipPermissions)
+  const { cmd, args: _args } = getExecutorCommand(executor, prompt, skipPermissions, context.executorBin)
 
   // Write command to temp script to avoid shell escaping issues
   // Use HQ .proletariat/scripts if available, otherwise fallback to home dir
@@ -125,11 +126,13 @@ export async function runHost(
     const codexContext = resolveCodexExecutionContext(displayMode, config.outputMode)
     const codexResult = getCodexCommand('PLACEHOLDER', codexPermission, codexContext)
     const argsStr = codexResult.args.map(a => a === 'PLACEHOLDER' ? '"$(cat "$PROMPT_PATH")"' : a).join(' ')
-    executorInvocation = `${codexResult.cmd} ${argsStr}`
+    // PRLT-1369: honor --executor-bin for codex if provided
+    const codexCmd = context.executorBin || codexResult.cmd
+    executorInvocation = `${codexCmd} ${argsStr}`
   } else {
     // Non-Claude, non-Codex executors: build command from getExecutorCommand() args
     // Use PLACEHOLDER for reliable prompt replacement instead of fragile string comparison
-    const { cmd: execCmd, args: execArgs } = getExecutorCommand(executor, 'PLACEHOLDER', skipPermissions)
+    const { cmd: execCmd, args: execArgs } = getExecutorCommand(executor, 'PLACEHOLDER', skipPermissions, context.executorBin)
     const argsWithFile = execArgs.map(a => a === 'PLACEHOLDER' ? '"$(cat "$PROMPT_PATH")"' : `"${a}"`)
     executorInvocation = `${execCmd} ${argsWithFile.join(' ')}`
   }
@@ -139,6 +142,11 @@ export async function runHost(
   // TKT-941: Export SYSTEM_PROMPT_PATH so it's available inside srt sandbox child processes.
   // Without export, `bash -c '...'` inside srt can't access the variable.
   const systemPromptVar = systemPromptPath ? `\nexport SYSTEM_PROMPT_PATH="${systemPromptPath}"` : ''
+
+  // PRLT-1369: Export user-supplied executor env vars (e.g. CLAUDE_CONFIG_DIR for
+  // multi-account Claude). Exported so they're inherited by srt sandbox child processes.
+  const executorEnvExports = buildShellExports(context.executorEnv)
+  const executorEnvBlock = executorEnvExports ? `\n${executorEnvExports}` : ''
 
   // PRLT-1337: Build exit code capture block.
   // After the executor exits, capture its exit code and report it back to agent_work
@@ -209,7 +217,7 @@ SCRIPT_PATH="${scriptPath}"
 #   srt ... -- bash -c 'claude ... "$(cat "$PROMPT_PATH")"'
 # Without export, the inner bash started by srt cannot access PROMPT_PATH,
 # causing $(cat "$PROMPT_PATH") to expand to empty and the agent to start idle.
-export PROMPT_PATH="${promptPath}"${systemPromptVar}
+export PROMPT_PATH="${promptPath}"${systemPromptVar}${executorEnvBlock}
 ${setTitleCmds}
 echo "🚀 Starting: ${sessionName}"
 ${context.executionEnvironment === 'sandbox' ? 'echo "🔒 Running in srt sandbox (filesystem + network isolation)"' : ''}

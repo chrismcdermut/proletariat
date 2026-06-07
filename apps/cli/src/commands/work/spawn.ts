@@ -137,6 +137,15 @@ export default class WorkSpawn extends PMOCommand {
       description: 'Override executor',
       options: ['claude-code', 'codex', 'custom'],
     }),
+    'executor-env': Flags.string({
+      description:
+        'Set env var on spawned executor (KEY=VALUE). Repeatable. ' +
+        'e.g. --executor-env CLAUDE_CONFIG_DIR=$HOME/.claude-work',
+      multiple: true,
+    }),
+    'executor-bin': Flags.string({
+      description: 'Override executor binary path. Defaults to claude/codex.',
+    }),
     force: Flags.boolean({
       char: 'f',
       description: 'Start even if work already in progress',
@@ -1057,6 +1066,11 @@ export default class WorkSpawn extends PMOCommand {
             if (flags['run-on-host']) confirmCmd += ' --run-on-host'
             if (flags['skip-permissions']) confirmCmd += ' --skip-permissions'
             if (flags.executor) confirmCmd += ` --executor ${flags.executor}`
+            // PRLT-1369: persist executor env/bin overrides on the confirm command
+            if (flags['executor-env']) {
+              for (const pair of flags['executor-env']) confirmCmd += ` --executor-env ${pair}`
+            }
+            if (flags['executor-bin']) confirmCmd += ` --executor-bin ${flags['executor-bin']}`
             if (flags.session) confirmCmd += ` --session ${flags.session}`
             if (flags['create-pr']) confirmCmd += ' --create-pr'
             if (flags['no-pr']) confirmCmd += ' --no-pr'
@@ -2226,6 +2240,11 @@ export default class WorkSpawn extends PMOCommand {
             const displayToUse = batchDisplayMode || batchDisplay
             if (displayToUse && displayToUse !== 'devcontainer') startArgs.push('--display', displayToUse)
             if (flags.executor) startArgs.push('--executor', flags.executor)
+            // PRLT-1369: forward executor env/bin overrides to work:start
+            if (flags['executor-env']) {
+              for (const pair of flags['executor-env']) startArgs.push('--executor-env', pair)
+            }
+            if (flags['executor-bin']) startArgs.push('--executor-bin', flags['executor-bin'])
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (flags.focus) startArgs.push('--focus')
@@ -2245,6 +2264,11 @@ export default class WorkSpawn extends PMOCommand {
             const displayToUse = batchDisplayMode || batchDisplay
             if (displayToUse && displayToUse !== 'devcontainer') startArgs.push('--display', displayToUse)
             if (flags.executor) startArgs.push('--executor', flags.executor)
+            // PRLT-1369: forward executor env/bin overrides to work:start
+            if (flags['executor-env']) {
+              for (const pair of flags['executor-env']) startArgs.push('--executor-env', pair)
+            }
+            if (flags['executor-bin']) startArgs.push('--executor-bin', flags['executor-bin'])
             if (batchRunOnHost) startArgs.push('--run-on-host')
             if (flags.force) startArgs.push('--force')
             if (batchOutput) startArgs.push('--output', batchOutput)
