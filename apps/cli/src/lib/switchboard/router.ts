@@ -16,11 +16,6 @@
 
 import { SwitchboardDB } from './db.js'
 import { SwitchboardServer } from './server.js'
-import {
-  type SwitchboardMessage,
-  type SwitchboardAddress,
-  addressKey,
-} from './types.js'
 
 // =============================================================================
 // Types

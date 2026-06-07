@@ -8,7 +8,7 @@
  * See: PRLT-1371
  */
 
-import { SwitchboardClient, type SwitchboardClientOptions } from '../client.js'
+import { SwitchboardClient } from '../client.js'
 import type { SwitchboardAddress } from '../types.js'
 
 // =============================================================================

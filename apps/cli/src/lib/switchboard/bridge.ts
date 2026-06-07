@@ -15,7 +15,6 @@
 import { type EventBus, getEventBus } from '../events/event-bus.js'
 import type { RuntimeEventName } from '../events/events.js'
 import { SwitchboardClient } from './client.js'
-import type { SwitchboardAddress } from './types.js'
 
 // =============================================================================
 // Types

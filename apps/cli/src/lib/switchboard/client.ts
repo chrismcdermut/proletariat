@@ -18,7 +18,7 @@
  */
 
 import * as net from 'node:net'
-import { SwitchboardDB, getSwitchboardDbPath, getSwitchboardSocketPath } from './db.js'
+import { SwitchboardDB, getSwitchboardSocketPath } from './db.js'
 import {
   type SwitchboardAddress,
   type SwitchboardMessage,
@@ -174,10 +174,6 @@ export class SwitchboardClient {
 
       if (messages.length > 0) {
         allMessages.push(...messages)
-        // Advance cursor to the last message's created_at as a proxy for rowid
-        // We use a simple counter approach since we can't get rowid through the converter
-        const lastMsg = messages[messages.length - 1]
-        // Use message count + cursor as proxy — the getPendingEvents already filters by rowid > cursor
         this.db.advanceCursor(
           `${consumerKey}:${sub.topic}`,
           cursor.lastRowId + messages.length

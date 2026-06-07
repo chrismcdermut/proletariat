@@ -30,7 +30,6 @@ import {
   rowToMessage,
   rowToSubscription,
   rowToCursor,
-  addressKey,
   DEFAULT_TTL,
 } from './types.js'
 
