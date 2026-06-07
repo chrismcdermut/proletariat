@@ -367,6 +367,12 @@ describe('Execution Utils', () => {
       expect(isClaudeExecutor('claude-code')).to.be.true
     })
 
+    it('should return true for legacy claude value (PRLT-1370)', () => {
+      // Migration 0023 seeds workspace_settings with 'claude', so the credential
+      // mount must still be applied when the DB returns this legacy value.
+      expect(isClaudeExecutor('claude' as ExecutorType)).to.be.true
+    })
+
     it('should return false for codex', () => {
       expect(isClaudeExecutor('codex')).to.be.false
     })
