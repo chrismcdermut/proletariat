@@ -27,6 +27,8 @@ import {
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
   normalizeEnvironment,
+  RunnerResult,
+  Runner,
 } from '../types.js'
 import type { TerminalApp } from '../types.js'
 import { getSetTitleCommands } from '../../terminal.js'
@@ -34,25 +36,6 @@ import { readDevcontainerJson, generateOrchestratorDockerfile, generateEntrypoin
 import type { OrchestratorDockerOptions } from '../devcontainer.js'
 import { getCodexCommand, resolveCodexExecutionContext, validateCodexMode, CodexModeError } from '../codex-adapter.js'
 import { resolveToolsForSpawn } from '../../tool-registry/index.js'
-
-// =============================================================================
-// Runner Interface
-// =============================================================================
-
-export interface RunnerResult {
-  success: boolean
-  pid?: string
-  containerId?: string
-  sessionId?: string
-  logPath?: string
-  error?: string
-}
-
-export type Runner = (
-  context: ExecutionContext,
-  executor: ExecutorType,
-  config: ExecutionConfig
-) => Promise<RunnerResult>
 
 // =============================================================================
 // Terminal Title Helpers
@@ -285,45 +268,8 @@ export function ensureWorkflowScope(): boolean {
 }
 
 // =============================================================================
-// Docker Status Check
+// Docker Status Check (re-exported from docker-management.js)
 // =============================================================================
-
-export type DockerDaemonStatus = {
-  available: boolean
-  reason: 'ready' | 'not-installed' | 'daemon-not-ready'
-  message: string
-}
-
-export function checkDockerDaemon(): DockerDaemonStatus {
-  try {
-    execSync('which docker', { stdio: 'pipe', timeout: 3000 })
-  } catch {
-    return { available: false, reason: 'not-installed', message: 'Docker is not installed.' }
-  }
-  const timeout = 5000
-  try {
-    execSync('docker ps -q --no-trunc', { stdio: 'pipe', timeout })
-    return { available: true, reason: 'ready', message: 'Docker daemon is ready.' }
-  } catch (error: unknown) {
-    const stderr = (error as { stderr?: Buffer })?.stderr?.toString() || ''
-    const isTimeout = (error as { killed?: boolean })?.killed === true
-    let message: string
-    if (isTimeout) {
-      message = 'Docker daemon is not responding (timed out after 5s). Docker Desktop may be initializing or stuck — check for license/login prompts.'
-    } else if (stderr.includes('500') || stderr.includes('Internal Server Error')) {
-      message = 'Docker daemon is returning errors (500). Docker Desktop needs attention — check for license/login prompts.'
-    } else if (stderr.includes('connect') || stderr.includes('Cannot connect') || stderr.includes('Is the docker daemon running')) {
-      message = 'Docker daemon is not running. Start Docker Desktop and try again.'
-    } else {
-      message = `Docker daemon is not ready: ${stderr.trim() || 'unknown error'}. Check Docker Desktop status.`
-    }
-    return { available: false, reason: 'daemon-not-ready', message }
-  }
-}
-
-export function isDockerRunning(): boolean {
-  return checkDockerDaemon().available
-}
 
 /** @deprecated No longer required - we use raw Docker commands now */
 export function isDevcontainerCliInstalled(): boolean {
@@ -377,9 +323,12 @@ export {
   verifyCredentialMount,
   seedClaudeOnboarding,
   checkDockerMemoryCapacity,
+  checkDockerDaemon,
+  isDockerRunning,
+  runDocker,
 } from './docker-management.js'
 
-export type { SpawnStageError, EnsureDockerContainerResult } from './docker-management.js'
+export type { SpawnStageError, EnsureDockerContainerResult, DockerDaemonStatus } from './docker-management.js'
 
 export {
   buildIntegrationCommandsSection,
@@ -405,6 +354,8 @@ export {
   ExecutionConfig,
   DEFAULT_EXECUTION_CONFIG,
   normalizeEnvironment,
+  RunnerResult,
+  Runner,
   getSetTitleCommands,
   readDevcontainerJson,
   generateOrchestratorDockerfile,

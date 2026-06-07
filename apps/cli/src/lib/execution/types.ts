@@ -206,6 +206,25 @@ export interface WorkspaceManifest {
 }
 
 // =============================================================================
+// Runner Result
+// =============================================================================
+
+export interface RunnerResult {
+  success: boolean
+  pid?: string
+  containerId?: string
+  sessionId?: string
+  logPath?: string
+  error?: string
+}
+
+export type Runner = (
+  context: ExecutionContext,
+  executor: ExecutorType,
+  config: ExecutionConfig
+) => Promise<RunnerResult>
+
+// =============================================================================
 // Execution Context
 // =============================================================================
 

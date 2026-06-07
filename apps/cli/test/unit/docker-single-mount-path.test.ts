@@ -1,47 +1,54 @@
 /**
- * PRLT-1364: Single source of truth for Docker container mounts
+ * PRLT-1364 / PRLT-1365: Single source of truth for Docker container mounts
+ * and consolidated Docker runner code path.
  *
  * Ensures:
- * 1. docker.ts (simple runner) uses buildContainerMounts() — not inline mounts
+ * 1. runDocker (simple detached runner) lives in docker-management.ts and uses buildContainerMounts()
  * 2. docker-management.ts createDockerContainer() uses buildContainerMounts()
  * 3. devcontainer.ts calls ensureDockerContainerDetailed() (which calls buildContainerMounts())
  * 4. buildContainerMounts() includes ~/.claude bind-mount for claude-code executor
  * 5. buildContainerMounts() does NOT include ~/.claude for non-claude executors
- * 6. docker.ts is marked as deprecated
+ * 6. The legacy docker.ts file no longer exists (PRLT-1365)
  * 7. No Docker code path builds its own mount list inline
  *
- * Regression guard: if docker.ts is reverted to inline mounts, or if a new
- * Docker code path is added that skips buildContainerMounts(), these tests fail.
+ * Regression guard: if a separate Docker runner file is reintroduced, or if a
+ * new Docker code path is added that skips buildContainerMounts(), these tests fail.
  */
 import { expect } from 'chai'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildContainerMounts } from '../../src/lib/execution/runners/docker-management.js'
+import { buildContainerMounts, runDocker } from '../../src/lib/execution/runners/docker-management.js'
 import type { ExecutionContext } from '../../src/lib/execution/types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const RUNNERS_DIR = path.resolve(__dirname, '../../src/lib/execution/runners')
 
-describe('Single mount code path (PRLT-1364)', () => {
+describe('Single mount code path (PRLT-1364) + consolidated runner (PRLT-1365)', () => {
   // =========================================================================
-  // 1. docker.ts uses buildContainerMounts() — not inline mounts
+  // 1. runDocker lives in docker-management.ts and uses buildContainerMounts()
   // =========================================================================
-  describe('docker.ts — delegates to buildContainerMounts()', () => {
-    const dockerFile = path.join(RUNNERS_DIR, 'docker.ts')
+  describe('runDocker — consolidated into docker-management.ts (PRLT-1365)', () => {
+    const managementFile = path.join(RUNNERS_DIR, 'docker-management.ts')
     let content: string
 
     before(() => {
-      content = fs.readFileSync(dockerFile, 'utf-8')
+      content = fs.readFileSync(managementFile, 'utf-8')
     })
 
-    it('should import buildContainerMounts from shared', () => {
-      expect(content).to.include('buildContainerMounts')
+    it('runDocker is exported as a function', () => {
+      expect(typeof runDocker).to.equal('function')
     })
 
-    it('should call buildContainerMounts(context, executor)', () => {
-      // Look for the actual call — not just the import
+    it('runDocker is defined inside docker-management.ts (not a separate file)', () => {
+      const fnMatch = content.match(
+        /export async function runDocker\([\s\S]*?^}/m
+      )
+      expect(fnMatch, 'runDocker function not found in docker-management.ts').to.exist
+    })
+
+    it('runDocker calls buildContainerMounts(context, executor)', () => {
       const fnMatch = content.match(
         /export async function runDocker\([\s\S]*?^}/m
       )
@@ -50,19 +57,19 @@ describe('Single mount code path (PRLT-1364)', () => {
       expect(fnBody).to.include('buildContainerMounts(context, executor)')
     })
 
-    it('should NOT have inline -v worktreePath:/workspace mount', () => {
+    it('runDocker does NOT have inline -v worktreePath:/workspace mount', () => {
       const fnMatch = content.match(
         /export async function runDocker\([\s\S]*?^}/m
       )
       expect(fnMatch, 'runDocker function not found').to.exist
       const fnBody = fnMatch![0]
-
-      // The old inline mount that was replaced:
+      // The old inline mount that was replaced by PRLT-1364:
       expect(fnBody).to.not.include('-v "${context.worktreePath}:/workspace"')
     })
 
-    it('should be marked as @deprecated', () => {
-      expect(content).to.include('@deprecated')
+    it('the legacy docker.ts file has been removed', () => {
+      const legacyFile = path.join(RUNNERS_DIR, 'docker.ts')
+      expect(fs.existsSync(legacyFile), 'legacy docker.ts should be deleted').to.equal(false)
     })
   })
 
@@ -174,13 +181,18 @@ describe('Single mount code path (PRLT-1364)', () => {
   // 5. No other Docker runner builds inline mounts (regression guard)
   // =========================================================================
   describe('Regression guard — no inline mount building in runners', () => {
-    it('docker.ts should not contain -v "${context. patterns outside of comments', () => {
-      const dockerContent = fs.readFileSync(
-        path.join(RUNNERS_DIR, 'docker.ts'),
+    it('runDocker in docker-management.ts should not contain -v "${context. patterns', () => {
+      const managementContent = fs.readFileSync(
+        path.join(RUNNERS_DIR, 'docker-management.ts'),
         'utf-8'
       )
+      const fnMatch = managementContent.match(
+        /export async function runDocker\([\s\S]*?^}/m
+      )
+      expect(fnMatch, 'runDocker function not found').to.exist
+      const fnBody = fnMatch![0]
       // Strip comments to check only code
-      const codeLines = dockerContent.split('\n')
+      const codeLines = fnBody.split('\n')
         .filter(line => !line.trim().startsWith('//') && !line.trim().startsWith('*'))
         .join('\n')
 

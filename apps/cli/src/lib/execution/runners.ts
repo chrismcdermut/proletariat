@@ -8,7 +8,7 @@
  * @see ./runners/shared.ts — Shared utilities
  * @see ./runners/host.ts — Host runner
  * @see ./runners/devcontainer.ts — Devcontainer runner
- * @see ./runners/docker.ts — Docker runner
+ * @see ./runners/docker-management.ts — Container lifecycle + simple detached runDocker (PRLT-1365)
  * @see ./runners/orchestrator.ts — Orchestrator-in-Docker runner
  * @see ./runners/sandbox.ts — Sandbox runner
  * @see ./runners/cloud.ts — Cloud/VM runner

@@ -8,7 +8,7 @@
  * - shared.ts — Shared utilities (session names, credentials, docker, prompts, etc.)
  * - host.ts — Host runner with tmux session persistence
  * - devcontainer.ts — Docker container runner with raw Docker commands
- * - docker.ts — Simple detached Docker container runner
+ * - docker-management.ts — Container lifecycle + simple detached runDocker (PRLT-1365)
  * - orchestrator.ts — Orchestrator-in-Docker runner (sibling container pattern)
  * - sandbox.ts — srt sandbox runner (wraps host runner)
  * - cloud.ts — Remote execution via SSH
@@ -28,7 +28,7 @@ import {
 import { RunnerResult, ensureTmuxServerHasKeychainAccess } from './shared.js'
 import { runHost } from './host.js'
 import { runDevcontainer } from './devcontainer.js'
-import { runDocker } from './docker.js'
+import { runDocker } from './docker-management.js'
 import { runSandbox } from './sandbox.js'
 import { runCloud } from './cloud.js'
 
@@ -78,10 +78,9 @@ export async function runExecution(
 // =============================================================================
 
 // Shared utilities
+// Note: RunnerResult and Runner come from types.js (re-exported via execution/index.ts)
+// to avoid duplicate-export lint errors.
 export {
-  // Runner types
-  RunnerResult,
-  Runner,
   // Session/title helpers
   buildSessionName,
   buildWindowTitle,
@@ -131,7 +130,7 @@ export {
 // Individual runners
 export { runHost } from './host.js'
 export { runDevcontainer, buildDevcontainerCommand } from './devcontainer.js'
-export { runDocker } from './docker.js'
+export { runDocker } from './docker-management.js'
 export { runOrchestratorInDocker } from './orchestrator.js'
 export { runSandbox, isSrtInstalled, buildSrtCommand } from './sandbox.js'
 export { runCloud, runVm } from './cloud.js'
