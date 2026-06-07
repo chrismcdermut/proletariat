@@ -89,3 +89,20 @@ export {
   getSwitchboardEnvVars,
   type SwitchboardMcpConfig,
 } from './agent/startup.js'
+
+// Gateway (external messaging platforms)
+export { Gateway } from './gateway/gateway.js'
+export type {
+  GatewayPlatform,
+  GatewayAdapter,
+  GatewayConfig,
+  GatewayCredentials,
+  InboundMessage,
+  OutboundMessage,
+  MessageTarget,
+  AuthResult,
+  AdapterConfig,
+} from './gateway/types.js'
+export { SlackAdapter } from './gateway/adapters/slack.js'
+export { DiscordAdapter } from './gateway/adapters/discord.js'
+export { WhatsAppAdapter } from './gateway/adapters/whatsapp.js'
