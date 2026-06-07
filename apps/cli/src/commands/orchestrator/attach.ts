@@ -23,6 +23,7 @@ import {
   tildifyPath,
   type UnifiedSession,
 } from '../../lib/session/renderer.js'
+import { formatAvailableSessions } from '../../lib/orchestrator/format.js'
 
 /**
  * Detect the terminal emulator from environment variables.
@@ -137,6 +138,25 @@ export default class OrchestratorAttach extends PromptCommand {
           s.agentName.toLowerCase().includes(needle) ||
           s.sessionId.toLowerCase().includes(needle),
       )
+
+      // Named session not found — surface available sessions instead of a generic "not running"
+      if (filteredOrchestrators.length === 0 && allOrchestrators.length > 0) {
+        const available = formatAvailableSessions(allOrchestrators)
+        const message = `No orchestrator session matches --name "${flags.name}". Available: ${available}`
+        if (jsonMode) {
+          outputErrorAsJson(
+            'NAME_NOT_FOUND',
+            message,
+            createMetadata('orchestrator attach', flags),
+          )
+          return
+        }
+        this.log('')
+        this.log(styles.warning(`No orchestrator session matches --name "${flags.name}".`))
+        this.log(styles.muted(`Available: ${available}`))
+        this.log('')
+        return
+      }
     }
 
     // Group sessions by HQ for scope filtering

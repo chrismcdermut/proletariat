@@ -22,6 +22,7 @@ import {
   tildifyPath,
   type UnifiedSession,
 } from '../../lib/session/renderer.js'
+import { formatAvailableSessions } from '../../lib/orchestrator/format.js'
 
 export default class OrchestratorStop extends PromptCommand {
   static description = 'Stop the running orchestrator'
@@ -67,13 +68,14 @@ export default class OrchestratorStop extends PromptCommand {
     }
 
     // Always query machine-wide for orchestrators.
-    let orchestrators = collectAllSessions({
+    const allOrchestrators = collectAllSessions({
       hqPathFilter,
       roleFilter: 'orchestrator',
       includeAll: false,
     })
 
     // Optional --name filter
+    let orchestrators = allOrchestrators
     if (flags.name) {
       const needle = flags.name.toLowerCase()
       orchestrators = orchestrators.filter(
@@ -82,6 +84,24 @@ export default class OrchestratorStop extends PromptCommand {
           s.agentName.toLowerCase().includes(needle) ||
           s.sessionId.toLowerCase().includes(needle),
       )
+
+      // Named session not found — surface available sessions
+      if (orchestrators.length === 0 && allOrchestrators.length > 0) {
+        const available = formatAvailableSessions(allOrchestrators)
+        if (jsonMode) {
+          outputErrorAsJson(
+            'NAME_NOT_FOUND',
+            `No orchestrator session matches --name "${flags.name}". Available: ${available}`,
+            createMetadata('orchestrator stop', flags),
+          )
+          return
+        }
+        this.log('')
+        this.log(styles.warning(`No orchestrator session matches --name "${flags.name}".`))
+        this.log(styles.muted(`Available: ${available}`))
+        this.log('')
+        return
+      }
     }
 
     if (orchestrators.length === 0) {
