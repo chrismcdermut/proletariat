@@ -78,7 +78,6 @@ interface DiscordMessagePayload {
 // Discord interaction types
 const INTERACTION_PING = 1
 const INTERACTION_APPLICATION_COMMAND = 2
-const INTERACTION_MESSAGE_COMPONENT = 3
 
 // =============================================================================
 // DiscordAdapter

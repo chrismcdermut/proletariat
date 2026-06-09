@@ -10,7 +10,6 @@
  */
 
 import type {
-  GatewayPlatform,
   MessageBlock,
   OutboundMessage,
   StatusCardBlock,
